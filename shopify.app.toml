@@ -1,0 +1,31 @@
+# Shopify App Configuration
+name = "pottery-gallery-app"
+client_id = "21b10904445cab087b9ad08017d412f2"
+application_url = "https://localhost"
+embedded = true
+
+[access_scopes]
+scopes = "read_customers,write_customers"
+
+[auth]
+redirect_urls = [
+  "https://localhost/auth/callback",
+  "https://localhost/auth/shopify/callback",
+  "https://localhost/api/auth/callback"
+]
+
+[webhooks]
+api_version = "2024-10"
+
+[pos]
+embedded = false
+
+[[extensions]]
+type = "customer_account_ui_extension"
+name = "pottery-gallery"
+handle = "pottery-gallery"
+
+[extensions.metafields]
+[[extensions.metafields.definitions]]
+namespace = "custom"
+key = "design_projects"

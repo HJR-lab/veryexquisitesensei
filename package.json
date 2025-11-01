@@ -1,0 +1,29 @@
+{
+  "name": "pottery-gallery-app",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "shopify app dev",
+    "build": "shopify app build",
+    "deploy": "shopify app deploy",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@shopify/app": "^3.58.2",
+    "@shopify/cli": "^3.85.5",
+    "@types/node": "^24.7.2",
+    "@types/react": "^19.2.2",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@shopify/ui-extensions": "^2025.7.1",
+    "@shopify/ui-extensions-react": "^2025.7.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-reconciler": "^0.29.2"
+  }
+}

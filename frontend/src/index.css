@@ -1,0 +1,42 @@
+@font-face {
+  font-family: 'Atak';
+  src: url('https://fonts.cdnfonts.com/s/14625/Atak-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Atak';
+  src: url('https://fonts.cdnfonts.com/s/14625/Atak-Bold.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-background text-text font-body;
+  }
+
+  * {
+    border-radius: 0;
+  }
+
+  button, input, select, textarea {
+    border-radius: 0;
+  }
+}
+
+/* Material Symbols Icons */
+.material-symbols-outlined {
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 24;
+}

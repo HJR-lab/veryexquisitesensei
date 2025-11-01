@@ -1,0 +1,18 @@
+name = "pottery-gallery"
+uid = "dc47fb1f-0da2-0293-d0b8-193ac97681e2a209970a"
+type = "ui_extension"
+description = "Student pottery portfolio gallery"
+api_version = "2025-01"
+
+[extension]
+type = "customer_account_ui_extension"
+
+[[targeting]]
+target = "customer-account.page.render"
+module = "./src/index.tsx"
+
+[capabilities]
+api_access = true
+
+[capabilities.customer_metafields]
+read = ["custom.design_projects"]

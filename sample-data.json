@@ -1,0 +1,106 @@
+[
+  {
+    "id": "piece_001",
+    "title": "Celadon Bowl",
+    "images": [
+      "https://cdn.shopify.com/s/files/1/0000/0000/0000/files/bowl1.jpg",
+      "https://cdn.shopify.com/s/files/1/0000/0000/0000/files/bowl1-detail.jpg"
+    ],
+    "date_completed": "2024-09-15",
+    "clay_type": "Stoneware",
+    "glazes": ["Celadon", "Iron Oxide Wash"],
+    "original_weight": "2.5 kg",
+    "final_weight": "2.1 kg",
+    "dimensions": {
+      "height": "12 cm",
+      "length": "25 cm",
+      "width": "25 cm"
+    },
+    "notes": "First attempt at wheel throwing. Bowl has slight wobble but glaze came out beautifully. Learned importance of proper centering.",
+    "is_public": true,
+    "tags": ["wheel-thrown", "functional", "beginner"]
+  },
+  {
+    "id": "piece_002",
+    "title": "Textured Vase",
+    "images": [
+      "https://cdn.shopify.com/s/files/1/0000/0000/0000/files/vase1.jpg"
+    ],
+    "date_completed": "2024-09-22",
+    "clay_type": "Porcelain",
+    "glazes": ["Clear Gloss", "Cobalt Blue"],
+    "original_weight": "3.2 kg",
+    "final_weight": "2.8 kg",
+    "dimensions": {
+      "height": "35 cm",
+      "length": "15 cm",
+      "width": "15 cm"
+    },
+    "notes": "Experimented with rope texture technique. Cobalt blue highlights really pop against the white porcelain.",
+    "is_public": true,
+    "tags": ["wheel-thrown", "decorative", "intermediate"]
+  },
+  {
+    "id": "piece_003",
+    "title": "Sake Set",
+    "images": [
+      "https://cdn.shopify.com/s/files/1/0000/0000/0000/files/sake1.jpg",
+      "https://cdn.shopify.com/s/files/1/0000/0000/0000/files/sake2.jpg",
+      "https://cdn.shopify.com/s/files/1/0000/0000/0000/files/sake3.jpg"
+    ],
+    "date_completed": "2024-10-01",
+    "clay_type": "Stoneware",
+    "glazes": ["Shino", "Black Tenmoku"],
+    "original_weight": "1.8 kg",
+    "final_weight": "1.5 kg",
+    "dimensions": {
+      "height": "18 cm",
+      "length": "20 cm",
+      "width": "12 cm"
+    },
+    "notes": "Complete set with bottle and four cups. Matched sizes perfectly. Shino glaze pooled nicely in the carved areas.",
+    "is_public": true,
+    "tags": ["wheel-thrown", "functional", "set", "advanced"]
+  },
+  {
+    "id": "piece_004",
+    "title": "Abstract Sculpture",
+    "images": [
+      "https://cdn.shopify.com/s/files/1/0000/0000/0000/files/sculpture1.jpg",
+      "https://cdn.shopify.com/s/files/1/0000/0000/0000/files/sculpture2.jpg"
+    ],
+    "date_completed": "2024-10-08",
+    "clay_type": "Earthenware",
+    "glazes": ["Turquoise", "Copper Red", "White Satin"],
+    "original_weight": "4.5 kg",
+    "final_weight": "3.8 kg",
+    "dimensions": {
+      "height": "45 cm",
+      "length": "30 cm",
+      "width": "20 cm"
+    },
+    "notes": "First hand-built sculpture. Very challenging but rewarding. Learned a lot about structural support and drying times.",
+    "is_public": true,
+    "tags": ["hand-built", "decorative", "sculpture", "intermediate"]
+  },
+  {
+    "id": "piece_005",
+    "title": "Coffee Mug Set",
+    "images": [
+      "https://cdn.shopify.com/s/files/1/0000/0000/0000/files/mugs1.jpg"
+    ],
+    "date_completed": "2024-10-12",
+    "clay_type": "Stoneware",
+    "glazes": ["Oatmeal", "Speckled Blue"],
+    "original_weight": "3.0 kg",
+    "final_weight": "2.6 kg",
+    "dimensions": {
+      "height": "10 cm",
+      "length": "12 cm",
+      "width": "9 cm"
+    },
+    "notes": "Set of six matching mugs. Practiced consistent sizing and handle attachment. These are dishwasher and microwave safe!",
+    "is_public": true,
+    "tags": ["wheel-thrown", "functional", "set", "beginner"]
+  }
+]

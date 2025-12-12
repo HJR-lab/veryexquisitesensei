@@ -1389,14 +1389,23 @@ app.post('/api/classes/waitlist/process-expired', async (req, res) => {
 // Get student statistics
 app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
   try {
-    // Get all students (customer_type = 'student', 'member', or 'student & member')
-    const { data: allStudents, error: studentsError } = await supabaseDb.supabase
-      .from('customers')
-      .select('id, email, first_name, last_name, customer_type, classes_allocated, classes_used, classes_forfeited, course_purchase_date, course_expiry_date, course_purchase_count, created_at, updated_at')
-      .in('customer_type', ['student', 'member', 'student & member'])
-      .order('created_at', { ascending: false });
+    // Get all students with pagination (Supabase default limit is 1000)
+    let allStudents = [];
+    let page = 0;
+    let hasMore = true;
+    while (hasMore) {
+      const { data, error } = await supabaseDb.supabase
+        .from('customers')
+        .select('id, email, first_name, last_name, customer_type, classes_allocated, classes_used, classes_forfeited, course_purchase_date, course_expiry_date, course_purchase_count, created_at, updated_at')
+        .in('customer_type', ['student', 'member', 'student & member'])
+        .order('created_at', { ascending: false })
+        .range(page * 1000, (page + 1) * 1000 - 1);
 
-    if (studentsError) throw studentsError;
+      if (error) throw error;
+      allStudents = allStudents.concat(data || []);
+      hasMore = (data?.length || 0) === 1000;
+      page++;
+    }
 
     // Get all bookings for students with status 'booked' or 'completed'
     const { data: allBookings, error: bookingsError } = await supabaseDb.supabase
@@ -1425,7 +1434,8 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
 
     if (bookingsClassError) throw bookingsClassError;
 
-    // Helper function to generate course identifier from class details
+    // Helper function to get course identifier from class_type field
+    // The class_type field already contains the proper identifier (e.g., WT0410AM_DL6.1)
     // Format: WT1210AM_DL6.6 means:
     // - WT = Wheelthrowing, HB = Handbuilding
     // - 1210 = Started Oct 12 (month/day)
@@ -1435,157 +1445,26 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
     const generateCourseIdentifier = (classInstance, allClassesForStudent) => {
       if (!classInstance) return null;
 
-      const { class_type, class_date, start_time, instructor } = classInstance;
+      const { class_type } = classInstance;
 
-      // Get class type abbreviation
-      let typeAbbrev = '';
-      if (class_type?.toLowerCase().includes('wheelthrowing')) {
-        typeAbbrev = 'WT';
-      } else if (class_type?.toLowerCase().includes('handbuilding')) {
-        typeAbbrev = 'HB';
-      } else {
-        typeAbbrev = 'CLS';
-      }
-
-      // Parse time to get the time code (AM = 9:30am, PM = 1:00pm, NT = 7:30pm)
-      let timeCode = '';
-      if (start_time?.includes('9:30') && start_time?.includes('AM')) {
-        timeCode = 'AM';
-      } else if (start_time?.includes('1:00') && start_time?.includes('PM')) {
-        timeCode = 'PM';
-      } else if (start_time?.includes('7:00') && start_time?.includes('PM')) {
-        timeCode = 'NT'; // Night time
-      } else if (start_time?.includes('7:30') && start_time?.includes('PM')) {
-        timeCode = 'NT';
-      } else {
-        // Default fallback
-        timeCode = start_time?.includes('AM') ? 'AM' : 'PM';
-      }
-
-      // Get instructor initials (first letter of first and last name)
-      let instructorCode = '';
-      if (instructor) {
-        const names = instructor.split(' ');
-        if (names.length >= 2) {
-          instructorCode = names[0][0].toUpperCase() + names[1][0].toUpperCase();
-        } else if (names.length === 1) {
-          // For single names like "Jean", "Daesiree", "Dillion"
-          if (instructor.toLowerCase() === 'jean') instructorCode = 'JN';
-          else if (instructor.toLowerCase() === 'daesiree') instructorCode = 'DS';
-          else if (instructor.toLowerCase() === 'dillion') instructorCode = 'DL';
-          else instructorCode = instructor.substring(0, 2).toUpperCase();
-        }
-      }
-
-      // Parse the class date correctly (format: YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss)
-      const dateStr = class_date.split('T')[0]; // Get just the date part
-      const [year, month, day] = dateStr.split('-').map(n => parseInt(n));
-      // Format: DDMM (day-month, e.g., 0410 for Oct 4)
-      const startDate = `${day.toString().padStart(2, '0')}${month.toString().padStart(2, '0')}`;
-
-      // Format: WT1210AM_DL (without week number for now, as we need more context)
-      // We'll add week tracking in a more comprehensive solution
-      return `${typeAbbrev}${startDate}${timeCode}_${instructorCode}`;
+      // Simply return the class_type as it already contains the proper course identifier
+      return class_type;
     };
 
-    // First, group all class instances by their course "signature" (type + time + instructor)
-    // This helps us identify which classes belong to the same 6-week course
+    // Build a simple map of class_instance_id to course identifier
+    // Since class_type already contains the full course identifier (e.g., WT0410AM_DL6.1),
+    // we just need to map class IDs to their class_type values
     const { data: allClassInstances, error: classesError } = await supabaseDb.supabase
       .from('class_instances')
-      .select('id, class_type, class_date, start_time, instructor')
+      .select('id, class_type')
       .order('class_date', { ascending: true });
 
     if (classesError) throw classesError;
 
-    // Group classes by course signature (including day of week)
-    const courseGroups = {};
-    allClassInstances.forEach(cls => {
-      const clsDate = new Date(cls.class_date);
-      const dayOfWeek = clsDate.getDay(); // 0=Sun, 1=Mon, etc.
-      const signature = `${cls.class_type}_${cls.start_time}_${cls.instructor}_${dayOfWeek}`;
-      if (!courseGroups[signature]) {
-        courseGroups[signature] = [];
-      }
-      courseGroups[signature].push(cls);
-    });
-
-    // For each course group, assign course identifiers with week numbers
+    // Create a simple mapping from class_instance_id to course identifier (class_type)
     const classIdToCourseIdentifier = {};
-
-    Object.values(courseGroups).forEach(classes => {
-      if (classes.length === 0) return;
-
-      // Sort by date
-      classes.sort((a, b) => new Date(a.class_date) - new Date(b.class_date));
-
-      // For wheelthrowing courses (6-week series), group into 6-class chunks
-      const firstClass = classes[0];
-      const isWheelthrowing = firstClass.class_type?.toLowerCase().includes('wheelthrowing');
-
-      if (isWheelthrowing) {
-        // Group into 6-week courses based on consecutive weeks
-        // Classes should be on the same day of week and consecutive (or nearly consecutive)
-        let currentCourse = [];
-        let lastDate = null;
-
-        for (let i = 0; i < classes.length; i++) {
-          const cls = classes[i];
-          const clsDate = new Date(cls.class_date);
-
-          // If this is the first class or it's within 14 days of the last class (allowing for 1 week gap)
-          if (!lastDate || (clsDate - lastDate) / (1000 * 60 * 60 * 24) <= 14) {
-            currentCourse.push(cls);
-            lastDate = clsDate;
-
-            // If we've reached 6 classes, finalize this course
-            if (currentCourse.length === 6) {
-              const courseStartClass = currentCourse[0];
-              currentCourse.forEach((c, weekIndex) => {
-                const baseIdentifier = generateCourseIdentifier(courseStartClass);
-                const weekNumber = weekIndex + 1;
-                const fullIdentifier = `${baseIdentifier}6.${weekNumber}`;
-                classIdToCourseIdentifier[c.id] = fullIdentifier;
-              });
-              currentCourse = [];
-              lastDate = null;
-            }
-          } else {
-            // Gap is too large, start a new course
-            // First, finalize any partial course
-            if (currentCourse.length > 0) {
-              const courseStartClass = currentCourse[0];
-              const totalWeeks = currentCourse.length;
-              currentCourse.forEach((c, weekIndex) => {
-                const baseIdentifier = generateCourseIdentifier(courseStartClass);
-                const weekNumber = weekIndex + 1;
-                const fullIdentifier = `${baseIdentifier}${totalWeeks}.${weekNumber}`;
-                classIdToCourseIdentifier[c.id] = fullIdentifier;
-              });
-            }
-            // Start new course with current class
-            currentCourse = [cls];
-            lastDate = clsDate;
-          }
-        }
-
-        // Handle any remaining classes
-        if (currentCourse.length > 0) {
-          const courseStartClass = currentCourse[0];
-          const totalWeeks = currentCourse.length;
-          currentCourse.forEach((c, weekIndex) => {
-            const baseIdentifier = generateCourseIdentifier(courseStartClass);
-            const weekNumber = weekIndex + 1;
-            const fullIdentifier = `${baseIdentifier}${totalWeeks}.${weekNumber}`;
-            classIdToCourseIdentifier[c.id] = fullIdentifier;
-          });
-        }
-      } else {
-        // For handbuilding (ongoing weekly classes), just use base identifier
-        classes.forEach(cls => {
-          const baseIdentifier = generateCourseIdentifier(cls);
-          classIdToCourseIdentifier[cls.id] = baseIdentifier;
-        });
-      }
+    allClassInstances.forEach(cls => {
+      classIdToCourseIdentifier[cls.id] = cls.class_type;
     });
 
     // Create map of student to their course identifiers (from bookings)
@@ -1611,9 +1490,9 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
         // Check if student already has this course (by base identifier)
         const existing = studentCourseMap[studentId].find(c => c.courseIdentifier.split('.')[0] === baseCourseId);
         if (!existing) {
-          // Store the course identifier with week 1 (the start of the course)
+          // Store just the course identifier (without week number)
           studentCourseMap[studentId].push({
-            courseIdentifier: `${baseCourseId}.1`, // Always show as week 1
+            courseIdentifier: baseCourseId, // Just the course identifier (e.g., WT0410AM_DL6)
             classDate: classDate
           });
         }
@@ -1664,14 +1543,21 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
     // All students are already filtered during sync (only course purchasers were synced)
     const totalStudents = allStudents.length;
 
-    // Active students: students whose course hasn't expired yet (from Shopify order dates)
-    // This is the primary source since most students don't have booking records yet
+    // Active students: students who have bookings for classes on or after today
     const today = new Date().toISOString().split('T')[0];
 
-    const activeStudents = allStudents.filter(s => {
-      // Student is active if their course expiry date hasn't passed
-      return s.course_expiry_date && s.course_expiry_date >= today;
-    }).length;
+    // Get unique student IDs who have bookings for future classes
+    const activeStudentIds = new Set();
+    allBookingsWithClasses.forEach(booking => {
+      const classDate = booking.class_instances?.class_date;
+      if (classDate && classDate >= today && booking.student_id) {
+        activeStudentIds.add(booking.student_id);
+      }
+    });
+
+    const activeStudents = activeStudentIds.size;
+
+    console.log(`👥 Student Management Stats: ${allStudents.length} total students, ${activeStudents} active students (with bookings >= ${today})`);
 
     // Inactive students: students whose course has expired or no dates available
     const inactiveStudents = totalStudents - activeStudents;
@@ -1806,6 +1692,174 @@ app.get('/api/admin/students/:email', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching student:', error);
     res.status(500).json({ error: 'Failed to fetch student' });
+  }
+});
+
+// Get dashboard stats
+app.get('/api/admin/dashboard/stats', authenticateToken, async (req, res) => {
+  try {
+    const now = new Date();
+    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const firstDayOfWeek = new Date(now);
+    firstDayOfWeek.setDate(now.getDate() - now.getDay());
+
+    // Fetch all customers with pagination (Supabase default limit is 1000)
+    let allStudents = [];
+    let page = 0;
+    let hasMore = true;
+    while (hasMore) {
+      const { data, error } = await supabaseDb.supabase
+        .from('customers')
+        .select('id, created_at, course_purchase_count, course_expiry_date')
+        .in('customer_type', ['student', 'member', 'student & member'])
+        .range(page * 1000, (page + 1) * 1000 - 1);
+
+      if (error) throw error;
+      allStudents = allStudents.concat(data || []);
+      hasMore = (data?.length || 0) === 1000;
+      page++;
+    }
+
+    // Fetch all bookings with pagination (including class_instance_id for future bookings check)
+    let allBookings = [];
+    page = 0;
+    hasMore = true;
+    while (hasMore) {
+      const { data, error } = await supabaseDb.supabase
+        .from('bookings')
+        .select('id, student_id, created_at, status, attended, class_instance_id')
+        .in('status', ['booked', 'completed'])
+        .range(page * 1000, (page + 1) * 1000 - 1);
+
+      if (error) throw error;
+      allBookings = allBookings.concat(data || []);
+      hasMore = (data?.length || 0) === 1000;
+      page++;
+    }
+
+    // Get other data in parallel (these are unlikely to exceed 1000 rows)
+    const results = await Promise.allSettled([
+      // Get ALL class instances to show total scheduled classes
+      supabaseDb.supabase
+        .from('class_instances')
+        .select('id, class_date, max_capacity'),
+      supabaseDb.supabase
+        .from('memberships')
+        .select('id, status, end_date, created_at')
+        .eq('status', 'active'),
+      supabaseDb.getAllPotteryPieces()
+    ]);
+
+    // Extract data with fallbacks (students and bookings are already populated above)
+    const allClasses = results[0].status === 'fulfilled' ? (results[0].value.data || []) : [];
+    const allMemberships = results[1].status === 'fulfilled' ? (results[1].value.data || []) : [];
+    const allGalleryPieces = results[2].status === 'fulfilled' ? (results[2].value || []) : [];
+
+    // Separate future classes for availability calculation
+    const today = now.toISOString().split('T')[0];
+    const futureClasses = allClasses.filter(cls => cls.class_date >= today);
+
+    // Create a map of class_instance_id -> class_date for quick lookup
+    const classDateMap = {};
+    allClasses.forEach(cls => {
+      classDateMap[cls.id] = cls.class_date;
+    });
+
+    // Calculate student stats
+    // Active students: students who have bookings for classes on or after today (matches Student Management page logic)
+    const activeStudentIds = new Set();
+    allBookings.forEach(booking => {
+      const classDate = classDateMap[booking.class_instance_id];
+      if (classDate && classDate >= today && booking.student_id) {
+        activeStudentIds.add(booking.student_id);
+      }
+    });
+
+    console.log(`📊 Dashboard Stats: ${allStudents.length} total students, ${activeStudentIds.size} active students (with future bookings >= ${today}), ${allBookings.length} bookings, ${allClasses.length} total classes (${futureClasses.length} future), ${allMemberships.length} memberships, ${allGalleryPieces.length} gallery pieces`);
+
+    // Get full student objects for active students
+    const activeStudents = allStudents.filter(s => activeStudentIds.has(s.id));
+
+    const newStudentsThisMonth = activeStudents.filter(s =>
+      new Date(s.created_at) >= firstDayOfMonth
+    ).length;
+
+    const returningStudents = activeStudents.filter(s =>
+      (s.course_purchase_count || 0) > 1
+    ).length;
+
+    // Calculate class stats
+    // Total enrolled = unique students with bookings
+    const totalEnrolled = new Set(allBookings.map(b => b.student_id)).size;
+
+    // Use future classes for capacity calculation
+    const totalCapacity = futureClasses.reduce((sum, cls) => sum + (cls.max_capacity || 8), 0);
+    const futureBookings = allBookings.filter(b => {
+      // We need to join with class_instances to check if booking is for a future class
+      // For now, just use total bookings as an approximation
+      return true;
+    });
+    const availableSpots = Math.max(0, totalCapacity - futureBookings.length);
+
+    // Calculate booking stats
+    const bookingsThisWeek = allBookings.filter(b =>
+      new Date(b.created_at) >= firstDayOfWeek
+    ).length;
+
+    const attendedBookings = allBookings.filter(b => b.attended === true).length;
+    const attendanceRate = allBookings.length > 0
+      ? Math.round((attendedBookings / allBookings.length) * 100)
+      : 0;
+
+    // Calculate membership stats
+    const thirtyDaysFromNow = new Date(now);
+    thirtyDaysFromNow.setDate(now.getDate() + 30);
+
+    const expiringSoon = allMemberships.filter(m =>
+      new Date(m.end_date) <= thirtyDaysFromNow && new Date(m.end_date) >= now
+    ).length;
+
+    const renewedThisMonth = allMemberships.filter(m =>
+      new Date(m.created_at) >= firstDayOfMonth
+    ).length;
+
+    // Calculate gallery stats
+    const addedThisMonth = allGalleryPieces.filter(p =>
+      new Date(p.date_completed || p.created_at) >= firstDayOfMonth
+    ).length;
+
+    const awaitingApproval = 0; // Gallery doesn't have approval system yet
+
+    res.json({
+      students: {
+        total: activeStudentIds.size, // Count students with future bookings (matches Student Management)
+        newThisMonth: newStudentsThisMonth,
+        returning: returningStudents
+      },
+      classes: {
+        total: allClasses.length,
+        enrolled: totalEnrolled,
+        availableSpots: Math.max(0, availableSpots)
+      },
+      bookings: {
+        total: allBookings.length,
+        thisWeek: bookingsThisWeek,
+        attendanceRate: attendanceRate
+      },
+      memberships: {
+        total: allMemberships.length,
+        expiringSoon: expiringSoon,
+        renewedThisMonth: renewedThisMonth
+      },
+      gallery: {
+        total: allGalleryPieces.length,
+        addedThisMonth: addedThisMonth,
+        awaitingApproval: awaitingApproval
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching dashboard stats:', error);
+    res.status(500).json({ error: 'Failed to fetch dashboard stats', details: error.message });
   }
 });
 
@@ -2109,12 +2163,14 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, async (req, re
   try {
     const { classId } = req.params;
 
-    // Get bookings for this class instance with customer details
-    const { data: bookings, error: bookingsError } = await supabaseDb.supabase
+    // Get all bookings for this class (active + rescheduled/cancelled to track absences)
+    const { data: allBookings, error: bookingsError } = await supabaseDb.supabase
       .from('bookings')
       .select(`
         id,
         student_id,
+        status,
+        attended,
         customers (
           id,
           first_name,
@@ -2130,17 +2186,74 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, async (req, re
       return res.status(500).json({ error: 'Failed to fetch bookings' });
     }
 
-    const members = bookings.map(booking => ({
-      id: booking.id,
-      bookingId: booking.id,
-      studentId: booking.student_id,
-      firstName: booking.customers?.first_name,
-      lastName: booking.customers?.last_name,
-      returningCount: booking.customers?.course_purchase_count || 0
-    }));
+    // For rescheduled bookings, find where they rescheduled TO
+    // Get all bookings where original_class_instance_id matches current class
+    const { data: rescheduledToBookings, error: rescheduledError } = await supabaseDb.supabase
+      .from('bookings')
+      .select(`
+        id,
+        student_id,
+        class_instance_id,
+        class_instances!bookings_class_instance_id_fkey (
+          id,
+          class_date,
+          start_time,
+          end_time,
+          class_type
+        )
+      `)
+      .eq('original_class_instance_id', classId)
+      .in('status', ['booked', 'completed']);
 
-    // Sort by returning count (descending), then alphabetically by name
-    members.sort((a, b) => {
+    if (rescheduledError) {
+      console.error('Error fetching rescheduled bookings:', rescheduledError);
+    }
+
+    // Create a map of student_id -> rescheduled class info
+    const rescheduledToMap = {};
+    if (rescheduledToBookings) {
+      rescheduledToBookings.forEach(booking => {
+        rescheduledToMap[booking.student_id] = {
+          classDate: booking.class_instances?.class_date,
+          startTime: booking.class_instances?.start_time,
+          endTime: booking.class_instances?.end_time,
+          classType: booking.class_instances?.class_type
+        };
+      });
+    }
+
+    // Separate active members from absent members
+    const activeMembers = [];
+    const absentMembers = [];
+
+    allBookings.forEach(booking => {
+      const member = {
+        id: booking.id,
+        bookingId: booking.id,
+        studentId: booking.student_id,
+        firstName: booking.customers?.first_name,
+        lastName: booking.customers?.last_name,
+        returningCount: booking.customers?.course_purchase_count || 0,
+        status: booking.status,
+        attended: booking.attended
+      };
+
+      // Active members: status is 'booked' or 'completed'
+      if (booking.status === 'booked' || booking.status === 'completed') {
+        activeMembers.push(member);
+      }
+      // Absent members: rescheduled, cancelled (manual absence), or marked as not attended
+      else if (booking.status === 'rescheduled' || booking.status === 'cancelled' || booking.attended === false) {
+        // If rescheduled, add the new class info
+        if (booking.status === 'rescheduled' && rescheduledToMap[booking.student_id]) {
+          member.rescheduledTo = rescheduledToMap[booking.student_id];
+        }
+        absentMembers.push(member);
+      }
+    });
+
+    // Sort active members by returning count (descending), then alphabetically
+    activeMembers.sort((a, b) => {
       if (b.returningCount !== a.returningCount) {
         return b.returningCount - a.returningCount;
       }
@@ -2149,7 +2262,19 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, async (req, re
       return nameA.localeCompare(nameB);
     });
 
-    res.json({ members, count: members.length });
+    // Sort absent members alphabetically
+    absentMembers.sort((a, b) => {
+      const nameA = `${a.firstName} ${a.lastName}`.toLowerCase();
+      const nameB = `${b.firstName} ${b.lastName}`.toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+
+    res.json({
+      members: activeMembers,
+      count: activeMembers.length,
+      absentMembers: absentMembers,
+      absentCount: absentMembers.length
+    });
   } catch (error) {
     console.error('Error fetching class members:', error);
     res.status(500).json({ error: 'Failed to fetch class members' });
@@ -2263,11 +2388,23 @@ app.delete('/api/admin/bookings/:bookingId', authenticateToken, async (req, res)
       return res.status(404).json({ error: 'Booking not found' });
     }
 
-    if (booking.status === 'cancelled') {
-      return res.status(400).json({ error: 'Booking is already cancelled' });
+    // If booking is already cancelled or rescheduled, delete it entirely from the database
+    // This allows admins to clean up the absent/rescheduled list
+    if (booking.status === 'cancelled' || booking.status === 'rescheduled') {
+      const { error: deleteError } = await supabaseDb.supabase
+        .from('bookings')
+        .delete()
+        .eq('id', bookingId);
+
+      if (deleteError) {
+        console.error('Error deleting booking:', deleteError);
+        return res.status(500).json({ error: 'Failed to delete booking' });
+      }
+
+      return res.json({ message: 'Booking deleted successfully' });
     }
 
-    // Update booking status to cancelled
+    // For active bookings (booked/completed), just set status to cancelled
     const { error: updateError } = await supabaseDb.supabase
       .from('bookings')
       .update({

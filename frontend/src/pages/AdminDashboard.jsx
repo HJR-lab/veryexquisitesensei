@@ -9,14 +9,7 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
 
-  const [stats, setStats] = useState({
-    totalStudents: 0,
-    activeClasses: 0,
-    memberships: 0,
-    galleryPieces: 0,
-    clayTypes: 0,
-    glazes: 0
-  });
+  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [hoveredCard, setHoveredCard] = useState(null);
 
@@ -28,21 +21,15 @@ export default function AdminDashboard() {
     try {
       setLoading(true);
 
-      // Load all stats in parallel
-      const [studentsRes, classesRes, membershipsRes, galleryRes, clayTypesRes, glazesRes] = await Promise.all([
-        axios.get('/api/admin/customers'),
-        axios.get('/api/classes/available'),
-        axios.get('/api/admin/memberships'),
-        axios.get('/api/admin/pottery/all'),
+      // Load dashboard stats and reference data
+      const [dashboardRes, clayTypesRes, glazesRes] = await Promise.all([
+        axios.get('/api/admin/dashboard/stats'),
         axios.get('/api/reference/clay-types'),
         axios.get('/api/reference/glazes')
       ]);
 
       setStats({
-        totalStudents: studentsRes.data.customers?.length || 0,
-        activeClasses: classesRes.data.classes?.length || 0,
-        memberships: membershipsRes.data.memberships?.length || 0,
-        galleryPieces: galleryRes.data.pieces?.length || 0,
+        ...dashboardRes.data,
         clayTypes: clayTypesRes.data.clayTypes?.length || 0,
         glazes: glazesRes.data.glazes?.length || 0
       });
@@ -59,11 +46,11 @@ export default function AdminDashboard() {
       description: 'Manage students, allocations, and accounts',
       icon: 'group',
       path: '/admin/students',
-      stat: stats.totalStudents,
+      stat: stats?.students?.total,
       statLabel: 'Active Students',
       statDetails: [
-        { label: 'New students', value: 3 },
-        { label: 'Returning students', value: stats.totalStudents - 3 }
+        { label: 'New students', value: stats?.students?.newThisMonth },
+        { label: 'Returning students', value: stats?.students?.returning }
       ]
     },
     {
@@ -71,23 +58,29 @@ export default function AdminDashboard() {
       description: 'Create and manage class instances',
       icon: 'event',
       path: '/admin/classes',
-      stat: stats.activeClasses,
+      stat: stats?.classes?.total,
       statLabel: 'Scheduled Classes',
       statDetails: [
-        { label: 'Students enrolled', value: 44 },
-        { label: 'Available spots', value: 12 }
+        { label: 'Students enrolled', value: stats?.classes?.enrolled },
+        { label: 'Available spots', value: stats?.classes?.availableSpots }
       ]
+    },
+    {
+      title: 'Paused Students',
+      description: 'View and manage students who have paused their courses',
+      icon: 'pause_circle',
+      path: '/admin/paused-students'
     },
     {
       title: 'Members',
       description: 'Manage studio memberships',
       icon: 'card_membership',
       path: '/admin/memberships',
-      stat: stats.memberships,
+      stat: stats?.memberships?.total,
       statLabel: 'Active Members',
       statDetails: [
-        { label: 'Expiring soon', value: 5 },
-        { label: 'Renewed this month', value: 8 }
+        { label: 'Expiring soon', value: stats?.memberships?.expiringSoon },
+        { label: 'Renewed this month', value: stats?.memberships?.renewedThisMonth }
       ]
     },
     {
@@ -95,35 +88,29 @@ export default function AdminDashboard() {
       description: 'View and manage all student pottery',
       icon: 'photo_library',
       path: '/admin/gallery',
-      stat: stats.galleryPieces,
+      stat: stats?.gallery?.total,
       statLabel: 'Gallery Pieces',
       statDetails: [
-        { label: 'Added this month', value: 15 },
-        { label: 'Awaiting approval', value: 3 }
+        { label: 'Added this month', value: stats?.gallery?.addedThisMonth },
+        { label: 'Awaiting approval', value: stats?.gallery?.awaitingApproval }
       ]
     },
     {
       title: 'Course Templates',
       description: 'Manage course templates and recurring classes',
       icon: 'school',
-      path: '/admin/courses',
-      stat: 8,
-      statLabel: 'Active Templates',
-      statDetails: [
-        { label: 'Beginner courses', value: 3 },
-        { label: 'Advanced courses', value: 5 }
-      ]
+      path: '/admin/courses'
     },
     {
       title: 'Bookings & Attendance',
       description: 'View bookings and mark attendance',
       icon: 'fact_check',
       path: '/admin/bookings',
-      stat: 156,
+      stat: stats?.bookings?.total,
       statLabel: 'Total Bookings',
       statDetails: [
-        { label: 'This week', value: 28 },
-        { label: 'Attendance rate', value: '94%' }
+        { label: 'This week', value: stats?.bookings?.thisWeek },
+        { label: 'Attendance rate', value: stats?.bookings?.attendanceRate ? `${stats.bookings.attendanceRate}%` : '--' }
       ]
     },
     {
@@ -131,24 +118,18 @@ export default function AdminDashboard() {
       description: 'Manage clay types and glazes',
       icon: 'inventory_2',
       path: '/admin/reference',
-      stat: stats.clayTypes + stats.glazes,
+      stat: (stats?.clayTypes || 0) + (stats?.glazes || 0),
       statLabel: 'Total Items',
       statDetails: [
-        { label: 'Clay types', value: stats.clayTypes },
-        { label: 'Glazes', value: stats.glazes }
+        { label: 'Clay types', value: stats?.clayTypes },
+        { label: 'Glazes', value: stats?.glazes }
       ]
     },
     {
       title: 'Analytics',
       description: 'View reports and statistics',
       icon: 'analytics',
-      path: '/admin/analytics',
-      stat: 847,
-      statLabel: 'Total Revenue',
-      statDetails: [
-        { label: 'This month', value: '$2.4k' },
-        { label: 'Growth', value: '+12%' }
-      ]
+      path: '/admin/analytics'
     }
   ];
 

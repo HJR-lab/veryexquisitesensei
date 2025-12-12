@@ -60,6 +60,9 @@ async function createCustomer(customerData) {
       classes_allocated: customerData.classesAllocated || 6,
       classes_used: customerData.classesUsed || 0,
       classes_forfeited: customerData.classesForfeited || 0,
+      course_purchase_date: customerData.coursePurchaseDate || null,
+      course_expiry_date: customerData.courseExpiryDate || null,
+      course_purchase_count: customerData.coursePurchaseCount || 0,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     }])
@@ -97,19 +100,37 @@ async function updateCustomer(id, updates) {
 /**
  * Sync customer from Shopify (create or update)
  */
-async function syncCustomer(shopifyCustomer, shopifyCustomerId) {
+async function syncCustomer(shopifyCustomer, shopifyCustomerId, classStartDate = null, classEndDate = null, coursePurchaseCount = 0) {
   try {
     // Check if customer exists
     let existingCustomer = await findCustomerByShopifyId(shopifyCustomerId);
 
+    // Format dates for database
+    const purchaseDate = classStartDate ? classStartDate.toISOString().split('T')[0] : null;
+    const expiryDate = classEndDate ? classEndDate.toISOString().split('T')[0] : null;
+
     if (existingCustomer) {
       // Update existing customer
-      const updated = await updateCustomer(existingCustomer.id, {
+      const updates = {
         email: shopifyCustomer.email,
         first_name: shopifyCustomer.firstName,
         last_name: shopifyCustomer.lastName,
         last_synced_at: new Date().toISOString()
-      });
+      };
+
+      // Update course dates if we have them
+      if (purchaseDate) {
+        updates.course_purchase_date = purchaseDate;
+      }
+      if (expiryDate) {
+        updates.course_expiry_date = expiryDate;
+      }
+      // Update course purchase count
+      if (coursePurchaseCount > 0) {
+        updates.course_purchase_count = coursePurchaseCount;
+      }
+
+      const updated = await updateCustomer(existingCustomer.id, updates);
       return updated;
     } else {
       // Create new customer
@@ -118,7 +139,10 @@ async function syncCustomer(shopifyCustomer, shopifyCustomerId) {
         email: shopifyCustomer.email,
         firstName: shopifyCustomer.firstName,
         lastName: shopifyCustomer.lastName,
-        customerType: 'student'
+        customerType: 'student',
+        coursePurchaseDate: purchaseDate,
+        courseExpiryDate: expiryDate,
+        coursePurchaseCount: coursePurchaseCount
       });
       return created;
     }
@@ -227,7 +251,7 @@ async function getAllPotteryPieces() {
 }
 
 /**
- * Get available classes (all active classes, including past dates for multi-week courses)
+ * Get available classes (all classes including past ones for course viewing)
  */
 async function getAvailableClasses() {
   const { data: classes, error } = await supabase
@@ -235,10 +259,16 @@ async function getAvailableClasses() {
     .select('*')
     .eq('status', 'active')
     .order('class_date', { ascending: true })
-    .order('start_time', { ascending: true });
+    .order('start_time', { ascending: true })
+    .limit(200);
 
   if (error) {
     throw error;
+  }
+
+  // If no classes, return empty array quickly
+  if (!classes || classes.length === 0) {
+    return [];
   }
 
   // Get waitlist AND makeup booking counts for each class in ONE Promise.all loop
@@ -681,15 +711,33 @@ async function getClassInstanceById(classInstanceId) {
  * Create booking
  */
 async function createBooking(bookingData) {
+  const insertData = {
+    student_id: bookingData.studentId,
+    class_instance_id: bookingData.classInstanceId,
+    status: bookingData.status || 'booked',
+    booking_type: bookingData.bookingType || 'regular',
+    course_enrollment_id: bookingData.courseEnrollmentId || null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+
+  // Add optional reschedule fields if provided
+  if (bookingData.isGlazingReschedule !== undefined) {
+    insertData.is_glazing_reschedule = bookingData.isGlazingReschedule;
+  }
+  if (bookingData.originalClassInstanceId !== undefined) {
+    insertData.original_class_instance_id = bookingData.originalClassInstanceId;
+  }
+  if (bookingData.rescheduledFromDate !== undefined) {
+    insertData.rescheduled_from_date = bookingData.rescheduledFromDate;
+  }
+  if (bookingData.rescheduleFeePaid !== undefined) {
+    insertData.reschedule_fee_paid = bookingData.rescheduleFeePaid;
+  }
+
   const { data, error} = await supabase
     .from('bookings')
-    .insert([{
-      student_id: bookingData.studentId,
-      class_instance_id: bookingData.classInstanceId,
-      status: bookingData.status || 'booked',
-      booking_type: bookingData.bookingType || 'regular',
-      course_enrollment_id: bookingData.courseEnrollmentId || null
-    }])
+    .insert([insertData])
     .select()
     .single();
 
@@ -1098,6 +1146,113 @@ async function hasActiveMembership(customerId) {
   return !!membership;
 }
 
+/**
+ * Course Enrollment Functions (for automatic booking creation)
+ */
+
+/**
+ * Create course enrollment
+ */
+async function createCourseEnrollment(enrollmentData) {
+  const { data, error } = await supabase
+    .from('course_enrollments')
+    .insert([{
+      student_id: enrollmentData.studentId,
+      shopify_order_id: enrollmentData.shopifyOrderId,
+      shopify_line_item_id: enrollmentData.shopifyLineItemId,
+      course_title: enrollmentData.courseTitle,
+      course_variant_title: enrollmentData.courseVariantTitle,
+      course_type: enrollmentData.courseType,
+      schedule_pattern: enrollmentData.schedulePattern,
+      number_of_weeks: enrollmentData.numberOfWeeks,
+      course_start_date: enrollmentData.courseStartDate,
+      course_end_date: enrollmentData.courseEndDate,
+      class_time: enrollmentData.classTime,
+      instructor: enrollmentData.instructor,
+      room: enrollmentData.room,
+      status: enrollmentData.status || 'pending'
+    }])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Find course enrollments by cohort (same course type, start date, schedule)
+ */
+async function findCohortEnrollments(courseType, startDate, schedulePattern) {
+  const { data, error } = await supabase
+    .from('course_enrollments')
+    .select('*')
+    .eq('course_type', courseType)
+    .eq('course_start_date', startDate)
+    .eq('schedule_pattern', schedulePattern)
+    .eq('status', 'pending');
+
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Update course enrollment status
+ */
+async function updateCourseEnrollment(enrollmentId, updates) {
+  const dbUpdates = {
+    updated_at: new Date().toISOString()
+  };
+
+  if (updates.status !== undefined) dbUpdates.status = updates.status;
+  if (updates.pendingStudentCount !== undefined) dbUpdates.pending_student_count = updates.pendingStudentCount;
+  if (updates.thresholdMetAt !== undefined) dbUpdates.threshold_met_at = updates.thresholdMetAt;
+  if (updates.bookingsCreatedAt !== undefined) dbUpdates.bookings_created_at = updates.bookingsCreatedAt;
+
+  const { data, error } = await supabase
+    .from('course_enrollments')
+    .update(dbUpdates)
+    .eq('id', enrollmentId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Create multiple class instances
+ */
+async function createClassInstances(classInstancesArray) {
+  const { data, error} = await supabase
+    .from('class_instances')
+    .insert(classInstancesArray)
+    .select();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Create multiple bookings
+ */
+async function createMultipleBookings(bookingsArray) {
+  // Add timestamps to all bookings
+  const now = new Date().toISOString();
+  const bookingsWithTimestamps = bookingsArray.map(booking => ({
+    ...booking,
+    created_at: now,
+    updated_at: now
+  }));
+
+  const { data, error } = await supabase
+    .from('bookings')
+    .insert(bookingsWithTimestamps)
+    .select();
+
+  if (error) throw error;
+  return data;
+}
+
 module.exports = {
   supabase,
   // Customer functions
@@ -1159,5 +1314,11 @@ module.exports = {
   updateMembership,
   deleteMembership,
   cancelMembership,
-  hasActiveMembership
+  hasActiveMembership,
+  // Course enrollment functions
+  createCourseEnrollment,
+  findCohortEnrollments,
+  updateCourseEnrollment,
+  createClassInstances,
+  createMultipleBookings
 };

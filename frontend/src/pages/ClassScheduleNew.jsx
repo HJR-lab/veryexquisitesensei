@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import Navigation from '../components/Navigation';
+import ClassCalendar from '../components/ClassCalendar';
 
 const API_URL = 'http://localhost:3000';
 
@@ -23,6 +24,11 @@ export default function ClassScheduleNew() {
   const [showClassMenu, setShowClassMenu] = useState(null); // Store classId for which menu is open
   const [rescheduleSelectedDate, setRescheduleSelectedDate] = useState(new Date());
   const [rescheduleCurrentMonth, setRescheduleCurrentMonth] = useState(new Date());
+  const [showPauseModal, setShowPauseModal] = useState(false);
+  const [pauseCalculation, setPauseCalculation] = useState(null);
+
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
 
   useEffect(() => {
     fetchClasses();
@@ -62,26 +68,77 @@ export default function ClassScheduleNew() {
 
   const fetchClasses = async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/classes/available`);
-      console.log('Fetched classes:', response.data.classes?.length, 'classes');
-      setClasses(response.data.classes || []);
+      // Use the admin endpoint which returns properly structured courses
+      // This endpoint requires authentication but works for logged-in students
+      const response = await axios.get(`${API_URL}/api/admin/classes`, {
+        withCredentials: true
+      });
+      console.log('Fetched courses from admin endpoint:', response.data.courses);
+      setClasses(response.data.courses || []);
     } catch (error) {
-      console.error('Error fetching classes:', error);
-      console.error('Error details:', error.response?.data || error.message);
+      console.error('Error fetching classes from admin endpoint:', error);
+      // If admin endpoint fails (e.g., not authenticated), fall back to public endpoint
+      try {
+        console.log('Falling back to public endpoint...');
+        const publicResponse = await axios.get(`${API_URL}/api/classes/available`);
+        // Transform flat classes array into courses structure
+        const flatClasses = publicResponse.data.classes || [];
+        console.log('Fetched flat classes from public endpoint:', flatClasses.length, 'classes');
+
+        // Group classes by a signature to create courses
+        const courseGroups = {};
+        flatClasses.forEach(cls => {
+          const clsDate = new Date(cls.classDate);
+          const dayOfWeek = clsDate.getDay();
+          const signature = `${cls.classType}_${cls.startTime}_${cls.instructor}_${dayOfWeek}`;
+
+          if (!courseGroups[signature]) {
+            courseGroups[signature] = {
+              classes: [],
+              identifier: `${cls.classType.substring(0, 2).toUpperCase()}_${cls.startTime.replace(/[^0-9]/g, '')}`
+            };
+          }
+
+          courseGroups[signature].classes.push({
+            id: cls.id,
+            class_date: cls.classDate,
+            class_type: cls.classType,
+            start_time: cls.startTime,
+            end_time: cls.endTime,
+            instructor: cls.instructor,
+            room: cls.room,
+            max_capacity: cls.maxCapacity,
+            bookingCount: cls.currentEnrollment || 0
+          });
+        });
+
+        const transformedCourses = Object.values(courseGroups);
+        console.log('Transformed into courses:', transformedCourses.length, 'courses');
+        setClasses(transformedCourses);
+      } catch (fallbackError) {
+        console.error('Error fetching classes from fallback endpoint:', fallbackError);
+      }
     }
   };
 
   const fetchMyBookings = async () => {
     try {
       const token = localStorage.getItem('token');
-      if (!token) return; // Not logged in
+      if (!token) {
+        console.log('❌ No token found - user not logged in');
+        return; // Not logged in
+      }
 
+      console.log('🔍 Fetching my bookings...');
       const response = await axios.get(`${API_URL}/api/classes/my-bookings`, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      console.log('✅ My bookings response:', response.data);
       setMyBookings(response.data.bookings || []);
+      console.log('📊 Total bookings loaded:', response.data.bookings?.length || 0);
     } catch (error) {
-      console.error('Error fetching bookings:', error);
+      console.error('❌ Error fetching bookings:', error);
+      console.error('Error response:', error.response?.data);
     }
   };
 
@@ -117,24 +174,43 @@ export default function ClassScheduleNew() {
   };
 
   const getClassesForDate = (date) => {
-    // Format date as YYYY-MM-DD in local timezone (not UTC)
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     const dateStr = `${year}-${month}-${day}`;
 
-    console.log('Looking for classes on:', dateStr);
-    console.log('Total classes available:', classes.length);
+    // Flatten all class instances from all courses
+    const allClasses = [];
+    classes.forEach(course => {
+      course.classes?.forEach(cls => {
+        if (cls.class_date?.startsWith(dateStr)) {
+          allClasses.push({
+            ...cls,
+            baseCourseIdentifier: course.identifier,
+            fullCourseIdentifier: cls.courseIdentifier,
+            // Map to old property names for compatibility
+            id: cls.id,
+            classDate: cls.class_date,
+            classType: cls.class_type,
+            startTime: cls.start_time,
+            endTime: cls.end_time,
+            instructor: cls.instructor,
+            room: cls.room,
+            maxCapacity: cls.max_capacity,
+            currentEnrollment: cls.bookingCount,
+            isFull: cls.bookingCount >= cls.max_capacity,
+            isCompletelyFull: cls.bookingCount >= cls.max_capacity
+          });
+        }
+      });
+    });
 
-    let filtered = classes.filter(c => c.classDate?.startsWith(dateStr));
-    console.log('Classes found for date:', filtered.length);
-
-    // Apply class type filter
+    // Apply filter
     if (classTypeFilter !== 'all') {
-      filtered = filtered.filter(c => getClassCategory(c.classType) === classTypeFilter);
+      return allClasses.filter(c => getClassCategory(c.classType) === classTypeFilter);
     }
 
-    return filtered;
+    return allClasses;
   };
 
   // Remove availability status - students don't see capacity numbers
@@ -172,50 +248,45 @@ export default function ClassScheduleNew() {
     return match ? parseInt(match[1]) : null;
   };
 
-  // Get all dates in a 6-week course given any class in that course
+  // Get all dates in a course
   const getCourseDates = (clickedClass) => {
-    if (!clickedClass) return [];
+    if (!clickedClass || !clickedClass.baseCourseIdentifier) {
+      console.log('❌ getCourseDates: No baseCourseIdentifier', clickedClass);
+      return [];
+    }
 
-    const weekNumber = getWeekNumberFromClassType(clickedClass.classType);
-    if (!weekNumber) return []; // Not a week-based course
+    // Use the base courseIdentifier to find all classes in same course
+    const baseCourseId = clickedClass.baseCourseIdentifier;
+    console.log('🔍 getCourseDates: Looking for base identifier:', baseCourseId);
 
-    // Find the instructor and time slot for this course
-    const instructor = clickedClass.instructor;
-    const startTime = clickedClass.startTime;
-    const classCategory = getClassCategory(clickedClass.classType);
+    // Find the course with this identifier
+    const matchingCourse = classes.find(c => c.identifier === baseCourseId);
 
-    // Get the day of week from the clicked class to distinguish Sat/Sun courses
-    const clickedDate = new Date(clickedClass.classDate.split('T')[0] + 'T12:00:00');
-    const clickedDayOfWeek = clickedDate.getDay(); // 0=Sunday, 6=Saturday, etc.
+    if (!matchingCourse) {
+      console.log('❌ getCourseDates: No matching course found for:', baseCourseId);
+      console.log('Available course identifiers:', classes.map(c => c.identifier));
+      return [];
+    }
 
-    // Find all classes with the same instructor, time, category, AND day of week (same course)
-    const courseClasses = classes.filter(c => {
-      const sameInstructor = c.instructor === instructor;
-      const sameTime = c.startTime === startTime;
-      const sameCategory = getClassCategory(c.classType) === classCategory;
-      const hasWeekNumber = getWeekNumberFromClassType(c.classType) !== null;
+    console.log('✅ getCourseDates: Found course with', matchingCourse.classes?.length, 'classes');
 
-      // Check day of week matches
-      const classDate = new Date(c.classDate.split('T')[0] + 'T12:00:00');
-      const classDayOfWeek = classDate.getDay();
-      const sameDayOfWeek = classDayOfWeek === clickedDayOfWeek;
+    // Extract unique dates (YYYY-MM-DD format) from all classes in the course
+    const dates = matchingCourse.classes.map(cls => cls.class_date.split('T')[0]);
 
-      return sameInstructor && sameTime && sameCategory && hasWeekNumber && sameDayOfWeek;
-    });
-
-    // Extract unique dates (YYYY-MM-DD format)
-    // Use the classDate string directly instead of parsing it
-    const dates = courseClasses.map(c => {
-      // classDate is already in YYYY-MM-DD format from the database
-      // Extract just the date part (first 10 characters) to avoid timezone issues
-      return c.classDate.split('T')[0]; // Get YYYY-MM-DD part before the time
-    });
-
+    console.log('📅 getCourseDates: Returning dates:', dates);
     return [...new Set(dates)]; // Remove duplicates
   };
 
   const getClassCategory = (classType) => {
     if (!classType) return 'other';
+    const upper = classType.toUpperCase();
+
+    // Check for course identifier prefixes (WT, HB, KD)
+    if (upper.startsWith('WT')) return 'wheelthrowing-beginner'; // Default all wheelthrowing to beginner
+    if (upper.startsWith('HB')) return 'handbuilding';
+    if (upper.startsWith('KD')) return 'kids';
+
+    // Fallback to word matching
     const lower = classType.toLowerCase();
     if (lower.includes('wheelthrowing') && lower.includes('beginner')) return 'wheelthrowing-beginner';
     if (lower.includes('wheelthrowing') && lower.includes('intermediate')) return 'wheelthrowing-intermediate';
@@ -319,87 +390,162 @@ export default function ClassScheduleNew() {
     if (!selectedClass) return [];
 
     const classCategory = getClassCategory(selectedClass.classType);
-    const isGlazingClass = selectedClass.classType?.includes('Week 6/6') && selectedClass.classType?.includes('Glazing');
+
+    // Check for glazing class by looking at fullCourseIdentifier
+    // Glazing classes are Week 6 of 6-week courses (ends with .6)
+    const isGlazingClass = selectedClass.fullCourseIdentifier?.endsWith('.6');
+
+    console.log('🔍 RESCHEDULE CHECK:', {
+      classType: selectedClass.classType,
+      fullCourseIdentifier: selectedClass.fullCourseIdentifier,
+      isGlazingClass,
+      category: classCategory
+    });
 
     // Filter out classes starting in less than 30 minutes
     const now = new Date();
     const thirtyMinutesFromNow = new Date(now.getTime() + 30 * 60 * 1000);
 
-    console.log('=== RESCHEDULE DEBUG ===');
-    console.log('Selected class:', selectedClass.classType, selectedClass.classDate);
-    console.log('Class category:', classCategory);
-    console.log('Is selected class a glazing class?', isGlazingClass);
-    console.log('Total classes available:', classes.length);
+    // Find all bookings for this student to determine their course start date
+    const studentBookingsForCourse = myBookings.filter(booking => {
+      const bookingCategory = getClassCategory(booking.class.classType);
+      return bookingCategory === classCategory && booking.status === 'booked';
+    });
 
-    // For handbuilding (continuous classes), show any other handbuilding class on a different date
+    // Determine the course start date (earliest class in their bookings)
+    let courseStartDate = null;
+    if (studentBookingsForCourse.length > 0) {
+      const dates = studentBookingsForCourse.map(b => new Date(b.class.classDate));
+      courseStartDate = new Date(Math.min(...dates));
+    }
+
+    // Calculate time window: 6 weeks course + 2 weeks buffer = 8 weeks from course start
+    const eightWeeksFromStart = courseStartDate
+      ? new Date(courseStartDate.getTime() + (8 * 7 * 24 * 60 * 60 * 1000))
+      : null;
+
+    // Flatten all classes from all courses
+    const allClasses = [];
+    classes.forEach(course => {
+      course.classes?.forEach(cls => {
+        allClasses.push({
+          ...cls,
+          id: cls.id,
+          classDate: cls.class_date,
+          classType: cls.class_type,
+          startTime: cls.start_time,
+          endTime: cls.end_time,
+          instructor: cls.instructor,
+          maxCapacity: cls.max_capacity,
+          currentEnrollment: cls.bookingCount,
+          isCompletelyFull: cls.bookingCount >= cls.max_capacity
+        });
+      });
+    });
+
+    // For handbuilding (continuous classes), show classes within 8 weeks from course start
     if (classCategory === 'handbuilding') {
-      return classes.filter(c => {
+      return allClasses.filter(c => {
         const isHandbuilding = getClassCategory(c.classType) === 'handbuilding';
         const isDifferentClass = c.id !== selectedClass.id;
-        // Use isCompletelyFull (or check against maxCapacity) for makeup bookings
         const hasSpace = !c.isCompletelyFull && c.currentEnrollment < c.maxCapacity;
 
         // Check if class starts at least 30 minutes from now
         const classDateTime = parseClassDateTime(c.classDate, c.startTime);
         const isAtLeast30MinAway = classDateTime >= thirtyMinutesFromNow;
 
-        return isHandbuilding && isDifferentClass && hasSpace && isAtLeast30MinAway;
+        // Check if within 8-week window from course start
+        const withinTimeWindow = eightWeeksFromStart
+          ? classDateTime <= eightWeeksFromStart
+          : true; // If we can't determine course start, allow all
+
+        return isHandbuilding && isDifferentClass && hasSpace && isAtLeast30MinAway && withinTimeWindow;
       });
     }
 
-    // For glazing classes (Week 6/6), only show other glazing classes
+    // For glazing classes (Week 6/6), allow rescheduling up to 2 courses ahead (12 weeks)
     if (isGlazingClass) {
-      return classes.filter(c => {
-        const isOtherGlazingClass = c.classType?.includes('Week 6/6') && c.classType?.includes('Glazing');
+      const selectedClassDate = new Date(selectedClass.classDate);
+      const twelveWeeksAhead = new Date(selectedClassDate.getTime() + (12 * 7 * 24 * 60 * 60 * 1000));
+
+      console.log('🔍 GLAZING CLASS RESCHEDULE');
+      console.log('Selected class:', selectedClass);
+      console.log('12 weeks ahead:', twelveWeeksAhead);
+      console.log('Total classes to filter:', allClasses.length);
+
+      const filtered = allClasses.filter(c => {
+        // Glazing classes are Week 6 of 6-week courses (fullCourseIdentifier ends with .6)
+        const isOtherGlazingClass = c.fullCourseIdentifier?.endsWith('.6') || c.courseIdentifier?.endsWith('.6');
         const isDifferentClass = c.id !== selectedClass.id;
-        const hasSpace = !c.isCompletelyFull && c.currentEnrollment < c.maxCapacity;
+
+        // Glazing classes have max capacity of 14, not 8
+        const glazingMaxCapacity = 14;
+        const hasSpace = !c.isCompletelyFull && c.currentEnrollment < glazingMaxCapacity;
 
         // Check if class starts at least 30 minutes from now
         const classDateTime = parseClassDateTime(c.classDate, c.startTime);
         const isAtLeast30MinAway = classDateTime >= thirtyMinutesFromNow;
 
-        return isOtherGlazingClass && isDifferentClass && hasSpace && isAtLeast30MinAway;
+        // Check if within 12 weeks (2 courses) ahead
+        const withinTwoCourses = classDateTime <= twelveWeeksAhead;
+
+        if (isOtherGlazingClass) {
+          console.log('Found glazing class:', {
+            id: c.id,
+            classType: c.classType,
+            fullCourseIdentifier: c.fullCourseIdentifier,
+            courseIdentifier: c.courseIdentifier,
+            date: c.classDate,
+            startTime: c.startTime,
+            currentEnrollment: c.currentEnrollment,
+            maxCapacity: glazingMaxCapacity,
+            hasSpace,
+            isDifferentClass,
+            isAtLeast30MinAway,
+            withinTwoCourses,
+            passes: isOtherGlazingClass && isDifferentClass && hasSpace && isAtLeast30MinAway && withinTwoCourses
+          });
+        }
+
+        return isOtherGlazingClass && isDifferentClass && hasSpace && isAtLeast30MinAway && withinTwoCourses;
       });
+
+      console.log('✅ Filtered glazing classes:', filtered.length);
+      return filtered;
     }
 
-    // For wheelthrowing (week-based courses), show classes from ANY week 1-5 (excluding Week 6/Glazing)
+    // For wheelthrowing (week-based courses), show classes within 8 weeks from course start
     const currentWeek = getWeekNumberFromClassType(selectedClass.classType);
-    console.log('Current week number:', currentWeek);
     if (!currentWeek) return [];
 
-    const filtered = classes.filter(c => {
+    return allClasses.filter(c => {
       // FIRST: Check if this is a Week 6/6 Glazing class - if so, exclude it immediately
       const isWeek6Glazing = c.classType?.includes('Week 6/6') && c.classType?.includes('Glazing');
       if (isWeek6Glazing) {
-        console.log(`🚨 EXCLUDED Week 6/6 Glazing class: ${c.classType} on ${c.classDate.split('T')[0]}`);
         return false; // Always exclude Week 6/6 Glazing classes for Week 1-5 students
       }
 
       const classWeek = getWeekNumberFromClassType(c.classType);
       const sameCategory = getClassCategory(c.classType) === classCategory;
-      // Same category, has week number (1-5), different class, and has availability
       const hasSpace = !c.isCompletelyFull && c.currentEnrollment < c.maxCapacity;
 
       // Check if class starts at least 30 minutes from now
       const classDateTime = parseClassDateTime(c.classDate, c.startTime);
       const isAtLeast30MinAway = classDateTime >= thirtyMinutesFromNow;
 
-      const passes = classWeek !== null &&
+      // Check if within 8-week window from course start
+      const withinTimeWindow = eightWeeksFromStart
+        ? classDateTime <= eightWeeksFromStart
+        : true; // If we can't determine course start, allow all
+
+      return classWeek !== null &&
              classWeek >= 1 && classWeek <= 5 &&
              sameCategory &&
              c.id !== selectedClass.id &&
              hasSpace &&
-             isAtLeast30MinAway;
-
-      if (classWeek !== null && classWeek >= 1 && classWeek <= 5 && sameCategory) {
-        console.log(`✅ Week ${classWeek}: ${c.classType} on ${c.classDate.split('T')[0]} at ${c.startTime} - Space: ${c.currentEnrollment}/${c.maxCapacity}, Passes: ${passes}`);
-      }
-
-      return passes;
+             isAtLeast30MinAway &&
+             withinTimeWindow;
     });
-
-    console.log('Filtered makeup classes:', filtered.length);
-    return filtered;
   };
 
   const handleReschedule = async (newClassId) => {
@@ -444,214 +590,55 @@ export default function ClassScheduleNew() {
     }
   };
 
-  const { daysInMonth, startingDayOfWeek } = getDaysInMonth(currentMonth);
-  const classesForSelectedDate = getClassesForDate(selectedDate);
+  const handlePauseRequest = async () => {
+    try {
+      const token = localStorage.getItem('token');
 
-  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'];
+      // Request pause calculation from backend
+      const response = await axios.post(`${API_URL}/api/classes/pause/calculate`, {
+        classId: selectedClass.id
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
 
-  // Helper function to render a calendar month
-  const renderCalendarMonth = (monthDate, isFirstMonth) => {
-    const { daysInMonth, startingDayOfWeek } = getDaysInMonth(monthDate);
-
-    return (
-      <div className="bg-background-alt border border-border p-4">
-        <div className="flex items-center justify-between">
-          {isFirstMonth ? (
-            <button
-              className="p-2 hover:bg-background"
-              onClick={() => {
-                setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1));
-                setHighlightedCourseDates([]);
-                setShowCourseMenu(false);
-              }}
-            >
-              <span className="material-symbols-outlined text-text-muted">chevron_left</span>
-            </button>
-          ) : (
-            <div className="w-10" />
-          )}
-          <p className="text-lg font-bold uppercase">{monthNames[monthDate.getMonth()]} {monthDate.getFullYear()}</p>
-          {!isFirstMonth ? (
-            <button
-              className="p-2 hover:bg-background"
-              onClick={() => {
-                setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1));
-                setHighlightedCourseDates([]);
-                setShowCourseMenu(false);
-              }}
-            >
-              <span className="material-symbols-outlined text-text-muted">chevron_right</span>
-            </button>
-          ) : (
-            <div className="w-10" />
-          )}
-        </div>
-
-        <div className="grid grid-cols-7 gap-1 mt-4">
-          {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, i) => (
-            <p key={i} className="text-center text-xs font-bold text-text-muted py-2">{day}</p>
-          ))}
-
-          {Array.from({ length: startingDayOfWeek }).map((_, i) => (
-            <div key={`empty-${i}`} />
-          ))}
-
-          {Array.from({ length: daysInMonth }).map((_, i) => {
-            const day = i + 1;
-            const date = new Date(monthDate.getFullYear(), monthDate.getMonth(), day);
-            const isSelected = date.toDateString() === selectedDate.toDateString();
-
-            // Get ALL classes for this date (unfiltered) to check for glazing classes
-            const year = date.getFullYear();
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const dayStr = String(date.getDate()).padStart(2, '0');
-            const dateStr = `${year}-${month}-${dayStr}`;
-            const allDayClasses = classes.filter(c => c.classDate?.startsWith(dateStr));
-
-            // Get filtered classes for display
-            const dayClasses = getClassesForDate(date);
-            const hasClasses = dayClasses.length > 0;
-
-            // Check if this date is part of the highlighted course
-            const isPartOfHighlightedCourse = highlightedCourseDates.includes(dateStr);
-
-            // Check if this date has multiple course classes with DIFFERENT times
-            // Use dayClasses (filtered) instead of allDayClasses so filter works correctly
-            const courseClasses = dayClasses.filter(c => getWeekNumberFromClassType(c.classType) !== null);
-            // Get unique start times
-            const uniqueStartTimes = [...new Set(courseClasses.map(c => c.startTime))];
-            const hasMultipleCourses = uniqueStartTimes.length > 1;
-
-            let isEnrolledDay = false;
-            let hasGlazingClass = false;
-            let bgColorClass = '';
-
-            if (hasClasses) {
-              // Check if student is enrolled in any class on this day
-              isEnrolledDay = dayClasses.some(c => isEnrolled(c.id));
-
-              // Check if any class is Week 6/6 Glazing (check ALL classes, not just filtered)
-              hasGlazingClass = allDayClasses.some(c => c.classType?.includes('Week 6/6') && c.classType?.includes('Glazing'));
-
-              // If "All" is selected and there are multiple class types, show mixed indicator
-              if (classTypeFilter === 'all' && dayClasses.length > 0) {
-                const classCategories = [...new Set(dayClasses.map(c => getClassCategory(c.classType)))];
-                if (classCategories.length > 1) {
-                  // Multiple types - show gray background for mixed
-                  bgColorClass = 'bg-gray-400/20';
-                } else {
-                  // Single type - show that type's color
-                  const config = classTypeConfig[classCategories[0]];
-                  if (config) {
-                    bgColorClass = isSelected ? '' : config.bgLight;
-                  }
-                }
-              } else if (classTypeFilter !== 'all') {
-                // Filtered view - show filter color
-                const config = classTypeConfig[classTypeFilter];
-                if (config) {
-                  bgColorClass = isSelected ? '' : config.bgLight;
-                }
-              }
-
-              // Special background for glazing classes (always override)
-              if (hasGlazingClass) {
-                bgColorClass = isSelected ? '' : 'bg-amber-900/20';
-              }
-
-              // Override with blue background for enrolled days
-              if (isEnrolledDay) {
-                bgColorClass = isSelected ? 'bg-blue-700 text-white' : 'bg-blue-700/20';
-              }
-            }
-
-            return (
-              <button
-                key={day}
-                onClick={(e) => {
-                  setSelectedDate(date);
-
-                  // When clicking a date, check for course classes (use filtered classes)
-                  const classesOnDate = dayClasses;
-                  if (classesOnDate.length > 0) {
-                    // Get all 6-week course classes on this date
-                    const courseClassesOnDate = classesOnDate.filter(c => getWeekNumberFromClassType(c.classType) !== null);
-
-                    // Re-check for multiple courses with different times
-                    const uniqueTimesOnClick = [...new Set(courseClassesOnDate.map(c => c.startTime))];
-                    const hasMultipleCoursesOnClick = uniqueTimesOnClick.length > 1;
-
-                    if (hasMultipleCoursesOnClick) {
-                      // Multiple courses - show dropdown menu
-                      // Group by start time
-                      const uniqueCourses = [];
-                      const seenTimes = new Set();
-
-                      courseClassesOnDate.forEach(c => {
-                        if (!seenTimes.has(c.startTime)) {
-                          seenTimes.add(c.startTime);
-                          uniqueCourses.push(c);
-                        }
-                      });
-
-                      setCourseMenuOptions(uniqueCourses);
-
-                      // Position menu near the clicked cell
-                      const rect = e.currentTarget.getBoundingClientRect();
-
-                      // Calculate position with better viewport handling
-                      let menuX = rect.left;
-                      let menuY = rect.bottom;
-
-                      // Ensure menu doesn't go off-screen horizontally
-                      const menuWidth = 200; // minWidth from the menu style
-                      if (menuX + menuWidth > window.innerWidth) {
-                        menuX = window.innerWidth - menuWidth - 10;
-                      }
-
-                      setCourseMenuPosition({
-                        x: menuX,
-                        y: menuY
-                      });
-                      setShowCourseMenu(true);
-                    } else if (courseClassesOnDate.length === 1) {
-                      // Only one course class - highlight its dates immediately
-                      const courseDates = getCourseDates(courseClassesOnDate[0]);
-                      setHighlightedCourseDates(courseDates);
-                      setShowCourseMenu(false);
-
-                      // Check if course starts before currently displayed months
-                      if (courseDates.length > 0) {
-                        const firstCourseDate = new Date(courseDates[0] + 'T12:00:00');
-                        const currentMonthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
-
-                        // If course starts before the current month being displayed, adjust view
-                        if (firstCourseDate < currentMonthStart) {
-                          setCurrentMonth(new Date(firstCourseDate.getFullYear(), firstCourseDate.getMonth(), 1));
-                        }
-                      }
-                    } else {
-                      setHighlightedCourseDates([]);
-                      setShowCourseMenu(false);
-                    }
-                  } else {
-                    setHighlightedCourseDates([]);
-                    setShowCourseMenu(false);
-                  }
-                }}
-                className={`h-10 w-full text-sm font-medium relative ${
-                  isEnrolledDay ? bgColorClass : (isSelected || isPartOfHighlightedCourse ? 'bg-accent text-white' : bgColorClass)
-                }`}
-              >
-                {day}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    );
+      setPauseCalculation(response.data);
+      setShowPauseModal(true);
+    } catch (error) {
+      console.error('Error calculating pause:', error);
+      alert(error.response?.data?.error || 'Failed to calculate pause fee. You may have already used your pause for this course.');
+    }
   };
+
+  const confirmPause = async () => {
+    try {
+      const token = localStorage.getItem('token');
+
+      const response = await axios.post(`${API_URL}/api/classes/pause`, {
+        classId: selectedClass.id
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      // Show payment link to user
+      if (response.data.paymentLink) {
+        alert(`Your course has been paused. Please complete payment to continue:\n\n${response.data.paymentLink}\n\nYou have 30 days to resume your course.`);
+        window.open(response.data.paymentLink, '_blank');
+      } else {
+        alert(response.data.message || 'Course paused successfully!');
+      }
+
+      setShowPauseModal(false);
+      setShowRescheduleModal(false);
+      setSelectedClass(null);
+      fetchClasses();
+      fetchMyBookings();
+    } catch (error) {
+      console.error('Error pausing course:', error);
+      alert(error.response?.data?.error || 'Failed to pause course');
+    }
+  };
+
+  const classesForSelectedDate = getClassesForDate(selectedDate);
 
   return (
     <div className="min-h-screen bg-background font-display text-text">
@@ -688,13 +675,75 @@ export default function ClassScheduleNew() {
               </div>
             </div>
 
-            {/* First Month */}
-            {renderCalendarMonth(currentMonth, true)}
+            <ClassCalendar
+              currentMonth={currentMonth}
+              onMonthChange={setCurrentMonth}
+              onDateSelect={(date, dayClasses, event) => {
+                setSelectedDate(date);
 
-            {/* Second Month */}
-            <div className="mt-4">
-              {renderCalendarMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1), false)}
-            </div>
+                // When clicking a date, check for course classes to highlight the full course
+                if (dayClasses && dayClasses.length > 0) {
+                  // Get week-based course classes on this date
+                  const courseClassesOnDate = dayClasses.filter(c => {
+                    // Check if this is a week-based course (has fullCourseIdentifier with week number like .1, .2, etc)
+                    return c.fullCourseIdentifier && c.fullCourseIdentifier.includes('.');
+                  });
+
+                  // Check if there are multiple different courses (different start times)
+                  const uniqueStartTimes = [...new Set(courseClassesOnDate.map(c => c.startTime))];
+                  const hasMultipleCourses = uniqueStartTimes.length > 1;
+
+                  if (hasMultipleCourses) {
+                    // Multiple courses - show dropdown menu
+                    const uniqueCourses = [];
+                    const seenTimes = new Set();
+
+                    courseClassesOnDate.forEach(c => {
+                      if (!seenTimes.has(c.startTime)) {
+                        seenTimes.add(c.startTime);
+                        uniqueCourses.push(c);
+                      }
+                    });
+
+                    setCourseMenuOptions(uniqueCourses);
+
+                    // Position menu near the clicked cell
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    let menuX = rect.left;
+                    let menuY = rect.bottom;
+
+                    // Ensure menu doesn't go off-screen horizontally
+                    const menuWidth = 250;
+                    if (menuX + menuWidth > window.innerWidth) {
+                      menuX = window.innerWidth - menuWidth - 10;
+                    }
+
+                    setCourseMenuPosition({ x: menuX, y: menuY });
+                    setShowCourseMenu(true);
+                  } else if (courseClassesOnDate.length === 1) {
+                    // Only one course - highlight it immediately
+                    const courseDates = getCourseDates(courseClassesOnDate[0]);
+                    setHighlightedCourseDates(courseDates);
+                    setShowCourseMenu(false);
+                  } else {
+                    setHighlightedCourseDates([]);
+                    setShowCourseMenu(false);
+                  }
+                } else {
+                  setHighlightedCourseDates([]);
+                  setShowCourseMenu(false);
+                }
+              }}
+              selectedDate={selectedDate}
+              getClassesForDate={getClassesForDate}
+              highlightedDates={highlightedCourseDates}
+              classTypeConfig={classTypeConfig}
+              getClassCategory={getClassCategory}
+              classTypeFilter={classTypeFilter}
+              isAdminView={false}
+              myBookings={myBookings}
+              isEnrolled={isEnrolled}
+            />
           </div>
 
           {/* Class List */}
@@ -711,7 +760,7 @@ export default function ClassScheduleNew() {
               ) : (
                 classesForSelectedDate.map((classItem) => {
                   const enrolled = isEnrolled(classItem.id);
-                  const isGlazingClass = classItem.classType?.includes('Week 6/6') && classItem.classType?.includes('Glazing');
+                  const isGlazingClass = classItem.fullCourseIdentifier?.endsWith('.6');
                   const isPast = new Date(classItem.classDate) < new Date();
                   const isSoldOut = classItem.isFull || (classItem.currentEnrollment >= classItem.maxCapacity);
                   const classCategory = getClassCategory(classItem.classType);
@@ -787,11 +836,12 @@ export default function ClassScheduleNew() {
                         ) : (
                           <button
                             onClick={() => {
-                              setSelectedClass(classItem);
-                              // Auto-select 6 weeks for wheelthrowing, null for handbuilding (user must choose)
+                              // Redirect to Shopify for booking and payment
                               const category = getClassCategory(classItem.classType);
-                              setCourseWeeks(category === 'handbuilding' ? null : 6);
-                              setShowModal(true);
+                              const url = category === 'handbuilding'
+                                ? 'https://ves.sg/products/handbuilding-pottery-course'
+                                : 'https://ves.sg/products/wheelthrowing-pottery-course';
+                              window.location.href = url;
                             }}
                             className="flex min-w-[84px] max-w-[480px] cursor-pointer items-center justify-center overflow-hidden h-8 px-4 bg-accent text-white text-sm font-medium"
                           >
@@ -984,64 +1034,36 @@ export default function ClassScheduleNew() {
               </div>
 
               <div className="grid md:grid-cols-2 gap-6">
-                {/* Calendar Section */}
+                {/* Calendar Section - Using Shared ClassCalendar Component */}
                 <div>
-                  <div className="bg-background-alt border border-border p-4">
-                    <div className="flex items-center justify-between mb-4">
-                      <button
-                        className="p-2 hover:bg-background"
-                        onClick={() => {
-                          setRescheduleCurrentMonth(new Date(rescheduleCurrentMonth.getFullYear(), rescheduleCurrentMonth.getMonth() - 1));
-                        }}
-                      >
-                        <span className="material-symbols-outlined text-text-muted">chevron_left</span>
-                      </button>
-                      <p className="text-lg font-bold uppercase">{monthNames[rescheduleCurrentMonth.getMonth()]} {rescheduleCurrentMonth.getFullYear()}</p>
-                      <button
-                        className="p-2 hover:bg-background"
-                        onClick={() => {
-                          setRescheduleCurrentMonth(new Date(rescheduleCurrentMonth.getFullYear(), rescheduleCurrentMonth.getMonth() + 1));
-                        }}
-                      >
-                        <span className="material-symbols-outlined text-text-muted">chevron_right</span>
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-7 gap-1">
-                      {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, i) => (
-                        <p key={i} className="text-center text-xs font-bold text-text-muted py-2">{day}</p>
-                      ))}
-
-                      {Array.from({ length: getDaysInMonth(rescheduleCurrentMonth).startingDayOfWeek }).map((_, i) => (
-                        <div key={`empty-${i}`} />
-                      ))}
-
-                      {Array.from({ length: getDaysInMonth(rescheduleCurrentMonth).daysInMonth }).map((_, i) => {
-                        const day = i + 1;
-                        const date = new Date(rescheduleCurrentMonth.getFullYear(), rescheduleCurrentMonth.getMonth(), day);
-                        const isSelected = date.toDateString() === rescheduleSelectedDate.toDateString();
-                        const classesOnDate = getRescheduleClassesForDate(date);
-                        const hasClasses = classesOnDate.length > 0;
-
-                        return (
-                          <button
-                            key={day}
-                            onClick={() => setRescheduleSelectedDate(date)}
-                            disabled={!hasClasses}
-                            className={`h-10 w-full text-sm font-medium ${
-                              isSelected
-                                ? 'bg-accent text-white'
-                                : hasClasses
-                                ? 'bg-blue-500/20 hover:bg-blue-500/30'
-                                : 'text-text-muted cursor-not-allowed'
-                            }`}
-                          >
-                            {day}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+                  <ClassCalendar
+                    currentMonth={rescheduleCurrentMonth}
+                    onMonthChange={setRescheduleCurrentMonth}
+                    onDateSelect={(date) => setRescheduleSelectedDate(date)}
+                    selectedDate={rescheduleSelectedDate}
+                    getClassesForDate={(date) => {
+                      // Return available makeup classes for this date
+                      const classesOnDate = getRescheduleClassesForDate(date);
+                      // Map to format expected by ClassCalendar
+                      return classesOnDate.map(c => ({
+                        ...c,
+                        class_type: c.classType,
+                        fullCourseIdentifier: c.fullCourseIdentifier || c.courseIdentifier
+                      }));
+                    }}
+                    highlightedDates={[]}
+                    classTypeConfig={{
+                      'all': { bgLight: 'bg-blue-500/20' },
+                      'wheelthrowing-beginner': { bgLight: 'bg-blue-500/20' },
+                      'wheelthrowing-intermediate': { bgLight: 'bg-blue-500/20' },
+                      'handbuilding': { bgLight: 'bg-blue-500/20' },
+                      'kids': { bgLight: 'bg-blue-500/20' }
+                    }}
+                    getClassCategory={getClassCategory}
+                    classTypeFilter="all"
+                    isAdminView={false}
+                    isEnrolled={() => false}
+                  />
                 </div>
 
                 {/* Class List Section */}
@@ -1101,7 +1123,14 @@ export default function ClassScheduleNew() {
               </div>
             </div>
 
-            <div className="p-6 bg-background border-t border-border flex justify-end">
+            <div className="p-6 bg-background border-t border-border flex justify-between items-center">
+              <button
+                onClick={handlePauseRequest}
+                className="flex items-center gap-2 px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors text-sm font-bold"
+              >
+                <span className="material-symbols-outlined text-sm">pause_circle</span>
+                <span>Pause Course</span>
+              </button>
               <button
                 className="flex min-w-[84px] max-w-[480px] cursor-pointer items-center justify-center overflow-hidden h-10 px-4 bg-border text-text text-sm font-bold"
                 onClick={() => {
@@ -1111,6 +1140,69 @@ export default function ClassScheduleNew() {
                 }}
               >
                 <span>Cancel</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pause Confirmation Modal */}
+      {showPauseModal && pauseCalculation && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-background-alt border border-border shadow-lg w-full max-w-lg">
+            <div className="p-6 border-b border-border">
+              <h3 className="text-2xl font-bold uppercase">Pause Course</h3>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-yellow-500/10 border border-yellow-500 p-3">
+                <p className="text-sm font-bold text-yellow-700">IMPORTANT INFORMATION</p>
+                <ul className="text-xs text-text-muted mt-2 space-y-1 list-disc list-inside">
+                  <li>You can only pause once per course</li>
+                  <li>Pause is valid for 30 days maximum</li>
+                  <li>You can resume in the next available {pauseCalculation.courseType} course</li>
+                  <li>A fee of $40/class applies for remaining classes</li>
+                </ul>
+              </div>
+
+              <div className="bg-blue-500/10 border border-blue-500 p-4">
+                <p className="text-sm font-bold text-blue-700 mb-3">PAUSE SUMMARY</p>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-text-muted">Remaining Classes:</span>
+                    <span className="font-bold">{pauseCalculation.remainingClasses}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-text-muted">Fee per Class:</span>
+                    <span className="font-bold">$40.00</span>
+                  </div>
+                  <div className="border-t border-blue-500/20 pt-2 flex justify-between">
+                    <span className="text-text-muted font-bold">Total Pause Fee:</span>
+                    <span className="font-bold text-lg text-blue-700">${pauseCalculation.totalFee.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-sm text-text-muted">
+                After confirming, you'll receive a payment link. Once paid, you can resume your course in the next available {pauseCalculation.courseType} course within 30 days.
+              </p>
+            </div>
+
+            <div className="p-6 bg-background border-t border-border flex justify-end gap-2">
+              <button
+                className="flex min-w-[84px] max-w-[480px] cursor-pointer items-center justify-center overflow-hidden h-10 px-4 bg-border text-text text-sm font-bold"
+                onClick={() => {
+                  setShowPauseModal(false);
+                  setPauseCalculation(null);
+                }}
+              >
+                <span>Cancel</span>
+              </button>
+              <button
+                onClick={confirmPause}
+                className="flex min-w-[84px] max-w-[480px] cursor-pointer items-center justify-center overflow-hidden h-10 px-4 bg-yellow-500 text-white text-sm font-bold hover:bg-yellow-600"
+              >
+                <span>Confirm Pause</span>
               </button>
             </div>
           </div>

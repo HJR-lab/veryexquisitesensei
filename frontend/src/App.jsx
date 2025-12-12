@@ -10,10 +10,12 @@ import AdminCoursesNew from './pages/AdminCoursesNew';
 import Admin from './pages/Admin';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminStudents from './pages/AdminStudents';
+import AdminStudentDetail from './pages/AdminStudentDetail';
 import AdminMemberships from './pages/AdminMemberships';
 import AdminGallery from './pages/AdminGallery';
 import AdminReference from './pages/AdminReference';
 import AdminClasses from './pages/AdminClasses';
+import AdminPausedStudents from './pages/AdminPausedStudents';
 import UploadPiece from './pages/UploadPiece';
 import PublicGallery from './pages/PublicGallery';
 import Dashboard from './pages/Dashboard';
@@ -132,6 +134,14 @@ function App() {
             }
           />
           <Route
+            path="/admin/paused-students"
+            element={
+              <PrivateRoute>
+                <AdminPausedStudents />
+              </PrivateRoute>
+            }
+          />
+          <Route
             path="/admin/courses"
             element={
               <PrivateRoute>
@@ -144,6 +154,14 @@ function App() {
             element={
               <PrivateRoute>
                 <AdminStudents />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/admin/students/:email"
+            element={
+              <PrivateRoute>
+                <AdminStudentDetail />
               </PrivateRoute>
             }
           />
@@ -199,6 +217,11 @@ function App() {
           <Route path="/my-gallery" element={
             <PrivateRoute>
               <GalleryNew />
+            </PrivateRoute>
+          } />
+          <Route path="/my-classes" element={
+            <PrivateRoute>
+              <ClassScheduleNew />
             </PrivateRoute>
           } />
           <Route path="/membership" element={<Membership />} />

@@ -17,6 +17,7 @@ export default function AdminClasses() {
   const [classTypeFilter, setClassTypeFilter] = useState('all');
   const [expandedClassId, setExpandedClassId] = useState(null);
   const [classMembers, setClassMembers] = useState({});
+  const [absentMembers, setAbsentMembers] = useState({});
   const [loadingMembers, setLoadingMembers] = useState({});
   const [highlightedCourseDates, setHighlightedCourseDates] = useState([]);
   const [showCourseMenu, setShowCourseMenu] = useState(false);
@@ -132,6 +133,10 @@ export default function AdminClasses() {
           ...prev,
           [classInstance.id]: data.members || []
         }));
+        setAbsentMembers(prev => ({
+          ...prev,
+          [classInstance.id]: data.absentMembers || []
+        }));
       } catch (error) {
         console.error('Failed to load class members:', error);
       } finally {
@@ -190,25 +195,15 @@ export default function AdminClasses() {
     try {
       setRescheduling(true);
 
-      // Calculate fee based on business rules
-      let fee = 0;
-      const newClass = availableClasses.find(c => c.id === rescheduleData.newClassInstanceId);
-
-      if (!rescheduleData.isGlazing) {
-        // Check if it's in the same course (same baseCourseIdentifier)
-        const isSameCourse = newClass.baseCourseIdentifier === reschedulingBooking.classInstance.baseCourseIdentifier;
-
-        if (!isSameCourse) {
-          // Different course = makeup fee
-          fee = 40;
-        }
-      }
+      // Admin reschedules are always FREE (no fees)
+      const fee = 0;
 
       await axios.post(`/api/admin/bookings/${reschedulingBooking.bookingId}/reschedule`, {
         newClassInstanceId: rescheduleData.newClassInstanceId,
         rescheduleReason: rescheduleData.reason,
         fee: fee,
-        isGlazingReschedule: rescheduleData.isGlazing
+        isGlazingReschedule: rescheduleData.isGlazing,
+        isAdminReschedule: true  // Flag to indicate this is an admin reschedule
       });
 
       // Reload courses to update booking counts
@@ -271,15 +266,38 @@ export default function AdminClasses() {
         studentId
       });
 
-      // Reload courses to update booking counts
+      // Reload members for this class FIRST to show updated list
+      const classId = addingToClassId;
+      if (expandedClassId === classId) {
+        try {
+          setLoadingMembers(prev => ({ ...prev, [classId]: true }));
+          const { data } = await axios.get(`/api/admin/classes/${classId}/members`);
+          setClassMembers(prev => ({
+            ...prev,
+            [classId]: data.members || []
+          }));
+          setAbsentMembers(prev => ({
+            ...prev,
+            [classId]: data.absentMembers || []
+          }));
+        } catch (error) {
+          console.error('Failed to reload class members:', error);
+        } finally {
+          setLoadingMembers(prev => ({ ...prev, [classId]: false }));
+        }
+      }
+
+      // THEN reload courses to update booking counts
       await loadCourses();
 
-      // Clear cached members for this class
-      setClassMembers(prev => {
-        const updated = { ...prev };
-        delete updated[addingToClassId];
-        return updated;
-      });
+      // Clear cached members for other classes if not expanded
+      if (expandedClassId !== classId) {
+        setClassMembers(prev => {
+          const updated = { ...prev };
+          delete updated[classId];
+          return updated;
+        });
+      }
 
       alert('Student added successfully!');
       setShowAddStudentModal(false);
@@ -299,17 +317,59 @@ export default function AdminClasses() {
     }
 
     try {
-      await axios.delete(`/api/admin/bookings/${bookingId}`);
+      console.log('🗑️ Removing student:', studentName, 'Booking ID:', bookingId);
+      const deleteResponse = await axios.delete(`/api/admin/bookings/${bookingId}`);
+      console.log('✅ Delete response:', deleteResponse.data);
 
-      // Reload courses to update booking counts
-      await loadCourses();
+      // Small delay to ensure database transaction completes
+      await new Promise(resolve => setTimeout(resolve, 100));
 
-      // Clear cached members for this class
+      // Clear cached members first to force fresh fetch
       setClassMembers(prev => {
         const updated = { ...prev };
         delete updated[classId];
         return updated;
       });
+      setAbsentMembers(prev => {
+        const updated = { ...prev };
+        delete updated[classId];
+        return updated;
+      });
+
+      // Reload members for this class FIRST to show updated list
+      if (expandedClassId === classId) {
+        try {
+          setLoadingMembers(prev => ({ ...prev, [classId]: true }));
+          console.log('🔄 Reloading members for class:', classId);
+          const { data } = await axios.get(`/api/admin/classes/${classId}/members?t=${Date.now()}`);
+          console.log('📋 Updated member list:', data.members);
+          console.log('👻 Absent members:', data.absentMembers);
+          setClassMembers(prev => ({
+            ...prev,
+            [classId]: data.members || []
+          }));
+          setAbsentMembers(prev => ({
+            ...prev,
+            [classId]: data.absentMembers || []
+          }));
+        } catch (error) {
+          console.error('Failed to reload class members:', error);
+        } finally {
+          setLoadingMembers(prev => ({ ...prev, [classId]: false }));
+        }
+      }
+
+      // THEN reload courses to update booking counts
+      await loadCourses();
+
+      // Clear cached members for other classes if not expanded
+      if (expandedClassId !== classId) {
+        setClassMembers(prev => {
+          const updated = { ...prev };
+          delete updated[classId];
+          return updated;
+        });
+      }
 
       alert('Student removed successfully!');
     } catch (error) {
@@ -712,6 +772,59 @@ export default function AdminClasses() {
                             ) : (
                               <p className="text-sm text-gray-400">No enrollment details available</p>
                             )}
+
+                            {/* Absent/Rescheduled Members Section */}
+                            {!loadingMembers[classInstance.id] && absentMembers[classInstance.id]?.length > 0 && (
+                              <div className="mt-4 pt-4 border-t border-gray-200">
+                                <p className="text-sm font-semibold text-gray-700 mb-2">
+                                  Absent/Rescheduled ({absentMembers[classInstance.id].length})
+                                </p>
+                                <div className="bg-yellow-50 rounded p-2 space-y-1">
+                                  {absentMembers[classInstance.id].map((member) => (
+                                    <div
+                                      key={member.id}
+                                      className="text-sm py-1 flex items-center justify-between gap-2"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-yellow-700">
+                                          {member.firstName} {member.lastName}
+                                        </span>
+                                        <span className="text-gray-500">•</span>
+                                        <span className={`text-xs font-medium px-2 py-0.5 rounded ${
+                                          member.status === 'rescheduled'
+                                            ? 'bg-blue-100 text-blue-700'
+                                            : 'bg-gray-100 text-gray-700'
+                                        }`}>
+                                          {member.status === 'rescheduled' ? 'Rescheduled' : 'Absent'}
+                                        </span>
+                                        {member.rescheduledTo && (
+                                          <>
+                                            <span className="text-gray-500">→</span>
+                                            <span className="text-xs text-gray-600">
+                                              {new Date(member.rescheduledTo.classDate).toLocaleDateString('en-US', {
+                                                month: 'short',
+                                                day: 'numeric'
+                                              })} {member.rescheduledTo.startTime}
+                                            </span>
+                                          </>
+                                        )}
+                                      </div>
+                                      <button
+                                        onClick={() => handleRemoveStudent(
+                                          member.bookingId,
+                                          classInstance.id,
+                                          `${member.firstName} ${member.lastName}`
+                                        )}
+                                        className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                                        title="Remove from list"
+                                      >
+                                        <span className="material-symbols-outlined text-sm">close</span>
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -820,21 +933,14 @@ export default function AdminClasses() {
 
                 <div className="space-y-4">
                   {/* Fee Information */}
-                  <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
                     <div className="flex items-start gap-2">
-                      <span className="material-symbols-outlined text-yellow-600 text-xl">info</span>
+                      <span className="material-symbols-outlined text-green-600 text-xl">info</span>
                       <div>
-                        <p className="text-sm font-semibold text-yellow-900 mb-1">Fee Information:</p>
-                        {rescheduleData.isGlazing ? (
-                          <p className="text-sm text-yellow-800">
-                            Glazing class can be rescheduled up to 2 courses ahead at <strong>no charge</strong>.
-                          </p>
-                        ) : (
-                          <p className="text-sm text-yellow-800">
-                            Reschedule within same course: <strong>Free</strong><br />
-                            Makeup in next course: <strong>$40 fee</strong>
-                          </p>
-                        )}
+                        <p className="text-sm font-semibold text-green-900 mb-1">Admin Reschedule:</p>
+                        <p className="text-sm text-green-800">
+                          All admin reschedules are <strong>FREE</strong> - no fees apply.
+                        </p>
                       </div>
                     </div>
                   </div>

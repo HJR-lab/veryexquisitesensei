@@ -194,9 +194,9 @@ async function createTestUser(email, password, firstName, lastName) {
 
 // Parse command line arguments
 const args = process.argv.slice(2);
-const email = args[0] || 'admin@ves.sg';
+const email = args[0] || 'test@example.com';
 const password = args[1] || 'pottery123';
-const firstName = args[2] || 'Admin';
+const firstName = args[2] || 'Test';
 const lastName = args[3] || 'User';
 
 createTestUser(email, password, firstName, lastName);

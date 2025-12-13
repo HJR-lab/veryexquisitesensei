@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import Navigation from '../components/Navigation';
 import Footer from '../components/Footer';
-import axios from 'axios';
+import api from '../utils/api';
 
 export default function AdminMemberships() {
   const navigate = useNavigate();
@@ -58,11 +58,11 @@ export default function AdminMemberships() {
       setLoading(true);
 
       // Load memberships
-      const membershipsRes = await axios.get('/api/admin/memberships');
+      const membershipsRes = await api.get('/admin/memberships');
       setMemberships(membershipsRes.data.memberships || []);
 
       // Load students for dropdown
-      const studentsRes = await axios.get('/api/admin/customers');
+      const studentsRes = await api.get('/admin/customers');
       setStudents(studentsRes.data.customers);
     } catch (error) {
       console.error('Failed to load data:', error);
@@ -76,7 +76,7 @@ export default function AdminMemberships() {
     try {
       setLoading(true);
 
-      await axios.post('/api/admin/memberships', {
+      await api.post('/admin/memberships', {
         customerId: parseInt(createForm.customerId),
         membershipType: createForm.membershipType,
         startDate: createForm.startDate,

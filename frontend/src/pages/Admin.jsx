@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { potteryAPI } from '../utils/api';
-import axios from 'axios';
+import api from '../utils/api';
 import '../styles/Admin.css';
 
 export default function Admin() {
@@ -35,7 +35,7 @@ export default function Admin() {
 
   const loadCustomers = async () => {
     try {
-      const { data } = await axios.get('/api/admin/customers');
+      const { data } = await api.get.'/admin/customers');
       setCustomers(data.customers);
     } catch (error) {
       console.error('Failed to load customers:', error);
@@ -45,7 +45,7 @@ export default function Admin() {
   const loadCustomerPieces = async (customerId) => {
     try {
       setLoading(true);
-      const { data } = await axios.get(`/api/admin/customers/${customerId}/pieces`);
+      const { data } = await api.get.`/admin/customers/${customerId}/pieces`);
       setPieces(data.pieces || []);
       setSelectedCustomer(customerId);
     } catch (error) {
@@ -83,7 +83,7 @@ export default function Admin() {
     try {
       setLoading(true);
       const updatedPieces = [...pieces, newPiece];
-      await axios.post(`/api/admin/customers/${selectedCustomer}/pieces`, {
+      await api.post.`/admin/customers/${selectedCustomer}/pieces`, {
         pieces: updatedPieces
       });
 
@@ -127,7 +127,7 @@ export default function Admin() {
     try {
       setLoading(true);
       const updatedPieces = pieces.filter(p => p.id !== pieceId);
-      await axios.post(`/api/admin/customers/${selectedCustomer}/pieces`, {
+      await api.post.`/admin/customers/${selectedCustomer}/pieces`, {
         pieces: updatedPieces
       });
       setPieces(updatedPieces);

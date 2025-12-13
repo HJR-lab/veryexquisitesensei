@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../utils/api';
 
 const API_URL = 'http://localhost:3000';
 
@@ -27,7 +27,7 @@ export default function AdminCoursesNew() {
   const fetchCourses = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/api/classes/available`, {
+      const response = await api.get.`${API_URL}/api/classes/available`, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
@@ -57,7 +57,7 @@ export default function AdminCoursesNew() {
   const handleSave = async () => {
     try {
       const token = localStorage.getItem('token');
-      await axios.put(`${API_URL}/api/classes/${selectedCourse.id}`, formData, {
+      await api.put.`${API_URL}/api/classes/${selectedCourse.id}`, formData, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
@@ -74,7 +74,7 @@ export default function AdminCoursesNew() {
 
     try {
       const token = localStorage.getItem('token');
-      await axios.delete(`${API_URL}/api/classes/${selectedCourse.id}`, {
+      await api.delete.`${API_URL}/api/classes/${selectedCourse.id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
 

@@ -4,7 +4,7 @@ import { useAuth } from '../hooks/useAuth';
 import Navigation from '../components/Navigation';
 import Footer from '../components/Footer';
 import PeriodFilter from '../components/PeriodFilter';
-import axios from 'axios';
+import api from '../utils/api';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -32,9 +32,9 @@ export default function AdminDashboard() {
 
       // Load dashboard stats and reference data
       const [dashboardRes, clayTypesRes, glazesRes] = await Promise.all([
-        axios.get('/api/admin/dashboard/stats', { params }),
-        axios.get('/api/reference/clay-types'),
-        axios.get('/api/reference/glazes')
+        api.get.'/admin/dashboard/stats', { params }),
+        api.get.'/api/reference/clay-types'),
+        api.get.'/api/reference/glazes')
       ]);
 
       setStats({

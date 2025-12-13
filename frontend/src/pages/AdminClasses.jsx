@@ -4,7 +4,7 @@ import { useAuth } from '../hooks/useAuth';
 import Navigation from '../components/Navigation';
 import Footer from '../components/Footer';
 import ClassCalendar from '../components/ClassCalendar';
-import axios from 'axios';
+import api from '../utils/api';
 
 export default function AdminClasses() {
   const navigate = useNavigate();
@@ -66,7 +66,7 @@ export default function AdminClasses() {
   const loadCourses = async () => {
     try {
       setLoading(true);
-      const { data } = await axios.get('/api/admin/classes');
+      const { data } = await api.get.'/admin/classes');
       setCourses(data.courses || []);
     } catch (error) {
       console.error('Failed to load courses:', error);
@@ -139,7 +139,7 @@ export default function AdminClasses() {
     if (!classMembers[classInstance.id]) {
       try {
         setLoadingMembers(prev => ({ ...prev, [classInstance.id]: true }));
-        const { data } = await axios.get(`/api/admin/classes/${classInstance.id}/members`);
+        const { data } = await api.get.`/admin/classes/${classInstance.id}/members`);
         setClassMembers(prev => ({
           ...prev,
           [classInstance.id]: data.members || []
@@ -209,7 +209,7 @@ export default function AdminClasses() {
       // Admin reschedules are always FREE (no fees)
       const fee = 0;
 
-      await axios.post(`/api/admin/bookings/${reschedulingBooking.bookingId}/reschedule`, {
+      await api.post.`/admin/bookings/${reschedulingBooking.bookingId}/reschedule`, {
         newClassInstanceId: rescheduleData.newClassInstanceId,
         rescheduleReason: rescheduleData.reason,
         fee: fee,
@@ -247,7 +247,7 @@ export default function AdminClasses() {
   const loadStudents = async () => {
     try {
       setLoadingStudents(true);
-      const { data } = await axios.get('/api/admin/customers');
+      const { data } = await api.get.'/admin/customers');
       setAllStudents(data.customers || []);
     } catch (error) {
       console.error('Failed to load students:', error);
@@ -273,7 +273,7 @@ export default function AdminClasses() {
 
     try {
       setAddingStudent(true);
-      await axios.post(`/api/admin/classes/${addingToClassId}/add-student`, {
+      await api.post.`/admin/classes/${addingToClassId}/add-student`, {
         studentId
       });
 
@@ -282,7 +282,7 @@ export default function AdminClasses() {
       if (expandedClassId === classId) {
         try {
           setLoadingMembers(prev => ({ ...prev, [classId]: true }));
-          const { data } = await axios.get(`/api/admin/classes/${classId}/members`);
+          const { data } = await api.get.`/admin/classes/${classId}/members`);
           setClassMembers(prev => ({
             ...prev,
             [classId]: data.members || []
@@ -329,7 +329,7 @@ export default function AdminClasses() {
 
     try {
       console.log('🗑️ Removing student:', studentName, 'Booking ID:', bookingId);
-      const deleteResponse = await axios.delete(`/api/admin/bookings/${bookingId}`);
+      const deleteResponse = await api.delete.`/admin/bookings/${bookingId}`);
       console.log('✅ Delete response:', deleteResponse.data);
 
       // Small delay to ensure database transaction completes
@@ -352,7 +352,7 @@ export default function AdminClasses() {
         try {
           setLoadingMembers(prev => ({ ...prev, [classId]: true }));
           console.log('🔄 Reloading members for class:', classId);
-          const { data } = await axios.get(`/api/admin/classes/${classId}/members?t=${Date.now()}`);
+          const { data } = await api.get.`/admin/classes/${classId}/members?t=${Date.now()}`);
           console.log('📋 Updated member list:', data.members);
           console.log('👻 Absent members:', data.absentMembers);
           setClassMembers(prev => ({
@@ -425,7 +425,7 @@ export default function AdminClasses() {
 
     try {
       setUpdatingClass(true);
-      await axios.patch(`/api/admin/classes/${editingClass.id}`, {
+      await axios.patch(`/admin/classes/${editingClass.id}`, {
         classDate: editClassData.classDate,
         startTime: editClassData.startTime,
         endTime: editClassData.endTime,
@@ -465,7 +465,7 @@ export default function AdminClasses() {
 
     try {
       setCreatingClass(true);
-      await axios.post('/api/admin/classes', createClassData);
+      await api.post.'/admin/classes', createClassData);
 
       // Reload courses to show new class
       await loadCourses();
@@ -495,7 +495,7 @@ export default function AdminClasses() {
     }
 
     try {
-      await axios.delete(`/api/admin/classes/${classId}`);
+      await api.delete.`/admin/classes/${classId}`);
 
       // Reload courses to update data
       await loadCourses();

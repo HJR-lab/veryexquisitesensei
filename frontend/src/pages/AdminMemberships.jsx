@@ -116,12 +116,66 @@ export default function AdminMemberships() {
     });
   };
 
-  const filteredMemberships = memberships.filter(m => {
-    if (filterStatus === 'all') return true;
-    if (filterStatus === 'active') return m.status === 'active';
-    if (filterStatus === 'expired') return m.status === 'expired';
-    return true;
-  });
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      setLoading(true);
+
+      await api.put(`/admin/memberships/${selectedMembership.id}`, {
+        startDate: selectedMembership.startDate,
+        endDate: selectedMembership.endDate,
+        status: selectedMembership.status
+      });
+
+      setShowEditModal(false);
+      setSelectedMembership(null);
+      await loadData();
+      alert('Membership updated successfully!');
+    } catch (error) {
+      console.error('Failed to update membership:', error);
+      alert('Failed to update membership');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm(`Are you sure you want to delete ${selectedMembership.studentName}'s membership? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      await api.delete(`/admin/memberships/${selectedMembership.id}`);
+
+      setShowEditModal(false);
+      setSelectedMembership(null);
+      await loadData();
+      alert('Membership deleted successfully!');
+    } catch (error) {
+      console.error('Failed to delete membership:', error);
+      alert('Failed to delete membership');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredMemberships = memberships
+    .filter(m => {
+      if (filterStatus === 'all') return true;
+      if (filterStatus === 'active') return m.status === 'active';
+      if (filterStatus === 'expired') return m.status === 'expired';
+      return true;
+    })
+    .sort((a, b) => {
+      // Active memberships first
+      if (a.status === 'active' && b.status !== 'active') return -1;
+      if (a.status !== 'active' && b.status === 'active') return 1;
+
+      // Within same status, sort by end date (earliest first)
+      return new Date(a.endDate) - new Date(b.endDate);
+    });
 
   const getStatusBadge = (membership) => {
     const endDate = new Date(membership.endDate);
@@ -404,6 +458,98 @@ export default function AdminMemberships() {
                   className="flex-1 px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors disabled:opacity-50"
                 >
                   {loading ? 'Creating...' : 'Create Membership'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Membership Modal */}
+      {showEditModal && selectedMembership && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-background-alt border border-border rounded-xl max-w-2xl w-full p-6">
+            <h2 className="text-2xl font-bold text-text mb-6">Edit Membership</h2>
+
+            <form onSubmit={handleEditSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-text mb-2">Student</label>
+                <div className="w-full px-4 py-2 bg-background border border-border rounded-lg text-text opacity-60">
+                  {selectedMembership.studentName}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-text mb-2">Type</label>
+                <div className="w-full px-4 py-2 bg-background border border-border rounded-lg text-text opacity-60">
+                  {selectedMembership.type}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-text mb-2">Start Date *</label>
+                  <input
+                    type="date"
+                    value={selectedMembership.startDate}
+                    onChange={(e) => setSelectedMembership({...selectedMembership, startDate: e.target.value})}
+                    className="w-full px-4 py-2 bg-background border border-border rounded-lg text-text focus:outline-none focus:border-accent"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-text mb-2">End Date *</label>
+                  <input
+                    type="date"
+                    value={selectedMembership.endDate}
+                    onChange={(e) => setSelectedMembership({...selectedMembership, endDate: e.target.value})}
+                    className="w-full px-4 py-2 bg-background border border-border rounded-lg text-text focus:outline-none focus:border-accent"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-text mb-2">Status *</label>
+                <select
+                  value={selectedMembership.status}
+                  onChange={(e) => setSelectedMembership({...selectedMembership, status: e.target.value})}
+                  className="w-full px-4 py-2 bg-background border border-border rounded-lg text-text focus:outline-none focus:border-accent"
+                  required
+                >
+                  <option value="active">Active</option>
+                  <option value="expired">Expired</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={loading}
+                  className="px-4 py-2 bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                >
+                  Delete
+                </button>
+                <div className="flex-1"></div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setSelectedMembership(null);
+                  }}
+                  className="px-4 py-2 bg-border text-text rounded-lg hover:bg-border/80 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors disabled:opacity-50"
+                >
+                  {loading ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </form>

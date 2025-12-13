@@ -21,7 +21,9 @@ app.use(cors({
     'http://localhost:5173',
     'http://localhost:5175',
     'http://127.0.0.1:5173',
-    'http://127.0.0.1:5175'
+    'http://127.0.0.1:5175',
+    'https://frontend-r774jaqg7-hjr-labs-projects.vercel.app',
+    /https:\/\/frontend-.*-hjr-labs-projects\.vercel\.app$/
   ],
   credentials: true
 }));

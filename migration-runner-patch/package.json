@@ -11,7 +11,7 @@
   "dependencies": {
     "typescript": "^4.5.0",
     "jest": "^27.0.0",
-    "pg": "^8.7.1" // Assuming PostgreSQL as the database
+    "pg": "^8.7.1"
   },
   "devDependencies": {
     "@types/jest": "^27.0.0",

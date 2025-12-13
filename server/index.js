@@ -1567,8 +1567,20 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
     // Inactive students: students whose course has expired or no dates available
     const inactiveStudents = totalStudents - activeStudents;
 
-    // Returning students: students who have purchased more than one course (from Shopify data)
-    const returningStudents = allStudents.filter(s => (s.course_purchase_count || 0) > 1).length;
+    // Returning students: students with multiple course purchases within the last year
+    const now = new Date();
+    const oneYearAgo = new Date(now);
+    oneYearAgo.setFullYear(now.getFullYear() - 1);
+
+    const returningStudents = allStudents.filter(s => {
+      // Must have purchased more than one course
+      if ((s.course_purchase_count || 0) <= 1) return false;
+
+      // Must have a recent course purchase (within last year)
+      if (!s.course_purchase_date) return false;
+      const purchaseDate = new Date(s.course_purchase_date);
+      return purchaseDate >= oneYearAgo;
+    }).length;
 
     // Students by number of courses purchased
     const courseStats = {};
@@ -1579,9 +1591,14 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
       }
     });
 
-    // Top 3 returning students (most courses purchased from Shopify)
+    // Top 3 returning students (most courses purchased within last year)
     const topReturning = allStudents
-      .filter(s => (s.course_purchase_count || 0) > 1)
+      .filter(s => {
+        if ((s.course_purchase_count || 0) <= 1) return false;
+        if (!s.course_purchase_date) return false;
+        const purchaseDate = new Date(s.course_purchase_date);
+        return purchaseDate >= oneYearAgo;
+      })
       .sort((a, b) => (b.course_purchase_count || 0) - (a.course_purchase_count || 0))
       .slice(0, 3)
       .map(s => ({
@@ -1631,9 +1648,14 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
         return a.name.localeCompare(b.name);
       });
 
-    // Returning Students List (all students with course_purchase_count > 1)
+    // Returning Students List (students with multiple purchases within last year)
     const returningStudentsList = allStudents
-      .filter(s => (s.course_purchase_count || 0) > 1)
+      .filter(s => {
+        if ((s.course_purchase_count || 0) <= 1) return false;
+        if (!s.course_purchase_date) return false;
+        const purchaseDate = new Date(s.course_purchase_date);
+        return purchaseDate >= oneYearAgo;
+      })
       .map(s => {
         // Get the most recent course for this student
         const courses = studentCourseMap[s.id] || [];
@@ -1804,10 +1826,19 @@ app.get('/api/admin/dashboard/stats', authenticateToken, async (req, res) => {
       new Date(s.created_at) >= firstDayOfMonth
     ).length;
 
-    // Returning students should be calculated from all students, not just active ones
-    const returningStudents = allStudents.filter(s =>
-      (s.course_purchase_count || 0) > 1
-    ).length;
+    // Returning students: students with multiple course purchases within the last year
+    const oneYearAgo = new Date(now);
+    oneYearAgo.setFullYear(now.getFullYear() - 1);
+
+    const returningStudents = allStudents.filter(s => {
+      // Must have purchased more than one course
+      if ((s.course_purchase_count || 0) <= 1) return false;
+
+      // Must have a recent course purchase (within last year)
+      if (!s.course_purchase_date) return false;
+      const purchaseDate = new Date(s.course_purchase_date);
+      return purchaseDate >= oneYearAgo;
+    }).length;
 
     // Calculate class stats
     // Total enrolled = unique students with bookings

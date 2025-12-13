@@ -155,7 +155,10 @@ app.post('/api/auth/login', async (req, res) => {
 
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ error: 'Login failed' });
+    console.error('Error details:', error.message);
+    console.error('Has SHOPIFY_API_KEY:', !!process.env.SHOPIFY_API_KEY);
+    console.error('Has SHOPIFY_SHOP_DOMAIN:', !!process.env.SHOPIFY_SHOP_DOMAIN);
+    res.status(500).json({ error: 'Login failed', debug: error.message });
   }
 });
 

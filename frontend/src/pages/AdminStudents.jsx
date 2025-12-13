@@ -44,11 +44,8 @@ export default function AdminStudents() {
       setCourseStats(data.courseStats);
       setTopPerformers(data.topPerformers);
 
-      // Filter out students without course identifiers and sort by course then name
-      const filteredActive = (data.activeStudentsList || [])
-        .filter(s => s.courseIdentifier !== null && s.courseIdentifier !== 'N/A');
-
-      setActiveStudentsList(filteredActive);
+      // Show all active students regardless of whether they have course identifiers
+      setActiveStudentsList(data.activeStudentsList || []);
       setReturningStudentsList(data.returningStudentsList || []);
     } catch (error) {
       console.error('Failed to load stats:', error);

@@ -47,6 +47,17 @@ export default function AdminClasses() {
     instructor: ''
   });
   const [updatingClass, setUpdatingClass] = useState(false);
+  const [showCreateClassModal, setShowCreateClassModal] = useState(false);
+  const [creatingClass, setCreatingClass] = useState(false);
+  const [createClassData, setCreateClassData] = useState({
+    classDate: '',
+    startTime: '',
+    endTime: '',
+    classType: '',
+    instructor: '',
+    room: '',
+    maxCapacity: 10
+  });
 
   useEffect(() => {
     loadCourses();
@@ -441,6 +452,61 @@ export default function AdminClasses() {
     }
   };
 
+  const handleCreateClass = async () => {
+    if (!createClassData.classDate || !createClassData.startTime || !createClassData.endTime ||
+        !createClassData.classType || !createClassData.instructor || !createClassData.room) {
+      alert('Please fill in all required fields');
+      return;
+    }
+
+    if (!confirm('Are you sure you want to create this class?')) {
+      return;
+    }
+
+    try {
+      setCreatingClass(true);
+      await axios.post('/api/admin/classes', createClassData);
+
+      // Reload courses to show new class
+      await loadCourses();
+
+      alert('Class created successfully!');
+      setShowCreateClassModal(false);
+      setCreateClassData({
+        classDate: '',
+        startTime: '',
+        endTime: '',
+        classType: '',
+        instructor: '',
+        room: '',
+        maxCapacity: 10
+      });
+    } catch (error) {
+      console.error('Failed to create class:', error);
+      alert(error.response?.data?.error || 'Failed to create class. Please try again.');
+    } finally {
+      setCreatingClass(false);
+    }
+  };
+
+  const handleDeleteClass = async (classId, classType) => {
+    if (!confirm(`Are you sure you want to delete this class (${classType})? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      await axios.delete(`/api/admin/classes/${classId}`);
+
+      // Reload courses to update data
+      await loadCourses();
+
+      alert('Class deleted successfully!');
+    } catch (error) {
+      console.error('Failed to delete class:', error);
+      alert(error.response?.data?.error || 'Failed to delete class. Please try again.');
+    }
+  };
+
   const getClassesForDate = (date) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -531,13 +597,22 @@ export default function AdminClasses() {
               <h1 className="text-4xl font-bold text-text mb-2">Class Management</h1>
               <p className="text-text-muted">View courses and manage enrollment</p>
             </div>
-            <button
-              onClick={logout}
-              className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500/20 transition-colors"
-            >
-              <span className="material-symbols-outlined text-sm">logout</span>
-              <span className="hidden sm:inline">Sign Out</span>
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowCreateClassModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-green-500/10 text-green-600 rounded-lg hover:bg-green-500/20 transition-colors"
+              >
+                <span className="material-symbols-outlined text-sm">add</span>
+                <span className="hidden sm:inline">Create Class</span>
+              </button>
+              <button
+                onClick={logout}
+                className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500/20 transition-colors"
+              >
+                <span className="material-symbols-outlined text-sm">logout</span>
+                <span className="hidden sm:inline">Sign Out</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -675,7 +750,7 @@ export default function AdminClasses() {
                             className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
                           >
                             <span className="material-symbols-outlined text-sm">edit</span>
-                            <span>Edit Class</span>
+                            <span>Edit</span>
                           </button>
                           <button
                             onClick={() => handleOpenAddStudentModal(classInstance.id)}
@@ -683,7 +758,16 @@ export default function AdminClasses() {
                             className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-green-500 text-white rounded hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <span className="material-symbols-outlined text-sm">add</span>
-                            <span>Add Student</span>
+                            <span>Add</span>
+                          </button>
+                          <button
+                            onClick={() => handleDeleteClass(classInstance.id, classInstance.class_type)}
+                            disabled={classInstance.bookingCount > 0}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            title={classInstance.bookingCount > 0 ? "Cannot delete class with enrolled students" : "Delete class"}
+                          >
+                            <span className="material-symbols-outlined text-sm">delete</span>
+                            <span>Delete</span>
                           </button>
                         </div>
                       </div>
@@ -1152,6 +1236,174 @@ export default function AdminClasses() {
                   className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Create Class Modal */}
+      {showCreateClassModal && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/50 z-40"
+            onClick={() => setShowCreateClassModal(false)}
+          />
+
+          {/* Modal */}
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              {/* Header */}
+              <div className="px-6 py-4 border-b border-gray-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-900">Create New Class</h2>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Add a new class instance to the schedule
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowCreateClassModal(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <span className="material-symbols-outlined">close</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="px-6 py-4">
+                <div className="space-y-4">
+                  {/* Class Type */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Class Type / Identifier *
+                    </label>
+                    <input
+                      type="text"
+                      value={createClassData.classType}
+                      onChange={(e) => setCreateClassData({ ...createClassData, classType: e.target.value })}
+                      placeholder="e.g., WT1210AM_DL6.1 or HB0511NT_LT13.1"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent font-mono text-sm"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Format: [WT/HB][MMDD][AM/PM/NT]_[INSTRUCTOR][WEEKS].[WEEK#]
+                    </p>
+                  </div>
+
+                  {/* Class Date */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Class Date *
+                    </label>
+                    <input
+                      type="date"
+                      value={createClassData.classDate}
+                      onChange={(e) => setCreateClassData({ ...createClassData, classDate: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* Time Row */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        Start Time *
+                      </label>
+                      <input
+                        type="text"
+                        value={createClassData.startTime}
+                        onChange={(e) => setCreateClassData({ ...createClassData, startTime: e.target.value })}
+                        placeholder="e.g., 9:30am"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        End Time *
+                      </label>
+                      <input
+                        type="text"
+                        value={createClassData.endTime}
+                        onChange={(e) => setCreateClassData({ ...createClassData, endTime: e.target.value })}
+                        placeholder="e.g., 12:00pm"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Instructor */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Instructor *
+                    </label>
+                    <input
+                      type="text"
+                      value={createClassData.instructor}
+                      onChange={(e) => setCreateClassData({ ...createClassData, instructor: e.target.value })}
+                      placeholder="e.g., Dillon Lin"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* Room */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Room *
+                    </label>
+                    <input
+                      type="text"
+                      value={createClassData.room}
+                      onChange={(e) => setCreateClassData({ ...createClassData, room: e.target.value })}
+                      placeholder="e.g., Studio A, Studio B, Studio C"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* Max Capacity */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Max Capacity *
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="50"
+                      value={createClassData.maxCapacity}
+                      onChange={(e) => setCreateClassData({ ...createClassData, maxCapacity: parseInt(e.target.value) || 10 })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-end gap-3">
+                <button
+                  onClick={() => setShowCreateClassModal(false)}
+                  disabled={creatingClass}
+                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateClass}
+                  disabled={creatingClass}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {creatingClass ? (
+                    <>
+                      <span className="material-symbols-outlined text-sm animate-spin">refresh</span>
+                      <span>Creating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-sm">add</span>
+                      <span>Create Class</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>

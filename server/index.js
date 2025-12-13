@@ -1604,9 +1604,9 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
         totalBookings: bookingMap[s.id].bookingCount
       }));
 
-    // Active Students List (all students with course_expiry_date >= today)
+    // Active Students List (students who have bookings for classes on or after today)
     const activeStudentsList = allStudents
-      .filter(s => s.course_expiry_date && s.course_expiry_date >= today)
+      .filter(s => activeStudentIds.has(s.id))
       .map(s => {
         // Get the most recent course for this student
         const courses = studentCourseMap[s.id] || [];
@@ -1698,10 +1698,19 @@ app.get('/api/admin/students/:email', authenticateToken, async (req, res) => {
 // Get dashboard stats
 app.get('/api/admin/dashboard/stats', authenticateToken, async (req, res) => {
   try {
+    // Get period filter from query params
+    const { startDate: periodStart, endDate: periodEnd } = req.query;
+
     const now = new Date();
     const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const firstDayOfWeek = new Date(now);
     firstDayOfWeek.setDate(now.getDate() - now.getDay());
+
+    // Use period dates if provided, otherwise use current date
+    const filterStartDate = periodStart || null;
+    const filterEndDate = periodEnd || null;
+
+    console.log(`📊 Dashboard Stats Request: Period ${filterStartDate || 'All'} to ${filterEndDate || 'All'}`);
 
     // Fetch all customers with pagination (Supabase default limit is 1000)
     let allStudents = [];
@@ -1738,11 +1747,17 @@ app.get('/api/admin/dashboard/stats', authenticateToken, async (req, res) => {
     }
 
     // Get other data in parallel (these are unlikely to exceed 1000 rows)
+    // Apply period filter if provided
+    let classQuery = supabaseDb.supabase
+      .from('class_instances')
+      .select('id, class_date, max_capacity');
+
+    if (filterStartDate && filterEndDate) {
+      classQuery = classQuery.gte('class_date', filterStartDate).lte('class_date', filterEndDate);
+    }
+
     const results = await Promise.allSettled([
-      // Get ALL class instances to show total scheduled classes
-      supabaseDb.supabase
-        .from('class_instances')
-        .select('id, class_date, max_capacity'),
+      classQuery,
       supabaseDb.supabase
         .from('memberships')
         .select('id, status, end_date, created_at')
@@ -2472,6 +2487,90 @@ app.patch('/api/admin/classes/:classId', authenticateToken, async (req, res) => 
   } catch (error) {
     console.error('Error updating class:', error);
     res.status(500).json({ error: 'Failed to update class' });
+  }
+});
+
+// Create a new class
+app.post('/api/admin/classes', authenticateToken, async (req, res) => {
+  try {
+    const { classDate, startTime, endTime, classType, instructor, room, maxCapacity } = req.body;
+
+    // Validate required fields
+    if (!classDate || !startTime || !endTime || !classType || !instructor || !room) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const now = new Date().toISOString();
+
+    // Create the class instance
+    const { data, error } = await supabaseDb.supabase
+      .from('class_instances')
+      .insert({
+        class_date: classDate,
+        start_time: startTime,
+        end_time: endTime,
+        class_type: classType,
+        instructor: instructor,
+        room: room,
+        max_capacity: maxCapacity || 10,
+        current_enrollment: 0,
+        status: 'active',
+        created_at: now,
+        updated_at: now
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating class:', error);
+      return res.status(500).json({ error: 'Failed to create class' });
+    }
+
+    console.log(`✅ Created new class: ${classType} on ${classDate}`);
+    res.json({ message: 'Class created successfully', class: data });
+  } catch (error) {
+    console.error('Error creating class:', error);
+    res.status(500).json({ error: 'Failed to create class' });
+  }
+});
+
+// Delete a class
+app.delete('/api/admin/classes/:classId', authenticateToken, async (req, res) => {
+  try {
+    const { classId } = req.params;
+
+    // Check if class has any bookings
+    const { data: bookings, error: bookingsError } = await supabaseDb.supabase
+      .from('bookings')
+      .select('id')
+      .eq('class_instance_id', classId)
+      .in('status', ['booked', 'completed']);
+
+    if (bookingsError) {
+      console.error('Error checking bookings:', bookingsError);
+      return res.status(500).json({ error: 'Failed to check class bookings' });
+    }
+
+    if (bookings && bookings.length > 0) {
+      return res.status(400).json({ error: 'Cannot delete class with enrolled students. Please remove all students first.' });
+    }
+
+    // Delete the class
+    const { error: deleteError } = await supabaseDb.supabase
+      .from('class_instances')
+      .delete()
+      .eq('id', classId);
+
+    if (deleteError) {
+      console.error('Error deleting class:', deleteError);
+      return res.status(500).json({ error: 'Failed to delete class' });
+    }
+
+    console.log(`✅ Deleted class: ${classId}`);
+    res.json({ message: 'Class deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting class:', error);
+    res.status(500).json({ error: 'Failed to delete class' });
   }
 });
 

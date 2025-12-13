@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import Navigation from '../components/Navigation';
 import Footer from '../components/Footer';
-import axios from 'axios';
+import api from '../utils/api';
 
 export default function AdminStudents() {
   const navigate = useNavigate();
@@ -39,7 +39,7 @@ export default function AdminStudents() {
   const loadStats = async () => {
     try {
       setLoading(true);
-      const { data } = await axios.get('/api/admin/students/stats');
+      const { data } = await api.get('/admin/students/stats');
       setStats(data.stats);
       setCourseStats(data.courseStats);
       setTopPerformers(data.topPerformers);
@@ -57,7 +57,7 @@ export default function AdminStudents() {
   const syncFromShopify = async () => {
     try {
       setSyncing(true);
-      await axios.post('/api/admin/sync-shopify-customers');
+      await api.post('/admin/sync-shopify-customers');
       await loadStats();
       alert('Successfully synced customers from Shopify!');
     } catch (error) {

@@ -32,9 +32,9 @@ export default function AdminDashboard() {
 
       // Load dashboard stats and reference data
       const [dashboardRes, clayTypesRes, glazesRes] = await Promise.all([
-        api.get.'/admin/dashboard/stats', { params }),
-        api.get.'/api/reference/clay-types'),
-        api.get.'/api/reference/glazes')
+        api.get('/admin/dashboard/stats', { params }),
+        api.get('/api/reference/clay-types'),
+        api.get('/api/reference/glazes')
       ]);
 
       setStats({

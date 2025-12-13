@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import Navigation from '../components/Navigation';
 import Footer from '../components/Footer';
+import PeriodFilter from '../components/PeriodFilter';
 import axios from 'axios';
 
 export default function AdminDashboard() {
@@ -12,18 +13,26 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [hoveredCard, setHoveredCard] = useState(null);
+  const [activePeriod, setActivePeriod] = useState({ startDate: null, endDate: null, type: 'all' });
 
   useEffect(() => {
     loadStats();
-  }, []);
+  }, [activePeriod]);
 
   const loadStats = async () => {
     try {
       setLoading(true);
 
+      // Build query params with period filter
+      const params = {};
+      if (activePeriod.startDate && activePeriod.endDate) {
+        params.startDate = activePeriod.startDate;
+        params.endDate = activePeriod.endDate;
+      }
+
       // Load dashboard stats and reference data
       const [dashboardRes, clayTypesRes, glazesRes] = await Promise.all([
-        axios.get('/api/admin/dashboard/stats'),
+        axios.get('/api/admin/dashboard/stats', { params }),
         axios.get('/api/reference/clay-types'),
         axios.get('/api/reference/glazes')
       ]);
@@ -38,6 +47,10 @@ export default function AdminDashboard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handlePeriodChange = (period) => {
+    setActivePeriod(period);
   };
 
   const adminCards = [
@@ -154,6 +167,9 @@ export default function AdminDashboard() {
             </button>
           </div>
         </div>
+
+        {/* Period Filter */}
+        <PeriodFilter onPeriodChange={handlePeriodChange} />
 
         {/* Top 4 Stat Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">

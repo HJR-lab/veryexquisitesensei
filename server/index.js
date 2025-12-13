@@ -1746,7 +1746,7 @@ app.get('/api/admin/dashboard/stats', authenticateToken, async (req, res) => {
     while (hasMore) {
       const { data, error } = await supabaseDb.supabase
         .from('customers')
-        .select('id, created_at, course_purchase_count, course_expiry_date')
+        .select('id, created_at, course_purchase_count, course_purchase_date, course_expiry_date')
         .in('customer_type', ['student', 'member', 'student & member'])
         .range(page * 1000, (page + 1) * 1000 - 1);
 

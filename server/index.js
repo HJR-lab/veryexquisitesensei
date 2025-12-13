@@ -22,8 +22,8 @@ app.use(cors({
     'http://localhost:5175',
     'http://127.0.0.1:5173',
     'http://127.0.0.1:5175',
-    'https://frontend-r774jaqg7-hjr-labs-projects.vercel.app',
-    /https:\/\/frontend-.*-hjr-labs-projects\.vercel\.app$/
+    'https://frontend-phi-seven-81.vercel.app',
+    /https:\/\/frontend-.*\.vercel\.app$/
   ],
   credentials: true
 }));
@@ -1804,7 +1804,8 @@ app.get('/api/admin/dashboard/stats', authenticateToken, async (req, res) => {
       new Date(s.created_at) >= firstDayOfMonth
     ).length;
 
-    const returningStudents = activeStudents.filter(s =>
+    // Returning students should be calculated from all students, not just active ones
+    const returningStudents = allStudents.filter(s =>
       (s.course_purchase_count || 0) > 1
     ).length;
 

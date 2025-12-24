@@ -21,7 +21,6 @@ import PublicGallery from './pages/PublicGallery';
 import Dashboard from './pages/Dashboard';
 import Membership from './pages/Membership';
 import Contact from './pages/Contact';
-import StudentClassHistory from './pages/StudentClassHistory';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -223,11 +222,6 @@ function App() {
           <Route path="/my-classes" element={
             <PrivateRoute>
               <ClassScheduleNew />
-            </PrivateRoute>
-          } />
-          <Route path="/my-class-history" element={
-            <PrivateRoute>
-              <StudentClassHistory />
             </PrivateRoute>
           } />
           <Route path="/membership" element={<Membership />} />

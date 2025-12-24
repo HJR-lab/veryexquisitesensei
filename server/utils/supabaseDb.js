@@ -379,6 +379,7 @@ async function updatePotteryPiece(pieceId, pieceData) {
   if (pieceData.tags !== undefined) updateData.tags = pieceData.tags;
   if (pieceData.isPublic !== undefined) updateData.is_public = pieceData.isPublic;
   if (pieceData.featured !== undefined) updateData.featured = pieceData.featured;
+  if (pieceData.courseEnrollmentId !== undefined) updateData.course_enrollment_id = pieceData.courseEnrollmentId;
 
   const { data, error } = await supabase
     .from('pottery_pieces')

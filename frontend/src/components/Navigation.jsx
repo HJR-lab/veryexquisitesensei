@@ -200,6 +200,13 @@ export default function Navigation() {
                   Classes
                 </Link>
                 <Link
+                  ref={el => linksRef.current['/my-class-history'] = el}
+                  className={`text-sm font-normal uppercase tracking-wide relative pb-1 ${isActive('/my-class-history') ? 'text-text' : 'text-text-muted hover:text-text'}`}
+                  to="/my-class-history"
+                >
+                  My History
+                </Link>
+                <Link
                   ref={el => linksRef.current['/my-gallery'] = el}
                   className={`text-sm font-normal uppercase tracking-wide relative pb-1 ${isActive('/my-gallery') ? 'text-text' : 'text-text-muted hover:text-text'}`}
                   to="/my-gallery"
@@ -359,6 +366,13 @@ export default function Navigation() {
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Classes
+                  </Link>
+                  <Link
+                    className={`text-sm font-normal uppercase tracking-wide ${isActive('/my-class-history') ? 'text-text font-bold' : 'text-text-muted'}`}
+                    to="/my-class-history"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    My History
                   </Link>
                   <Link
                     className={`text-sm font-normal uppercase tracking-wide ${isActive('/my-gallery') ? 'text-text font-bold' : 'text-text-muted'}`}

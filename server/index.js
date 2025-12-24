@@ -375,7 +375,8 @@ app.put('/api/pottery/pieces/:id', authenticateToken, async (req, res) => {
       length: pieceData.length ? parseFloat(pieceData.length) : null,
       images: pieceData.images,
       tags: pieceData.tags,
-      isPublic: pieceData.is_public
+      isPublic: pieceData.is_public,
+      courseEnrollmentId: pieceData.course_enrollment_id ? parseInt(pieceData.course_enrollment_id) : null
     });
 
     res.json({ success: true, piece: updatedPiece });
@@ -404,6 +405,216 @@ app.delete('/api/pottery/pieces/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error deleting pottery piece:', error);
     res.status(500).json({ error: 'Failed to delete pottery piece' });
+  }
+});
+
+// Get pottery pieces by course enrollment
+app.get('/api/pottery/by-course/:courseEnrollmentId', authenticateToken, async (req, res) => {
+  try {
+    const { dbCustomerId } = req.user;
+    const { courseEnrollmentId } = req.params;
+
+    // Verify the course enrollment belongs to the user
+    const { data: enrollment, error: enrollmentError } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('*')
+      .eq('id', parseInt(courseEnrollmentId))
+      .eq('student_id', dbCustomerId)
+      .single();
+
+    if (enrollmentError || !enrollment) {
+      return res.status(403).json({ error: 'Course enrollment not found or access denied' });
+    }
+
+    // Get pottery pieces linked to this course
+    const { data: pieces, error: piecesError } = await supabaseDb.supabase
+      .from('pottery_pieces')
+      .select('*')
+      .eq('course_enrollment_id', parseInt(courseEnrollmentId))
+      .eq('customer_id', dbCustomerId)
+      .order('date_completed', { ascending: false });
+
+    if (piecesError) {
+      throw piecesError;
+    }
+
+    const formattedPieces = pieces.map(piece => ({
+      id: piece.id.toString(),
+      title: piece.title,
+      description: piece.notes,
+      clay_type: piece.clay_type,
+      glazes: piece.glazes,
+      original_weight: piece.original_weight?.toString(),
+      final_weight: piece.final_weight?.toString(),
+      height: piece.height?.toString(),
+      length: piece.length?.toString(),
+      width: piece.width?.toString(),
+      date_completed: new Date(piece.date_completed).toISOString().split('T')[0],
+      images: piece.images,
+      tags: piece.tags,
+      is_public: piece.is_public,
+      featured: piece.featured,
+      course_enrollment_id: piece.course_enrollment_id
+    }));
+
+    res.json({
+      pieces: formattedPieces,
+      course: {
+        id: enrollment.id,
+        title: enrollment.course_title,
+        type: enrollment.course_type,
+        startDate: enrollment.course_start_date,
+        endDate: enrollment.course_end_date
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching pottery pieces by course:', error);
+    res.status(500).json({ error: 'Failed to fetch pottery pieces' });
+  }
+});
+
+// Add image to pottery piece
+app.post('/api/pottery/pieces/:id/images', authenticateToken, async (req, res) => {
+  try {
+    const { dbCustomerId } = req.user;
+    const { id } = req.params;
+    const { url, description, date_added } = req.body;
+
+    // Verify ownership
+    const existingPieces = await supabaseDb.getPotteryPiecesByCustomerId(dbCustomerId);
+    const piece = existingPieces.find(p => p.id === parseInt(id));
+
+    if (!piece) {
+      return res.status(403).json({ error: 'Pottery piece not found or access denied' });
+    }
+
+    // Check if already at max images (10)
+    const currentImages = piece.images || [];
+    if (currentImages.length >= 10) {
+      return res.status(400).json({ error: 'Maximum 10 images allowed per piece' });
+    }
+
+    // Add new image with order
+    const newImage = {
+      url,
+      description: description || '',
+      date_added: date_added || new Date().toISOString().split('T')[0],
+      order: currentImages.length + 1
+    };
+
+    const updatedImages = [...currentImages, newImage];
+
+    // Update piece with new images array
+    const { data: updatedPiece, error } = await supabaseDb.supabase
+      .from('pottery_pieces')
+      .update({ images: updatedImages, updated_at: new Date().toISOString() })
+      .eq('id', parseInt(id))
+      .select()
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    res.json({ success: true, images: updatedPiece.images });
+  } catch (error) {
+    console.error('Error adding image to pottery piece:', error);
+    res.status(500).json({ error: 'Failed to add image' });
+  }
+});
+
+// Delete image from pottery piece
+app.delete('/api/pottery/pieces/:id/images/:imageIndex', authenticateToken, async (req, res) => {
+  try {
+    const { dbCustomerId } = req.user;
+    const { id, imageIndex } = req.params;
+
+    // Verify ownership
+    const existingPieces = await supabaseDb.getPotteryPiecesByCustomerId(dbCustomerId);
+    const piece = existingPieces.find(p => p.id === parseInt(id));
+
+    if (!piece) {
+      return res.status(403).json({ error: 'Pottery piece not found or access denied' });
+    }
+
+    const currentImages = piece.images || [];
+    const index = parseInt(imageIndex);
+
+    if (index < 0 || index >= currentImages.length) {
+      return res.status(400).json({ error: 'Invalid image index' });
+    }
+
+    // Remove image and reorder
+    const updatedImages = currentImages
+      .filter((_, i) => i !== index)
+      .map((img, i) => ({ ...img, order: i + 1 }));
+
+    // Update piece
+    const { data: updatedPiece, error } = await supabaseDb.supabase
+      .from('pottery_pieces')
+      .update({ images: updatedImages, updated_at: new Date().toISOString() })
+      .eq('id', parseInt(id))
+      .select()
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    res.json({ success: true, images: updatedPiece.images });
+  } catch (error) {
+    console.error('Error deleting image from pottery piece:', error);
+    res.status(500).json({ error: 'Failed to delete image' });
+  }
+});
+
+// Update image metadata (description, order)
+app.put('/api/pottery/pieces/:id/images/:imageIndex', authenticateToken, async (req, res) => {
+  try {
+    const { dbCustomerId } = req.user;
+    const { id, imageIndex } = req.params;
+    const { description, order } = req.body;
+
+    // Verify ownership
+    const existingPieces = await supabaseDb.getPotteryPiecesByCustomerId(dbCustomerId);
+    const piece = existingPieces.find(p => p.id === parseInt(id));
+
+    if (!piece) {
+      return res.status(403).json({ error: 'Pottery piece not found or access denied' });
+    }
+
+    const currentImages = piece.images || [];
+    const index = parseInt(imageIndex);
+
+    if (index < 0 || index >= currentImages.length) {
+      return res.status(400).json({ error: 'Invalid image index' });
+    }
+
+    // Update image metadata
+    const updatedImages = [...currentImages];
+    if (description !== undefined) {
+      updatedImages[index].description = description;
+    }
+    if (order !== undefined) {
+      updatedImages[index].order = order;
+    }
+
+    // Update piece
+    const { data: updatedPiece, error } = await supabaseDb.supabase
+      .from('pottery_pieces')
+      .update({ images: updatedImages, updated_at: new Date().toISOString() })
+      .eq('id', parseInt(id))
+      .select()
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    res.json({ success: true, images: updatedPiece.images });
+  } catch (error) {
+    console.error('Error updating image metadata:', error);
+    res.status(500).json({ error: 'Failed to update image' });
   }
 });
 
@@ -475,6 +686,124 @@ app.get('/api/classes/my-bookings', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('❌ Error in /api/classes/my-bookings:', error);
     res.status(500).json({ error: 'Failed to fetch bookings' });
+  }
+});
+
+// Get student class history with course enrollments
+app.get('/api/classes/my-history', authenticateToken, async (req, res) => {
+  try {
+    const { dbCustomerId } = req.user;
+    console.log('📥 /api/classes/my-history called for student:', dbCustomerId);
+
+    // Get all bookings (past and current)
+    const { data: bookings, error: bookingsError } = await supabaseDb.supabase
+      .from('bookings')
+      .select(`
+        id,
+        status,
+        attended,
+        booking_date,
+        course_enrollment_id,
+        class_instance:class_instances (
+          id,
+          class_date,
+          start_time,
+          end_time,
+          class_type,
+          instructor,
+          room
+        )
+      `)
+      .eq('student_id', dbCustomerId)
+      .order('class_instance(class_date)', { ascending: false });
+
+    if (bookingsError) {
+      console.error('Error fetching bookings:', bookingsError);
+      throw bookingsError;
+    }
+
+    // Get course enrollments
+    const { data: enrollments, error: enrollmentsError } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('*')
+      .eq('student_id', dbCustomerId)
+      .order('course_start_date', { ascending: false });
+
+    if (enrollmentsError) {
+      console.error('Error fetching enrollments:', enrollmentsError);
+      throw enrollmentsError;
+    }
+
+    // Group bookings by course enrollment
+    const courseHistory = [];
+    const today = new Date();
+
+    // Process enrollments
+    enrollments.forEach(enrollment => {
+      const courseBookings = bookings.filter(b => b.course_enrollment_id === enrollment.id);
+      const hasUpcomingClasses = courseBookings.some(b =>
+        new Date(b.class_instance.class_date) >= today && b.status === 'booked'
+      );
+
+      courseHistory.push({
+        id: enrollment.id,
+        type: 'course',
+        courseTitle: enrollment.course_title,
+        courseType: enrollment.course_type,
+        numberOfWeeks: enrollment.number_of_weeks,
+        startDate: enrollment.course_start_date,
+        endDate: enrollment.course_end_date,
+        instructor: enrollment.instructor,
+        status: hasUpcomingClasses ? 'current' : 'completed',
+        classes: courseBookings.map(b => ({
+          id: b.class_instance.id,
+          date: b.class_instance.class_date,
+          startTime: b.class_instance.start_time,
+          endTime: b.class_instance.end_time,
+          classType: b.class_instance.class_type,
+          instructor: b.class_instance.instructor,
+          attended: b.attended,
+          status: b.status
+        })).sort((a, b) => new Date(a.date) - new Date(b.date))
+      });
+    });
+
+    // Add standalone bookings (not part of a course enrollment)
+    const standaloneBookings = bookings.filter(b => !b.course_enrollment_id);
+    standaloneBookings.forEach(booking => {
+      const classDate = new Date(booking.class_instance.class_date);
+      courseHistory.push({
+        id: `booking-${booking.id}`,
+        type: 'standalone',
+        status: classDate >= today && booking.status === 'booked' ? 'upcoming' : 'past',
+        classes: [{
+          id: booking.class_instance.id,
+          date: booking.class_instance.class_date,
+          startTime: booking.class_instance.start_time,
+          endTime: booking.class_instance.end_time,
+          classType: booking.class_instance.class_type,
+          instructor: booking.class_instance.instructor,
+          attended: booking.attended,
+          status: booking.status
+        }]
+      });
+    });
+
+    // Sort by most recent first
+    courseHistory.sort((a, b) => {
+      const dateA = a.startDate || a.classes[0]?.date || '';
+      const dateB = b.startDate || b.classes[0]?.date || '';
+      return new Date(dateB) - new Date(dateA);
+    });
+
+    res.json({
+      history: courseHistory,
+      totalClasses: bookings.length,
+      attendedClasses: bookings.filter(b => b.attended).length
+    });
+  } catch (error) {
+    console.error('❌ Error in /api/classes/my-history:', error);
+    res.status(500).json({ error: 'Failed to fetch class history' });
   }
 });
 

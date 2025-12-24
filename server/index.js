@@ -704,7 +704,7 @@ app.get('/api/classes/my-history', authenticateToken, async (req, res) => {
         attended,
         booking_date,
         course_enrollment_id,
-        class_instance:class_instances (
+        class_instance:class_instances!bookings_class_instance_id_fkey (
           id,
           class_date,
           start_time,
@@ -796,11 +796,14 @@ app.get('/api/classes/my-history', authenticateToken, async (req, res) => {
       return new Date(dateB) - new Date(dateA);
     });
 
-    res.json({
+    const response = {
       history: courseHistory,
       totalClasses: bookings.length,
       attendedClasses: bookings.filter(b => b.attended).length
-    });
+    };
+
+    console.log('📤 Returning history:', JSON.stringify(response, null, 2));
+    res.json(response);
   } catch (error) {
     console.error('❌ Error in /api/classes/my-history:', error);
     res.status(500).json({ error: 'Failed to fetch class history' });

@@ -788,6 +788,38 @@ export default function ClassScheduleNew() {
               </p>
             </div>
 
+            {/* Class History Section - Shown at top if exists */}
+            {history.length > 0 && (
+              <div className="mb-8 p-6 bg-background-alt border border-border">
+                <div className="mb-4">
+                  <h3 className="text-lg font-bold text-text mb-1">My Class History</h3>
+                  <p className="text-sm text-text-muted">
+                    {stats.attendedClasses} of {stats.totalClasses} classes attended
+                    {stats.totalClasses > 0 && ` (${Math.round((stats.attendedClasses / stats.totalClasses) * 100)}%)`}
+                  </p>
+                </div>
+                <div className="space-y-3">
+                  {history.map((course) => (
+                    <div key={course.id} className="p-4 bg-background border border-border">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                          <h4 className="font-bold text-text mb-1">{course.courseTitle}</h4>
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
+                            <span>{formatHistoryDate(course.startDate)} - {formatHistoryDate(course.endDate)}</span>
+                            <span>with {course.instructor}</span>
+                            <span>{course.classes.filter(c => c.attended).length}/{course.classes.length} attended</span>
+                          </div>
+                        </div>
+                        {course.status === 'completed' && (
+                          <span className="px-2 py-1 bg-green-500/10 text-green-700 text-xs font-bold">Completed</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex flex-col gap-4">
               {classesForSelectedDate.length === 0 ? (
                 <p className="text-text-muted">No classes scheduled for this date.</p>
@@ -890,196 +922,6 @@ export default function ClassScheduleNew() {
             </div>
           </div>
         </div>
-
-        {/* Class History Section */}
-        {history.length > 0 && (
-          <div className="mt-12">
-            <div className="mb-6">
-              <h2 className="text-3xl font-bold text-text mb-2">My Class History</h2>
-              <p className="text-text-muted">
-                {stats.attendedClasses} of {stats.totalClasses} classes attended
-                {stats.totalClasses > 0 && ` (${Math.round((stats.attendedClasses / stats.totalClasses) * 100)}%)`}
-              </p>
-            </div>
-
-            {/* Separate current and past courses */}
-            {(() => {
-              const currentCourses = history.filter(h => h.status === 'current' || h.status === 'upcoming');
-              const pastCourses = history.filter(h => h.status === 'completed' || h.status === 'past');
-
-              return (
-                <div className="space-y-8">
-                  {/* Current Courses */}
-                  {currentCourses.length > 0 && (
-                    <div>
-                      <h3 className="text-2xl font-bold text-text mb-4">
-                        Current Courses ({currentCourses.length})
-                      </h3>
-                      <div className="grid gap-4">
-                        {currentCourses.map((course) => (
-                          <div
-                            key={course.id}
-                            className={`bg-background-alt border rounded-xl p-6 ${getStatusColor(course.status)}`}
-                          >
-                            <div className="flex items-start justify-between gap-4">
-                              <div className="flex-1">
-                                {course.type === 'course' ? (
-                                  <>
-                                    <h4 className="text-xl font-bold text-text mb-2">
-                                      {course.courseTitle}
-                                    </h4>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-text-muted mb-4">
-                                      <div className="flex items-center gap-2">
-                                        <span className="material-symbols-outlined text-sm">calendar_month</span>
-                                        <span>{formatHistoryDate(course.startDate)} - {formatHistoryDate(course.endDate)}</span>
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        <span className="material-symbols-outlined text-sm">person</span>
-                                        <span>Instructor: {course.instructor}</span>
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        <span className="material-symbols-outlined text-sm">event</span>
-                                        <span>{course.numberOfWeeks}-Week Course</span>
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        <span className="material-symbols-outlined text-sm">check_circle</span>
-                                        <span>
-                                          {course.classes.filter(c => c.attended).length} / {course.classes.length} attended
-                                        </span>
-                                      </div>
-                                    </div>
-
-                                    {/* Class List */}
-                                    <div className="mt-4">
-                                      <h5 className="text-sm font-semibold text-text mb-2">Classes:</h5>
-                                      <div className="grid gap-2">
-                                        {course.classes.map((cls) => {
-                                          const isPast = new Date(cls.date) < new Date();
-                                          return (
-                                            <div
-                                              key={cls.id}
-                                              className="flex items-center justify-between p-3 bg-background rounded-lg"
-                                            >
-                                              <div className="flex items-center gap-3">
-                                                <span className={`material-symbols-outlined text-sm ${
-                                                  cls.attended ? 'text-green-500' : isPast ? 'text-red-500' : 'text-gray-400'
-                                                }`}>
-                                                  {cls.attended ? 'check_circle' : isPast ? 'cancel' : 'schedule'}
-                                                </span>
-                                                <div>
-                                                  <p className="text-sm font-medium text-text">
-                                                    {formatHistoryDate(cls.date)} • {formatTime(cls.startTime)} - {formatTime(cls.endTime)}
-                                                  </p>
-                                                  <p className="text-xs text-text-muted">{cls.classType}</p>
-                                                </div>
-                                              </div>
-                                              {cls.attended && (
-                                                <span className="text-xs px-2 py-1 bg-green-500/10 text-green-700 rounded">
-                                                  Attended
-                                                </span>
-                                              )}
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  </>
-                                ) : (
-                                  <div>
-                                    <h4 className="text-lg font-bold text-text mb-2">
-                                      {course.classes[0]?.classType}
-                                    </h4>
-                                    <p className="text-sm text-text-muted">
-                                      {formatHistoryDate(course.classes[0]?.date)} • {formatTime(course.classes[0]?.startTime)} - {formatTime(course.classes[0]?.endTime)}
-                                    </p>
-                                  </div>
-                                )}
-                              </div>
-
-                              {course.type === 'course' && (
-                                <button
-                                  onClick={() => loadCoursePieces(course.id)}
-                                  className="flex items-center gap-2 px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors text-sm"
-                                >
-                                  <span className="material-symbols-outlined text-sm">photo_library</span>
-                                  <span>View Gallery</span>
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Past Courses */}
-                  {pastCourses.length > 0 && (
-                    <div>
-                      <h3 className="text-2xl font-bold text-text mb-4">
-                        Past Courses ({pastCourses.length})
-                      </h3>
-                      <div className="grid gap-4">
-                        {pastCourses.map((course) => (
-                          <div
-                            key={course.id}
-                            className="bg-background-alt border border-border rounded-xl p-6"
-                          >
-                            <div className="flex items-start justify-between gap-4">
-                              <div className="flex-1">
-                                {course.type === 'course' ? (
-                                  <>
-                                    <h4 className="text-xl font-bold text-text mb-2">
-                                      {course.courseTitle}
-                                    </h4>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-text-muted mb-2">
-                                      <div className="flex items-center gap-2">
-                                        <span className="material-symbols-outlined text-sm">calendar_month</span>
-                                        <span>{formatHistoryDate(course.startDate)} - {formatHistoryDate(course.endDate)}</span>
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        <span className="material-symbols-outlined text-sm">person</span>
-                                        <span>Instructor: {course.instructor}</span>
-                                      </div>
-                                    </div>
-                                    <div className="flex items-center gap-2 text-sm">
-                                      <span className="material-symbols-outlined text-sm text-green-500">check_circle</span>
-                                      <span className="text-text-muted">
-                                        Completed: {course.classes.filter(c => c.attended).length} / {course.classes.length} classes attended
-                                      </span>
-                                    </div>
-                                  </>
-                                ) : (
-                                  <div>
-                                    <h4 className="text-lg font-bold text-text mb-2">
-                                      {course.classes[0]?.classType}
-                                    </h4>
-                                    <p className="text-sm text-text-muted">
-                                      {formatHistoryDate(course.classes[0]?.date)}
-                                    </p>
-                                  </div>
-                                )}
-                              </div>
-
-                              {course.type === 'course' && (
-                                <button
-                                  onClick={() => loadCoursePieces(course.id)}
-                                  className="flex items-center gap-2 px-4 py-2 bg-accent/10 text-accent rounded-lg hover:bg-accent/20 transition-colors text-sm"
-                                >
-                                  <span className="material-symbols-outlined text-sm">photo_library</span>
-                                  <span>View Gallery</span>
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-          </div>
-        )}
       </main>
 
       {/* Gallery Pieces Modal */}

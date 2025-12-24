@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../utils/api';
 import Navigation from '../components/Navigation';
 import ClassCalendar from '../components/ClassCalendar';
-
-const API_URL = 'http://localhost:3000';
 
 export default function ClassScheduleNew() {
   const [classes, setClasses] = useState([]);
@@ -70,9 +68,7 @@ export default function ClassScheduleNew() {
     try {
       // Use the admin endpoint which returns properly structured courses
       // This endpoint requires authentication but works for logged-in students
-      const response = await axios.get(`${API_URL}/api/admin/classes`, {
-        withCredentials: true
-      });
+      const response = await api.get('/admin/classes');
       console.log('Fetched courses from admin endpoint:', response.data.courses);
       setClasses(response.data.courses || []);
     } catch (error) {
@@ -80,7 +76,7 @@ export default function ClassScheduleNew() {
       // If admin endpoint fails (e.g., not authenticated), fall back to public endpoint
       try {
         console.log('Falling back to public endpoint...');
-        const publicResponse = await axios.get(`${API_URL}/api/classes/available`);
+        const publicResponse = await api.get('/classes/available');
         // Transform flat classes array into courses structure
         const flatClasses = publicResponse.data.classes || [];
         console.log('Fetched flat classes from public endpoint:', flatClasses.length, 'classes');
@@ -130,9 +126,7 @@ export default function ClassScheduleNew() {
       }
 
       console.log('🔍 Fetching my bookings...');
-      const response = await axios.get(`${API_URL}/api/classes/my-bookings`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/classes/my-bookings');
       console.log('✅ My bookings response:', response.data);
       setMyBookings(response.data.bookings || []);
       console.log('📊 Total bookings loaded:', response.data.bookings?.length || 0);
@@ -222,13 +216,9 @@ export default function ClassScheduleNew() {
     }
 
     try {
-      const token = localStorage.getItem('token');
-
-      await axios.post(`${API_URL}/api/classes/enroll-course`, {
+      await api.post('/classes/enroll-course', {
         firstClassId: selectedClass.id,
         courseWeeks: courseWeeks
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
       });
 
       alert(`Successfully enrolled in ${courseWeeks}-week course with ${selectedClass.instructor}!`);
@@ -550,13 +540,9 @@ export default function ClassScheduleNew() {
 
   const handleReschedule = async (newClassId) => {
     try {
-      const token = localStorage.getItem('token');
-
-      await axios.post(`${API_URL}/api/classes/reschedule`, {
+      await api.post('/classes/reschedule', {
         oldClassId: selectedClass.id,
         newClassId: newClassId
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
       });
 
       alert('Successfully rescheduled your class!');
@@ -572,12 +558,8 @@ export default function ClassScheduleNew() {
 
   const handleJoinWaitlist = async () => {
     try {
-      const token = localStorage.getItem('token');
-
-      const response = await axios.post(`${API_URL}/api/classes/waitlist/join`, {
+      const response = await api.post('/classes/waitlist/join', {
         classInstanceId: selectedClass.id
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
       });
 
       alert(response.data.waitlist.message || 'Successfully joined the waitlist!');
@@ -592,13 +574,9 @@ export default function ClassScheduleNew() {
 
   const handlePauseRequest = async () => {
     try {
-      const token = localStorage.getItem('token');
-
       // Request pause calculation from backend
-      const response = await axios.post(`${API_URL}/api/classes/pause/calculate`, {
+      const response = await api.post('/classes/pause/calculate', {
         classId: selectedClass.id
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
       });
 
       setPauseCalculation(response.data);
@@ -611,12 +589,8 @@ export default function ClassScheduleNew() {
 
   const confirmPause = async () => {
     try {
-      const token = localStorage.getItem('token');
-
-      const response = await axios.post(`${API_URL}/api/classes/pause`, {
+      const response = await api.post('/classes/pause', {
         classId: selectedClass.id
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
       });
 
       // Show payment link to user

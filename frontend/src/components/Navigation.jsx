@@ -7,21 +7,26 @@ export default function Navigation() {
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [controlDropdownOpen, setControlDropdownOpen] = useState(false);
+  const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [underlineStyle, setUnderlineStyle] = useState({ left: 0, width: 0, opacity: 0 });
   const [isInitialized, setIsInitialized] = useState(false);
 
   const navRef = useRef(null);
   const linksRef = useRef({});
   const dropdownRef = useRef(null);
+  const userDropdownRef = useRef(null);
 
   const isActive = (path) => location.pathname === path;
   const isAdminPage = location.pathname.startsWith('/admin');
 
-  // Close dropdown when clicking outside
+  // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setControlDropdownOpen(false);
+      }
+      if (userDropdownRef.current && !userDropdownRef.current.contains(event.target)) {
+        setUserDropdownOpen(false);
       }
     };
 
@@ -255,12 +260,40 @@ export default function Navigation() {
                 </Link>
               )}
               {user ? (
-                <button
-                  onClick={logout}
-                  className="px-3 py-1 bg-gray-800 text-white text-sm font-normal uppercase tracking-wide hover:bg-gray-700 transition-colors border border-gray-800"
-                >
-                  Sign Out
-                </button>
+                <div className="relative" ref={userDropdownRef}>
+                  <button
+                    onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+                    className="px-3 py-1 bg-gray-800 text-white text-sm font-normal uppercase tracking-wide hover:bg-gray-700 transition-colors border border-gray-800 flex items-center gap-1"
+                  >
+                    Hi {user.firstName || 'Member'}
+                    <span className="material-symbols-outlined text-sm">
+                      {userDropdownOpen ? 'expand_less' : 'expand_more'}
+                    </span>
+                  </button>
+
+                  {userDropdownOpen && (
+                    <div className="absolute top-full right-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg py-2 z-[60]">
+                      {!isAdminPage && (
+                        <Link
+                          to="/account"
+                          onClick={() => setUserDropdownOpen(false)}
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                        >
+                          Account
+                        </Link>
+                      )}
+                      <button
+                        onClick={() => {
+                          logout();
+                          setUserDropdownOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                      >
+                        Sign Out
+                      </button>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <>
                   <Link
@@ -385,15 +418,29 @@ export default function Navigation() {
               )}
               <div className="pt-4 border-t border-border space-y-3">
                 {user ? (
-                  <button
-                    onClick={() => {
-                      logout();
-                      setMobileMenuOpen(false);
-                    }}
-                    className="w-full px-6 py-2 bg-gray-800 text-white text-sm font-normal uppercase tracking-wide border border-gray-800"
-                  >
-                    Sign Out
-                  </button>
+                  <>
+                    <div className="text-sm font-medium text-gray-700 px-2">
+                      Hi {user.firstName || 'Member'}
+                    </div>
+                    {!isAdminPage && (
+                      <Link
+                        to="/account"
+                        className="block w-full px-6 py-2 bg-gray-100 text-gray-700 text-sm font-normal uppercase tracking-wide text-center border border-gray-300"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        Account
+                      </Link>
+                    )}
+                    <button
+                      onClick={() => {
+                        logout();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="w-full px-6 py-2 bg-gray-800 text-white text-sm font-normal uppercase tracking-wide border border-gray-800"
+                    >
+                      Sign Out
+                    </button>
+                  </>
                 ) : (
                   <>
                     <Link

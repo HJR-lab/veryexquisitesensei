@@ -19,8 +19,8 @@ export default function AdminPausedStudents() {
   const loadPausedStudents = async () => {
     try {
       setLoading(true);
-      const { data } = await axios.get('/api/admin/paused-students');
-      setPausedStudents(data.pausedStudents || []);
+      const { data } = await axios.get('/api/admin/students/paused/list');
+      setPausedStudents(data.students || []);
     } catch (error) {
       console.error('Failed to load paused students:', error);
     } finally {
@@ -108,16 +108,16 @@ export default function AdminPausedStudents() {
                       Paused On
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Paused At Week
+                      Progress
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Reason
+                      Course Details
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Resume Course
+                      Course ID
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Courses Taken
+                      Type
                     </th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
@@ -126,41 +126,46 @@ export default function AdminPausedStudents() {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {pausedStudents.map((student) => (
-                    <tr key={student.id} className="hover:bg-gray-50">
+                    <tr key={student.studentId} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex flex-col">
                           <div className="text-sm font-medium text-gray-900">
-                            {student.first_name} {student.last_name}
+                            {student.name}
                           </div>
                           <div className="text-sm text-gray-500">{student.email}</div>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {formatDate(student.pause_start_date)}
+                        {formatDate(student.pausedDate)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                          Week {student.paused_at_week}
+                          Week {student.weeksCompleted} of {student.totalWeeks}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">
-                        {student.pause_reason || 'No reason provided'}
+                      <td className="px-6 py-4 text-sm text-gray-900 max-w-xs">
+                        <div className="flex flex-col gap-1">
+                          <div className="font-medium">{student.courseTitle}</div>
+                          <div className="text-xs text-gray-500">
+                            {student.weeksRemaining} {student.weeksRemaining === 1 ? 'week' : 'weeks'} remaining
+                          </div>
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-mono">
-                        {student.resume_course_identifier || 'Not set'}
+                        {student.courseIdentifier || 'Not set'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          {student.course_purchase_count} {student.course_purchase_count === 1 ? 'course' : 'courses'}
+                          {student.courseType || 'N/A'}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <button
-                          onClick={() => handleResumeStudent(student.id)}
-                          disabled={resumingId === student.id}
+                          onClick={() => handleResumeStudent(student.studentId)}
+                          disabled={resumingId === student.studentId}
                           className="inline-flex items-center gap-1 px-3 py-1.5 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
-                          {resumingId === student.id ? (
+                          {resumingId === student.studentId ? (
                             <>
                               <span className="material-symbols-outlined text-sm animate-spin">refresh</span>
                               <span>Resuming...</span>

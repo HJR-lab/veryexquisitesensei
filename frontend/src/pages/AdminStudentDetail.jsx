@@ -13,9 +13,18 @@ export default function AdminStudentDetail() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [student, setStudent] = useState(null);
+  const [enrollment, setEnrollment] = useState(null);
   const [bookings, setBookings] = useState([]);
   const [fees, setFees] = useState([]);
   const [updatingFeeId, setUpdatingFeeId] = useState(null);
+  const [showPauseModal, setShowPauseModal] = useState(false);
+  const [pausing, setPausing] = useState(false);
+  const [resuming, setResuming] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [pauseForm, setPauseForm] = useState({
+    weeksCompleted: 0,
+    reason: ''
+  });
   const [editForm, setEditForm] = useState({
     coursePurchaseCount: 0
   });
@@ -33,15 +42,25 @@ export default function AdminStudentDetail() {
       const { data: studentData } = await axios.get(`/api/admin/students/${decodedEmail}`);
       setStudent(studentData);
       setEditForm({
-        coursePurchaseCount: studentData.course_purchase_count || 0
+        coursePurchaseCount: studentData.course_purchase_count || 0,
+        profilePicture: studentData.profile_picture || ''
       });
 
       // Get student bookings
       const { data: bookingsData } = await axios.get(`/api/admin/students/${decodedEmail}/bookings`);
       setBookings(bookingsData || []);
 
-      // Get student fees
+      // Get student enrollment
       if (studentData.id) {
+        try {
+          const { data: enrollmentData } = await axios.get(`/api/admin/students/${studentData.id}/enrollment`);
+          setEnrollment(enrollmentData);
+        } catch (err) {
+          // No enrollment found - that's okay
+          setEnrollment(null);
+        }
+
+        // Get student fees
         const { data: feesData } = await axios.get(`/api/admin/students/${studentData.id}/fees`);
         setFees(feesData.fees || []);
       }
@@ -59,7 +78,8 @@ export default function AdminStudentDetail() {
       const decodedEmail = decodeURIComponent(email);
 
       await axios.put(`/api/admin/students/${decodedEmail}`, {
-        course_purchase_count: parseInt(editForm.coursePurchaseCount)
+        course_purchase_count: parseInt(editForm.coursePurchaseCount),
+        profile_picture: editForm.profilePicture || null
       });
 
       alert('Student updated successfully!');
@@ -90,6 +110,102 @@ export default function AdminStudentDetail() {
       alert('Failed to update fee');
     } finally {
       setUpdatingFeeId(null);
+    }
+  };
+
+  const handlePauseCourse = async () => {
+    if (!enrollment) return;
+
+    const weeksCompleted = parseInt(pauseForm.weeksCompleted);
+    const totalWeeks = enrollment.number_of_weeks || 6;
+
+    if (isNaN(weeksCompleted) || weeksCompleted < 0 || weeksCompleted >= totalWeeks) {
+      alert(`Weeks completed must be between 0 and ${totalWeeks - 1}`);
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to pause this student's course?\n\nWeeks completed: ${weeksCompleted}\nWeeks remaining: ${totalWeeks - weeksCompleted}`)) {
+      return;
+    }
+
+    try {
+      setPausing(true);
+      await axios.post(`/api/admin/enrollments/${enrollment.id}/pause`, {
+        weeksCompleted,
+        weeksRemaining: totalWeeks - weeksCompleted,
+        reason: pauseForm.reason
+      });
+
+      alert('Course paused successfully!');
+      setShowPauseModal(false);
+      setPauseForm({ weeksCompleted: 0, reason: '' });
+      await loadStudentData();
+    } catch (error) {
+      console.error('Failed to pause course:', error);
+      alert('Failed to pause course');
+    } finally {
+      setPausing(false);
+    }
+  };
+
+  const handleResumeCourse = async () => {
+    if (!enrollment || enrollment.status !== 'paused') return;
+
+    if (!confirm(`Are you sure you want to resume this student's course?\n\nThey will need to book ${enrollment.weeks_remaining} more classes to complete their course.`)) {
+      return;
+    }
+
+    try {
+      setResuming(true);
+      await axios.post(`/api/admin/students/${student.id}/resume`);
+
+      alert('Course resumed successfully! Student can now book their remaining classes.');
+      await loadStudentData();
+    } catch (error) {
+      console.error('Failed to resume course:', error);
+      alert('Failed to resume course');
+    } finally {
+      setResuming(false);
+    }
+  };
+
+  const handleProfilePictureUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image size must be less than 5MB');
+      return;
+    }
+
+    try {
+      setUploading(true);
+
+      const formData = new FormData();
+      formData.append('image', file);
+
+      const { data } = await axios.post('/api/upload/image', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      if (data.success && data.url) {
+        setEditForm({ ...editForm, profilePicture: data.url });
+        alert('Image uploaded successfully! Click "Save Changes" to save.');
+      }
+    } catch (error) {
+      console.error('Failed to upload image:', error);
+      alert('Failed to upload image');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -141,20 +257,10 @@ export default function AdminStudentDetail() {
             <span>Back to Students</span>
           </button>
 
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-4xl font-bold text-text mb-2">
-                {student.first_name} {student.last_name}
-              </h1>
-              <p className="text-text-muted">{student.email}</p>
-            </div>
-            <button
-              onClick={logout}
-              className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500/20 transition-colors"
-            >
-              <span className="material-symbols-outlined text-sm">logout</span>
-              <span className="hidden sm:inline">Sign Out</span>
-            </button>
+          <div>
+            <h1 className="text-4xl font-bold text-text mb-2">
+              {student.first_name} {student.last_name}
+            </h1>
           </div>
         </div>
 
@@ -166,11 +272,129 @@ export default function AdminStudentDetail() {
 
               <div className="space-y-4">
                 <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Profile Picture</label>
+                  <div className="flex flex-col items-center gap-3">
+                    {editForm.profilePicture || student.profile_picture ? (
+                      <img
+                        src={editForm.profilePicture || student.profile_picture}
+                        alt={`${student.first_name} ${student.last_name}`}
+                        className="w-24 h-24 rounded-full object-cover border-2 border-gray-200"
+                      />
+                    ) : (
+                      <div className="w-24 h-24 rounded-full bg-gray-200 flex items-center justify-center">
+                        <span className="material-symbols-outlined text-gray-400 text-4xl">person</span>
+                      </div>
+                    )}
+                    <div className="w-full">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleProfilePictureUpload}
+                        disabled={uploading}
+                        className="hidden"
+                        id="profile-picture-upload"
+                      />
+                      <label
+                        htmlFor="profile-picture-upload"
+                        className={`w-full flex items-center justify-center gap-2 px-4 py-2 border border-gray-300 rounded-lg cursor-pointer transition-colors ${
+                          uploading
+                            ? 'bg-gray-100 cursor-not-allowed'
+                            : 'bg-white hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-sm">
+                          {uploading ? 'sync' : 'upload'}
+                        </span>
+                        <span className="text-sm text-gray-700">
+                          {uploading ? 'Uploading...' : 'Upload Image'}
+                        </span>
+                      </label>
+                      {(editForm.profilePicture || student.profile_picture) && (
+                        <button
+                          onClick={() => setEditForm({ ...editForm, profilePicture: null })}
+                          className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        >
+                          <span className="material-symbols-outlined text-sm">delete</span>
+                          <span>Remove Picture</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Customer Type</label>
                   <div className="px-3 py-2 bg-gray-50 rounded-lg text-gray-900">
                     {student.customer_type || 'student'}
                   </div>
                 </div>
+
+                {enrollment && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Current Course</label>
+                      <div className="px-3 py-2 bg-blue-50 rounded-lg">
+                        <div className="text-sm font-medium text-blue-900">{enrollment.course_title}</div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Course Identifier</label>
+                      <div className="px-3 py-2 bg-gray-50 rounded-lg text-gray-900 font-mono text-sm">
+                        {enrollment.course_identifier || 'Not set'}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                      <div className="px-3 py-2 bg-gray-50 rounded-lg">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${
+                          enrollment.status === 'active' ? 'bg-green-100 text-green-800' :
+                          enrollment.status === 'paused' ? 'bg-yellow-100 text-yellow-800' :
+                          enrollment.status === 'completed' ? 'bg-blue-100 text-blue-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {enrollment.status}
+                        </span>
+                        {enrollment.status === 'paused' && (
+                          <div className="mt-2 text-xs text-gray-600">
+                            Progress: {enrollment.weeks_completed}/{enrollment.number_of_weeks} weeks
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {enrollment.status === 'active' && (
+                      <button
+                        onClick={() => setShowPauseModal(true)}
+                        className="w-full px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors flex items-center justify-center gap-2"
+                      >
+                        <span className="material-symbols-outlined text-sm">pause_circle</span>
+                        <span>Pause Course</span>
+                      </button>
+                    )}
+
+                    {enrollment.status === 'paused' && (
+                      <button
+                        onClick={handleResumeCourse}
+                        disabled={resuming}
+                        className="w-full px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                      >
+                        {resuming ? (
+                          <>
+                            <span className="material-symbols-outlined text-sm animate-spin">refresh</span>
+                            <span>Resuming...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="material-symbols-outlined text-sm">play_arrow</span>
+                            <span>Resume Course</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Courses Purchased</label>
@@ -361,6 +585,91 @@ export default function AdminStudentDetail() {
           </div>
         )}
       </main>
+
+      {/* Pause Course Modal */}
+      {showPauseModal && enrollment && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-md w-full p-6">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">Pause Course</h3>
+
+            <div className="mb-6">
+              <p className="text-sm text-gray-600 mb-4">
+                Pausing <strong>{student.first_name} {student.last_name}</strong>'s enrollment in <strong>{enrollment.course_title}</strong>
+              </p>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                <div className="text-sm text-blue-900">
+                  <div className="font-medium mb-1">Course: {enrollment.course_identifier}</div>
+                  <div>Total weeks: {enrollment.number_of_weeks}</div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Weeks Completed<span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max={enrollment.number_of_weeks - 1}
+                    value={pauseForm.weeksCompleted}
+                    onChange={(e) => setPauseForm({ ...pauseForm, weeksCompleted: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
+                    placeholder="e.g., 3"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Remaining weeks: {enrollment.number_of_weeks - (parseInt(pauseForm.weeksCompleted) || 0)}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Reason (optional)
+                  </label>
+                  <textarea
+                    value={pauseForm.reason}
+                    onChange={(e) => setPauseForm({ ...pauseForm, reason: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
+                    rows="3"
+                    placeholder="e.g., Travel, medical leave, etc."
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowPauseModal(false);
+                  setPauseForm({ weeksCompleted: 0, reason: '' });
+                }}
+                disabled={pausing}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePauseCourse}
+                disabled={pausing}
+                className="flex-1 px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {pausing ? (
+                  <>
+                    <span className="material-symbols-outlined text-sm animate-spin">refresh</span>
+                    <span>Pausing...</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-sm">pause_circle</span>
+                    <span>Pause Course</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Footer />
     </div>

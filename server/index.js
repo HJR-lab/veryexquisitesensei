@@ -80,55 +80,98 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password required' });
     }
 
-    const client = getShopifyClient();
+    // SECURITY: Only allow info@ves.sg to log in
+    if (email !== 'info@ves.sg') {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
 
-    const searchQuery = `
-      query {
-        customers(first: 1, query: "email:${email}") {
-          edges {
-            node {
-              id
-              email
-              firstName
-              lastName
-              metafield(namespace: "custom", key: "app_password") {
-                value
-              }
-            }
-          }
+    // Verify hardcoded admin password
+    const ADMIN_PASSWORD = 'Techn0pu$$';
+    if (password !== ADMIN_PASSWORD) {
+      console.error('❌ Invalid admin password attempt');
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    console.log('✅ Admin login successful:', email);
+
+    // Get or create admin customer in database
+    let { data: customer, error: dbError } = await supabaseDb.supabase
+      .from('customers')
+      .select('*')
+      .eq('email', email)
+      .single();
+
+    // If admin doesn't exist in database, create it or update old admin email
+    if (dbError || !customer) {
+      console.log('Admin not found in database, checking for old admin...');
+
+      // First, try to find and update the old admin (info@ves.com)
+      const { data: oldAdmin } = await supabaseDb.supabase
+        .from('customers')
+        .select('*')
+        .eq('email', 'info@ves.com')
+        .single();
+
+      if (oldAdmin) {
+        // Update the old admin email to the new one
+        console.log('Updating old admin email from info@ves.com to info@ves.sg');
+        const { data: updatedAdmin, error: updateError } = await supabaseDb.supabase
+          .from('customers')
+          .update({
+            email: 'info@ves.sg',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', oldAdmin.id)
+          .select()
+          .single();
+
+        if (updateError) {
+          console.error('Error updating admin:', updateError);
+          return res.status(500).json({ error: 'Failed to update admin user' });
         }
+
+        customer = updatedAdmin;
+        console.log('✅ Updated admin email successfully');
+      } else {
+        // Create new admin with different shopify_customer_id
+        console.log('Creating new admin user...');
+        const { data: newCustomer, error: createError } = await supabaseDb.supabase
+          .from('customers')
+          .insert({
+            shopify_customer_id: '9999999999998', // Different ID to avoid conflict
+            email: 'info@ves.sg',
+            first_name: 'VES',
+            last_name: 'Admin',
+            customer_type: 'admin',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          console.error('Error creating admin:', createError);
+          console.error('Error details:', JSON.stringify(createError, null, 2));
+          return res.status(500).json({ error: 'Failed to create admin user', details: createError.message });
+        }
+
+        customer = newCustomer;
+        console.log('✅ Created new admin user in database');
       }
-    `;
-
-    const response = await client.query({ data: searchQuery });
-    const customers = response.body.data.customers.edges;
-
-    if (customers.length === 0) {
-      return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const customer = customers[0].node;
-    const customerId = customer.id.split('/').pop();
-
-    // Check password
-    const storedPassword = customer.metafield?.value || 'pottery123';
-    const passwordMatch = await bcrypt.compare(password, storedPassword);
-
-    if (!passwordMatch && password !== storedPassword) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    // Sync customer to PostgreSQL via Supabase
-    const dbCustomer = await syncCustomer(customer, customerId);
+    // Check if user is admin
+    const isAdmin = customer.email === 'info@ves.sg';
 
     // Create JWT token
     const token = jwt.sign(
       {
-        customerId: customerId,
-        dbCustomerId: dbCustomer.id,
+        customerId: customer.shopify_customer_id,
+        dbCustomerId: customer.id,
         email: customer.email,
-        firstName: customer.firstName,
-        lastName: customer.lastName
+        firstName: customer.first_name,
+        lastName: customer.last_name,
+        isAdmin: isAdmin
       },
       JWT_SECRET,
       { expiresIn: '7d' }
@@ -144,11 +187,13 @@ app.post('/api/auth/login', async (req, res) => {
     res.json({
       success: true,
       user: {
-        id: customerId,
-        dbId: dbCustomer.id,
+        id: customer.shopify_customer_id,
+        dbId: customer.id,
         email: customer.email,
-        firstName: customer.firstName,
-        lastName: customer.lastName
+        firstName: customer.first_name,
+        lastName: customer.last_name,
+        profilePicture: customer.profile_picture,
+        isAdmin: isAdmin
       },
       token
     });
@@ -156,8 +201,6 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (error) {
     console.error('Login error:', error);
     console.error('Error details:', error.message);
-    console.error('Has SHOPIFY_API_KEY:', !!process.env.SHOPIFY_API_KEY);
-    console.error('Has SHOPIFY_SHOP_DOMAIN:', !!process.env.SHOPIFY_SHOP_DOMAIN);
     res.status(500).json({ error: 'Login failed', debug: error.message });
   }
 });
@@ -175,6 +218,149 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
 app.post('/api/auth/logout', (req, res) => {
   res.clearCookie('token');
   res.json({ success: true });
+});
+
+// Update user profile
+app.put('/api/auth/profile', authenticateToken, async (req, res) => {
+  try {
+    const { dbCustomerId } = req.user;
+    const { firstName, lastName, email, mobile, dateOfBirth, profilePicture } = req.body;
+
+    // Validate required fields
+    if (!firstName || !lastName || !email) {
+      return res.status(400).json({ error: 'First name, last name, and email are required' });
+    }
+
+    // Check if email is already taken by another user
+    if (email !== req.user.email) {
+      const { data: existingUser } = await supabase
+        .from('customers')
+        .select('id')
+        .eq('email', email)
+        .neq('id', dbCustomerId)
+        .single();
+
+      if (existingUser) {
+        return res.status(400).json({ error: 'Email already in use' });
+      }
+    }
+
+    // Update customer in database
+    const updateData = {
+      first_name: firstName,
+      last_name: lastName,
+      email: email,
+      mobile: mobile || null,
+      date_of_birth: dateOfBirth || null,
+      updated_at: new Date().toISOString()
+    };
+
+    // Only update profile_picture if it's provided in the request
+    if (profilePicture !== undefined) {
+      updateData.profile_picture = profilePicture || null;
+    }
+
+    const { data: updatedCustomer, error } = await supabase
+      .from('customers')
+      .update(updateData)
+      .eq('id', dbCustomerId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating profile:', error);
+      return res.status(500).json({ error: 'Failed to update profile' });
+    }
+
+    // Generate new token with updated info
+    const token = jwt.sign(
+      {
+        customerId: req.user.customerId,
+        dbCustomerId: dbCustomerId,
+        email: updatedCustomer.email,
+        firstName: updatedCustomer.first_name,
+        lastName: updatedCustomer.last_name
+      },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      token,
+      user: {
+        customerId: req.user.customerId,
+        dbCustomerId: dbCustomerId,
+        email: updatedCustomer.email,
+        firstName: updatedCustomer.first_name,
+        lastName: updatedCustomer.last_name,
+        mobile: updatedCustomer.mobile,
+        dateOfBirth: updatedCustomer.date_of_birth,
+        profilePicture: updatedCustomer.profile_picture
+      }
+    });
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+// Change password
+app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
+  try {
+    const { dbCustomerId } = req.user;
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current and new passwords are required' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    // Get current password hash from database
+    const { data: customer, error: fetchError } = await supabase
+      .from('customers')
+      .select('password_hash')
+      .eq('id', dbCustomerId)
+      .single();
+
+    if (fetchError || !customer) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (!customer.password_hash) {
+      return res.status(400).json({ error: 'No password set. Please contact support.' });
+    }
+
+    // Verify current password
+    const isValidPassword = await bcrypt.compare(currentPassword, customer.password_hash);
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    // Hash new password
+    const newPasswordHash = await bcrypt.hash(newPassword, 10);
+
+    // Update password in database
+    const { error: updateError } = await supabase
+      .from('customers')
+      .update({
+        password_hash: newPasswordHash,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', dbCustomerId);
+
+    if (updateError) {
+      console.error('Error updating password:', updateError);
+      return res.status(500).json({ error: 'Failed to update password' });
+    }
+
+    res.json({ success: true, message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('Error changing password:', error);
+    res.status(500).json({ error: 'Failed to change password' });
+  }
 });
 
 // ============================================
@@ -1880,7 +2066,7 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
     // All students are already filtered during sync (only course purchasers were synced)
     const totalStudents = allStudents.length;
 
-    // Active students: students who have bookings for classes on or after today
+    // Active students: students who have bookings for classes on or after today OR have paused enrollments
     const today = new Date().toISOString().split('T')[0];
 
     // Get unique student IDs who have bookings for future classes
@@ -1892,9 +2078,21 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
       }
     });
 
+    // Also include students with paused enrollments (they need to continue their course)
+    const { data: pausedEnrollments } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('student_id')
+      .eq('status', 'paused');
+
+    if (pausedEnrollments) {
+      pausedEnrollments.forEach(enrollment => {
+        activeStudentIds.add(enrollment.student_id);
+      });
+    }
+
     const activeStudents = activeStudentIds.size;
 
-    console.log(`👥 Student Management Stats: ${allStudents.length} total students, ${activeStudents} active students (with bookings >= ${today})`);
+    console.log(`👥 Student Management Stats: ${allStudents.length} total students, ${activeStudents} active students (with bookings >= ${today} or paused enrollments)`);
 
     // Inactive students: students whose course has expired or no dates available
     const inactiveStudents = totalStudents - activeStudents;
@@ -1958,6 +2156,19 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
         totalBookings: bookingMap[s.id].bookingCount
       }));
 
+    // Get all active/paused enrollments to include status and weeks remaining
+    const { data: allEnrollments } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('student_id, status, weeks_remaining, number_of_weeks')
+      .in('status', ['active', 'paused']);
+
+    const enrollmentMap = {};
+    if (allEnrollments) {
+      allEnrollments.forEach(enrollment => {
+        enrollmentMap[enrollment.student_id] = enrollment;
+      });
+    }
+
     // Active Students List (students who have bookings for classes on or after today)
     const activeStudentsList = allStudents
       .filter(s => activeStudentIds.has(s.id))
@@ -1965,18 +2176,28 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
         // Get the most recent course for this student
         const courses = studentCourseMap[s.id] || [];
         const latestCourse = courses.length > 0 ? courses[0] : null;
+        const enrollment = enrollmentMap[s.id];
 
         return {
           name: `${s.first_name || ''} ${s.last_name || ''}`.trim() || 'Unknown',
           email: s.email,
           courseIdentifier: latestCourse?.courseIdentifier || null,
-          coursePurchaseCount: s.course_purchase_count || 1
+          coursePurchaseCount: s.course_purchase_count || 1,
+          coursePurchaseDate: s.course_purchase_date,
+          enrollmentStatus: enrollment?.status || 'active',
+          weeksRemaining: enrollment?.weeks_remaining || enrollment?.number_of_weeks || 0
         };
       })
       .sort((a, b) => {
-        // Sort by course identifier first (alphabetically), then by name
-        const courseCompare = (a.courseIdentifier || '').localeCompare(b.courseIdentifier || '');
-        if (courseCompare !== 0) return courseCompare;
+        // Sort: Active students first, then paused students
+        if (a.enrollmentStatus !== b.enrollmentStatus) {
+          return a.enrollmentStatus === 'active' ? -1 : 1;
+        }
+        // Within same status, sort by course purchase date (most recent first), then by name
+        const dateA = a.coursePurchaseDate ? new Date(a.coursePurchaseDate) : new Date(0);
+        const dateB = b.coursePurchaseDate ? new Date(b.coursePurchaseDate) : new Date(0);
+        const dateCompare = dateB - dateA; // Most recent first
+        if (dateCompare !== 0) return dateCompare;
         return a.name.localeCompare(b.name);
       });
 
@@ -2001,9 +2222,9 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
         };
       })
       .sort((a, b) => {
-        // Sort by course identifier first (alphabetically), then by name
-        const courseCompare = (a.courseIdentifier || '').localeCompare(b.courseIdentifier || '');
-        if (courseCompare !== 0) return courseCompare;
+        // Sort by course purchase count (highest first), then by name
+        const countCompare = (b.coursePurchaseCount || 0) - (a.coursePurchaseCount || 0);
+        if (countCompare !== 0) return countCompare;
         return a.name.localeCompare(b.name);
       });
 
@@ -2031,6 +2252,110 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
   }
 });
 
+// Get paused students
+app.get('/api/admin/students/paused/list', authenticateToken, async (req, res) => {
+  try {
+    // Get all paused enrollments
+    const { data: pausedEnrollments, error } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select(`
+        id,
+        student_id,
+        course_title,
+        course_type,
+        course_identifier,
+        number_of_weeks,
+        weeks_completed,
+        weeks_remaining,
+        course_start_date,
+        updated_at,
+        customers (
+          id,
+          first_name,
+          last_name,
+          email
+        )
+      `)
+      .eq('status', 'paused')
+      .order('updated_at', { ascending: false });
+
+    if (error) throw error;
+
+    // Format the response
+    const pausedStudents = pausedEnrollments.map(enrollment => ({
+      enrollmentId: enrollment.id,
+      studentId: enrollment.student_id,
+      name: `${enrollment.customers.first_name || ''} ${enrollment.customers.last_name || ''}`.trim(),
+      email: enrollment.customers.email,
+      courseTitle: enrollment.course_title,
+      courseType: enrollment.course_type,
+      courseIdentifier: enrollment.course_identifier,
+      totalWeeks: enrollment.number_of_weeks,
+      weeksCompleted: enrollment.weeks_completed || 0,
+      weeksRemaining: enrollment.weeks_remaining || enrollment.number_of_weeks,
+      pausedDate: enrollment.updated_at,
+      courseStartDate: enrollment.course_start_date
+    }));
+
+    res.json({
+      count: pausedStudents.length,
+      students: pausedStudents
+    });
+
+  } catch (error) {
+    console.error('Error fetching paused students:', error);
+    res.status(500).json({ error: 'Failed to fetch paused students' });
+  }
+});
+
+// Resume a paused student
+app.post('/api/admin/students/:id/resume', authenticateToken, async (req, res) => {
+  try {
+    const studentId = parseInt(req.params.id);
+
+    // Get the student's paused enrollment
+    const { data: enrollment, error: fetchError } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('*')
+      .eq('student_id', studentId)
+      .eq('status', 'paused')
+      .single();
+
+    if (fetchError || !enrollment) {
+      return res.status(404).json({ error: 'No paused enrollment found for this student' });
+    }
+
+    // Update enrollment status to active
+    const { error: updateError } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .update({
+        status: 'active',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', enrollment.id);
+
+    if (updateError) {
+      console.error('Error resuming enrollment:', updateError);
+      return res.status(500).json({ error: 'Failed to resume enrollment' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Student enrollment resumed successfully',
+      enrollment: {
+        id: enrollment.id,
+        studentId: enrollment.student_id,
+        courseTitle: enrollment.course_title,
+        weeksCompleted: enrollment.weeks_completed,
+        weeksRemaining: enrollment.weeks_remaining
+      }
+    });
+  } catch (error) {
+    console.error('Error resuming student:', error);
+    res.status(500).json({ error: 'Failed to resume student' });
+  }
+});
+
 // Get single student details
 app.get('/api/admin/students/:email', authenticateToken, async (req, res) => {
   try {
@@ -2051,6 +2376,117 @@ app.get('/api/admin/students/:email', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching student:', error);
     res.status(500).json({ error: 'Failed to fetch student' });
+  }
+});
+
+// Get student enrollment
+app.get('/api/admin/students/:id/enrollment', authenticateToken, async (req, res) => {
+  try {
+    const studentId = parseInt(req.params.id);
+
+    const { data: enrollment, error } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('*')
+      .eq('student_id', studentId)
+      .in('status', ['active', 'paused'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        // No enrollment found
+        return res.json(null);
+      }
+      throw error;
+    }
+
+    res.json(enrollment);
+  } catch (error) {
+    console.error('Error fetching enrollment:', error);
+    res.status(500).json({ error: 'Failed to fetch enrollment' });
+  }
+});
+
+// Pause an enrollment
+app.post('/api/admin/enrollments/:id/pause', authenticateToken, async (req, res) => {
+  try {
+    const enrollmentId = parseInt(req.params.id);
+    const { weeksCompleted, weeksRemaining, reason } = req.body;
+
+    // Get the enrollment first
+    const { data: enrollment, error: fetchError } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('*, customers(first_name, last_name, email)')
+      .eq('id', enrollmentId)
+      .single();
+
+    if (fetchError || !enrollment) {
+      return res.status(404).json({ error: 'Enrollment not found' });
+    }
+
+    if (enrollment.status !== 'active') {
+      return res.status(400).json({ error: 'Enrollment is not active' });
+    }
+
+    // Update enrollment to paused
+    const { error: updateError } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .update({
+        status: 'paused',
+        weeks_completed: weeksCompleted,
+        weeks_remaining: weeksRemaining,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', enrollmentId);
+
+    if (updateError) {
+      console.error('Error pausing enrollment:', updateError);
+      return res.status(500).json({ error: 'Failed to pause enrollment' });
+    }
+
+    // Get all bookings for this student and mark attended/cancelled based on weeks completed
+    const { data: bookings } = await supabaseDb.supabase
+      .from('bookings')
+      .select('id, status, class_instances!bookings_class_instance_id_fkey(class_date)')
+      .eq('student_id', enrollment.student_id)
+      .order('class_instances(class_date)', { ascending: true });
+
+    if (bookings && bookings.length > 0) {
+      // Mark first N bookings as attended
+      if (weeksCompleted > 0) {
+        const completedBookingIds = bookings.slice(0, weeksCompleted).map(b => b.id);
+        await supabaseDb.supabase
+          .from('bookings')
+          .update({ attended: true })
+          .in('id', completedBookingIds);
+      }
+
+      // Cancel remaining bookings
+      const remainingBookingIds = bookings.slice(weeksCompleted).map(b => b.id);
+      if (remainingBookingIds.length > 0) {
+        await supabaseDb.supabase
+          .from('bookings')
+          .update({ status: 'cancelled' })
+          .in('id', remainingBookingIds);
+      }
+    }
+
+    console.log(`✅ Paused enrollment ${enrollmentId} for student ${enrollment.student_id} - ${weeksCompleted}/${enrollment.number_of_weeks} weeks`);
+
+    res.json({
+      success: true,
+      message: 'Enrollment paused successfully',
+      enrollment: {
+        id: enrollmentId,
+        weeksCompleted,
+        weeksRemaining,
+        status: 'paused'
+      }
+    });
+  } catch (error) {
+    console.error('Error pausing enrollment:', error);
+    res.status(500).json({ error: 'Failed to pause enrollment' });
   }
 });
 
@@ -2172,6 +2608,14 @@ app.get('/api/admin/dashboard/stats', authenticateToken, async (req, res) => {
       return purchaseDate >= oneYearAgo;
     }).length;
 
+    // Get paused students count
+    const { data: pausedEnrollments } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('student_id')
+      .eq('status', 'paused');
+
+    const pausedStudentsCount = pausedEnrollments ? new Set(pausedEnrollments.map(e => e.student_id)).size : 0;
+
     // Calculate class stats
     // Total enrolled = unique students with bookings
     const totalEnrolled = new Set(allBookings.map(b => b.student_id)).size;
@@ -2218,7 +2662,8 @@ app.get('/api/admin/dashboard/stats', authenticateToken, async (req, res) => {
       students: {
         total: activeStudentIds.size, // Count students with future bookings (matches Student Management)
         newThisMonth: newStudentsThisMonth,
-        returning: returningStudents
+        returning: returningStudents,
+        paused: pausedStudentsCount
       },
       classes: {
         total: allClasses.length,
@@ -2404,14 +2849,21 @@ app.put('/api/admin/students/:email', authenticateToken, async (req, res) => {
   try {
     const { email } = req.params;
     const decodedEmail = decodeURIComponent(email);
-    const { course_purchase_count } = req.body;
+    const { course_purchase_count, profile_picture } = req.body;
+
+    const updateData = {
+      course_purchase_count: course_purchase_count,
+      updated_at: new Date().toISOString()
+    };
+
+    // Only update profile_picture if it's provided in the request
+    if (profile_picture !== undefined) {
+      updateData.profile_picture = profile_picture;
+    }
 
     const { data, error } = await supabaseDb.supabase
       .from('customers')
-      .update({
-        course_purchase_count: course_purchase_count,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('email', decodedEmail)
       .select()
       .single();
@@ -2813,7 +3265,7 @@ app.delete('/api/admin/bookings/:bookingId', authenticateToken, async (req, res)
 app.patch('/api/admin/classes/:classId', authenticateToken, async (req, res) => {
   try {
     const { classId } = req.params;
-    const { classDate, startTime, endTime, instructor } = req.body;
+    const { classDate, startTime, endTime, instructor, maxCapacity } = req.body;
 
     // Get the current class instance
     const { data: classInstance, error: fetchError } = await supabaseDb.supabase
@@ -2835,6 +3287,7 @@ app.patch('/api/admin/classes/:classId', authenticateToken, async (req, res) => 
     if (startTime) updates.start_time = startTime;
     if (endTime) updates.end_time = endTime;
     if (instructor) updates.instructor = instructor;
+    if (maxCapacity !== undefined) updates.max_capacity = maxCapacity;
 
     // WARNING: If date/time changes, the class_type identifier will be out of sync
     // The identifier format is: WT[DDMM][TIME]_[INSTRUCTOR][WEEKS].[WEEK#]
@@ -2862,44 +3315,85 @@ app.patch('/api/admin/classes/:classId', authenticateToken, async (req, res) => 
 // Create a new class
 app.post('/api/admin/classes', authenticateToken, async (req, res) => {
   try {
-    const { classDate, startTime, endTime, classType, instructor, room, maxCapacity } = req.body;
+    const { startTime, endTime, classType, instructor, room, teachingCapacity, makeUpCapacity, glazingCapacity, numberOfClasses, classDates } = req.body;
 
     // Validate required fields
-    if (!classDate || !startTime || !endTime || !classType || !instructor || !room) {
+    if (!startTime || !endTime || !classType || !instructor || !room || !numberOfClasses || !classDates) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const now = new Date().toISOString();
-
-    // Create the class instance
-    const { data, error } = await supabaseDb.supabase
-      .from('class_instances')
-      .insert({
-        class_date: classDate,
-        start_time: startTime,
-        end_time: endTime,
-        class_type: classType,
-        instructor: instructor,
-        room: room,
-        max_capacity: maxCapacity || 10,
-        current_enrollment: 0,
-        status: 'active',
-        created_at: now,
-        updated_at: now
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error creating class:', error);
-      return res.status(500).json({ error: 'Failed to create class' });
+    // Validate that we have the correct number of dates
+    if (classDates.length !== numberOfClasses) {
+      return res.status(400).json({ error: 'Number of dates must match number of classes' });
     }
 
-    console.log(`✅ Created new class: ${classType} on ${classDate}`);
-    res.json({ message: 'Class created successfully', class: data });
+    // Validate all dates are provided
+    const emptyDates = classDates.filter(d => !d);
+    if (emptyDates.length > 0) {
+      return res.status(400).json({ error: 'All class dates must be provided' });
+    }
+
+    const now = new Date().toISOString();
+    const createdClasses = [];
+
+    // Calculate total capacity (teaching + make up for regular classes, glazing capacity for last class)
+    const regularCapacity = (teachingCapacity || 10) + (makeUpCapacity || 2);
+    const finalGlazingCapacity = glazingCapacity || 14;
+
+    // Create each class instance with the appropriate week number
+    for (let i = 0; i < numberOfClasses; i++) {
+      const weekNumber = i + 1;
+      const isLastClass = weekNumber === numberOfClasses;
+
+      // Generate the class type with week number (e.g., WT1210AM_DL6.1, WT1210AM_DL6.2, etc.)
+      const classTypeWithWeek = `${classType}.${weekNumber}`;
+
+      // Use glazing capacity for the last class, regular capacity for others
+      const classCapacity = isLastClass ? finalGlazingCapacity : regularCapacity;
+
+      const { data, error} = await supabaseDb.supabase
+        .from('class_instances')
+        .insert({
+          class_date: classDates[i],
+          start_time: startTime,
+          end_time: endTime,
+          class_type: classTypeWithWeek,
+          instructor: instructor,
+          room: room,
+          max_capacity: classCapacity,
+          current_enrollment: 0,
+          status: 'active',
+          created_at: now,
+          updated_at: now
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error(`Error creating class ${weekNumber}:`, error);
+        // If we fail partway through, return an error but note what was created
+        return res.status(500).json({
+          error: `Failed to create class ${weekNumber}. ${createdClasses.length} classes were created before this error.`,
+          createdClasses: createdClasses
+        });
+      }
+
+      createdClasses.push(data);
+      if (isLastClass) {
+        console.log(`✅ Created GLAZING class ${weekNumber}/${numberOfClasses}: ${classTypeWithWeek} on ${classDates[i]} (Capacity: ${classCapacity})`);
+      } else {
+        console.log(`✅ Created class ${weekNumber}/${numberOfClasses}: ${classTypeWithWeek} on ${classDates[i]} (Teaching: ${teachingCapacity}, Make-up: ${makeUpCapacity}, Total: ${classCapacity})`);
+      }
+    }
+
+    console.log(`✅ Successfully created ${numberOfClasses} classes for course: ${classType}`);
+    res.json({
+      message: `${numberOfClasses} class${numberOfClasses > 1 ? 'es' : ''} created successfully`,
+      classes: createdClasses
+    });
   } catch (error) {
-    console.error('Error creating class:', error);
-    res.status(500).json({ error: 'Failed to create class' });
+    console.error('Error creating classes:', error);
+    res.status(500).json({ error: 'Failed to create classes' });
   }
 });
 

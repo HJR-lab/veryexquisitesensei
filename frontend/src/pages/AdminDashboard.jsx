@@ -82,7 +82,9 @@ export default function AdminDashboard() {
       title: 'Paused Students',
       description: 'View and manage students who have paused their courses',
       icon: 'pause_circle',
-      path: '/admin/paused-students'
+      path: '/admin/paused-students',
+      stat: stats?.students?.paused || 0,
+      statLabel: 'Paused Enrollments'
     },
     {
       title: 'Members',

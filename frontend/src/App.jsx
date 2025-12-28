@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import AIChat from './components/AIChat';
 import Login from './pages/Login';
+import AdminLogin from './pages/AdminLogin';
 import Register from './pages/Register';
 import Gallery from './pages/Gallery';
 import GalleryNew from './pages/GalleryNew';
@@ -21,6 +22,7 @@ import PublicGallery from './pages/PublicGallery';
 import Dashboard from './pages/Dashboard';
 import Membership from './pages/Membership';
 import Contact from './pages/Contact';
+import Account from './pages/Account';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -35,6 +37,32 @@ function PrivateRoute({ children }) {
   }
 
   return user ? children : <Navigate to="/login" />;
+}
+
+function AdminRoute({ children }) {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="loading-screen">
+        <div className="spinner"></div>
+        <p>Loading...</p>
+      </div>
+    );
+  }
+
+  // If not logged in, redirect to admin login
+  if (!user) {
+    return <Navigate to="/admin/login" />;
+  }
+
+  // If logged in but not admin, redirect to student gallery
+  if (!user.isAdmin) {
+    return <Navigate to="/gallery" />;
+  }
+
+  // User is admin, allow access
+  return children;
 }
 
 function PublicRoute({ children }) {
@@ -82,6 +110,14 @@ function App() {
             }
           />
           <Route
+            path="/admin/login"
+            element={
+              <PublicRoute>
+                <AdminLogin />
+              </PublicRoute>
+            }
+          />
+          <Route
             path="/register"
             element={
               <PublicRoute>
@@ -112,97 +148,97 @@ function App() {
           <Route
             path="/admin"
             element={
-              <PrivateRoute>
+              <AdminRoute>
                 <AdminDashboard />
-              </PrivateRoute>
+              </AdminRoute>
             }
           />
           <Route
             path="/admin/old"
             element={
-              <PrivateRoute>
+              <AdminRoute>
                 <Admin />
-              </PrivateRoute>
+              </AdminRoute>
             }
           />
           <Route
             path="/admin/classes"
             element={
-              <PrivateRoute>
+              <AdminRoute>
                 <AdminClasses />
-              </PrivateRoute>
+              </AdminRoute>
             }
           />
           <Route
             path="/admin/paused-students"
             element={
-              <PrivateRoute>
+              <AdminRoute>
                 <AdminPausedStudents />
-              </PrivateRoute>
+              </AdminRoute>
             }
           />
           <Route
             path="/admin/courses"
             element={
-              <PrivateRoute>
+              <AdminRoute>
                 <AdminCoursesNew />
-              </PrivateRoute>
+              </AdminRoute>
             }
           />
           <Route
             path="/admin/students"
             element={
-              <PrivateRoute>
+              <AdminRoute>
                 <AdminStudents />
-              </PrivateRoute>
+              </AdminRoute>
             }
           />
           <Route
             path="/admin/students/:email"
             element={
-              <PrivateRoute>
+              <AdminRoute>
                 <AdminStudentDetail />
-              </PrivateRoute>
+              </AdminRoute>
             }
           />
           <Route
             path="/admin/memberships"
             element={
-              <PrivateRoute>
+              <AdminRoute>
                 <AdminMemberships />
-              </PrivateRoute>
+              </AdminRoute>
             }
           />
           <Route
             path="/admin/gallery"
             element={
-              <PrivateRoute>
+              <AdminRoute>
                 <AdminGallery />
-              </PrivateRoute>
+              </AdminRoute>
             }
           />
           <Route
             path="/admin/bookings"
             element={
-              <PrivateRoute>
+              <AdminRoute>
                 <AdminClasses />
-              </PrivateRoute>
+              </AdminRoute>
             }
           />
           <Route
             path="/admin/reference"
             element={
-              <PrivateRoute>
+              <AdminRoute>
                 <AdminReference />
-              </PrivateRoute>
+              </AdminRoute>
             }
           />
           <Route
             path="/admin/analytics"
             element={
-              <PrivateRoute>
+              <AdminRoute>
                 <AdminDashboard />
-              </PrivateRoute>
+              </AdminRoute>
             }
           />
           <Route
@@ -226,6 +262,11 @@ function App() {
           } />
           <Route path="/membership" element={<Membership />} />
           <Route path="/contact" element={<Contact />} />
+          <Route path="/account" element={
+            <PrivateRoute>
+              <Account />
+            </PrivateRoute>
+          } />
         </Routes>
       </AuthProvider>
     </BrowserRouter>

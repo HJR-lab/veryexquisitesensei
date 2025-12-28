@@ -44,19 +44,27 @@ export default function AdminClasses() {
     classDate: '',
     startTime: '',
     endTime: '',
-    instructor: ''
+    instructor: '',
+    maxCapacity: 12
   });
   const [updatingClass, setUpdatingClass] = useState(false);
   const [showCreateClassModal, setShowCreateClassModal] = useState(false);
   const [creatingClass, setCreatingClass] = useState(false);
   const [createClassData, setCreateClassData] = useState({
-    classDate: '',
-    startTime: '',
-    endTime: '',
+    startTimeHour: '',
+    startTimeMinute: '',
+    startTimePeriod: 'AM',
+    endTimeHour: '',
+    endTimeMinute: '',
+    endTimePeriod: 'PM',
     classType: '',
     instructor: '',
     room: '',
-    maxCapacity: 10
+    teachingCapacity: 10,
+    makeUpCapacity: 2,
+    glazingCapacity: 14,
+    numberOfClasses: 1,
+    classDates: ['']
   });
 
   useEffect(() => {
@@ -408,7 +416,8 @@ export default function AdminClasses() {
       classDate: classInstance.class_date.split('T')[0], // Convert to YYYY-MM-DD
       startTime: classInstance.start_time,
       endTime: classInstance.end_time,
-      instructor: classInstance.instructor
+      instructor: classInstance.instructor,
+      maxCapacity: classInstance.max_capacity || 12
     });
     setShowEditClassModal(true);
   };
@@ -425,11 +434,12 @@ export default function AdminClasses() {
 
     try {
       setUpdatingClass(true);
-      await axios.patch(`/admin/classes/${editingClass.id}`, {
+      await api.patch(`/admin/classes/${editingClass.id}`, {
         classDate: editClassData.classDate,
         startTime: editClassData.startTime,
         endTime: editClassData.endTime,
-        instructor: editClassData.instructor
+        instructor: editClassData.instructor,
+        maxCapacity: editClassData.maxCapacity
       });
 
       // Reload courses to update data
@@ -442,7 +452,8 @@ export default function AdminClasses() {
         classDate: '',
         startTime: '',
         endTime: '',
-        instructor: ''
+        instructor: '',
+        maxCapacity: 12
       });
     } catch (error) {
       console.error('Failed to update class:', error);
@@ -452,38 +463,93 @@ export default function AdminClasses() {
     }
   };
 
+  const handleNumberOfClassesChange = (newNumber) => {
+    const num = Math.max(1, Math.min(12, parseInt(newNumber) || 1));
+    const currentDates = createClassData.classDates;
+
+    // Adjust array length
+    const newDates = Array(num).fill('').map((_, idx) => currentDates[idx] || '');
+
+    setCreateClassData({
+      ...createClassData,
+      numberOfClasses: num,
+      classDates: newDates
+    });
+  };
+
+  const handleClassDateChange = (index, date) => {
+    const newDates = [...createClassData.classDates];
+    newDates[index] = date;
+    setCreateClassData({
+      ...createClassData,
+      classDates: newDates
+    });
+  };
+
+  const formatTimeForAPI = (hour, minute, period) => {
+    if (!hour || !minute || !period) return '';
+    return `${hour}:${minute}${period.toLowerCase()}`;
+  };
+
   const handleCreateClass = async () => {
-    if (!createClassData.classDate || !createClassData.startTime || !createClassData.endTime ||
+    // Validate all fields
+    if (!createClassData.startTimeHour || !createClassData.startTimeMinute ||
+        !createClassData.endTimeHour || !createClassData.endTimeMinute ||
         !createClassData.classType || !createClassData.instructor || !createClassData.room) {
       alert('Please fill in all required fields');
       return;
     }
 
-    if (!confirm('Are you sure you want to create this class?')) {
+    // Validate all dates are filled
+    const emptyDates = createClassData.classDates.filter(d => !d);
+    if (emptyDates.length > 0) {
+      alert('Please select dates for all classes');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to create this new course with ${createClassData.numberOfClasses} class${createClassData.numberOfClasses > 1 ? 'es' : ''}?`)) {
       return;
     }
 
     try {
       setCreatingClass(true);
-      await api.post('/admin/classes', createClassData);
 
-      // Reload courses to show new class
+      // Format times for API
+      const startTime = formatTimeForAPI(createClassData.startTimeHour, createClassData.startTimeMinute, createClassData.startTimePeriod);
+      const endTime = formatTimeForAPI(createClassData.endTimeHour, createClassData.endTimeMinute, createClassData.endTimePeriod);
+
+      const requestData = {
+        ...createClassData,
+        startTime,
+        endTime
+      };
+
+      await api.post('/admin/classes', requestData);
+
+      // Reload courses to show new classes
       await loadCourses();
 
-      alert('Class created successfully!');
+      alert(`New course "${createClassData.classType}" created successfully with ${createClassData.numberOfClasses} class${createClassData.numberOfClasses > 1 ? 'es' : ''}!`);
       setShowCreateClassModal(false);
       setCreateClassData({
-        classDate: '',
-        startTime: '',
-        endTime: '',
+        startTimeHour: '',
+        startTimeMinute: '',
+        startTimePeriod: 'AM',
+        endTimeHour: '',
+        endTimeMinute: '',
+        endTimePeriod: 'PM',
         classType: '',
         instructor: '',
         room: '',
-        maxCapacity: 10
+        teachingCapacity: 10,
+        makeUpCapacity: 2,
+        glazingCapacity: 14,
+        numberOfClasses: 1,
+        classDates: ['']
       });
     } catch (error) {
-      console.error('Failed to create class:', error);
-      alert(error.response?.data?.error || 'Failed to create class. Please try again.');
+      console.error('Failed to create classes:', error);
+      alert(error.response?.data?.error || 'Failed to create classes. Please try again.');
     } finally {
       setCreatingClass(false);
     }
@@ -603,7 +669,7 @@ export default function AdminClasses() {
                 className="flex items-center gap-2 px-4 py-2 bg-green-500/10 text-green-600 rounded-lg hover:bg-green-500/20 transition-colors"
               >
                 <span className="material-symbols-outlined text-sm">add</span>
-                <span className="hidden sm:inline">Create Class</span>
+                <span className="hidden sm:inline">Create Course</span>
               </button>
               <button
                 onClick={logout}
@@ -1259,9 +1325,9 @@ export default function AdminClasses() {
               <div className="px-6 py-4 border-b border-gray-200">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-2xl font-bold text-gray-900">Create New Class</h2>
+                    <h2 className="text-2xl font-bold text-gray-900">Create New Course</h2>
                     <p className="text-sm text-gray-600 mt-1">
-                      Add a new class instance to the schedule
+                      Add a new course with multiple class sessions to the schedule
                     </p>
                   </div>
                   <button
@@ -1285,52 +1351,139 @@ export default function AdminClasses() {
                       type="text"
                       value={createClassData.classType}
                       onChange={(e) => setCreateClassData({ ...createClassData, classType: e.target.value })}
-                      placeholder="e.g., WT1210AM_DL6.1 or HB0511NT_LT13.1"
+                      placeholder="e.g., WT1210AM_DL6 or HB0511NT_LT13"
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent font-mono text-sm"
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      Format: [WT/HB][MMDD][AM/PM/NT]_[INSTRUCTOR][WEEKS].[WEEK#]
+                      Format: [WT/HB][MMDD][AM/PM/NT]_[INSTRUCTOR][WEEKS]
                     </p>
                   </div>
 
-                  {/* Class Date */}
+                  {/* Number of Classes */}
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Class Date *
+                      Number of Classes *
                     </label>
                     <input
-                      type="date"
-                      value={createClassData.classDate}
-                      onChange={(e) => setCreateClassData({ ...createClassData, classDate: e.target.value })}
+                      type="number"
+                      min="1"
+                      max="12"
+                      value={createClassData.numberOfClasses}
+                      onChange={(e) => handleNumberOfClassesChange(e.target.value)}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
                     />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Enter the number of class sessions (1-12)
+                    </p>
+                  </div>
+
+                  {/* Class Dates */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Class Dates *
+                    </label>
+                    <p className="text-xs text-gray-500 mb-2">
+                      Select {createClassData.numberOfClasses} date{createClassData.numberOfClasses > 1 ? 's' : ''} for your class sessions
+                    </p>
+                    <div className="space-y-2 max-h-64 overflow-y-auto border border-gray-300 rounded-lg p-3 bg-gray-50">
+                      {createClassData.classDates.map((date, index) => (
+                        <div key={index} className="flex items-center gap-2 bg-white rounded p-2">
+                          <span className="text-sm font-medium text-gray-600 w-20 flex-shrink-0">
+                            Week {index + 1}:
+                          </span>
+                          <input
+                            type="date"
+                            value={date}
+                            onChange={(e) => handleClassDateChange(index, e.target.value)}
+                            className="flex-1 px-3 py-1.5 border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                          />
+                          {date && (
+                            <span className="text-xs text-green-600 flex-shrink-0">✓</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">
+                      {createClassData.classDates.filter(d => d).length} of {createClassData.numberOfClasses} dates selected
+                    </p>
                   </div>
 
                   {/* Time Row */}
                   <div className="grid grid-cols-2 gap-4">
+                    {/* Start Time */}
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">
                         Start Time *
                       </label>
-                      <input
-                        type="text"
-                        value={createClassData.startTime}
-                        onChange={(e) => setCreateClassData({ ...createClassData, startTime: e.target.value })}
-                        placeholder="e.g., 9:30am"
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                      />
+                      <div className="flex gap-2">
+                        <select
+                          value={createClassData.startTimeHour}
+                          onChange={(e) => setCreateClassData({ ...createClassData, startTimeHour: e.target.value })}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        >
+                          <option value="">Hour</option>
+                          {[...Array(12)].map((_, i) => (
+                            <option key={i + 1} value={i + 1}>{i + 1}</option>
+                          ))}
+                        </select>
+                        <select
+                          value={createClassData.startTimeMinute}
+                          onChange={(e) => setCreateClassData({ ...createClassData, startTimeMinute: e.target.value })}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        >
+                          <option value="">Min</option>
+                          <option value="00">00</option>
+                          <option value="15">15</option>
+                          <option value="30">30</option>
+                          <option value="45">45</option>
+                        </select>
+                        <select
+                          value={createClassData.startTimePeriod}
+                          onChange={(e) => setCreateClassData({ ...createClassData, startTimePeriod: e.target.value })}
+                          className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        >
+                          <option value="AM">AM</option>
+                          <option value="PM">PM</option>
+                        </select>
+                      </div>
                     </div>
+
+                    {/* End Time */}
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">
                         End Time *
                       </label>
-                      <input
-                        type="text"
-                        value={createClassData.endTime}
-                        onChange={(e) => setCreateClassData({ ...createClassData, endTime: e.target.value })}
-                        placeholder="e.g., 12:00pm"
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                      />
+                      <div className="flex gap-2">
+                        <select
+                          value={createClassData.endTimeHour}
+                          onChange={(e) => setCreateClassData({ ...createClassData, endTimeHour: e.target.value })}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        >
+                          <option value="">Hour</option>
+                          {[...Array(12)].map((_, i) => (
+                            <option key={i + 1} value={i + 1}>{i + 1}</option>
+                          ))}
+                        </select>
+                        <select
+                          value={createClassData.endTimeMinute}
+                          onChange={(e) => setCreateClassData({ ...createClassData, endTimeMinute: e.target.value })}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        >
+                          <option value="">Min</option>
+                          <option value="00">00</option>
+                          <option value="15">15</option>
+                          <option value="30">30</option>
+                          <option value="45">45</option>
+                        </select>
+                        <select
+                          value={createClassData.endTimePeriod}
+                          onChange={(e) => setCreateClassData({ ...createClassData, endTimePeriod: e.target.value })}
+                          className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        >
+                          <option value="AM">AM</option>
+                          <option value="PM">PM</option>
+                        </select>
+                      </div>
                     </div>
                   </div>
 
@@ -1348,33 +1501,70 @@ export default function AdminClasses() {
                     />
                   </div>
 
-                  {/* Room */}
+                  {/* Type */}
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Room *
+                      Type *
                     </label>
                     <input
                       type="text"
                       value={createClassData.room}
                       onChange={(e) => setCreateClassData({ ...createClassData, room: e.target.value })}
-                      placeholder="e.g., Studio A, Studio B, Studio C"
+                      placeholder="e.g., Wheelthrowing, Handbuilding, Sculpture, Glazing"
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
                     />
                   </div>
 
-                  {/* Max Capacity */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Max Capacity *
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="50"
-                      value={createClassData.maxCapacity}
-                      onChange={(e) => setCreateClassData({ ...createClassData, maxCapacity: parseInt(e.target.value) || 10 })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    />
+                  {/* Capacity Fields */}
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        Teaching Capacity *
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="50"
+                        value={createClassData.teachingCapacity}
+                        onChange={(e) => setCreateClassData({ ...createClassData, teachingCapacity: parseInt(e.target.value) || 10 })}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Regular classes (typically 8-10)
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        Make Up Capacity *
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="20"
+                        value={createClassData.makeUpCapacity}
+                        onChange={(e) => setCreateClassData({ ...createClassData, makeUpCapacity: parseInt(e.target.value) || 2 })}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Make-up spots (typically 2)
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        Glazing Capacity *
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="50"
+                        value={createClassData.glazingCapacity}
+                        onChange={(e) => setCreateClassData({ ...createClassData, glazingCapacity: parseInt(e.target.value) || 14 })}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Final glazing class (typically 14)
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1401,7 +1591,7 @@ export default function AdminClasses() {
                   ) : (
                     <>
                       <span className="material-symbols-outlined text-sm">add</span>
-                      <span>Create Class</span>
+                      <span>Create Course</span>
                     </>
                   )}
                 </button>
@@ -1509,6 +1699,24 @@ export default function AdminClasses() {
                       placeholder="e.g., Dillon Lin"
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
+                  </div>
+
+                  {/* Max Capacity */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Max Capacity *
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="50"
+                      value={editClassData.maxCapacity}
+                      onChange={(e) => setEditClassData({ ...editClassData, maxCapacity: parseInt(e.target.value) || 12 })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Maximum number of students for this class
+                    </p>
                   </div>
                 </div>
               </div>

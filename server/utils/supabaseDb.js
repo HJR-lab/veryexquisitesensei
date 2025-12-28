@@ -1181,16 +1181,17 @@ async function createCourseEnrollment(enrollmentData) {
 }
 
 /**
- * Find course enrollments by cohort (same course type, start date, schedule)
+ * Find course enrollments by cohort (same course type, start date, schedule, and time)
  */
-async function findCohortEnrollments(courseType, startDate, schedulePattern) {
+async function findCohortEnrollments(courseType, startDate, schedulePattern, classTime) {
   const { data, error } = await supabase
     .from('course_enrollments')
     .select('*')
     .eq('course_type', courseType)
     .eq('course_start_date', startDate)
     .eq('schedule_pattern', schedulePattern)
-    .eq('status', 'pending');
+    .eq('class_time', classTime)
+    .eq('status', 'active');
 
   if (error) throw error;
   return data || [];

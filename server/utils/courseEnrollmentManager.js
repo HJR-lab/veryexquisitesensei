@@ -85,12 +85,37 @@ async function processCoursePurchase(order, lineItem) {
       classTime: courseInfo.classTime,
       instructor: courseInfo.instructor,
       room: courseInfo.room,
-      status: 'pending'
+      status: 'active'
     });
 
     console.log(`✅ Created enrollment ${enrollment.id} for ${student.email} - ${courseInfo.courseType}`);
 
-    // Check if threshold is met for this cohort
+    // Handbuilding courses use credit system (no auto-booking)
+    if (courseInfo.courseType && courseInfo.courseType.toLowerCase().includes('handbuilding')) {
+      const credits = courseInfo.numberOfWeeks || 4; // 4 or 8 class credits
+
+      // Update enrollment with credit allocation
+      await updateCourseEnrollment(enrollment.id, {
+        status: 'active'
+        // Note: The following fields require schema migration (see migrations/add-credit-system.sql):
+        // class_credits_allocated: credits,
+        // class_credits_used: 0,
+        // class_credits_remaining: credits,
+        // glazing_class_used: false
+      });
+
+      console.log(`🎨 Handbuilding enrollment: ${credits} credits allocated (student will self-register for classes)`);
+
+      return {
+        success: true,
+        enrollment,
+        isHandbuilding: true,
+        creditsAllocated: credits,
+        message: `${credits} class credits allocated. Student can self-register for Wednesday HB classes.`
+      };
+    }
+
+    // For Wheelthrowing: Check if threshold is met for this cohort
     const result = await checkAndProcessThreshold(enrollment);
 
     return {
@@ -119,12 +144,13 @@ async function checkAndProcessThreshold(newEnrollment) {
     const cohortEnrollments = await findCohortEnrollments(
       newEnrollment.course_type,
       newEnrollment.course_start_date,
-      newEnrollment.schedule_pattern
+      newEnrollment.schedule_pattern,
+      newEnrollment.class_time
     );
 
     const studentCount = cohortEnrollments.length;
 
-    console.log(`📊 Cohort ${newEnrollment.course_type} (${newEnrollment.schedule_pattern}s starting ${newEnrollment.course_start_date}): ${studentCount} students`);
+    console.log(`📊 Cohort ${newEnrollment.course_type} (${newEnrollment.schedule_pattern}s ${newEnrollment.class_time} starting ${newEnrollment.course_start_date}): ${studentCount} students`);
 
     // Update pending student count for all enrollments in cohort
     for (const enrollment of cohortEnrollments) {
@@ -144,10 +170,10 @@ async function checkAndProcessThreshold(newEnrollment) {
 
     if (shouldCreateClasses) {
       // Check if bookings already created for this cohort
-      const hasConfirmedEnrollments = cohortEnrollments.some(e => e.status === 'confirmed');
+      const hasExistingClasses = cohortEnrollments.some(e => e.bookings_created_at);
 
-      if (hasConfirmedEnrollments) {
-        console.log(`✅ Cohort already confirmed, adding student to existing classes`);
+      if (hasExistingClasses) {
+        console.log(`✅ Cohort already has classes, adding student to existing classes`);
         return await addStudentToExistingCohort(newEnrollment, cohortEnrollments[0]);
       }
 
@@ -240,11 +266,11 @@ async function createClassesAndBookings(cohortEnrollments) {
 
     console.log(`✅ Created ${createdBookings.length} bookings`);
 
-    // Update all enrollments to confirmed status
+    // Update all enrollments with booking timestamps
     const now = new Date().toISOString();
     for (const enrollment of cohortEnrollments) {
       await updateCourseEnrollment(enrollment.id, {
-        status: 'confirmed',
+        status: 'active',
         thresholdMetAt: now,
         bookingsCreatedAt: now
       });
@@ -306,9 +332,9 @@ async function addStudentToExistingCohort(newEnrollment, existingEnrollment) {
       await updateClassEnrollment(classInstanceId, 1);
     }
 
-    // Update enrollment to confirmed
+    // Update enrollment with booking timestamp
     await updateCourseEnrollment(newEnrollment.id, {
-      status: 'confirmed',
+      status: 'active',
       bookingsCreatedAt: new Date().toISOString()
     });
 

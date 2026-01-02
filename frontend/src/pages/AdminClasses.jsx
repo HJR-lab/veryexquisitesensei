@@ -164,27 +164,43 @@ export default function AdminClasses() {
     }
   };
 
-  const loadAvailableClassesForReschedule = (currentClass) => {
-    // Find classes of the same type (same category) that are in the future
+  const loadAvailableClassesForReschedule = async (currentClass, studentId) => {
+    // Find classes of the same type (same category) that haven't happened yet (based on today)
     const category = getClassCategory(currentClass.class_type);
-    const currentDate = new Date(currentClass.class_date);
+
+    // Compare to TODAY, not the current class date
+    // This allows rescheduling to earlier classes if they haven't happened yet
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Set to start of day for accurate comparison
+
+    // Get student's existing bookings to prevent double-booking
+    let studentBookingClassIds = [];
+    try {
+      const { data } = await api.get(`/admin/students/${studentId}/bookings`);
+      studentBookingClassIds = data.bookings.map(booking => booking.class_instance_id);
+    } catch (error) {
+      console.error('Failed to load student bookings:', error);
+    }
 
     const available = [];
     courses.forEach(course => {
       course.classes?.forEach(cls => {
         const clsDate = new Date(cls.class_date);
+        clsDate.setHours(0, 0, 0, 0); // Set to start of day for comparison
         const clsCategory = getClassCategory(cls.class_type);
 
         // Include if:
         // 1. Same category (or glazing class can go to any glazing)
-        // 2. In the future
+        // 2. Class date is today or in the future (hasn't happened yet)
         // 3. Not full
         // 4. Not the current class
+        // 5. Student is not already booked in this class
         if (
           clsCategory === category &&
-          clsDate > currentDate &&
+          clsDate >= today &&  // Compare to today, not the original class date
           cls.bookingCount < cls.max_capacity &&
-          cls.id !== currentClass.id
+          cls.id !== currentClass.id &&
+          !studentBookingClassIds.includes(cls.id)  // Prevent double-booking
         ) {
           available.push({
             ...cls,
@@ -214,8 +230,28 @@ export default function AdminClasses() {
     try {
       setRescheduling(true);
 
-      // Admin reschedules are always FREE (no fees)
-      const fee = 0;
+      // Calculate fee based on whether it's within the same cohort period
+      const selectedClass = availableClasses.find(cls => cls.id === rescheduleData.newClassInstanceId);
+
+      // Current cohort period: Jan 17 - Mar 3, 2026
+      // All 6 courses running during this period
+      // Compare date strings (YYYY-MM-DD) instead of Date objects to avoid timezone issues
+      const cohortStartDateStr = '2026-01-17';
+      const cohortEndDateStr = '2026-03-03';
+
+      const originalDateStr = reschedulingBooking.classInstance.class_date.split('T')[0];
+      const newDateStr = selectedClass.class_date.split('T')[0];
+
+      // Check if both classes are within the same cohort period
+      const isOriginalInPeriod = originalDateStr >= cohortStartDateStr && originalDateStr <= cohortEndDateStr;
+      const isNewInPeriod = newDateStr >= cohortStartDateStr && newDateStr <= cohortEndDateStr;
+      const isSamePeriod = isOriginalInPeriod && isNewInPeriod;
+
+      // Fee logic:
+      // - FREE if rescheduling within the same cohort period (Jan 17 - Mar 3)
+      // - $40 if rescheduling to a different cohort period (outside Jan 17 - Mar 3)
+      // - FREE for glazing reschedules
+      const fee = rescheduleData.isGlazing || isSamePeriod ? 0 : 40;
 
       await api.post(`/admin/bookings/${reschedulingBooking.bookingId}/reschedule`, {
         newClassInstanceId: rescheduleData.newClassInstanceId,
@@ -847,83 +883,176 @@ export default function AdminClasses() {
 
                     {/* Enrolled Members */}
                     {classInstance.bookingCount > 0 ? (
-                      <div>
-                        <button
-                          onClick={() => toggleClassMembers(classInstance)}
-                          className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-gray-900"
-                        >
-                          <span className="material-symbols-outlined text-base">
-                            {expandedClassId === classInstance.id ? 'expand_less' : 'expand_more'}
-                          </span>
-                          Enrolled Members ({classInstance.bookingCount})
-                        </button>
+                      <div className="space-y-2">
+                        {/* Regular Enrolled Students Section */}
+                        {(!classMembers[classInstance.id] || classMembers[classInstance.id].filter(m => !m.isMakeup).length > 0) && (
+                          <div>
+                            <button
+                              onClick={() => toggleClassMembers(classInstance)}
+                              className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-gray-900"
+                            >
+                              <span className="material-symbols-outlined text-base">
+                                {expandedClassId === classInstance.id ? 'expand_less' : 'expand_more'}
+                              </span>
+                              Enrolled Members ({classMembers[classInstance.id] ? classMembers[classInstance.id].filter(m => !m.isMakeup).length : classInstance.bookingCount})
+                            </button>
 
-                        {/* Expandable Member List */}
-                        {expandedClassId === classInstance.id && (
-                          <div className="mt-3 space-y-2">
-                            {loadingMembers[classInstance.id] ? (
-                              <p className="text-sm text-gray-500">Loading...</p>
-                            ) : classMembers[classInstance.id]?.length > 0 ? (
-                              <div className="bg-gray-50 rounded p-2">
-                                {classMembers[classInstance.id].map((member, index) => (
-                                  <div
-                                    key={member.id}
-                                    className="text-sm py-1 flex items-center justify-between gap-2"
-                                  >
-                                    <div className="flex items-center gap-2">
-                                      <span className="font-bold text-gray-500">#{index + 1}</span>
-                                      <span className="text-gray-900">
-                                        {member.firstName} {member.lastName}
-                                      </span>
-                                      <span className="text-gray-500">•</span>
-                                      <span className="text-gray-600">
-                                        {member.returningCount} {member.returningCount === 1 ? 'class' : 'classes'}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <button
-                                        onClick={() => {
-                                          const booking = {
-                                            bookingId: member.bookingId,
-                                            studentName: `${member.firstName} ${member.lastName}`,
-                                            studentId: member.studentId,
-                                            classInstance: classInstance,
-                                            weekNumber: getWeekNumberFromClassType(classInstance.class_type)
-                                          };
-                                          setReschedulingBooking(booking);
-                                          setRescheduleData({
-                                            newClassInstanceId: null,
-                                            reason: '',
-                                            isGlazing: classInstance.class_type?.toLowerCase().includes('glazing')
-                                          });
-                                          loadAvailableClassesForReschedule(classInstance);
-                                          setShowRescheduleModal(true);
-                                        }}
-                                        className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                            {/* Expandable Member List */}
+                            {expandedClassId === classInstance.id && (
+                              <div className="mt-3">
+                                {loadingMembers[classInstance.id] ? (
+                                  <p className="text-sm text-gray-500">Loading...</p>
+                                ) : classMembers[classInstance.id]?.filter(m => !m.isMakeup).length > 0 ? (
+                                  <div className="bg-gray-50 rounded p-2">
+                                    {classMembers[classInstance.id].filter(m => !m.isMakeup).map((member, index) => (
+                                      <div
+                                        key={member.id}
+                                        className="text-sm py-1 flex items-center justify-between gap-2"
                                       >
-                                        <span className="material-symbols-outlined text-sm">schedule</span>
-                                        <span>Reschedule</span>
-                                      </button>
-                                      <button
-                                        onClick={() => handleRemoveStudent(
-                                          member.bookingId,
-                                          classInstance.id,
-                                          `${member.firstName} ${member.lastName}`
-                                        )}
-                                        className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
-                                      >
-                                        <span className="material-symbols-outlined text-sm">close</span>
-                                        <span>Remove</span>
-                                      </button>
-                                    </div>
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-bold text-gray-500">#{index + 1}</span>
+                                          <span className="text-gray-900">
+                                            {member.firstName} {member.lastName}
+                                          </span>
+                                          <span className="text-gray-500">•</span>
+                                          <span className="text-gray-600">
+                                            {member.returningCount} {member.returningCount === 1 ? 'class' : 'classes'}
+                                          </span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <button
+                                            onClick={() => {
+                                              const booking = {
+                                                bookingId: member.bookingId,
+                                                studentName: `${member.firstName} ${member.lastName}`,
+                                                studentId: member.studentId,
+                                                classInstance: classInstance,
+                                                weekNumber: getWeekNumberFromClassType(classInstance.class_type)
+                                              };
+                                              setReschedulingBooking(booking);
+                                              setRescheduleData({
+                                                newClassInstanceId: null,
+                                                reason: '',
+                                                isGlazing: classInstance.class_type?.toLowerCase().includes('glazing')
+                                              });
+                                              loadAvailableClassesForReschedule(classInstance, member.studentId);
+                                              setShowRescheduleModal(true);
+                                            }}
+                                            className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                                          >
+                                            <span className="material-symbols-outlined text-sm">schedule</span>
+                                            <span>Reschedule</span>
+                                          </button>
+                                          <button
+                                            onClick={() => handleRemoveStudent(
+                                              member.bookingId,
+                                              classInstance.id,
+                                              `${member.firstName} ${member.lastName}`
+                                            )}
+                                            className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                                          >
+                                            <span className="material-symbols-outlined text-sm">close</span>
+                                            <span>Remove</span>
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))}
                                   </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="text-sm text-gray-400">No enrollment details available</p>
-                            )}
+                                ) : (
+                                  <p className="text-sm text-gray-400">No enrollment details available</p>
+                                )}
 
-                            {/* Absent/Rescheduled Members Section */}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Makeup Students Section - Separate collapsible */}
+                        {classMembers[classInstance.id]?.filter(m => m.isMakeup).length > 0 && (
+                          <div>
+                            <button
+                              onClick={() => {
+                                // Toggle a separate expanded state for makeup students
+                                setExpandedClassId(expandedClassId === `makeup-${classInstance.id}` ? null : `makeup-${classInstance.id}`);
+                              }}
+                              className="flex items-center gap-2 text-sm font-semibold text-purple-700 hover:text-purple-900"
+                            >
+                              <span className="material-symbols-outlined text-base">
+                                {expandedClassId === `makeup-${classInstance.id}` ? 'expand_less' : 'expand_more'}
+                              </span>
+                              Makeup Students ({classMembers[classInstance.id].filter(m => m.isMakeup).length})
+                            </button>
+
+                            {/* Expandable Makeup Student List */}
+                            {expandedClassId === `makeup-${classInstance.id}` && (
+                              <div className="mt-3">
+                                <div className="bg-purple-50 rounded p-2">
+                                  {classMembers[classInstance.id].filter(m => m.isMakeup).map((member, index) => (
+                                    <div
+                                      key={member.id}
+                                      className="text-sm py-1 flex items-center justify-between gap-2"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-bold text-purple-500">#{index + 1}</span>
+                                        <span className="text-gray-900">
+                                          {member.firstName} {member.lastName}
+                                        </span>
+                                        <span className="text-gray-500">•</span>
+                                        <span className="text-gray-600">
+                                          {member.returningCount} {member.returningCount === 1 ? 'class' : 'classes'}
+                                        </span>
+                                        <span className="text-gray-500">•</span>
+                                        <span className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded font-mono">
+                                          from {member.originalClassIdentifier}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          onClick={() => {
+                                            const booking = {
+                                              bookingId: member.bookingId,
+                                              studentName: `${member.firstName} ${member.lastName}`,
+                                              studentId: member.studentId,
+                                              classInstance: classInstance,
+                                              weekNumber: getWeekNumberFromClassType(classInstance.class_type)
+                                            };
+                                            setReschedulingBooking(booking);
+                                            setRescheduleData({
+                                              newClassInstanceId: null,
+                                              reason: '',
+                                              isGlazing: classInstance.class_type?.toLowerCase().includes('glazing')
+                                            });
+                                            loadAvailableClassesForReschedule(classInstance, member.studentId);
+                                            setShowRescheduleModal(true);
+                                          }}
+                                          className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                                        >
+                                          <span className="material-symbols-outlined text-sm">schedule</span>
+                                          <span>Reschedule</span>
+                                        </button>
+                                        <button
+                                          onClick={() => handleRemoveStudent(
+                                            member.bookingId,
+                                            classInstance.id,
+                                            `${member.firstName} ${member.lastName}`
+                                          )}
+                                          className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                                        >
+                                          <span className="material-symbols-outlined text-sm">close</span>
+                                          <span>Remove</span>
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Absent/Rescheduled Members Section */}
+                        {expandedClassId === classInstance.id && (
+                          <div>
                             {!loadingMembers[classInstance.id] && absentMembers[classInstance.id]?.length > 0 && (
                               <div className="mt-4 pt-4 border-t border-gray-200">
                                 <p className="text-sm font-semibold text-gray-700 mb-2">
@@ -1083,13 +1212,15 @@ export default function AdminClasses() {
 
                 <div className="space-y-4">
                   {/* Fee Information */}
-                  <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                     <div className="flex items-start gap-2">
-                      <span className="material-symbols-outlined text-green-600 text-xl">info</span>
+                      <span className="material-symbols-outlined text-blue-600 text-xl">info</span>
                       <div>
-                        <p className="text-sm font-semibold text-green-900 mb-1">Admin Reschedule:</p>
-                        <p className="text-sm text-green-800">
-                          All admin reschedules are <strong>FREE</strong> - no fees apply.
+                        <p className="text-sm font-semibold text-blue-900 mb-1">Reschedule Fee Policy:</p>
+                        <p className="text-sm text-blue-800">
+                          <strong>FREE:</strong> Rescheduling within the current cohort period (Jan 17 - Mar 3, 2026)<br/>
+                          <span className="text-xs">Students can switch between any of the 6 courses during this period</span><br/>
+                          <strong>$40 fee:</strong> Rescheduling outside this period (requires class credits or payment)
                         </p>
                       </div>
                     </div>
@@ -1105,8 +1236,18 @@ export default function AdminClasses() {
                     ) : (
                       <div className="max-h-64 overflow-y-auto border border-gray-300 rounded-lg">
                         {availableClasses.map((cls) => {
-                          const isSameCourse = cls.baseCourseIdentifier === reschedulingBooking.classInstance.baseCourseIdentifier;
-                          const willHaveFee = !rescheduleData.isGlazing && !isSameCourse;
+                          // Check if class is within the same cohort period (Jan 17 - Mar 3, 2026)
+                          // Compare date strings (YYYY-MM-DD) instead of Date objects to avoid timezone issues
+                          const cohortStartDateStr = '2026-01-17';
+                          const cohortEndDateStr = '2026-03-03';
+                          const originalDateStr = reschedulingBooking.classInstance.class_date.split('T')[0];
+                          const newDateStr = cls.class_date.split('T')[0];
+
+                          const isOriginalInPeriod = originalDateStr >= cohortStartDateStr && originalDateStr <= cohortEndDateStr;
+                          const isNewInPeriod = newDateStr >= cohortStartDateStr && newDateStr <= cohortEndDateStr;
+                          const isSamePeriod = isOriginalInPeriod && isNewInPeriod;
+
+                          const willHaveFee = !rescheduleData.isGlazing && !isSamePeriod;
                           const isSelected = rescheduleData.newClassInstanceId === cls.id;
 
                           return (

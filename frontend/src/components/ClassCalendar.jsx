@@ -1,5 +1,20 @@
 import { useState } from 'react';
 
+// Singapore Public Holidays 2026 (Official MOM dates)
+const PUBLIC_HOLIDAYS_2026 = [
+  '2026-01-01', // New Year's Day
+  '2026-02-17', // Chinese New Year
+  '2026-02-18', // Chinese New Year (Day 2)
+  '2026-03-21', // Hari Raya Puasa
+  '2026-04-03', // Good Friday
+  '2026-05-01', // Labour Day
+  '2026-05-27', // Hari Raya Haji
+  '2026-06-01', // Vesak Day (observed)
+  '2026-08-10', // National Day (observed)
+  '2026-11-09', // Deepavali (observed)
+  '2026-12-25'  // Christmas Day
+];
+
 export default function ClassCalendar({
   currentMonth,
   onMonthChange,
@@ -80,6 +95,9 @@ export default function ClassCalendar({
             const hasClasses = dayClasses.length > 0;
             const isPartOfHighlightedCourse = highlightedDates.includes(dateStr);
 
+            // Check if this date is a public holiday
+            const isPublicHoliday = PUBLIC_HOLIDAYS_2026.includes(dateStr);
+
             // Check if this date has glazing classes (Week 6)
             const hasGlazingClass = dayClasses.some(c => {
               if (isAdminView) {
@@ -94,6 +112,11 @@ export default function ClassCalendar({
             let bgColorClass = '';
             let isEnrolledDay = false;
 
+            // Apply light blue background for public holidays (base layer)
+            if (isPublicHoliday) {
+              bgColorClass = 'bg-blue-100';
+            }
+
             if (hasClasses) {
               // Check if student is enrolled in any class on this day (student view only)
               if (!isAdminView) {
@@ -101,8 +124,8 @@ export default function ClassCalendar({
               }
 
               // Show light orange for all wheelthrowing classes EXCEPT glazing week (.6)
-              // If this day has glazing classes, skip the orange background
-              if (!hasGlazingClass) {
+              // Only override public holiday color if not a public holiday
+              if (!hasGlazingClass && !isPublicHoliday) {
                 if (classTypeFilter === 'all' && dayClasses.length > 0) {
                   const classCategories = [...new Set(dayClasses.map(c => getClassCategory(c.class_type)))];
                   const config = classTypeConfig[classCategories[0]];
@@ -118,7 +141,8 @@ export default function ClassCalendar({
               }
 
               // Special background for glazing classes (brown for week 6)
-              if (hasGlazingClass && !isEnrolledDay) {
+              // Only if not public holiday
+              if (hasGlazingClass && !isEnrolledDay && !isPublicHoliday) {
                 bgColorClass = 'bg-amber-800/30';
               }
 

@@ -10,6 +10,7 @@ const { syncCustomer } = require('./utils/shopifySync');
 const { upload, uploadImageToSupabase, deleteImageFromSupabase, ensureBucketExists } = require('./utils/imageUpload');
 const { generateICS, generateMultipleICS } = require('./utils/calendarGenerator');
 const supabaseDb = require('./utils/supabaseDb');
+const { startAutomaticProcessing, processReadyCohorts } = require('./utils/cohortAutoProcessor');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -2692,24 +2693,39 @@ app.get('/api/admin/dashboard/stats', authenticateToken, async (req, res) => {
   }
 });
 
-// Get student bookings
-app.get('/api/admin/students/:email/bookings', authenticateToken, async (req, res) => {
+// Get student bookings (accepts email or numeric ID)
+app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, async (req, res) => {
   try {
-    const { email } = req.params;
-    const decodedEmail = decodeURIComponent(email);
+    const { emailOrId } = req.params;
+    const decodedParam = decodeURIComponent(emailOrId);
 
-    // First get the student
-    const { data: student } = await supabaseDb.supabase
-      .from('customers')
-      .select('id')
-      .eq('email', decodedEmail)
-      .single();
+    let student;
+
+    // Check if parameter is a numeric ID or email
+    if (/^\d+$/.test(decodedParam)) {
+      // It's a numeric ID
+      const { data } = await supabaseDb.supabase
+        .from('customers')
+        .select('id')
+        .eq('id', parseInt(decodedParam))
+        .single();
+      student = data;
+    } else {
+      // It's an email
+      const { data } = await supabaseDb.supabase
+        .from('customers')
+        .select('id')
+        .eq('email', decodedParam)
+        .single();
+      student = data;
+    }
 
     if (!student) {
       return res.status(404).json({ error: 'Student not found' });
     }
 
-    // Get their bookings with class details
+    // Get their ACTIVE bookings with class details (exclude rescheduled/cancelled)
+    // This ensures students can reschedule back into classes they previously rescheduled out of
     const { data: bookings, error } = await supabaseDb.supabase
       .from('bookings')
       .select(`
@@ -2723,6 +2739,7 @@ app.get('/api/admin/students/:email/bookings', authenticateToken, async (req, re
         )
       `)
       .eq('student_id', student.id)
+      .in('status', ['booked', 'completed'])
       .order('class_instances(class_date)', { ascending: false });
 
     if (error) throw error;
@@ -2830,6 +2847,7 @@ app.get('/api/admin/students/:email/bookings', authenticateToken, async (req, re
       id: booking.id,
       status: booking.status,
       attended: booking.attended,
+      class_instance_id: booking.class_instance_id,  // Include for double-booking prevention
       class_date: booking.class_instances.class_date,
       start_time: booking.class_instances.start_time,
       class_type: booking.class_instances.class_type,
@@ -2837,7 +2855,7 @@ app.get('/api/admin/students/:email/bookings', authenticateToken, async (req, re
       course_identifier: classIdToCourseIdentifier[booking.class_instances.id] || 'N/A'
     }));
 
-    res.json(formattedBookings);
+    res.json({ bookings: formattedBookings });
   } catch (error) {
     console.error('Error fetching student bookings:', error);
     res.status(500).json({ error: 'Failed to fetch student bookings' });
@@ -3007,6 +3025,7 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, async (req, re
         student_id,
         status,
         attended,
+        original_class_instance_id,
         customers (
           id,
           first_name,
@@ -3020,6 +3039,29 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, async (req, re
     if (bookingsError) {
       console.error('Error fetching bookings:', bookingsError);
       return res.status(500).json({ error: 'Failed to fetch bookings' });
+    }
+
+    // Get original class identifiers for makeup students
+    // Find all unique original_class_instance_ids
+    const originalClassIds = [...new Set(
+      allBookings
+        .filter(b => b.original_class_instance_id)
+        .map(b => b.original_class_instance_id)
+    )];
+
+    // Fetch class details for original classes
+    const originalClassIdentifiers = {};
+    if (originalClassIds.length > 0) {
+      const { data: originalClasses } = await supabaseDb.supabase
+        .from('class_instances')
+        .select('id, class_type, class_date')
+        .in('id', originalClassIds);
+
+      if (originalClasses) {
+        originalClasses.forEach(cls => {
+          originalClassIdentifiers[cls.id] = cls.class_type;
+        });
+      }
     }
 
     // For rescheduled bookings, find where they rescheduled TO
@@ -3073,6 +3115,12 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, async (req, re
         status: booking.status,
         attended: booking.attended
       };
+
+      // Check if this is a makeup student (rescheduled TO this class)
+      if (booking.original_class_instance_id) {
+        member.isMakeup = true;
+        member.originalClassIdentifier = originalClassIdentifiers[booking.original_class_instance_id] || 'N/A';
+      }
 
       // Active members: status is 'booked' or 'completed'
       if (booking.status === 'booked' || booking.status === 'completed') {
@@ -3569,26 +3617,59 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, async (
 
     if (updateError) throw updateError;
 
-    // Create new booking
-    const { data: newBooking, error: createError } = await supabaseDb.supabase
+    // Check if a booking already exists for this student+class (e.g., from a previous reschedule)
+    const { data: existingBooking } = await supabaseDb.supabase
       .from('bookings')
-      .insert({
-        student_id: originalBooking.student_id,
-        class_instance_id: newClassInstanceId,
-        status: 'booked',
-        original_class_instance_id: originalBooking.class_instance_id,
-        rescheduled_from_date: originalBooking.class_instances.class_date,
-        reschedule_reason: rescheduleReason || null,
-        reschedule_fee_paid: fee || 0,
-        is_makeup_class: fee > 0,
-        is_glazing_reschedule: isGlazingReschedule || false,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-      .select()
+      .select('*')
+      .eq('student_id', originalBooking.student_id)
+      .eq('class_instance_id', newClassInstanceId)
       .single();
 
-    if (createError) throw createError;
+    let newBooking;
+
+    if (existingBooking) {
+      // Update existing booking (allows rescheduling back into previously rescheduled classes)
+      const { data: updatedBooking, error: updateExistingError } = await supabaseDb.supabase
+        .from('bookings')
+        .update({
+          status: 'booked',
+          original_class_instance_id: originalBooking.class_instance_id,
+          rescheduled_from_date: originalBooking.class_instances.class_date,
+          reschedule_reason: rescheduleReason || null,
+          reschedule_fee_paid: fee || 0,
+          is_makeup_class: fee > 0,
+          is_glazing_reschedule: isGlazingReschedule || false,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existingBooking.id)
+        .select()
+        .single();
+
+      if (updateExistingError) throw updateExistingError;
+      newBooking = updatedBooking;
+    } else {
+      // Create new booking
+      const { data: createdBooking, error: createError } = await supabaseDb.supabase
+        .from('bookings')
+        .insert({
+          student_id: originalBooking.student_id,
+          class_instance_id: newClassInstanceId,
+          status: 'booked',
+          original_class_instance_id: originalBooking.class_instance_id,
+          rescheduled_from_date: originalBooking.class_instances.class_date,
+          reschedule_reason: rescheduleReason || null,
+          reschedule_fee_paid: fee || 0,
+          is_makeup_class: fee > 0,
+          is_glazing_reschedule: isGlazingReschedule || false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (createError) throw createError;
+      newBooking = createdBooking;
+    }
 
     // If there's a fee, create a fee record
     if (fee && fee > 0) {
@@ -4174,6 +4255,31 @@ app.get('/api/membership/history', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching membership history:', error);
     res.status(500).json({ error: 'Failed to fetch membership history' });
+  }
+});
+
+// ============================================
+// AUTOMATED COURSE MANAGEMENT
+// ============================================
+
+// Manually trigger cohort processing
+app.post('/api/admin/process-cohorts', authenticateToken, async (req, res) => {
+  try {
+    console.log('🔄 Manual cohort processing triggered');
+    const result = await processReadyCohorts();
+
+    res.json({
+      success: true,
+      result,
+      message: `Processed ${result.cohortsProcessed} cohorts, ${result.cohortsSkipped} below threshold`
+    });
+  } catch (error) {
+    console.error('Error processing cohorts:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to process cohorts',
+      details: error.message
+    });
   }
 });
 
@@ -5008,6 +5114,9 @@ const server = app.listen(PORT, async () => {
   console.log(`🗄️  Supabase database connected (Prisma-free!)`);
 
   await ensureBucketExists();
+
+  // Start automatic cohort processing (runs daily at 2 AM)
+  startAutomaticProcessing();
 });
 
 // Graceful shutdown

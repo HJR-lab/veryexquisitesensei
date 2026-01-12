@@ -54,7 +54,8 @@ function getShopifyClient() {
 
 // Middleware to verify JWT token
 function authenticateToken(req, res, next) {
-  const token = req.cookies.token || req.headers.authorization?.split(' ')[1];
+  // Prioritize Authorization header over cookie (for impersonation to work)
+  const token = req.headers.authorization?.split(' ')[1] || req.cookies.token;
 
   if (!token) {
     return res.status(401).json({ error: 'Authentication required' });
@@ -76,26 +77,95 @@ function authenticateToken(req, res, next) {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
+    console.log('🔐 Login attempt for email:', email);
 
     if (!email || !password) {
+      console.log('❌ Missing email or password');
       return res.status(400).json({ error: 'Email and password required' });
     }
 
-    // SECURITY: Only allow info@ves.sg to log in
-    if (email !== 'info@ves.sg') {
-      return res.status(401).json({ error: 'Invalid credentials' });
+    // Check if this is admin login
+    const isAdminEmail = email === 'info@ves.sg';
+
+    if (isAdminEmail) {
+      // Verify hardcoded admin password
+      const ADMIN_PASSWORD = 'Techn0pu$$';
+      if (password !== ADMIN_PASSWORD) {
+        console.error('❌ Invalid admin password attempt');
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+      console.log('✅ Admin login successful:', email);
+    } else {
+      // Student login - verify password from database
+      console.log('📊 Querying database for customer...');
+      const { data: customer, error: customerError } = await supabaseDb.supabase
+        .from('customers')
+        .select('id, email, first_name, last_name, password_hash, shopify_customer_id')
+        .eq('email', email.toLowerCase())
+        .single();
+
+      console.log('📊 Database query result:', { found: !!customer, error: !!customerError });
+
+      if (customerError || !customer) {
+        console.log('❌ Customer not found or error:', customerError);
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      console.log('📊 Customer has password_hash:', !!customer.password_hash);
+
+      if (!customer.password_hash) {
+        console.log('❌ No password hash - needs verification');
+        return res.status(401).json({
+          error: 'Please verify your email first',
+          needsVerification: true
+        });
+      }
+
+      // Verify password
+      const isValidPassword = await bcrypt.compare(password, customer.password_hash);
+      console.log('🔑 Password check for', email, ':', isValidPassword ? 'VALID' : 'INVALID');
+      if (!isValidPassword) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      console.log('✅ Student login successful:', email);
+
+      // Create JWT token for student
+      const token = jwt.sign(
+        {
+          customerId: customer.shopify_customer_id,
+          dbCustomerId: customer.id,
+          email: customer.email,
+          firstName: customer.first_name,
+          lastName: customer.last_name,
+          isAdmin: false
+        },
+        JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+
+      res.cookie('token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000
+      });
+
+      return res.json({
+        success: true,
+        user: {
+          id: customer.shopify_customer_id,
+          dbId: customer.id,
+          email: customer.email,
+          firstName: customer.first_name,
+          lastName: customer.last_name,
+          isAdmin: false
+        },
+        token
+      });
     }
 
-    // Verify hardcoded admin password
-    const ADMIN_PASSWORD = 'Techn0pu$$';
-    if (password !== ADMIN_PASSWORD) {
-      console.error('❌ Invalid admin password attempt');
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    console.log('✅ Admin login successful:', email);
-
-    // Get or create admin customer in database
+    // Admin login - get or create admin customer in database
     let { data: customer, error: dbError } = await supabaseDb.supabase
       .from('customers')
       .select('*')
@@ -161,10 +231,7 @@ app.post('/api/auth/login', async (req, res) => {
       }
     }
 
-    // Check if user is admin
-    const isAdmin = customer.email === 'info@ves.sg';
-
-    // Create JWT token
+    // Create JWT token for admin
     const token = jwt.sign(
       {
         customerId: customer.shopify_customer_id,
@@ -172,7 +239,7 @@ app.post('/api/auth/login', async (req, res) => {
         email: customer.email,
         firstName: customer.first_name,
         lastName: customer.last_name,
-        isAdmin: isAdmin
+        isAdmin: true
       },
       JWT_SECRET,
       { expiresIn: '7d' }
@@ -193,8 +260,7 @@ app.post('/api/auth/login', async (req, res) => {
         email: customer.email,
         firstName: customer.first_name,
         lastName: customer.last_name,
-        profilePicture: customer.profile_picture,
-        isAdmin: isAdmin
+        isAdmin: true
       },
       token
     });
@@ -214,6 +280,90 @@ app.post('/api/auth/register', async (req, res) => {
 
 app.get('/api/auth/me', authenticateToken, (req, res) => {
   res.json({ user: req.user });
+});
+
+// Admin impersonation endpoint
+app.post('/api/auth/impersonate/:email', authenticateToken, async (req, res) => {
+  try {
+    // Verify the requester is an admin
+    if (!req.user.isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const studentEmail = decodeURIComponent(req.params.email);
+    console.log('🎭 Admin impersonation request for:', studentEmail);
+
+    // Look up the student
+    const { data: student, error } = await supabaseDb.supabase
+      .from('customers')
+      .select('*')
+      .eq('email', studentEmail)
+      .single();
+
+    if (error || !student) {
+      console.log('❌ Student not found:', studentEmail);
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    // Store the original admin token for returning later
+    const originalAdminToken = req.cookies.token || req.headers.authorization?.split(' ')[1];
+
+    // Create JWT token for the student (with impersonation flag)
+    const impersonationToken = jwt.sign(
+      {
+        customerId: student.shopify_customer_id,
+        dbCustomerId: student.id,
+        email: student.email,
+        firstName: student.first_name,
+        lastName: student.last_name,
+        isAdmin: false,
+        impersonatedBy: req.user.email, // Track who is impersonating
+        originalAdminToken: originalAdminToken // Store admin token for easy return
+      },
+      JWT_SECRET,
+      { expiresIn: '1d' } // Shorter expiry for impersonation
+    );
+
+    console.log('✅ Impersonation token created for:', studentEmail);
+
+    res.json({
+      success: true,
+      token: impersonationToken,
+      student: {
+        id: student.shopify_customer_id,
+        dbId: student.id,
+        email: student.email,
+        firstName: student.first_name,
+        lastName: student.last_name
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Impersonation error:', error);
+    res.status(500).json({ error: 'Impersonation failed' });
+  }
+});
+
+// Get current student's data (for student dashboard)
+app.get('/api/students/me', authenticateToken, async (req, res) => {
+  try {
+    const { dbCustomerId } = req.user;
+
+    const { data: student, error } = await supabaseDb.supabase
+      .from('customers')
+      .select('*')
+      .eq('id', dbCustomerId)
+      .single();
+
+    if (error || !student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    res.json({ student });
+  } catch (error) {
+    console.error('Error fetching student data:', error);
+    res.status(500).json({ error: 'Failed to fetch student data' });
+  }
 });
 
 app.post('/api/auth/logout', (req, res) => {
@@ -361,6 +511,291 @@ app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error changing password:', error);
     res.status(500).json({ error: 'Failed to change password' });
+  }
+});
+
+// ============================================
+// EMAIL VERIFICATION ENDPOINTS (Student First-Time Login)
+// ============================================
+
+// Request email verification (send 6-digit PIN)
+app.post('/api/auth/request-verification', async (req, res) => {
+  try {
+    const { email } = req.body;
+    console.log('🔔 Verification request for:', email);
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    // Find customer by email
+    const { data: customer, error: customerError } = await supabaseDb.supabase
+      .from('customers')
+      .select('id, email, first_name, last_name, password_hash')
+      .eq('email', email.toLowerCase())
+      .single();
+
+    console.log('Database response:', { customer: customer ? 'found' : 'not found', error: customerError });
+
+    if (customerError || !customer) {
+      console.log('❌ Customer not found or error:', customerError);
+      return res.status(404).json({ error: 'No account found with this email address' });
+    }
+
+    // Check if customer already has a password set
+    if (customer.password_hash) {
+      return res.status(400).json({
+        error: 'Account already verified. Please use the login page.',
+        hasPassword: true
+      });
+    }
+
+    // Generate random 6-digit code
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Set expiration to 24 hours from now (workaround for timezone issue)
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    // Delete any existing unverified codes for this customer
+    await supabaseDb.supabase
+      .from('verification_codes')
+      .delete()
+      .eq('customer_id', customer.id)
+      .eq('verified', false);
+
+    // Store verification code
+    const { error: insertError } = await supabaseDb.supabase
+      .from('verification_codes')
+      .insert({
+        customer_id: customer.id,
+        email: email.toLowerCase(),
+        code: code,
+        verified: false,
+        expires_at: expiresAt.toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+
+    if (insertError) {
+      console.error('Error storing verification code:', insertError);
+      return res.status(500).json({ error: 'Failed to generate verification code' });
+    }
+
+    // TODO: Send email with verification code
+    // For now, log it to console (in production, use nodemailer or SendGrid)
+    console.log('\n📧 Verification Code for', email);
+    console.log('👤 Name:', customer.first_name, customer.last_name);
+    console.log('🔢 Code:', code);
+    console.log('⏰ Expires:', expiresAt.toLocaleString());
+    console.log('\n');
+
+    res.json({
+      success: true,
+      message: 'Verification code sent to your email',
+      // In development, return the code for testing
+      ...(process.env.NODE_ENV !== 'production' && { code })
+    });
+
+  } catch (error) {
+    console.error('Error requesting verification:', error);
+    res.status(500).json({ error: 'Failed to request verification' });
+  }
+});
+
+// Verify PIN code
+app.post('/api/auth/verify-pin', async (req, res) => {
+  try {
+    const { email, code } = req.body;
+
+    if (!email || !code) {
+      return res.status(400).json({ error: 'Email and verification code are required' });
+    }
+
+    // Find verification code
+    const { data: verification, error: verifyError } = await supabaseDb.supabase
+      .from('verification_codes')
+      .select('*')
+      .eq('email', email.toLowerCase())
+      .eq('code', code)
+      .eq('verified', false)
+      .single();
+
+    if (verifyError || !verification) {
+      return res.status(401).json({ error: 'Invalid or expired verification code' });
+    }
+
+    // Check if code has expired
+    const expiresAt = new Date(verification.expires_at);
+    const now = new Date();
+    console.log('⏰ Expiration check:', {
+      expires_at: expiresAt.toISOString(),
+      now: now.toISOString(),
+      expired: expiresAt < now
+    });
+
+    if (expiresAt < now) {
+      console.log('❌ Code expired');
+      return res.status(401).json({ error: 'Verification code has expired. Please request a new one.' });
+    }
+
+    console.log('✅ Code is valid and not expired');
+
+    // Mark code as verified
+    const { error: updateError } = await supabaseDb.supabase
+      .from('verification_codes')
+      .update({
+        verified: true,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', verification.id);
+
+    if (updateError) {
+      console.error('Error updating verification code:', updateError);
+      return res.status(500).json({ error: 'Failed to verify code' });
+    }
+
+    // Get customer details
+    const { data: customer, error: customerError } = await supabaseDb.supabase
+      .from('customers')
+      .select('*')
+      .eq('id', verification.customer_id)
+      .single();
+
+    if (customerError || !customer) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    // Create a temporary token for password setup (valid for 30 minutes)
+    const tempToken = jwt.sign(
+      {
+        customerId: customer.shopify_customer_id,
+        dbCustomerId: customer.id,
+        email: customer.email,
+        isVerified: true,
+        isTemporary: true
+      },
+      JWT_SECRET,
+      { expiresIn: '30m' }
+    );
+
+    res.json({
+      success: true,
+      message: 'Email verified successfully',
+      tempToken,
+      customer: {
+        id: customer.id,
+        email: customer.email,
+        firstName: customer.first_name,
+        lastName: customer.last_name
+      }
+    });
+
+  } catch (error) {
+    console.error('Error verifying PIN:', error);
+    res.status(500).json({ error: 'Failed to verify PIN' });
+  }
+});
+
+// Set initial password (after email verification)
+app.post('/api/auth/set-initial-password', async (req, res) => {
+  try {
+    const { tempToken, newPassword } = req.body;
+
+    if (!tempToken || !newPassword) {
+      return res.status(400).json({ error: 'Temporary token and new password are required' });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters long' });
+    }
+
+    // Verify temporary token
+    let decoded;
+    try {
+      decoded = jwt.verify(tempToken, JWT_SECRET);
+    } catch (err) {
+      return res.status(401).json({ error: 'Invalid or expired verification session' });
+    }
+
+    if (!decoded.isTemporary || !decoded.isVerified) {
+      return res.status(401).json({ error: 'Invalid verification token' });
+    }
+
+    // Check if password is already set
+    const { data: customer, error: fetchError } = await supabaseDb.supabase
+      .from('customers')
+      .select('password_hash')
+      .eq('id', decoded.dbCustomerId)
+      .single();
+
+    if (fetchError) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    if (customer.password_hash) {
+      return res.status(400).json({ error: 'Password already set. Please use the login page.' });
+    }
+
+    // Hash new password
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+
+    // Update password in database
+    const { error: updateError } = await supabaseDb.supabase
+      .from('customers')
+      .update({
+        password_hash: passwordHash,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', decoded.dbCustomerId);
+
+    if (updateError) {
+      console.error('Error setting password:', updateError);
+      return res.status(500).json({ error: 'Failed to set password' });
+    }
+
+    // Create permanent JWT token for login
+    const token = jwt.sign(
+      {
+        customerId: decoded.customerId,
+        dbCustomerId: decoded.dbCustomerId,
+        email: decoded.email,
+        isAdmin: false
+      },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    // Get full customer details
+    const { data: fullCustomer } = await supabaseDb.supabase
+      .from('customers')
+      .select('*')
+      .eq('id', decoded.dbCustomerId)
+      .single();
+
+    res.json({
+      success: true,
+      message: 'Password set successfully. You are now logged in.',
+      user: {
+        id: fullCustomer.shopify_customer_id,
+        dbId: fullCustomer.id,
+        email: fullCustomer.email,
+        firstName: fullCustomer.first_name,
+        lastName: fullCustomer.last_name,
+        isAdmin: false
+      },
+      token
+    });
+
+  } catch (error) {
+    console.error('Error setting initial password:', error);
+    res.status(500).json({ error: 'Failed to set password' });
   }
 });
 
@@ -1225,9 +1660,142 @@ app.post('/api/classes/reschedule', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Class not found' });
     }
 
-    // Check if the class is in the past
-    if (new Date(oldClass.class_date) < new Date()) {
+    // Parse class start datetime (combine date + start_time)
+    const parseClassDateTime = (classDateStr, timeStr) => {
+      const datePart = classDateStr.split('T')[0]; // Get YYYY-MM-DD
+      const normalizedTime = timeStr.toUpperCase().trim();
+
+      // Handle both 12-hour (9:30 AM, 3:30pm) and 24-hour (19:00) formats
+      const time24Match = normalizedTime.match(/^(\d{1,2}):(\d{2})$/);
+      let hour24, minutes;
+
+      if (time24Match) {
+        hour24 = parseInt(time24Match[1]);
+        minutes = parseInt(time24Match[2]);
+      } else {
+        const match = normalizedTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
+        if (!match) return new Date(NaN);
+
+        const hours = parseInt(match[1]);
+        minutes = parseInt(match[2]);
+        const period = match[3];
+
+        hour24 = hours;
+        if (period === 'PM' && hours !== 12) hour24 = hours + 12;
+        else if (period === 'AM' && hours === 12) hour24 = 0;
+      }
+
+      const [year, month, day] = datePart.split('-').map(Number);
+      return new Date(year, month - 1, day, hour24, minutes);
+    };
+
+    // Check if class is within 24 hours
+    const now = new Date();
+    const twentyFourHoursFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const oldClassDateTime = parseClassDateTime(oldClass.class_date, oldClass.start_time);
+
+    if (isNaN(oldClassDateTime.getTime())) {
+      return res.status(400).json({ error: 'Invalid class time format' });
+    }
+
+    if (oldClassDateTime < now) {
       return res.status(400).json({ error: 'Cannot reschedule past classes' });
+    }
+
+    if (oldClassDateTime < twentyFourHoursFromNow) {
+      return res.status(400).json({
+        error: 'Cannot reschedule classes within 24 hours of start time. This class will be marked as attended.'
+      });
+    }
+
+    // Get student info to check for 10-class package
+    const { data: student, error: studentError } = await supabaseDb.supabase
+      .from('customers')
+      .select('classes_allocated, course_expiry_date')
+      .eq('id', dbCustomerId)
+      .single();
+
+    if (studentError) {
+      console.error('Error fetching student:', studentError);
+      return res.status(500).json({ error: 'Failed to fetch student information' });
+    }
+
+    const has10ClassPackage = student.classes_allocated === 10 && student.course_expiry_date === null;
+
+    // Check if this is a glazing class (Week 6/6 Glazing)
+    const isOldClassGlazing = oldClass.class_type?.includes('Week 6/6') && oldClass.class_type?.includes('Glazing');
+    const isNewClassGlazing = newClass.class_type?.includes('Week 6/6') && newClass.class_type?.includes('Glazing');
+
+    // For 10-class package: check if this is their 10th class (final class must be glazing)
+    if (has10ClassPackage) {
+      // Count current bookings for this student
+      const { data: allBookings, error: bookingsError } = await supabaseDb.supabase
+        .from('bookings')
+        .select('id')
+        .eq('student_id', dbCustomerId)
+        .eq('status', 'booked');
+
+      if (bookingsError) {
+        console.error('Error fetching bookings:', bookingsError);
+        return res.status(500).json({ error: 'Failed to fetch bookings' });
+      }
+
+      // After rescheduling, they'll still have the same number of bookings (cancelling one, adding one)
+      // So if they currently have 9+ bookings, this must be for their 10th class slot
+      const totalBookings = allBookings.length;
+
+      if (totalBookings >= 9) {
+        // This is their 10th class - must be glazing
+        if (!isNewClassGlazing) {
+          return res.status(400).json({
+            error: 'Your 10th and final class must be a glazing class (Week 6). Please select a glazing class.'
+          });
+        }
+      }
+    }
+
+    // Apply cohort restrictions for standard 6-week WT courses (not 10-class package)
+    if (!has10ClassPackage) {
+      // Get student's course enrollment to find cohort dates
+      const { data: enrollment, error: enrollmentError } = await supabaseDb.supabase
+        .from('course_enrollments')
+        .select('course_start_date, course_end_date, course_title')
+        .eq('id', currentBooking.course_enrollment_id)
+        .single();
+
+      if (enrollmentError) {
+        console.error('Error fetching enrollment:', enrollmentError);
+        return res.status(500).json({ error: 'Failed to fetch course enrollment' });
+      }
+
+      // Check if this is a 6-week Wheelthrowing course
+      const isWheelthrowing6Week = enrollment.course_title?.toLowerCase().includes('wheelthrowing') &&
+                                    enrollment.course_title?.toLowerCase().includes('6');
+
+      if (isWheelthrowing6Week && enrollment.course_start_date && enrollment.course_end_date) {
+        if (isOldClassGlazing) {
+          // Glazing class (Week 6): can only reschedule to another glazing class
+          if (!isNewClassGlazing) {
+            return res.status(400).json({
+              error: 'Glazing class can only be rescheduled to another glazing class (Week 6).'
+            });
+          }
+          // No date restriction for glazing - can reschedule to any future cohort's glazing class
+        } else {
+          // Regular class (Weeks 1-5): must stay within cohort dates
+          const cohortStartDate = new Date(enrollment.course_start_date);
+          const cohortEndDate = new Date(enrollment.course_end_date);
+          const newClassDate = new Date(newClass.class_date);
+
+          if (newClassDate < cohortStartDate || newClassDate > cohortEndDate) {
+            const startStr = cohortStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const endStr = cohortEndDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            return res.status(400).json({
+              error: `You can only reschedule to classes within your cohort period (${startStr} - ${endStr}).`
+            });
+          }
+        }
+      }
     }
 
     // Check if new class has availability (total capacity is 10)
@@ -1241,12 +1809,9 @@ app.post('/api/classes/reschedule', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'You are already enrolled in this class' });
     }
 
-    // Check if this is a glazing class (Week 6/6 Glazing) - no reschedule fee
-    const isGlazingClass = oldClass.class_type?.includes('Week 6/6') && oldClass.class_type?.includes('Glazing');
-
     // For non-glazing classes, create a reschedule fee
     let rescheduleFee = 0;
-    if (!isGlazingClass) {
+    if (!isOldClassGlazing) {
       rescheduleFee = 40; // $40 reschedule fee for non-glazing classes
 
       // Create reschedule fee record
@@ -1281,7 +1846,7 @@ app.post('/api/classes/reschedule', authenticateToken, async (req, res) => {
       status: 'booked',
       bookingType: 'makeup',
       courseEnrollmentId: currentBooking.course_enrollment_id, // Keep same course enrollment ID
-      isGlazingReschedule: isGlazingClass,
+      isGlazingReschedule: isOldClassGlazing,
       originalClassInstanceId: parseInt(oldClassId),
       rescheduledFromDate: oldClass.class_date,
       rescheduleFeePaid: 0 // Fee is pending payment
@@ -1296,7 +1861,7 @@ app.post('/api/classes/reschedule', authenticateToken, async (req, res) => {
         classInstanceId: newBooking.class_instance_id
       },
       rescheduleFee: rescheduleFee,
-      message: isGlazingClass
+      message: isOldClassGlazing
         ? 'Glazing class rescheduled successfully (no fee)!'
         : `Class rescheduled successfully! A $${rescheduleFee} reschedule fee has been added to your account.`
     });
@@ -2186,7 +2751,7 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
           coursePurchaseCount: s.course_purchase_count || 1,
           coursePurchaseDate: s.course_purchase_date,
           enrollmentStatus: enrollment?.status || 'active',
-          weeksRemaining: enrollment?.weeks_remaining || enrollment?.number_of_weeks || 0
+          weeksRemaining: (s.classes_allocated || 0) - (s.classes_used || 0)
         };
       })
       .sort((a, b) => {
@@ -2734,6 +3299,7 @@ app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, async (req
           id,
           class_date,
           start_time,
+          end_time,
           class_type,
           instructor
         )
@@ -2850,6 +3416,7 @@ app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, async (req
       class_instance_id: booking.class_instance_id,  // Include for double-booking prevention
       class_date: booking.class_instances.class_date,
       start_time: booking.class_instances.start_time,
+      end_time: booking.class_instances.end_time,
       class_type: booking.class_instances.class_type,
       instructor: booking.class_instances.instructor,
       course_identifier: classIdToCourseIdentifier[booking.class_instances.id] || 'N/A'
@@ -5102,6 +5669,70 @@ app.use(express.static('public'));
 app.get('*', (req, res) => {
   if (!req.path.startsWith('/api')) {
     res.sendFile('index.html', { root: 'public' });
+  }
+});
+
+// DEBUG: Carolyn's bookings endpoints
+app.get('/api/debug/carolyn/bookings', async (req, res) => {
+  try {
+    const result = await supabaseDb.query(`
+      SELECT
+        b.id as booking_id,
+        ci.class_date,
+        ci.instructor,
+        ci.class_type
+      FROM bookings b
+      JOIN class_instances ci ON b.class_instance_id = ci.id
+      WHERE b.student_id = 1778
+      ORDER BY ci.class_date
+    `);
+
+    res.json({
+      total: result.rows.length,
+      bookings: result.rows
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/debug/carolyn/joyce-lim-bookings', async (req, res) => {
+  try {
+    // First, find what we're about to delete
+    const findResult = await supabaseDb.query(`
+      SELECT b.id, ci.class_date, ci.instructor
+      FROM bookings b
+      JOIN class_instances ci ON b.class_instance_id = ci.id
+      WHERE b.student_id = 1778
+      AND ci.instructor = 'Joyce Lim'
+      AND ci.class_date BETWEEN '2026-01-19' AND '2026-02-16'
+    `);
+
+    if (findResult.rows.length === 0) {
+      return res.json({ message: 'No Joyce Lim bookings found to delete', deleted: 0 });
+    }
+
+    // Delete them
+    const deleteResult = await supabaseDb.query(`
+      DELETE FROM bookings
+      WHERE id IN (
+        SELECT b.id
+        FROM bookings b
+        JOIN class_instances ci ON b.class_instance_id = ci.id
+        WHERE b.student_id = 1778
+        AND ci.instructor = 'Joyce Lim'
+        AND ci.class_date BETWEEN '2026-01-19' AND '2026-02-16'
+      )
+      RETURNING id
+    `);
+
+    res.json({
+      message: `Deleted ${deleteResult.rows.length} Joyce Lim bookings`,
+      deleted: deleteResult.rows.length,
+      bookingsDeleted: findResult.rows
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 

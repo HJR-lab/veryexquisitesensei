@@ -3,12 +3,14 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import Navigation from '../components/Navigation';
 import Footer from '../components/Footer';
-import axios from 'axios';
+import api from '../utils/api';
 
 export default function AdminStudentDetail() {
   const navigate = useNavigate();
   const { email } = useParams();
   const { logout } = useAuth();
+
+  console.log('AdminStudentDetail component loaded, email param:', email);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -28,6 +30,7 @@ export default function AdminStudentDetail() {
   const [editForm, setEditForm] = useState({
     coursePurchaseCount: 0
   });
+  const [deletingBookingId, setDeletingBookingId] = useState(null);
 
   useEffect(() => {
     loadStudentData();
@@ -37,9 +40,12 @@ export default function AdminStudentDetail() {
     try {
       setLoading(true);
       const decodedEmail = decodeURIComponent(email);
+      console.log('Loading student data for:', decodedEmail);
 
       // Get student info
-      const { data: studentData } = await axios.get(`/api/admin/students/${decodedEmail}`);
+      console.log('Fetching student info...');
+      const { data: studentData } = await api.get(`/admin/students/${decodedEmail}`);
+      console.log('Student data received:', studentData);
       setStudent(studentData);
       setEditForm({
         coursePurchaseCount: studentData.course_purchase_count || 0,
@@ -47,13 +53,14 @@ export default function AdminStudentDetail() {
       });
 
       // Get student bookings
-      const { data: bookingsData } = await axios.get(`/api/admin/students/${decodedEmail}/bookings`);
-      setBookings(bookingsData || []);
+      const { data: bookingsData } = await api.get(`/admin/students/${decodedEmail}/bookings`);
+      console.log('Bookings data received:', bookingsData);
+      setBookings(bookingsData.bookings || []);
 
       // Get student enrollment
       if (studentData.id) {
         try {
-          const { data: enrollmentData } = await axios.get(`/api/admin/students/${studentData.id}/enrollment`);
+          const { data: enrollmentData } = await api.get(`/admin/students/${studentData.id}/enrollment`);
           setEnrollment(enrollmentData);
         } catch (err) {
           // No enrollment found - that's okay
@@ -61,7 +68,7 @@ export default function AdminStudentDetail() {
         }
 
         // Get student fees
-        const { data: feesData } = await axios.get(`/api/admin/students/${studentData.id}/fees`);
+        const { data: feesData } = await api.get(`/admin/students/${studentData.id}/fees`);
         setFees(feesData.fees || []);
       }
     } catch (error) {
@@ -77,7 +84,7 @@ export default function AdminStudentDetail() {
       setSaving(true);
       const decodedEmail = decodeURIComponent(email);
 
-      await axios.put(`/api/admin/students/${decodedEmail}`, {
+      await api.put(`/admin/students/${decodedEmail}`, {
         course_purchase_count: parseInt(editForm.coursePurchaseCount),
         profile_picture: editForm.profilePicture || null
       });
@@ -99,7 +106,7 @@ export default function AdminStudentDetail() {
 
     try {
       setUpdatingFeeId(feeId);
-      await axios.patch(`/api/admin/fees/${feeId}/payment`, {
+      await api.patch(`/admin/fees/${feeId}/payment`, {
         paymentStatus: newStatus
       });
 
@@ -110,6 +117,24 @@ export default function AdminStudentDetail() {
       alert('Failed to update fee');
     } finally {
       setUpdatingFeeId(null);
+    }
+  };
+
+  const handleDeleteBooking = async (bookingId) => {
+    if (!confirm('Are you sure you want to delete this booking? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      setDeletingBookingId(bookingId);
+      await api.delete(`/admin/bookings/${bookingId}`);
+      alert('Booking deleted successfully!');
+      await loadStudentData();
+    } catch (error) {
+      console.error('Failed to delete booking:', error);
+      alert('Failed to delete booking');
+    } finally {
+      setDeletingBookingId(null);
     }
   };
 
@@ -130,7 +155,7 @@ export default function AdminStudentDetail() {
 
     try {
       setPausing(true);
-      await axios.post(`/api/admin/enrollments/${enrollment.id}/pause`, {
+      await api.post(`/admin/enrollments/${enrollment.id}/pause`, {
         weeksCompleted,
         weeksRemaining: totalWeeks - weeksCompleted,
         reason: pauseForm.reason
@@ -157,7 +182,7 @@ export default function AdminStudentDetail() {
 
     try {
       setResuming(true);
-      await axios.post(`/api/admin/students/${student.id}/resume`);
+      await api.post(`/admin/students/${student.id}/resume`);
 
       alert('Course resumed successfully! Student can now book their remaining classes.');
       await loadStudentData();
@@ -191,7 +216,7 @@ export default function AdminStudentDetail() {
       const formData = new FormData();
       formData.append('image', file);
 
-      const { data } = await axios.post('/api/upload/image', formData, {
+      const { data } = await api.post('/upload/image', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -209,6 +234,28 @@ export default function AdminStudentDetail() {
     }
   };
 
+  const handleImpersonate = async () => {
+    try {
+      const decodedEmail = decodeURIComponent(email);
+      console.log('🎭 Impersonating student:', decodedEmail);
+
+      const { data } = await api.post(`/auth/impersonate/${decodedEmail}`);
+
+      if (data.success && data.token) {
+        // Store the new impersonation token
+        localStorage.setItem('token', data.token);
+
+        console.log('✅ Impersonation successful, redirecting to dashboard...');
+
+        // Redirect to student dashboard and reload to update auth context
+        window.location.href = '/dashboard';
+      }
+    } catch (error) {
+      console.error('❌ Impersonation failed:', error);
+      alert('Failed to impersonate student');
+    }
+  };
+
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -216,6 +263,39 @@ export default function AdminStudentDetail() {
       month: 'short',
       day: 'numeric'
     });
+  };
+
+  const parseCourseName = (courseIdentifier, classType) => {
+    // If we have a valid course identifier, parse it
+    if (courseIdentifier && courseIdentifier !== 'N/A') {
+      // Course identifier format: WT2001PM_DL6.1
+      // WT = Wheelthrowing, HB = Handbuilding
+      // 6 = number of weeks
+      const typeMatch = courseIdentifier.match(/^(WT|HB|CL)/);
+      const weeksMatch = courseIdentifier.match(/(\d+)\.\d+$/);
+
+      if (typeMatch) {
+        const type = typeMatch[1] === 'WT' ? 'Wheelthrowing' :
+                     typeMatch[1] === 'HB' ? 'Handbuilding' :
+                     'Class';
+
+        const weeks = weeksMatch ? `${weeksMatch[1]} Weeks` : '';
+        return weeks ? `${type} ${weeks}` : type;
+      }
+    }
+
+    // Fallback to class_type if course_identifier is N/A
+    if (classType) {
+      // Extract base type (remove "Beginner/Extension" etc)
+      if (classType.toLowerCase().includes('wheelthrowing')) {
+        return 'Wheelthrowing 6 Weeks';
+      } else if (classType.toLowerCase().includes('handbuilding')) {
+        return 'Handbuilding 4 Weeks';
+      }
+      return classType;
+    }
+
+    return 'N/A';
   };
 
   if (loading) {
@@ -249,13 +329,23 @@ export default function AdminStudentDetail() {
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-8">
-          <button
-            onClick={() => navigate('/admin/students')}
-            className="flex items-center gap-2 text-text-muted hover:text-accent transition-colors mb-6"
-          >
-            <span className="material-symbols-outlined">arrow_back</span>
-            <span>Back to Students</span>
-          </button>
+          <div className="flex items-center justify-between mb-6">
+            <button
+              onClick={() => navigate('/admin/students')}
+              className="flex items-center gap-2 text-text-muted hover:text-accent transition-colors"
+            >
+              <span className="material-symbols-outlined">arrow_back</span>
+              <span>Back to Students</span>
+            </button>
+
+            <button
+              onClick={handleImpersonate}
+              className="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-normal uppercase tracking-wide hover:bg-gray-200 transition-colors border border-gray-300 rounded flex items-center gap-2"
+            >
+              <span className="material-symbols-outlined text-base">person_play</span>
+              <span>View as Member</span>
+            </button>
+          </div>
 
           <div>
             <h1 className="text-4xl font-bold text-text mb-2">
@@ -397,6 +487,26 @@ export default function AdminStudentDetail() {
                 )}
 
                 <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Classes</label>
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    <div className="px-3 py-2 bg-blue-50 rounded-lg text-center">
+                      <div className="text-xs text-blue-600 font-medium">Allocated</div>
+                      <div className="text-lg font-bold text-blue-900">{student.classes_allocated || 0}</div>
+                    </div>
+                    <div className="px-3 py-2 bg-gray-50 rounded-lg text-center">
+                      <div className="text-xs text-gray-600 font-medium">Used</div>
+                      <div className="text-lg font-bold text-gray-900">{student.classes_used || 0}</div>
+                    </div>
+                    <div className="px-3 py-2 bg-green-50 rounded-lg text-center">
+                      <div className="text-xs text-green-600 font-medium">Remaining</div>
+                      <div className="text-lg font-bold text-green-900">
+                        {(student.classes_allocated || 0) - (student.classes_used || 0)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Courses Purchased</label>
                   <input
                     type="number"
@@ -445,42 +555,77 @@ export default function AdminStudentDetail() {
                     <thead>
                       <tr className="border-b border-gray-200">
                         <th className="text-left py-3 px-4 font-semibold text-gray-900">Course</th>
+                        <th className="text-left py-3 px-4 font-semibold text-gray-900">Day</th>
+                        <th className="text-left py-3 px-4 font-semibold text-gray-900">Time</th>
                         <th className="text-left py-3 px-4 font-semibold text-gray-900">Date</th>
                         <th className="text-left py-3 px-4 font-semibold text-gray-900">Status</th>
                         <th className="text-left py-3 px-4 font-semibold text-gray-900">Attended</th>
+                        <th className="text-center py-3 px-4 font-semibold text-gray-900">Delete</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {bookings.map((booking, index) => (
-                        <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                          <td className="py-3 px-4">
-                            <span className="font-mono text-sm text-gray-900 bg-gray-100 px-2 py-1 rounded">
-                              {booking.course_identifier || 'N/A'}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-gray-600">
-                            {new Date(booking.class_date).toLocaleDateString()}
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                              booking.status === 'completed' ? 'bg-green-100 text-green-800' :
-                              booking.status === 'booked' ? 'bg-blue-100 text-blue-800' :
-                              'bg-gray-100 text-gray-800'
-                            }`}>
-                              {booking.status}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4">
-                            {booking.attended !== null ? (
-                              <span className={`text-sm ${booking.attended ? 'text-green-600' : 'text-red-600'}`}>
-                                {booking.attended ? '✓ Yes' : '✗ No'}
+                      {[...bookings].sort((a, b) => new Date(a.class_date) - new Date(b.class_date)).map((booking, index) => {
+                        const date = new Date(booking.class_date);
+                        const dayOfWeek = date.toLocaleDateString('en-US', { weekday: 'long' });
+                        const courseName = parseCourseName(booking.course_identifier, booking.class_type);
+                        const time = `${booking.start_time || '7:00pm'} - ${booking.end_time || '9:30pm'}`;
+
+                        return (
+                          <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                            <td className="py-3 px-4">
+                              <span className="font-mono text-sm text-gray-900 bg-gray-100 px-2 py-1 rounded">
+                                {courseName}
                               </span>
-                            ) : (
-                              <span className="text-sm text-gray-400">-</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td className="py-3 px-4 text-gray-600">
+                              {dayOfWeek}
+                            </td>
+                            <td className="py-3 px-4 text-gray-600">
+                              {time}
+                            </td>
+                            <td className="py-3 px-4 text-gray-600">
+                              {date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                booking.status === 'completed' ? 'bg-green-100 text-green-800' :
+                                booking.status === 'booked' ? 'bg-blue-100 text-blue-800' :
+                                'bg-gray-100 text-gray-800'
+                              }`}>
+                                {booking.status}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4">
+                              {booking.attended !== null ? (
+                                <span className={`text-sm ${booking.attended ? 'text-green-600' : 'text-red-600'}`}>
+                                  {booking.attended ? '✓ Yes' : '✗ No'}
+                                </span>
+                              ) : (
+                                <span className="text-sm text-gray-400">-</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <button
+                                onClick={() => handleDeleteBooking(booking.id)}
+                                disabled={deletingBookingId === booking.id}
+                                className="inline-flex items-center gap-1 px-3 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {deletingBookingId === booking.id ? (
+                                  <>
+                                    <span className="material-symbols-outlined text-sm animate-spin">refresh</span>
+                                    <span>Deleting...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="material-symbols-outlined text-sm">delete</span>
+                                    <span>Delete</span>
+                                  </>
+                                )}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

@@ -57,12 +57,15 @@ export default function AdminStudents() {
   const syncFromShopify = async () => {
     try {
       setSyncing(true);
-      await api.post('/admin/sync-shopify-customers');
+      console.log('Starting Shopify sync...');
+      const response = await api.post('/admin/sync-shopify-customers');
+      console.log('Sync response:', response.data);
       await loadStats();
-      alert('Successfully synced customers from Shopify!');
+      alert(`Successfully synced ${response.data.count || 0} customers from Shopify!`);
     } catch (error) {
       console.error('Failed to sync from Shopify:', error);
-      alert('Failed to sync customers from Shopify');
+      const errorMessage = error.response?.data?.error || error.message || 'Unknown error';
+      alert(`Failed to sync customers from Shopify: ${errorMessage}`);
     } finally {
       setSyncing(false);
     }

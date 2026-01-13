@@ -58,14 +58,28 @@ export default function AdminStudents() {
     try {
       setSyncing(true);
       console.log('Starting Shopify sync...');
-      const response = await api.post('/admin/sync-shopify-customers');
-      console.log('Sync response:', response.data);
+
+      // Step 1: Sync customers
+      console.log('Step 1: Syncing customers...');
+      const customersResponse = await api.post('/admin/sync-shopify-customers');
+      console.log('Customers synced:', customersResponse.data);
+
+      // Step 2: Sync orders and create enrollments
+      console.log('Step 2: Syncing orders and creating enrollments...');
+      const ordersResponse = await api.post('/admin/sync-shopify-orders');
+      console.log('Orders synced:', ordersResponse.data);
+
+      // Reload stats to show updated data
       await loadStats();
-      alert(`Successfully synced ${response.data.count || 0} customers from Shopify!`);
+
+      alert(`Successfully synced from Shopify!\n\n` +
+            `✅ Customers: ${customersResponse.data.count || 0}\n` +
+            `✅ Enrollments created: ${ordersResponse.data.enrollmentsCreated || 0}\n` +
+            `✅ Orders processed: ${ordersResponse.data.processedCount || 0}`);
     } catch (error) {
       console.error('Failed to sync from Shopify:', error);
       const errorMessage = error.response?.data?.error || error.message || 'Unknown error';
-      alert(`Failed to sync customers from Shopify: ${errorMessage}`);
+      alert(`Failed to sync from Shopify: ${errorMessage}`);
     } finally {
       setSyncing(false);
     }

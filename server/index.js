@@ -5093,6 +5093,189 @@ app.post('/api/admin/sync-shopify-customers', authenticateToken, async (req, res
   }
 });
 
+// Sync recent orders and create enrollments/bookings
+app.post('/api/admin/sync-shopify-orders', authenticateToken, async (req, res) => {
+  try {
+    console.log('🔄 Starting Shopify order sync...');
+    const client = getShopifyClient();
+    const { processCoursePurchase } = require('./utils/courseEnrollmentManager');
+
+    let processedCount = 0;
+    let enrollmentsCreated = 0;
+    let hasNextPage = true;
+    let cursor = null;
+
+    // Fetch orders from the last 60 days
+    const since = new Date();
+    since.setDate(since.getDate() - 60);
+    const sinceISO = since.toISOString();
+
+    while (hasNextPage) {
+      let query, variables;
+
+      if (cursor) {
+        query = `
+          query getOrders($cursor: String!, $since: DateTime!) {
+            orders(first: 250, after: $cursor, query: "created_at:>\\\"${sinceISO}\\\"") {
+              edges {
+                node {
+                  id
+                  createdAt
+                  customer {
+                    id
+                    email
+                    firstName
+                    lastName
+                  }
+                  lineItems(first: 50) {
+                    edges {
+                      node {
+                        id
+                        title
+                        variantTitle
+                      }
+                    }
+                  }
+                }
+                cursor
+              }
+              pageInfo {
+                hasNextPage
+              }
+            }
+          }
+        `;
+        variables = { cursor, since: sinceISO };
+      } else {
+        query = `
+          query getOrders($since: DateTime!) {
+            orders(first: 250, query: "created_at:>\\\"${sinceISO}\\\"") {
+              edges {
+                node {
+                  id
+                  createdAt
+                  customer {
+                    id
+                    email
+                    firstName
+                    lastName
+                  }
+                  lineItems(first: 50) {
+                    edges {
+                      node {
+                        id
+                        title
+                        variantTitle
+                      }
+                    }
+                  }
+                }
+                cursor
+              }
+              pageInfo {
+                hasNextPage
+              }
+            }
+          }
+        `;
+        variables = { since: sinceISO };
+      }
+
+      const response = await client.query({
+        data: {
+          query,
+          variables
+        }
+      });
+
+      const ordersData = response.body.data.orders;
+
+      for (const edge of ordersData.edges) {
+        const orderNode = edge.node;
+        const customer = orderNode.customer;
+
+        if (!customer || !customer.email) {
+          continue;
+        }
+
+        // Sync customer first
+        const customerData = {
+          id: customer.id,
+          email: customer.email,
+          firstName: customer.firstName || '',
+          lastName: customer.lastName || ''
+        };
+
+        await syncCustomer(customerData, customer.id.split('/').pop());
+
+        // Process line items for course purchases
+        for (const itemEdge of orderNode.lineItems.edges) {
+          const item = itemEdge.node;
+          const productTitle = item.title || '';
+          const variantTitle = item.variantTitle || '';
+
+          // Check if this is a pottery course
+          if (productTitle.toLowerCase().includes('wheelthrowing') ||
+              productTitle.toLowerCase().includes('handbuilding') ||
+              productTitle.toLowerCase().includes('pottery course')) {
+
+            console.log(`🎓 Processing: ${customer.email} - ${productTitle}`);
+
+            // Prepare order and line item objects
+            const order = {
+              id: orderNode.id.split('/').pop(),
+              customer: {
+                email: customer.email,
+                first_name: customer.firstName,
+                last_name: customer.lastName
+              }
+            };
+
+            const lineItem = {
+              id: item.id.split('/').pop(),
+              title: productTitle,
+              variantTitle: variantTitle
+            };
+
+            // Process the course purchase
+            const result = await processCoursePurchase(order, lineItem);
+
+            if (result.success) {
+              enrollmentsCreated++;
+              if (result.thresholdMet) {
+                console.log(`✅ Created classes and bookings for ${customer.email}`);
+              } else if (result.requiresThreshold) {
+                console.log(`⏳ Enrollment created, waiting for threshold (${result.studentCount}/${result.studentsNeeded + result.studentCount})`);
+              } else {
+                console.log(`✅ Enrollment created for ${customer.email}`);
+              }
+            }
+
+            processedCount++;
+          }
+        }
+      }
+
+      hasNextPage = ordersData.pageInfo.hasNextPage;
+      if (hasNextPage && ordersData.edges.length > 0) {
+        cursor = ordersData.edges[ordersData.edges.length - 1].cursor;
+      }
+    }
+
+    console.log(`✅ Processed ${processedCount} course purchases, created ${enrollmentsCreated} enrollments`);
+    res.json({
+      success: true,
+      message: `Processed ${processedCount} course purchases, created ${enrollmentsCreated} enrollments`,
+      processedCount,
+      enrollmentsCreated
+    });
+
+  } catch (error) {
+    console.error('Error syncing Shopify orders:', error);
+    res.status(500).json({ error: 'Failed to sync orders from Shopify' });
+  }
+});
+
 // Shopify webhook for order creation
 app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }), async (req, res) => {
   try {

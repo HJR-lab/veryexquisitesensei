@@ -114,7 +114,12 @@ export default function Membership() {
               {/* Membership Tiers */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* 1 Month Membership */}
-            <div className="bg-background-alt border border-border p-6 space-y-4">
+            <a
+              href="https://ves.sg/products/ves-clay-club-studio-access?selling_plan=1864204446&variant=44974901362846"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bg-background-alt border border-border p-6 space-y-4 hover:border-accent transition-colors cursor-pointer block"
+            >
               <div className="text-center">
                 <div className="inline-flex items-center justify-center w-12 h-12 bg-accent/10 border border-accent mb-4">
                   <span className="material-symbols-outlined text-accent text-3xl">calendar_today</span>
@@ -141,10 +146,15 @@ export default function Membership() {
                   <span className="text-sm">Cancel anytime</span>
                 </li>
               </ul>
-            </div>
+            </a>
 
             {/* 6 Month Membership */}
-            <div className="bg-background-alt border border-border p-6 space-y-4">
+            <a
+              href="https://ves.sg/products/ves-clay-club-studio-access?variant=44974901428382&selling_plan=1345323166"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bg-background-alt border border-border p-6 space-y-4 hover:border-accent transition-colors cursor-pointer block"
+            >
               <div className="text-center">
                 <div className="inline-flex items-center justify-center w-12 h-12 bg-accent/10 border border-accent mb-4">
                   <span className="material-symbols-outlined text-accent text-3xl">date_range</span>
@@ -189,10 +199,15 @@ export default function Membership() {
                   <span className="text-sm">Cancel anytime</span>
                 </li>
               </ul>
-            </div>
+            </a>
 
             {/* 12 Month Membership */}
-            <div className="bg-background-alt border-2 border-accent p-6 space-y-4 relative">
+            <a
+              href="https://ves.sg/products/ves-clay-club-studio-access?variant=44974901461150&selling_plan=3259367582"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bg-background-alt border-2 border-accent p-6 space-y-4 relative hover:bg-accent/5 transition-colors cursor-pointer block"
+            >
               <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-accent text-white px-4 py-1 text-xs font-bold">
                 BEST VALUE
               </div>
@@ -240,7 +255,7 @@ export default function Membership() {
                   <span className="text-sm">Cancel anytime</span>
                 </li>
               </ul>
-            </div>
+            </a>
           </div>
 
           {/* What's Included */}

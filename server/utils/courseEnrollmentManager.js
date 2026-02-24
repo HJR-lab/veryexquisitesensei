@@ -5,12 +5,14 @@
 
 const { parseCourseInfo, generateCohortId, createClassInstances: generateClassInstanceObjects } = require('./courseScheduler');
 const {
+  supabase,
   createCourseEnrollment,
   findCohortEnrollments,
   updateCourseEnrollment,
   createClassInstances,
   createMultipleBookings,
-  findCustomerByEmail
+  findCustomerByEmail,
+  updateCustomer
 } = require('./supabaseDb');
 
 const MINIMUM_STUDENTS_THRESHOLD = 4;
@@ -53,25 +55,83 @@ async function processCoursePurchase(order, lineItem) {
       };
     }
 
+    // Check for duplicate enrollment (same order + line item)
+    const { data: existingEnrollment } = await supabase
+      .from('course_enrollments')
+      .select('id')
+      .eq('shopify_order_id', order.id)
+      .eq('shopify_line_item_id', lineItem.id)
+      .maybeSingle();
+
+    if (existingEnrollment) {
+      console.log(`⏭️  Enrollment already exists for order ${order.id} / item ${lineItem.id}, skipping`);
+      return { success: true, skipped: true, enrollment: existingEnrollment };
+    }
+
     // Parse course information from Shopify product
     const courseInfo = parseCourseInfo(lineItem.title, lineItem.variantTitle);
 
-    // Validate that we have required fields
-    if (!courseInfo.courseType || !courseInfo.startDate || !courseInfo.schedulePattern) {
-      console.log(`⚠️  Incomplete course info for ${lineItem.title}`);
-      return {
-        success: false,
-        error: 'Incomplete course information',
-        courseInfo
-      };
+    // Detect course package type from title
+    // Type 1: "3 Course Package" → 3×6 = 18 classes
+    // Type 2: "6 Weeks + 4 Flexible Classes" or "10 Classes" → 10 classes
+    // Type 3: Regular "6 Weeks" → 6 classes
+    const packageMatch = lineItem.title.match(/(\d+)\s*Course\s*Package/i);
+    const flexMatch = lineItem.title.match(/(\d+)\s*Flexible\s*Class/i);
+    const tenClassMatch = lineItem.title.match(/(\d+)\s*Classes/i);
+
+    let coursesInPackage = packageMatch ? parseInt(packageMatch[1]) : 1;
+    let isPackage = coursesInPackage > 1;
+    let extraFlexClasses = 0;
+
+    if (flexMatch) {
+      // "6 Weeks + 4 Flexible Classes" type
+      extraFlexClasses = parseInt(flexMatch[1]);
+      isPackage = true;
+      console.log(`📦 Detected ${extraFlexClasses} flexible classes in order`);
+    } else if (!packageMatch && tenClassMatch && parseInt(tenClassMatch[1]) >= 10) {
+      // "10 Classes • NO EXPIRY" type (not a multi-course package, but a class pool)
+      extraFlexClasses = parseInt(tenClassMatch[1]) - (courseInfo.numberOfWeeks || 6);
+      isPackage = true;
+      console.log(`📦 Detected ${tenClassMatch[1]}-class pool in order`);
     }
 
-    // Format dates for database
-    const startDate = courseInfo.startDate.toISOString().split('T')[0];
+    if (isPackage && packageMatch) {
+      console.log(`📦 Detected ${coursesInPackage}-course package in order`);
+    }
+
+    // Validate required fields
+    // HB credit-based courses don't require startDate (students self-schedule later)
+    const isHandbuilding = courseInfo.courseType && courseInfo.courseType.toLowerCase().includes('handbuilding');
+
+    if (!courseInfo.courseType) {
+      console.log(`⚠️  No course type detected for ${lineItem.title}`);
+      return { success: false, error: 'No course type detected', courseInfo };
+    }
+
+    if (!isHandbuilding && (!courseInfo.startDate || !courseInfo.schedulePattern)) {
+      console.log(`⚠️  Incomplete course info for ${lineItem.title} (missing start date or schedule)`);
+      return { success: false, error: 'Incomplete course information', courseInfo };
+    }
+
+    // Format dates for database (may be null for HB credit courses)
+    const startDate = courseInfo.startDate ? courseInfo.startDate.toISOString().split('T')[0] : null;
     const endDate = courseInfo.endDate ? courseInfo.endDate.toISOString().split('T')[0] : null;
 
+    // Calculate allocations first (needed for both enrollment and customer update)
+    const defaultWeeks = courseInfo.courseType && courseInfo.courseType.toLowerCase().includes('handbuilding') ? 4 : 6;
+    const weeksPerCourse = courseInfo.numberOfWeeks || defaultWeeks;
+    // Classes from this purchase: base course weeks × packages + any extra flex classes
+    const classesFromThisPurchase = (weeksPerCourse * coursesInPackage) + extraFlexClasses;
+    // ADDITIVE: add to existing allocation (each purchase adds classes to the pool)
+    const totalClassesAllocated = (student.classes_allocated || 0) + classesFromThisPurchase;
+    const coursePurchaseIncrement = coursesInPackage;
+    console.log(`📊 Allocation: ${student.classes_allocated || 0} existing + ${classesFromThisPurchase} new (${weeksPerCourse}×${coursesInPackage} + ${extraFlexClasses} flex) = ${totalClassesAllocated} total`);
+
     // Create course enrollment record
-    const enrollment = await createCourseEnrollment({
+    // For flex/pool packages, store total classes as numberOfWeeks so remaining calc works
+    const enrollmentWeeks = extraFlexClasses > 0 ? classesFromThisPurchase : courseInfo.numberOfWeeks;
+
+    const enrollmentData = {
       studentId: student.id,
       shopifyOrderId: order.id,
       shopifyLineItemId: lineItem.id,
@@ -79,16 +139,35 @@ async function processCoursePurchase(order, lineItem) {
       courseVariantTitle: lineItem.variantTitle,
       courseType: courseInfo.courseType,
       schedulePattern: courseInfo.schedulePattern,
-      numberOfWeeks: courseInfo.numberOfWeeks,
+      numberOfWeeks: enrollmentWeeks,
       courseStartDate: startDate,
       courseEndDate: endDate,
       classTime: courseInfo.classTime,
       instructor: courseInfo.instructor,
       room: courseInfo.room,
       status: 'active'
-    });
+    };
+
+    // Add package information if this is a multi-course package
+    if (isPackage) {
+      enrollmentData.packageTotalCourses = coursesInPackage > 1 ? coursesInPackage : null;
+      enrollmentData.packageTotalClasses = classesFromThisPurchase; // Classes from THIS purchase only
+      enrollmentData.packageCoursesRemaining = coursesInPackage > 1 ? coursesInPackage - 1 : null;
+      console.log(`📦 Package enrollment: ${classesFromThisPurchase} classes from this purchase`);
+    }
+
+    const enrollment = await createCourseEnrollment(enrollmentData);
 
     console.log(`✅ Created enrollment ${enrollment.id} for ${student.email} - ${courseInfo.courseType}`);
+
+    await updateCustomer(student.id, {
+      classes_allocated: totalClassesAllocated,
+      course_purchase_count: (student.course_purchase_count || 0) + coursePurchaseIncrement
+    });
+
+    if (isPackage) {
+      console.log(`📦 Package: Allocated ${totalClassesAllocated} classes (${weeksPerCourse} × ${coursesInPackage} courses), course count now ${(student.course_purchase_count || 0) + coursePurchaseIncrement}`);
+    }
 
     // Handbuilding courses use credit system (no auto-booking)
     if (courseInfo.courseType && courseInfo.courseType.toLowerCase().includes('handbuilding')) {
@@ -96,12 +175,11 @@ async function processCoursePurchase(order, lineItem) {
 
       // Update enrollment with credit allocation
       await updateCourseEnrollment(enrollment.id, {
-        status: 'active'
-        // Note: The following fields require schema migration (see migrations/add-credit-system.sql):
-        // class_credits_allocated: credits,
-        // class_credits_used: 0,
-        // class_credits_remaining: credits,
-        // glazing_class_used: false
+        status: 'active',
+        class_credits_allocated: credits,
+        class_credits_used: 0,
+        class_credits_remaining: credits,
+        glazing_class_used: false
       });
 
       console.log(`🎨 Handbuilding enrollment: ${credits} credits allocated (student will self-register for classes)`);
@@ -111,7 +189,7 @@ async function processCoursePurchase(order, lineItem) {
         enrollment,
         isHandbuilding: true,
         creditsAllocated: credits,
-        message: `${credits} class credits allocated. Student can self-register for Wednesday HB classes.`
+        message: `${credits} class credits allocated. Student can self-register for HB classes.`
       };
     }
 
@@ -134,14 +212,14 @@ async function processCoursePurchase(order, lineItem) {
 }
 
 /**
- * Check if the 4-student threshold is met and process automatic booking creation
+ * Check cohort status and create/update classes automatically
  * @param {Object} newEnrollment - The newly created course enrollment
  * @returns {Promise<Object>} Result object with created class instances and bookings
  */
 async function checkAndProcessThreshold(newEnrollment) {
   try {
-    // Find all enrollments in the same cohort
-    const cohortEnrollments = await findCohortEnrollments(
+    // Find all enrollments in the same cohort (uses normalized time matching)
+    const cohortEnrollments = await findCohortEnrollmentsFlexible(
       newEnrollment.course_type,
       newEnrollment.course_start_date,
       newEnrollment.schedule_pattern,
@@ -159,39 +237,40 @@ async function checkAndProcessThreshold(newEnrollment) {
       });
     }
 
-    // Check if threshold applies to this course type
-    const requiresThreshold = COURSES_WITH_THRESHOLD.some(type =>
-      newEnrollment.course_type && newEnrollment.course_type.includes(type)
-    );
+    // Check if any cohort peer already has bookings
+    const enrollmentWithBookings = cohortEnrollments.find(e => e.bookings_created_at);
 
-    // For Handbuilding: create classes immediately (no threshold)
-    // For Wheelthrowing: wait for 4 students
-    const shouldCreateClasses = !requiresThreshold || (studentCount >= MINIMUM_STUDENTS_THRESHOLD);
+    if (enrollmentWithBookings) {
+      console.log(`✅ Cohort already has classes, adding student to existing classes`);
+      const result = await addStudentToExistingCohort(newEnrollment, enrollmentWithBookings);
 
-    if (shouldCreateClasses) {
-      // Check if bookings already created for this cohort
-      const hasExistingClasses = cohortEnrollments.some(e => e.bookings_created_at);
-
-      if (hasExistingClasses) {
-        console.log(`✅ Cohort already has classes, adding student to existing classes`);
-        return await addStudentToExistingCohort(newEnrollment, cohortEnrollments[0]);
+      // If this is the 4th student, activate the draft classes
+      if (studentCount === MINIMUM_STUDENTS_THRESHOLD) {
+        console.log(`🎉 Threshold met! Activating draft classes...`);
+        await activateDraftClasses(enrollmentWithBookings);
       }
 
-      if (requiresThreshold) {
-        console.log(`🎉 Wheelthrowing threshold met! Creating class instances and bookings for ${studentCount} students`);
-      } else {
-        console.log(`🎉 Handbuilding course! Creating class instances and bookings immediately for ${studentCount} student(s)`);
-      }
-      return await createClassesAndBookings(cohortEnrollments);
-    } else {
-      console.log(`⏳ Wheelthrowing course waiting for more students... (${studentCount}/${MINIMUM_STUDENTS_THRESHOLD})`);
-      return {
-        thresholdMet: false,
-        requiresThreshold: true,
-        studentCount,
-        studentsNeeded: MINIMUM_STUDENTS_THRESHOLD - studentCount
-      };
+      return result;
     }
+
+    // No peer has bookings — check if class instances already exist in DB
+    const existingClasses = await findExistingClassInstances(newEnrollment);
+
+    if (existingClasses && existingClasses.length > 0) {
+      console.log(`📅 Found ${existingClasses.length} existing class instances in DB, linking students...`);
+      return await linkStudentsToExistingClasses(cohortEnrollments, existingClasses);
+    }
+
+    // No existing class instances — create new ones (draft or active based on threshold)
+    const classStatus = studentCount >= MINIMUM_STUDENTS_THRESHOLD ? 'active' : 'draft';
+
+    if (classStatus === 'draft') {
+      console.log(`📝 Creating DRAFT classes for ${studentCount} student(s) (waiting for ${MINIMUM_STUDENTS_THRESHOLD - studentCount} more to activate)`);
+    } else {
+      console.log(`🎉 Creating ACTIVE classes for ${studentCount} students (threshold met!)`);
+    }
+
+    return await createClassesAndBookings(cohortEnrollments, classStatus);
 
   } catch (error) {
     console.error('Error checking threshold:', error);
@@ -200,11 +279,162 @@ async function checkAndProcessThreshold(newEnrollment) {
 }
 
 /**
+ * Normalize time string for comparison (lowercase, no spaces)
+ */
+function normalizeTime(t) {
+  return (t || '').toLowerCase().replace(/\s+/g, '');
+}
+
+/**
+ * Find cohort enrollments with flexible time matching
+ * Handles format differences like "1:00 PM" vs "1:00pm"
+ */
+async function findCohortEnrollmentsFlexible(courseType, startDate, schedulePattern, classTime) {
+  // First try exact match
+  const exact = await findCohortEnrollments(courseType, startDate, schedulePattern, classTime);
+  if (exact.length > 0) return exact;
+
+  // Fallback: query by course_type + start_date + schedule, then filter by normalized time
+  const { data, error } = await supabase
+    .from('course_enrollments')
+    .select('*')
+    .eq('course_type', courseType)
+    .eq('course_start_date', startDate)
+    .eq('schedule_pattern', schedulePattern)
+    .eq('status', 'active');
+
+  if (error) throw error;
+
+  const normTarget = normalizeTime(classTime);
+  return (data || []).filter(e => normalizeTime(e.class_time) === normTarget);
+}
+
+/**
+ * Find existing class instances in DB that match an enrollment's schedule
+ */
+async function findExistingClassInstances(enrollment) {
+  const day = (enrollment.schedule_pattern || '').toUpperCase().replace(/S$/, '');
+  const dayNum = { SUNDAY: 0, MONDAY: 1, TUESDAY: 2, WEDNESDAY: 3, THURSDAY: 4, FRIDAY: 5, SATURDAY: 6 }[day];
+
+  if (dayNum === undefined) return [];
+
+  const startDate = enrollment.course_start_date;
+  const endDate = enrollment.course_end_date;
+
+  // Query class instances in the date range
+  let query = supabase.from('class_instances')
+    .select('id, class_date, class_type, start_time, status')
+    .ilike('class_type', 'WT%')
+    .order('class_date');
+
+  if (startDate) query = query.gte('class_date', startDate);
+  if (endDate) query = query.lte('class_date', endDate);
+
+  const { data: allClasses } = await query;
+
+  // Filter by day of week
+  const dayMatches = (allClasses || []).filter(c => {
+    const d = new Date(c.class_date);
+    return d.getDay() === dayNum;
+  });
+
+  if (dayMatches.length === 0) return [];
+
+  // Normalize enrollment time for matching
+  const enrollTimeNorm = normalizeTime((enrollment.class_time || '').split('-')[0].split('–')[0]);
+
+  // Filter by matching start time
+  const timeMatches = dayMatches.filter(c => {
+    const classTimeNorm = normalizeTime(c.start_time);
+    return classTimeNorm === enrollTimeNorm;
+  });
+
+  if (timeMatches.length > 0) return timeMatches;
+
+  // If multiple class codes on same day (e.g. WT2802PM_JL and WT2802PM_DL),
+  // pick the one with the most existing bookings
+  const byBaseType = {};
+  for (const c of dayMatches) {
+    const base = c.class_type.replace(/\.\d+$/, '');
+    if (!byBaseType[base]) byBaseType[base] = [];
+    byBaseType[base].push(c);
+  }
+
+  for (const [base, classes] of Object.entries(byBaseType)) {
+    if (classes.length >= 6) {
+      const { count } = await supabase.from('bookings')
+        .select('id', { count: 'exact', head: true })
+        .in('class_instance_id', classes.map(c => c.id));
+      if (count > 0) return classes;
+    }
+  }
+
+  // Return first group with 6+ classes
+  for (const classes of Object.values(byBaseType)) {
+    if (classes.length >= 6) return classes;
+  }
+
+  return dayMatches;
+}
+
+/**
+ * Link all cohort students to existing class instances (create bookings)
+ */
+async function linkStudentsToExistingClasses(cohortEnrollments, classInstances) {
+  const now = new Date().toISOString();
+  let totalBookings = 0;
+
+  for (const enrollment of cohortEnrollments) {
+    // Skip if already has bookings
+    if (enrollment.bookings_created_at) continue;
+
+    const bookingsToCreate = classInstances.map(ci => ({
+      student_id: enrollment.student_id,
+      class_instance_id: ci.id,
+      status: 'booked',
+      booking_type: 'regular',
+      course_enrollment_id: enrollment.id,
+      booking_date: now,
+      created_at: now,
+      updated_at: now
+    }));
+
+    const { data: created, error } = await supabase
+      .from('bookings')
+      .insert(bookingsToCreate)
+      .select();
+
+    if (error) {
+      console.error(`Error creating bookings for enrollment ${enrollment.id}:`, error.message);
+      continue;
+    }
+
+    totalBookings += (created || []).length;
+
+    await updateCourseEnrollment(enrollment.id, {
+      status: 'active',
+      bookingsCreatedAt: now
+    });
+
+    console.log(`✅ Created ${(created || []).length} bookings for student ${enrollment.student_id}`);
+  }
+
+  return {
+    thresholdMet: cohortEnrollments.length >= MINIMUM_STUDENTS_THRESHOLD,
+    linkedToExisting: true,
+    bookingsCreated: totalBookings,
+    studentsEnrolled: cohortEnrollments.length,
+    classInstances: classInstances
+  };
+}
+
+/**
  * Create class instances and bookings for all students in a cohort
  * @param {Array} cohortEnrollments - All enrollments in the cohort
+ * @param {String} classStatus - Status of classes: 'draft' or 'active' (default: 'active')
  * @returns {Promise<Object>} Created class instances and bookings
  */
-async function createClassesAndBookings(cohortEnrollments) {
+async function createClassesAndBookings(cohortEnrollments, classStatus = 'active') {
   try {
     // Get course info from the first enrollment
     const firstEnrollment = cohortEnrollments[0];
@@ -234,13 +464,14 @@ async function createClassesAndBookings(cohortEnrollments) {
       endTime: courseInfo.classTime ? courseInfo.classTime.split(' - ')[1] : '9:30 PM'
     });
 
-    // Set current enrollment count
+    // Set current enrollment count and status
     classInstanceObjects.forEach(instance => {
       instance.current_enrollment = cohortEnrollments.length;
+      instance.status = classStatus; // Set draft or active status
     });
 
     // Create class instances in database
-    console.log(`📅 Creating ${classInstanceObjects.length} class instances...`);
+    console.log(`📅 Creating ${classInstanceObjects.length} ${classStatus.toUpperCase()} class instances...`);
     const createdClasses = await createClassInstances(classInstanceObjects);
 
     console.log(`✅ Created ${createdClasses.length} class instances`);
@@ -248,6 +479,7 @@ async function createClassesAndBookings(cohortEnrollments) {
     // Create bookings for all students in the cohort
     const bookingsToCreate = [];
 
+    const bookingNow = new Date().toISOString();
     for (const enrollment of cohortEnrollments) {
       for (const classInstance of createdClasses) {
         bookingsToCreate.push({
@@ -256,7 +488,9 @@ async function createClassesAndBookings(cohortEnrollments) {
           status: 'booked',
           booking_type: 'regular',
           course_enrollment_id: enrollment.id,
-          booking_date: new Date().toISOString()
+          booking_date: bookingNow,
+          created_at: bookingNow,
+          updated_at: bookingNow
         });
       }
     }
@@ -314,13 +548,16 @@ async function addStudentToExistingCohort(newEnrollment, existingEnrollment) {
     const classInstanceIds = existingBookings.map(b => b.class_instance_id);
 
     // Create bookings for the new student
+    const addNow = new Date().toISOString();
     const bookingsToCreate = classInstanceIds.map(classInstanceId => ({
       student_id: newEnrollment.student_id,
       class_instance_id: classInstanceId,
       status: 'booked',
       booking_type: 'regular',
       course_enrollment_id: newEnrollment.id,
-      booking_date: new Date().toISOString()
+      booking_date: addNow,
+      created_at: addNow,
+      updated_at: addNow
     }));
 
     console.log(`📚 Adding ${bookingsToCreate.length} bookings for new student...`);
@@ -353,11 +590,61 @@ async function addStudentToExistingCohort(newEnrollment, existingEnrollment) {
   }
 }
 
+/**
+ * Activate draft classes when threshold is met
+ * @param {Object} enrollment - Any enrollment in the cohort
+ * @returns {Promise<Number>} Number of classes activated
+ */
+async function activateDraftClasses(enrollment) {
+  try {
+    const { supabase } = require('./supabaseDb');
+
+    // Find all class instances for this cohort
+    const { data: existingBookings } = await supabase
+      .from('bookings')
+      .select('class_instance_id')
+      .eq('course_enrollment_id', enrollment.id);
+
+    if (!existingBookings || existingBookings.length === 0) {
+      console.log('⚠️  No bookings found to activate');
+      return 0;
+    }
+
+    const classInstanceIds = [...new Set(existingBookings.map(b => b.class_instance_id))];
+
+    // Update all draft classes to active
+    const { data: updatedClasses, error } = await supabase
+      .from('class_instances')
+      .update({ status: 'active' })
+      .in('id', classInstanceIds)
+      .eq('status', 'draft')
+      .select();
+
+    if (error) {
+      console.error('Error activating draft classes:', error);
+      throw error;
+    }
+
+    const activatedCount = updatedClasses ? updatedClasses.length : 0;
+    console.log(`✅ Activated ${activatedCount} draft classes to ACTIVE status`);
+
+    return activatedCount;
+
+  } catch (error) {
+    console.error('Error activating draft classes:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   processCoursePurchase,
   checkAndProcessThreshold,
   createClassesAndBookings,
   addStudentToExistingCohort,
+  activateDraftClasses,
+  linkStudentsToExistingClasses,
+  findExistingClassInstances,
   getInstructorForCourse,
+  normalizeTime,
   MINIMUM_STUDENTS_THRESHOLD
 };

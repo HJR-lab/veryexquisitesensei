@@ -84,7 +84,7 @@ export default function ClassCalendar({
           {Array.from({ length: daysInMonth }).map((_, i) => {
             const day = i + 1;
             const date = new Date(monthDate.getFullYear(), monthDate.getMonth(), day);
-            const isSelected = date.toDateString() === selectedDate.toDateString();
+            const isSelected = selectedDate ? date.toDateString() === selectedDate.toDateString() : false;
 
             const year = date.getFullYear();
             const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -98,23 +98,21 @@ export default function ClassCalendar({
             // Check if this date is a public holiday
             const isPublicHoliday = PUBLIC_HOLIDAYS_2026.includes(dateStr);
 
-            // Check if this date has glazing classes (Week 6)
+            // Check if this date has glazing classes (Week 6.6)
             const hasGlazingClass = dayClasses.some(c => {
-              if (isAdminView) {
-                // In admin view, check the fullCourseIdentifier for ".6" (week 6)
-                return c.fullCourseIdentifier?.endsWith('.6') || c.courseIdentifier?.endsWith('.6');
-              } else {
-                // In student view, check fullCourseIdentifier or courseIdentifier for ".6"
-                return c.fullCourseIdentifier?.endsWith('.6') || c.courseIdentifier?.endsWith('.6');
-              }
+              // Check for 6.6 in class_type or course identifiers
+              return c.class_type?.includes('6.6') ||
+                     c.classType?.includes('6.6') ||
+                     c.fullCourseIdentifier?.includes('6.6') ||
+                     c.courseIdentifier?.includes('6.6');
             });
 
             let bgColorClass = '';
             let isEnrolledDay = false;
 
-            // Apply light blue background for public holidays (base layer)
+            // Apply dark red background for public holidays (base layer)
             if (isPublicHoliday) {
-              bgColorClass = 'bg-blue-100';
+              bgColorClass = 'bg-red-300';
             }
 
             if (hasClasses) {

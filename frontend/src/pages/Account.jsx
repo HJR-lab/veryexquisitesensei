@@ -261,7 +261,7 @@ export default function Account() {
                   : 'text-text-muted hover:text-text'
               }`}
             >
-              Class History
+              Course History
             </button>
           </div>
         </div>
@@ -475,11 +475,12 @@ export default function Account() {
         {activeTab === 'history' && (
           <div className="bg-background-alt border border-border p-6">
             <div className="mb-4">
-              <h2 className="text-xl font-bold text-text mb-1">My Class History</h2>
-              <p className="text-sm text-text-muted">
-                {stats.attendedClasses} of {stats.totalClasses} classes attended
-                {stats.totalClasses > 0 && ` (${Math.round((stats.attendedClasses / stats.totalClasses) * 100)}%)`}
-              </p>
+              <h2 className="text-xl font-bold text-text mb-1">My Course History</h2>
+              <div className="text-sm text-text-muted">
+                <p>
+                  {history.length} courses purchased, {history.filter(c => c.status === 'completed').length} completed
+                </p>
+              </div>
             </div>
 
             {history.length === 0 ? (
@@ -487,7 +488,7 @@ export default function Account() {
                 <span className="material-symbols-outlined text-6xl text-text-muted mb-4 block">
                   history_edu
                 </span>
-                <h3 className="text-xl font-bold text-text mb-2">No Class History</h3>
+                <h3 className="text-xl font-bold text-text mb-2">No Course History</h3>
                 <p className="text-text-muted">Your completed courses will appear here</p>
               </div>
             ) : (
@@ -496,31 +497,10 @@ export default function Account() {
                   <div key={course.id} className="p-4 bg-background border border-border">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1">
-                        <h4 className="font-bold text-text mb-1">{course.courseTitle}</h4>
+                        <h4 className="font-bold text-text mb-1">{course.courseIdentifier || course.courseTitle}</h4>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted mb-2">
                           <span>{formatHistoryDate(course.startDate)} - {formatHistoryDate(course.endDate)}</span>
-                          <span>with {course.instructor}</span>
-                          <span>{course.classes.filter(c => c.attended).length}/{course.classes.length} attended</span>
-                        </div>
-
-                        {/* Individual class breakdown */}
-                        <div className="mt-3 space-y-1">
-                          {course.classes.map((cls, idx) => (
-                            <div key={idx} className="flex items-center gap-2 text-xs">
-                              <span className={`w-4 h-4 flex items-center justify-center ${
-                                cls.attended
-                                  ? 'text-green-600'
-                                  : 'text-gray-400'
-                              }`}>
-                                <span className="material-symbols-outlined text-sm">
-                                  {cls.attended ? 'check_circle' : 'cancel'}
-                                </span>
-                              </span>
-                              <span className="text-text-muted">
-                                Week {idx + 1} - {formatHistoryDate(cls.date || cls.classDate)}
-                              </span>
-                            </div>
-                          ))}
+                          <span>with {course.instructor || 'VES Instructor'}</span>
                         </div>
                       </div>
 

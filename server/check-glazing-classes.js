@@ -1,63 +1,54 @@
 require('dotenv').config();
-const { createClient } = require('@supabase/supabase-js');
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY
-);
+const supabaseDb = require('./utils/supabaseDb');
 
 async function checkGlazingClasses() {
-  console.log('\n🔍 CHECKING GLAZING CLASS TRACKING\n');
+  try {
+    console.log('Checking for all 6.6 glazing classes...\n');
 
-  // Get a sample WT cohort to see all 6 weeks
-  const { data: sampleEnrollment } = await supabase
-    .from('course_enrollments')
-    .select('*')
-    .eq('course_type', 'Wheelthrowing Beginner')
-    .eq('number_of_weeks', 6)
-    .not('bookings_created_at', 'is', null)
-    .limit(1)
-    .single();
+    const { data: classes, error } = await supabaseDb.supabase
+      .from('class_instances')
+      .select('*')
+      .ilike('class_type', '%6.6%')
+      .order('class_date', { ascending: true });
 
-  if (sampleEnrollment) {
-    console.log(`Sample cohort: ${sampleEnrollment.course_type} starting ${sampleEnrollment.course_start_date}\n`);
+    if (error) throw error;
 
-    // Get all bookings for this enrollment
-    const { data: bookings } = await supabase
-      .from('bookings')
-      .select('*, class_instance:class_instances(*)')
-      .eq('course_enrollment_id', sampleEnrollment.id)
-      .order('class_instance(class_date)');
+    console.log(`Found ${classes.length} glazing classes (Week 6.6):\n`);
 
-    console.log(`Classes in this cohort:\n`);
-    
-    if (bookings) {
-      bookings.forEach((b, i) => {
-        const c = b.class_instance;
-        console.log(`Week ${i + 1}: ${c.class_date}`);
-        console.log(`   Type: ${c.class_type}`);
-        console.log(`   Capacity: ${c.max_capacity}`);
-        console.log(`   Enrolled: ${c.current_enrollment}`);
-        console.log(`   Room: ${c.room}\n`);
-      });
-    }
-  }
+    const today = new Date();
+    const twentyFourHoursFromNow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
 
-  // Check class_instances table columns
-  const { data: sampleClass } = await supabase
-    .from('class_instances')
-    .select('*')
-    .limit(1)
-    .single();
+    classes.forEach(cls => {
+      const classDate = new Date(cls.class_date);
+      const isPast = classDate < today;
+      const isWithin24h = classDate < twentyFourHoursFromNow && classDate >= today;
 
-  console.log('\nclass_instances table columns:');
-  if (sampleClass) {
-    Object.keys(sampleClass).forEach(key => {
-      console.log(`   ${key}: ${typeof sampleClass[key]}`);
+      console.log(`ID: ${cls.id}`);
+      console.log(`  Type: ${cls.class_type}`);
+      console.log(`  Date: ${cls.class_date}`);
+      console.log(`  Time: ${cls.start_time}`);
+      console.log(`  Instructor: ${cls.instructor}`);
+      console.log(`  Status: ${isPast ? 'PAST' : isWithin24h ? 'WITHIN 24H' : 'AVAILABLE'}`);
+      console.log('');
     });
-  }
 
-  process.exit(0);
+    const pastCount = classes.filter(c => new Date(c.class_date) < today).length;
+    const within24hCount = classes.filter(c => {
+      const d = new Date(c.class_date);
+      return d < twentyFourHoursFromNow && d >= today;
+    }).length;
+    const availableCount = classes.filter(c => new Date(c.class_date) >= twentyFourHoursFromNow).length;
+
+    console.log('\nSummary:');
+    console.log(`  Past: ${pastCount}`);
+    console.log(`  Within 24h: ${within24hCount}`);
+    console.log(`  Available (24h+): ${availableCount}`);
+
+  } catch (error) {
+    console.error('Error:', error);
+  } finally {
+    process.exit(0);
+  }
 }
 
-checkGlazingClasses().catch(console.error);
+checkGlazingClasses();

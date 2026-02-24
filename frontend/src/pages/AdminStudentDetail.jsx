@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import Navigation from '../components/Navigation';
 import Footer from '../components/Footer';
+import ClassCalendar from '../components/ClassCalendar';
 import api from '../utils/api';
 
 export default function AdminStudentDetail() {
@@ -31,6 +32,14 @@ export default function AdminStudentDetail() {
     coursePurchaseCount: 0
   });
   const [deletingBookingId, setDeletingBookingId] = useState(null);
+  const [togglingMakeupId, setTogglingMakeupId] = useState(null);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [showMakeupModal, setShowMakeupModal] = useState(false);
+  const [selectedBookingForMakeup, setSelectedBookingForMakeup] = useState(null);
+  const [allClasses, setAllClasses] = useState([]);
+  const [makeupSelectedDate, setMakeupSelectedDate] = useState(new Date());
+  const [makeupCurrentMonth, setMakeupCurrentMonth] = useState(new Date());
+  const [rescheduling, setRescheduling] = useState(false);
 
   useEffect(() => {
     loadStudentData();
@@ -48,8 +57,11 @@ export default function AdminStudentDetail() {
       console.log('Student data received:', studentData);
       setStudent(studentData);
       setEditForm({
+        firstName: studentData.first_name || '',
+        lastName: studentData.last_name || '',
+        email: studentData.email || '',
         coursePurchaseCount: studentData.course_purchase_count || 0,
-        profilePicture: studentData.profile_picture || ''
+        classesAllocated: studentData.classes_allocated || 0
       });
 
       // Get student bookings
@@ -85,12 +97,21 @@ export default function AdminStudentDetail() {
       const decodedEmail = decodeURIComponent(email);
 
       await api.put(`/admin/students/${decodedEmail}`, {
+        first_name: editForm.firstName.trim(),
+        last_name: editForm.lastName.trim(),
+        email: editForm.email.trim(),
         course_purchase_count: parseInt(editForm.coursePurchaseCount),
-        profile_picture: editForm.profilePicture || null
+        classes_allocated: parseInt(editForm.classesAllocated)
       });
 
       alert('Student updated successfully!');
-      await loadStudentData();
+
+      // If email changed, navigate to new URL
+      if (editForm.email.trim() !== decodedEmail) {
+        navigate(`/admin/students/${encodeURIComponent(editForm.email.trim())}`);
+      } else {
+        await loadStudentData();
+      }
     } catch (error) {
       console.error('Failed to update student:', error);
       alert('Failed to update student');
@@ -133,6 +154,247 @@ export default function AdminStudentDetail() {
     } catch (error) {
       console.error('Failed to delete booking:', error);
       alert('Failed to delete booking');
+    } finally {
+      setDeletingBookingId(null);
+    }
+  };
+
+  // Helper function to get class category
+  const getClassCategory = (classType) => {
+    if (!classType) return 'other';
+    const upper = classType.toUpperCase();
+
+    if (upper.startsWith('WT')) return 'wheelthrowing-beginner';
+    if (upper.startsWith('HB')) return 'handbuilding';
+    if (upper.startsWith('KD')) return 'kids';
+
+    const lower = classType.toLowerCase();
+    if (lower.includes('wheelthrowing') && lower.includes('beginner')) return 'wheelthrowing-beginner';
+    if (lower.includes('wheelthrowing') && lower.includes('intermediate')) return 'wheelthrowing-intermediate';
+    if (lower.includes('handbuilding')) return 'handbuilding';
+    if (lower.includes('kids') || lower.includes('children')) return 'kids';
+    return 'other';
+  };
+
+  // Helper function to parse class datetime
+  const parseClassDateTime = (classDateStr, timeStr) => {
+    try {
+      const datePart = classDateStr.split('T')[0];
+      let hour24, minutes;
+
+      const time24Match = timeStr.trim().match(/^(\d{1,2}):(\d{2})$/);
+      if (time24Match) {
+        hour24 = parseInt(time24Match[1]);
+        minutes = parseInt(time24Match[2]);
+      } else {
+        const normalizedTime = timeStr.toUpperCase().trim();
+        const match = normalizedTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
+        if (!match) {
+          throw new Error(`Invalid time format: ${timeStr}`);
+        }
+
+        const hours = parseInt(match[1]);
+        minutes = parseInt(match[2]);
+        const period = match[3];
+
+        hour24 = hours;
+        if (period === 'PM' && hours !== 12) {
+          hour24 = hours + 12;
+        } else if (period === 'AM' && hours === 12) {
+          hour24 = 0;
+        }
+      }
+
+      const [year, month, day] = datePart.split('-').map(Number);
+      return new Date(year, month - 1, day, hour24, minutes);
+    } catch (error) {
+      console.error('Error parsing class datetime:', classDateStr, timeStr, error);
+      return new Date(NaN);
+    }
+  };
+
+  // Get available makeup classes (with glazing class restrictions)
+  const getAvailableMakeupClasses = () => {
+    if (!selectedBookingForMakeup) return [];
+
+    const isUnbookedCredit = selectedBookingForMakeup.isPlaceholder;
+
+    // Flatten all classes from allClasses
+    const flatClasses = [];
+    allClasses.forEach(course => {
+      course.classes?.forEach(cls => {
+        flatClasses.push({
+          id: cls.id,
+          classDate: cls.class_date,
+          classType: cls.class_type,
+          startTime: cls.start_time,
+          endTime: cls.end_time,
+          instructor: cls.instructor,
+          room: cls.room,
+          maxCapacity: cls.max_capacity,
+          currentEnrollment: cls.bookingCount || 0
+        });
+      });
+    });
+
+    if (isUnbookedCredit) {
+      // For unbooked credits, show all available classes with space
+      return flatClasses.filter(c => {
+        const hasSpace = c.currentEnrollment < 10; // Total capacity is 10
+        return hasSpace;
+      });
+    } else {
+      // For rescheduling existing bookings, apply category + glazing restrictions
+      const bookingClassType = selectedBookingForMakeup.class_type;
+      const classCategory = getClassCategory(bookingClassType);
+
+      // Check if the old class is a glazing class (Week 6.6)
+      const isOldClassGlazing = bookingClassType?.includes('6.6');
+
+      return flatClasses.filter(c => {
+        const categoryMatch = getClassCategory(c.classType);
+        const sameCategory = categoryMatch === classCategory;
+        // Compare with class_instance_id, not booking id
+        const isDifferentClass = c.id !== selectedBookingForMakeup.class_instance_id;
+        const hasSpace = c.currentEnrollment < 10; // Total capacity is 10
+
+        // Check if new class is glazing
+        const isNewClassGlazing = c.classType?.includes('6.6');
+
+        // Apply glazing restriction: 6.6 → 6.6 only
+        if (isOldClassGlazing) {
+          // If old class is glazing, new class MUST also be glazing AND same category
+          return isNewClassGlazing && sameCategory && isDifferentClass && hasSpace;
+        }
+
+        // For non-glazing classes, admin can reschedule freely (no restriction)
+        return sameCategory && isDifferentClass && hasSpace;
+      });
+    }
+  };
+
+  // Get classes for a specific date
+  const getMakeupClassesForDate = (date) => {
+    const makeupClasses = getAvailableMakeupClasses();
+
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
+
+    return makeupClasses.filter(c => c.classDate?.startsWith(dateStr));
+  };
+
+  const handleOpenMakeupModal = async (booking) => {
+    console.log('Opening reschedule modal for booking:', booking);
+    setSelectedBookingForMakeup(booking);
+    setShowMakeupModal(true);
+
+    // Load all classes for filtering
+    try {
+      const { data } = await api.get('/admin/classes');
+      console.log('Loaded classes for reschedule:', data.courses?.length, 'courses');
+      setAllClasses(data.courses || []);
+
+      // Set initial date to today
+      const today = new Date();
+      setMakeupSelectedDate(today);
+      setMakeupCurrentMonth(today);
+    } catch (error) {
+      console.error('Failed to load classes:', error);
+      alert('Failed to load classes');
+    }
+  };
+
+  const handleRescheduleToMakeup = async (newClassId) => {
+    if (!selectedBookingForMakeup) return;
+
+    const isUnbookedCredit = selectedBookingForMakeup.isPlaceholder;
+    const confirmMessage = isUnbookedCredit
+      ? 'Are you sure you want to book this student into the selected class?'
+      : 'Are you sure you want to reschedule this student to the selected class?';
+
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      setRescheduling(true);
+
+      if (isUnbookedCredit) {
+        // Booking an unbooked credit - just create a new booking
+        console.log('Booking unbooked credit:', {
+          studentId: student.id,
+          newClassId: newClassId,
+          bookingType: 'makeup'
+        });
+
+        const newBookingData = {
+          studentId: student.id,
+          classInstanceId: newClassId,
+          bookingType: 'makeup',
+          status: 'booked'
+        };
+        console.log('Creating new booking:', newBookingData);
+        await api.post('/admin/bookings', newBookingData);
+        console.log('New booking created successfully');
+
+        alert('Student booked successfully!');
+      } else {
+        // Rescheduling an existing booking - delete old and create new
+        console.log('Rescheduling booking:', {
+          oldBookingId: selectedBookingForMakeup.id,
+          studentId: student.id,
+          newClassId: newClassId,
+          bookingType: 'makeup'
+        });
+
+        console.log('Deleting old booking:', selectedBookingForMakeup.id);
+        await api.delete(`/admin/bookings/${selectedBookingForMakeup.id}`);
+        console.log('Old booking deleted successfully');
+
+        const newBookingData = {
+          studentId: student.id,
+          classInstanceId: newClassId,
+          bookingType: 'makeup',
+          status: 'booked'
+        };
+        console.log('Creating new booking:', newBookingData);
+        await api.post('/admin/bookings', newBookingData);
+        console.log('New booking created successfully');
+
+        alert('Student rescheduled successfully!');
+      }
+
+      setShowMakeupModal(false);
+      setSelectedBookingForMakeup(null);
+      await loadStudentData();
+    } catch (error) {
+      console.error('Failed to book/reschedule class:', error);
+      console.error('Error details:', error.response?.data);
+      alert(`Failed to book/reschedule class: ${error.response?.data?.error || error.message}`);
+    } finally {
+      setRescheduling(false);
+    }
+  };
+
+  const handleConvertToCredit = async () => {
+    if (!selectedBookingForMakeup || selectedBookingForMakeup.isPlaceholder) return;
+
+    if (!confirm('Are you sure you want to convert this booking to a credit? The class booking will be deleted and the credit will become available for future use.')) {
+      return;
+    }
+
+    try {
+      setDeletingBookingId(selectedBookingForMakeup.id);
+      await api.delete(`/admin/bookings/${selectedBookingForMakeup.id}`);
+      alert('Booking converted to credit successfully!');
+      setShowMakeupModal(false);
+      setSelectedBookingForMakeup(null);
+      await loadStudentData();
+    } catch (error) {
+      console.error('Failed to convert to credit:', error);
+      alert('Failed to convert to credit');
     } finally {
       setDeletingBookingId(null);
     }
@@ -362,6 +624,36 @@ export default function AdminStudentDetail() {
 
               <div className="space-y-4">
                 <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">First Name</label>
+                  <input
+                    type="text"
+                    value={editForm.firstName}
+                    onChange={(e) => setEditForm({ ...editForm, firstName: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Last Name</label>
+                  <input
+                    type="text"
+                    value={editForm.lastName}
+                    onChange={(e) => setEditForm({ ...editForm, lastName: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                  <input
+                    type="email"
+                    value={editForm.email}
+                    onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Profile Picture</label>
                   <div className="flex flex-col items-center gap-3">
                     {editForm.profilePicture || student.profile_picture ? (
@@ -454,6 +746,35 @@ export default function AdminStudentDetail() {
                       </div>
                     </div>
 
+                    {/* HB Credits Display */}
+                    {enrollment.class_credits_allocated > 0 && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">HB Credits</label>
+                        <div className="px-3 py-2 bg-amber-50 rounded-lg">
+                          <div className="grid grid-cols-3 gap-2 mb-2">
+                            <div className="text-center">
+                              <div className="text-xs text-amber-600 font-medium">Allocated</div>
+                              <div className="text-lg font-bold text-amber-900">{enrollment.class_credits_allocated}</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-xs text-amber-600 font-medium">Used</div>
+                              <div className="text-lg font-bold text-amber-900">{enrollment.class_credits_used || 0}</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-xs text-amber-600 font-medium">Remaining</div>
+                              <div className="text-lg font-bold text-amber-900">{enrollment.class_credits_remaining || 0}</div>
+                            </div>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div
+                              className="bg-amber-500 h-2 rounded-full transition-all"
+                              style={{ width: `${((enrollment.class_credits_used || 0) / enrollment.class_credits_allocated) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {enrollment.status === 'active' && (
                       <button
                         onClick={() => setShowPauseModal(true)}
@@ -489,18 +810,72 @@ export default function AdminStudentDetail() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Classes</label>
                   <div className="grid grid-cols-3 gap-2 mb-3">
-                    <div className="px-3 py-2 bg-blue-50 rounded-lg text-center">
-                      <div className="text-xs text-blue-600 font-medium">Allocated</div>
-                      <div className="text-lg font-bold text-blue-900">{student.classes_allocated || 0}</div>
+                    <div className="px-3 py-2 bg-blue-50 rounded-lg">
+                      <div className="text-xs text-blue-600 font-medium mb-1 text-center">Allocated</div>
+                      <input
+                        type="number"
+                        min="0"
+                        value={editForm.classesAllocated}
+                        onChange={(e) => setEditForm({ ...editForm, classesAllocated: e.target.value })}
+                        className="w-full text-center text-lg font-bold text-blue-900 bg-white border border-blue-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
                     </div>
                     <div className="px-3 py-2 bg-gray-50 rounded-lg text-center">
-                      <div className="text-xs text-gray-600 font-medium">Used</div>
-                      <div className="text-lg font-bold text-gray-900">{student.classes_used || 0}</div>
+                      <div className="text-xs text-gray-600 font-medium">Attended</div>
+                      <div className="text-lg font-bold text-gray-900">
+                        {(() => {
+                          // Calculate attended from bookings
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+
+                          return bookings.filter(booking => {
+                            const classDate = new Date(booking.class_date);
+                            classDate.setHours(0, 0, 0, 0);
+                            const isPast = classDate < today;
+
+                            // Count if status is 'attended' or 'completed'
+                            if (booking.status === 'attended' || booking.status === 'completed') {
+                              return true;
+                            }
+
+                            // Also count if status is 'booked' but class date is in the past
+                            if (booking.status === 'booked' && isPast) {
+                              return true;
+                            }
+
+                            return false;
+                          }).length;
+                        })()}
+                      </div>
                     </div>
                     <div className="px-3 py-2 bg-green-50 rounded-lg text-center">
                       <div className="text-xs text-green-600 font-medium">Remaining</div>
                       <div className="text-lg font-bold text-green-900">
-                        {(student.classes_allocated || 0) - (student.classes_used || 0)}
+                        {(() => {
+                          // Calculate attended from bookings
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+
+                          const attended = bookings.filter(booking => {
+                            const classDate = new Date(booking.class_date);
+                            classDate.setHours(0, 0, 0, 0);
+                            const isPast = classDate < today;
+
+                            // Count if status is 'attended' or 'completed'
+                            if (booking.status === 'attended' || booking.status === 'completed') {
+                              return true;
+                            }
+
+                            // Also count if status is 'booked' but class date is in the past
+                            if (booking.status === 'booked' && isPast) {
+                              return true;
+                            }
+
+                            return false;
+                          }).length;
+
+                          return (parseInt(editForm.classesAllocated) || 0) - attended;
+                        })()}
                       </div>
                     </div>
                   </div>
@@ -547,6 +922,21 @@ export default function AdminStudentDetail() {
             <div className="bg-white border border-gray-200 rounded-xl p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-6">Class Bookings ({bookings.length})</h2>
 
+              {/* Status Filter */}
+              {bookings.length > 0 && (
+                <div className="mb-4">
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-accent"
+                  >
+                    <option value="all">All</option>
+                    <option value="booked">Booked</option>
+                    <option value="attended">Attended</option>
+                  </select>
+                </div>
+              )}
+
               {bookings.length === 0 ? (
                 <p className="text-center text-gray-400 py-12">No bookings found</p>
               ) : (
@@ -556,76 +946,138 @@ export default function AdminStudentDetail() {
                       <tr className="border-b border-gray-200">
                         <th className="text-left py-3 px-4 font-semibold text-gray-900">Course</th>
                         <th className="text-left py-3 px-4 font-semibold text-gray-900">Day</th>
-                        <th className="text-left py-3 px-4 font-semibold text-gray-900">Time</th>
                         <th className="text-left py-3 px-4 font-semibold text-gray-900">Date</th>
                         <th className="text-left py-3 px-4 font-semibold text-gray-900">Status</th>
-                        <th className="text-left py-3 px-4 font-semibold text-gray-900">Attended</th>
+                        <th className="text-center py-3 px-4 font-semibold text-gray-900">Reschedule</th>
                         <th className="text-center py-3 px-4 font-semibold text-gray-900">Delete</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {[...bookings].sort((a, b) => new Date(a.class_date) - new Date(b.class_date)).map((booking, index) => {
-                        const date = new Date(booking.class_date);
-                        const dayOfWeek = date.toLocaleDateString('en-US', { weekday: 'long' });
-                        const courseName = parseCourseName(booking.course_identifier, booking.class_type);
-                        const time = `${booking.start_time || '7:00pm'} - ${booking.end_time || '9:30pm'}`;
+                      {(() => {
+                        // Filter and sort actual bookings
+                        const filteredBookings = [...bookings]
+                          .filter(booking => statusFilter === 'all' || booking.status === statusFilter)
+                          .sort((a, b) => new Date(a.class_date) - new Date(b.class_date));
 
-                        return (
-                          <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                            <td className="py-3 px-4">
-                              <span className="font-mono text-sm text-gray-900 bg-gray-100 px-2 py-1 rounded">
-                                {courseName}
-                              </span>
-                            </td>
-                            <td className="py-3 px-4 text-gray-600">
-                              {dayOfWeek}
-                            </td>
-                            <td className="py-3 px-4 text-gray-600">
-                              {time}
-                            </td>
-                            <td className="py-3 px-4 text-gray-600">
-                              {date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                            </td>
-                            <td className="py-3 px-4">
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                booking.status === 'completed' ? 'bg-green-100 text-green-800' :
-                                booking.status === 'booked' ? 'bg-blue-100 text-blue-800' :
-                                'bg-gray-100 text-gray-800'
-                              }`}>
-                                {booking.status}
-                              </span>
-                            </td>
-                            <td className="py-3 px-4">
-                              {booking.attended !== null ? (
-                                <span className={`text-sm ${booking.attended ? 'text-green-600' : 'text-red-600'}`}>
-                                  {booking.attended ? '✓ Yes' : '✗ No'}
-                                </span>
-                              ) : (
-                                <span className="text-sm text-gray-400">-</span>
-                              )}
-                            </td>
-                            <td className="py-3 px-4 text-center">
-                              <button
-                                onClick={() => handleDeleteBooking(booking.id)}
-                                disabled={deletingBookingId === booking.id}
-                                className="inline-flex items-center gap-1 px-3 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {deletingBookingId === booking.id ? (
-                                  <>
-                                    <span className="material-symbols-outlined text-sm animate-spin">refresh</span>
-                                    <span>Deleting...</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <span className="material-symbols-outlined text-sm">delete</span>
+                        // Calculate unbooked credits
+                        const totalAllocated = parseInt(editForm.classesAllocated) || 0;
+                        const totalBooked = bookings.length;
+                        const unbookedCount = Math.max(0, totalAllocated - totalBooked);
+
+                        // Create placeholder rows for unbooked credits
+                        const unbookedRows = Array.from({ length: unbookedCount }, (_, i) => ({
+                          id: `unbooked-${i}`,
+                          isPlaceholder: true
+                        }));
+
+                        // Combine actual bookings and unbooked placeholders
+                        const allRows = [...filteredBookings, ...unbookedRows];
+
+                        return allRows.map((booking, index) => {
+                          // Render unbooked placeholder row
+                          if (booking.isPlaceholder) {
+                            return (
+                              <tr key={booking.id} className="border-b border-gray-100 bg-yellow-50">
+                                <td className="py-3 px-4">
+                                  <span className="font-mono text-sm text-gray-500 bg-gray-200 px-2 py-1 rounded">
+                                    -
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 text-gray-400">
+                                  -
+                                </td>
+                                <td className="py-3 px-4 text-gray-400">
+                                  -
+                                </td>
+                                <td className="py-3 px-4">
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                    unbooked
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 text-center">
+                                  <button
+                                    onClick={() => handleOpenMakeupModal(booking)}
+                                    className="px-3 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors"
+                                  >
+                                    <span>Reschedule</span>
+                                  </button>
+                                </td>
+                                <td className="py-3 px-4 text-center">
+                                  <button
+                                    disabled
+                                    className="px-3 py-1 text-xs bg-gray-300 text-gray-500 rounded cursor-not-allowed"
+                                  >
                                     <span>Delete</span>
-                                  </>
-                                )}
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          // Render actual booking row
+                          const date = new Date(booking.class_date);
+                          const dayOfWeek = date.toLocaleDateString('en-US', { weekday: 'long' });
+                          const courseName = parseCourseName(booking.course_identifier, booking.class_type);
+                          const time = `${booking.start_time || '7:00pm'} - ${booking.end_time || '9:30pm'}`;
+
+                          // Check if class is in the past
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+                          const classDate = new Date(booking.class_date);
+                          classDate.setHours(0, 0, 0, 0);
+                          const isPast = classDate < today;
+
+                          // Display "attended" for past classes that are marked as "booked"
+                          const displayStatus = (isPast && booking.status === 'booked') ? 'attended' : booking.status;
+
+                          return (
+                            <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                              <td className="py-3 px-4">
+                                <span className="font-mono text-sm text-gray-900 bg-gray-100 px-2 py-1 rounded">
+                                  {courseName}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-gray-600">
+                                {dayOfWeek}
+                              </td>
+                              <td className="py-3 px-4 text-gray-600">
+                                {date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                              </td>
+                              <td className="py-3 px-4">
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                  displayStatus === 'completed' ? 'bg-green-100 text-green-800' :
+                                  displayStatus === 'attended' ? 'bg-green-100 text-green-800' :
+                                  displayStatus === 'booked' ? 'bg-blue-100 text-blue-800' :
+                                  'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {displayStatus}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <button
+                                  onClick={() => handleOpenMakeupModal(booking)}
+                                  className={`px-3 py-1 text-xs rounded transition-colors ${
+                                    booking.booking_type === 'makeup'
+                                      ? 'bg-purple-500 text-white hover:bg-purple-600'
+                                      : 'bg-orange-500 text-white hover:bg-orange-600'
+                                  }`}
+                                >
+                                  <span>Reschedule</span>
+                                </button>
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <button
+                                  onClick={() => handleDeleteBooking(booking.id)}
+                                  disabled={deletingBookingId === booking.id}
+                                  className="px-3 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  <span>{deletingBookingId === booking.id ? 'Deleting...' : 'Delete'}</span>
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        });
+                      })()}
                     </tbody>
                   </table>
                 </div>
@@ -730,6 +1182,193 @@ export default function AdminStudentDetail() {
           </div>
         )}
       </main>
+
+      {/* Makeup Class Modal */}
+      {showMakeupModal && selectedBookingForMakeup && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white border border-gray-200 shadow-lg w-full max-w-5xl my-8 rounded-xl">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h3 className="text-2xl font-bold uppercase text-gray-900">
+                    {selectedBookingForMakeup.isPlaceholder ? 'Book Class' : 'Reschedule Class'}
+                  </h3>
+                  {!selectedBookingForMakeup.isPlaceholder && (
+                    <p className="text-sm text-gray-600 mt-1">
+                      {selectedBookingForMakeup.class_type} - {formatDate(selectedBookingForMakeup.class_date)} at {selectedBookingForMakeup.start_time}
+                    </p>
+                  )}
+                  {selectedBookingForMakeup.isPlaceholder && (
+                    <p className="text-sm text-gray-600 mt-1">
+                      Using flexible credit
+                    </p>
+                  )}
+                </div>
+                <button
+                  className="p-2 hover:bg-gray-100 rounded"
+                  onClick={() => {
+                    setShowMakeupModal(false);
+                    setSelectedBookingForMakeup(null);
+                    setMakeupSelectedDate(new Date());
+                    setMakeupCurrentMonth(new Date());
+                  }}
+                >
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6">
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 mb-4">
+                <p className="text-xs text-gray-700">
+                  {selectedBookingForMakeup.isPlaceholder
+                    ? 'Select an available date below to book a class using a flexible credit.'
+                    : 'Select an available date below to see classes you can reschedule to. The current booking will be canceled and replaced with the new class.'}
+                </p>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-6">
+                {/* Calendar Section */}
+                <div>
+                  <ClassCalendar
+                    currentMonth={makeupCurrentMonth}
+                    onMonthChange={setMakeupCurrentMonth}
+                    onDateSelect={(date) => setMakeupSelectedDate(date)}
+                    selectedDate={makeupSelectedDate}
+                    getClassesForDate={(date) => {
+                      const classesOnDate = getMakeupClassesForDate(date);
+                      return classesOnDate.map(c => ({
+                        ...c,
+                        class_type: c.classType,
+                        fullCourseIdentifier: c.classType
+                      }));
+                    }}
+                    highlightedDates={[]}
+                    classTypeConfig={{
+                      'all': { bgLight: 'bg-purple-500/20' },
+                      'wheelthrowing-beginner': { bgLight: 'bg-purple-500/20' },
+                      'wheelthrowing-intermediate': { bgLight: 'bg-purple-500/20' },
+                      'handbuilding': { bgLight: 'bg-purple-500/20' },
+                      'kids': { bgLight: 'bg-purple-500/20' }
+                    }}
+                    getClassCategory={getClassCategory}
+                    classTypeFilter="all"
+                    isAdminView={true}
+                    isEnrolled={() => false}
+                  />
+                </div>
+
+                {/* Class List Section */}
+                <div>
+                  <p className="text-sm font-bold text-gray-700 mb-3 uppercase">
+                    Available Classes on {formatDate(makeupSelectedDate)}
+                  </p>
+                  <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+                    {getMakeupClassesForDate(makeupSelectedDate).length === 0 ? (
+                      <p className="text-gray-500 text-center py-8">
+                        No available classes on this date. Please select another date.
+                      </p>
+                    ) : (
+                      getMakeupClassesForDate(makeupSelectedDate).map((classItem) => {
+                        const classDate = new Date(classItem.classDate);
+                        const spotsLeft = 10 - classItem.currentEnrollment;
+
+                        // Check if this is a glazing class (Week 6.6)
+                        const isGlazingClass = classItem.classType?.includes('6.6');
+
+                        return (
+                          <div
+                            key={classItem.id}
+                            className={`p-4 border rounded flex flex-col gap-2 ${
+                              isGlazingClass
+                                ? 'bg-amber-50 border-amber-900'
+                                : 'bg-gray-50 border-gray-200'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <p className={`font-bold text-sm ${
+                                    isGlazingClass ? 'text-amber-900' : 'text-gray-900'
+                                  }`}>{classItem.classType}</p>
+                                  {isGlazingClass && (
+                                    <span className="text-xs bg-amber-100 text-amber-900 px-2 py-0.5 rounded">
+                                      Glazing
+                                    </span>
+                                  )}
+                                </div>
+                                <p className={`text-xs ${
+                                  isGlazingClass ? 'text-amber-800' : 'text-gray-600'
+                                }`}>
+                                  {classItem.startTime} - {classItem.endTime}
+                                </p>
+                                <p className={`text-xs ${
+                                  isGlazingClass ? 'text-amber-800' : 'text-gray-600'
+                                }`}>
+                                  with {classItem.instructor}
+                                </p>
+                                <p className={`text-xs mt-1 ${
+                                  isGlazingClass ? 'text-amber-700' : 'text-gray-500'
+                                }`}>
+                                  {spotsLeft} {spotsLeft === 1 ? 'spot' : 'spots'} available
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => {
+                                  if (window.confirm(`Reschedule to ${formatDate(classDate)} at ${classItem.startTime} with ${classItem.instructor}?`)) {
+                                    handleRescheduleToMakeup(classItem.id);
+                                  }
+                                }}
+                                disabled={rescheduling}
+                                className={`flex min-w-[70px] cursor-pointer items-center justify-center h-8 px-3 text-white text-xs font-medium rounded disabled:opacity-50 disabled:cursor-not-allowed ${
+                                  isGlazingClass
+                                    ? 'bg-amber-700 hover:bg-amber-800'
+                                    : 'bg-purple-500 hover:bg-purple-600'
+                                }`}
+                              >
+                                {rescheduling ? (
+                                  <span className="material-symbols-outlined text-sm animate-spin">refresh</span>
+                                ) : (
+                                  <span className="truncate">Select</span>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 bg-gray-50 border-t border-gray-200 flex justify-between">
+              {/* Convert to Credit button - only show for actual bookings */}
+              {!selectedBookingForMakeup.isPlaceholder && (
+                <button
+                  onClick={handleConvertToCredit}
+                  disabled={deletingBookingId === selectedBookingForMakeup.id}
+                  className="flex min-w-[84px] max-w-[480px] cursor-pointer items-center justify-center overflow-hidden h-10 px-4 bg-yellow-500 text-white text-sm font-bold rounded hover:bg-yellow-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span>{deletingBookingId === selectedBookingForMakeup.id ? 'Converting...' : 'Convert to Credit'}</span>
+                </button>
+              )}
+
+              <button
+                className="flex min-w-[84px] max-w-[480px] cursor-pointer items-center justify-center overflow-hidden h-10 px-4 bg-gray-300 text-gray-700 text-sm font-bold rounded hover:bg-gray-400"
+                onClick={() => {
+                  setShowMakeupModal(false);
+                  setSelectedBookingForMakeup(null);
+                  setMakeupSelectedDate(new Date());
+                  setMakeupCurrentMonth(new Date());
+                }}
+              >
+                <span>Cancel</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Pause Course Modal */}
       {showPauseModal && enrollment && (

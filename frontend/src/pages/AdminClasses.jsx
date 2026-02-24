@@ -11,10 +11,12 @@ export default function AdminClasses() {
   const { logout } = useAuth();
 
   const [courses, setCourses] = useState([]);
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(null); // null = show overview
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [loading, setLoading] = useState(false);
   const [classTypeFilter, setClassTypeFilter] = useState('all');
+  const [cohortFilter, setCohortFilter] = useState('all'); // 'all', 'cohort1', 'cohort2'
+  const [viewMode, setViewMode] = useState('overview'); // 'overview' or 'date'
   const [expandedClassId, setExpandedClassId] = useState(null);
   const [classMembers, setClassMembers] = useState({});
   const [absentMembers, setAbsentMembers] = useState({});
@@ -90,6 +92,32 @@ export default function AdminClasses() {
       month: 'short',
       day: 'numeric'
     });
+  };
+
+  // Determine cohort from class date
+  const getClassCohort = (classDate) => {
+    if (!classDate) return null;
+
+    const date = new Date(classDate);
+    const day = date.getDate();
+    const month = date.getMonth(); // 0 = January, 1 = February, 2 = March
+
+    // Cohort 1: Jan 17, 19, 20, 22, 23
+    const cohort1Dates = [17, 19, 20, 22, 23];
+    if (month === 0 && cohort1Dates.includes(day)) {
+      return 'cohort1';
+    }
+
+    // Cohort 2: Feb 28, Mar 1, 5, 6, 10
+    if (month === 1 && day === 28) { // Feb 28
+      return 'cohort2';
+    }
+    const cohort2MarDates = [1, 5, 6, 10];
+    if (month === 2 && cohort2MarDates.includes(day)) { // Mar 1, 5, 6, 10
+      return 'cohort2';
+    }
+
+    return null; // Outside defined cohorts
   };
 
   const getClassCategory = (classType) => {
@@ -629,12 +657,84 @@ export default function AdminClasses() {
       });
     });
 
-    // Apply filter
-    if (classTypeFilter !== 'all') {
-      return allClasses.filter(c => getClassCategory(c.class_type) === classTypeFilter);
-    }
+    // Apply filters
+    return allClasses.filter(c => {
+      // Filter 1: Class type
+      if (classTypeFilter !== 'all' && getClassCategory(c.class_type) !== classTypeFilter) {
+        return false;
+      }
 
-    return allClasses;
+      // Filter 2: Cohort
+      if (cohortFilter !== 'all' && getClassCohort(c.class_date) !== cohortFilter) {
+        return false;
+      }
+
+      return true;
+    });
+  };
+
+  // Get course overview (all courses with total enrollment)
+  const getCourseOverview = () => {
+    const courseMap = new Map();
+
+    courses.forEach(course => {
+      // Skip if no classes
+      if (!course.classes || course.classes.length === 0) {
+        return;
+      }
+
+      const firstClass = course.classes[0];
+      const category = getClassCategory(firstClass.class_type);
+
+      // Filter 1: Skip Handbuilding classes (only show WT courses in overview)
+      // HB classes are drop-in sessions, not 6-week courses like WT
+      if (category === 'handbuilding') {
+        return;
+      }
+
+      // Filter 2: Apply classTypeFilter (if not 'all')
+      if (classTypeFilter !== 'all' && category !== classTypeFilter) {
+        return;
+      }
+
+      // Filter 3: Apply cohortFilter (if not 'all')
+      if (cohortFilter !== 'all') {
+        // Check if ANY class in this course belongs to the selected cohort
+        const hasClassInCohort = course.classes.some(cls => {
+          return getClassCohort(cls.class_date) === cohortFilter;
+        });
+
+        if (!hasClassInCohort) {
+          return;
+        }
+      }
+
+      // Calculate total enrollment across all classes in this course
+      let totalEnrollment = 0;
+      let totalMakeup = 0;
+      let maxCapacity = 0;
+      let sampleClass = null;
+
+      course.classes?.forEach(cls => {
+        totalEnrollment += cls.bookingCount || 0;
+        if (sampleClass === null) {
+          sampleClass = cls;
+          maxCapacity = cls.max_capacity || 12;
+        }
+      });
+
+      courseMap.set(course.identifier, {
+        identifier: course.identifier,
+        classes: course.classes,
+        totalEnrollment,
+        totalMakeup,
+        maxCapacity,
+        numberOfWeeks: course.classes?.length || 0,
+        sampleClass
+      });
+    });
+
+    return Array.from(courseMap.values());
   };
 
   const classTypeConfig = {
@@ -675,7 +775,63 @@ export default function AdminClasses() {
     }
   };
 
-  const classesForSelectedDate = getClassesForDate(selectedDate);
+  const classesForSelectedDate = selectedDate ? getClassesForDate(selectedDate) : [];
+  const courseOverview = getCourseOverview();
+
+  // Auto-load members for classes (either for selected date or overview)
+  useEffect(() => {
+    const loadMembersForAllClasses = async () => {
+      if (viewMode === 'date' && classesForSelectedDate.length > 0) {
+        // Load members for classes on selected date
+        for (const classInstance of classesForSelectedDate) {
+          if (!classMembers[classInstance.id]) {
+            try {
+              setLoadingMembers(prev => ({ ...prev, [classInstance.id]: true }));
+              const { data } = await api.get(`/admin/classes/${classInstance.id}/members`);
+              setClassMembers(prev => ({
+                ...prev,
+                [classInstance.id]: data.members || []
+              }));
+              setAbsentMembers(prev => ({
+                ...prev,
+                [classInstance.id]: data.absentMembers || []
+              }));
+            } catch (error) {
+              console.error('Failed to load class members:', error);
+            } finally {
+              setLoadingMembers(prev => ({ ...prev, [classInstance.id]: false }));
+            }
+          }
+        }
+      } else if (viewMode === 'overview') {
+        // Load member counts for all courses
+        for (const course of courseOverview) {
+          for (const cls of course.classes || []) {
+            if (!classMembers[cls.id]) {
+              try {
+                setLoadingMembers(prev => ({ ...prev, [cls.id]: true }));
+                const { data } = await api.get(`/admin/classes/${cls.id}/members`);
+                setClassMembers(prev => ({
+                  ...prev,
+                  [cls.id]: data.members || []
+                }));
+                setAbsentMembers(prev => ({
+                  ...prev,
+                  [cls.id]: data.absentMembers || []
+                }));
+              } catch (error) {
+                console.error('Failed to load class members:', error);
+              } finally {
+                setLoadingMembers(prev => ({ ...prev, [cls.id]: false }));
+              }
+            }
+          }
+        }
+      }
+    };
+
+    loadMembersForAllClasses();
+  }, [viewMode, selectedDate, classTypeFilter, cohortFilter, courseOverview.length]);
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -745,11 +901,32 @@ export default function AdminClasses() {
               </div>
             </div>
 
+            {/* Cohort Filter */}
+            <div className="mb-4">
+              <p className="text-sm font-bold text-text-muted mb-2 uppercase">Filter by Cohort</p>
+              <div className="relative">
+                <select
+                  value={cohortFilter}
+                  onChange={(e) => setCohortFilter(e.target.value)}
+                  className="w-full px-4 py-2.5 text-sm font-bold uppercase border border-gray-300 text-gray-900 bg-background hover:bg-background-alt transition-colors appearance-none cursor-pointer"
+                  style={{ paddingRight: '2.5rem' }}
+                >
+                  <option value="all">ALL COHORTS</option>
+                  <option value="cohort1">COHORT 1 (JAN 17, 19, 20, 22, 23)</option>
+                  <option value="cohort2">COHORT 2 (FEB 28, MAR 1, 5, 6, 10)</option>
+                </select>
+                <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                  <span className="material-symbols-outlined text-text-muted">expand_more</span>
+                </div>
+              </div>
+            </div>
+
             <ClassCalendar
               currentMonth={currentMonth}
               onMonthChange={setCurrentMonth}
               onDateSelect={(date, dayClasses, event) => {
                 setSelectedDate(date);
+                setViewMode('date'); // Switch to date view when clicking a date
 
                 // When clicking a date, check for course classes to highlight the full course
                 if (dayClasses && dayClasses.length > 0) {
@@ -763,8 +940,12 @@ export default function AdminClasses() {
                   const uniqueStartTimes = [...new Set(courseClassesOnDate.map(c => c.start_time))];
                   const hasMultipleCourses = uniqueStartTimes.length > 1;
 
-                  if (hasMultipleCourses) {
-                    // Multiple courses - show dropdown menu
+                  // Skip course menu for Saturdays (day 6) - just show all classes
+                  const dayOfWeek = date.getDay();
+                  const isSaturday = dayOfWeek === 6;
+
+                  if (hasMultipleCourses && !isSaturday) {
+                    // Multiple courses - show dropdown menu (except on Saturdays)
                     const uniqueCourses = [];
                     const seenTimes = new Set();
 
@@ -816,19 +997,337 @@ export default function AdminClasses() {
 
           {/* Class Details Section */}
           <div className="flex-1">
-            <div className="mb-4">
-              <p className="text-sm font-bold text-text-muted mb-2 uppercase">
-                Classes on {formatDate(selectedDate)}
+            {/* Header with back button when in date mode */}
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-sm font-bold text-text-muted uppercase">
+                {viewMode === 'overview' ? 'Course Overview' : `Classes on ${formatDate(selectedDate)}`}
               </p>
+              {viewMode === 'date' && (
+                <button
+                  onClick={() => {
+                    setViewMode('overview');
+                    setSelectedDate(null);
+                  }}
+                  className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  ← Back to Overview
+                </button>
+              )}
             </div>
 
             <div className="flex flex-col gap-4">
               {loading ? (
                 <p className="text-center text-text-muted py-12">Loading...</p>
-              ) : classesForSelectedDate.length === 0 ? (
-                <p className="text-text-muted">No classes scheduled for this date.</p>
+              ) : viewMode === 'overview' ? (
+                // Course Overview Mode
+                courseOverview.length === 0 ? (
+                  <p className="text-text-muted">No courses available.</p>
+                ) : (
+                  courseOverview.map((course) => {
+                    // Calculate unique enrolled and makeup students across all weeks
+                    // Use Sets to track unique student IDs instead of summing counts
+                    const uniqueEnrolledIds = new Set();
+                    const uniqueMakeupIds = new Set();
+
+                    course.classes?.forEach(cls => {
+                      const members = classMembers[cls.id] || [];
+                      members.forEach(m => {
+                        if (m.isMakeup) {
+                          uniqueMakeupIds.add(m.studentId);
+                        } else {
+                          uniqueEnrolledIds.add(m.studentId);
+                        }
+                      });
+                    });
+
+                    const totalEnrolled = uniqueEnrolledIds.size;
+                    const totalMakeup = uniqueMakeupIds.size;
+                    const totalCapacity = course.maxCapacity || 10; // Default to 10 if not set
+
+                    // Get first class for this course (for Add/Edit/Delete operations)
+                    const firstClass = course.sampleClass;
+
+                    return (
+                      <div
+                        key={course.identifier}
+                        className="bg-white border border-gray-200 rounded-xl p-6"
+                      >
+                        {/* Course Header */}
+                        <div className="mb-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className="text-xl font-bold text-gray-900 font-mono">
+                              {course.identifier}
+                            </h3>
+                            <div className="flex items-center gap-3">
+                              <span className={`text-sm font-medium ${
+                                totalEnrolled >= totalCapacity
+                                  ? 'text-red-500'
+                                  : 'text-green-500'
+                              }`}>
+                                {totalEnrolled}/{totalCapacity} enrolled
+                              </span>
+                              {firstClass && (
+                                <>
+                                  <button
+                                    onClick={() => handleOpenEditClassModal(firstClass)}
+                                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                                  >
+                                    <span className="material-symbols-outlined text-sm">edit</span>
+                                    <span>Edit</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleOpenAddStudentModal(firstClass.id)}
+                                    disabled={totalEnrolled >= totalCapacity}
+                                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-green-500 text-white rounded hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    <span className="material-symbols-outlined text-sm">add</span>
+                                    <span>Add</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteClass(firstClass.id, firstClass.class_type)}
+                                    disabled={totalEnrolled > 0 || totalMakeup > 0}
+                                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title={totalEnrolled > 0 || totalMakeup > 0 ? "Cannot delete course with enrolled students" : "Delete course"}
+                                  >
+                                    <span className="material-symbols-outlined text-sm">delete</span>
+                                    <span>Delete</span>
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          {course.sampleClass && (
+                            <>
+                              <p className="text-sm text-gray-600">
+                                {course.sampleClass.class_type} • {course.sampleClass.start_time} - {course.sampleClass.end_time}
+                              </p>
+                              <p className="text-sm text-gray-600">
+                                Instructor: {course.sampleClass.instructor}
+                              </p>
+                            </>
+                          )}
+                        </div>
+
+                        {/* Enrollment Details with Dropdowns */}
+                        {totalEnrolled > 0 || totalMakeup > 0 ? (
+                          <div className="space-y-2">
+                            {/* Regular Enrolled Students Section */}
+                            {totalEnrolled > 0 && (
+                              <div>
+                                <button
+                                  onClick={() => {
+                                    const expandKey = `course-${course.identifier}`;
+                                    setExpandedClassId(expandedClassId === expandKey ? null : expandKey);
+                                  }}
+                                  className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-gray-900"
+                                >
+                                  <span className="material-symbols-outlined text-base">
+                                    {expandedClassId === `course-${course.identifier}` ? 'expand_less' : 'expand_more'}
+                                  </span>
+                                  Enrolled Members ({totalEnrolled})
+                                </button>
+
+                                {/* Expandable Member List */}
+                                {expandedClassId === `course-${course.identifier}` && (
+                                  <div className="mt-3">
+                                    <div className="bg-gray-50 rounded p-2">
+                                      {Array.from(uniqueEnrolledIds).map((studentId, index) => {
+                                        // Find the first member record for this student across all classes
+                                        let memberInfo = null;
+                                        let classInstance = null;
+                                        for (const cls of course.classes) {
+                                          const members = classMembers[cls.id] || [];
+                                          const member = members.find(m => !m.isMakeup && m.studentId === studentId);
+                                          if (member) {
+                                            memberInfo = member;
+                                            classInstance = cls;
+                                            break;
+                                          }
+                                        }
+
+                                        if (!memberInfo) return null;
+
+                                        return (
+                                          <div
+                                            key={studentId}
+                                            className="text-sm py-1 flex items-center justify-between gap-2"
+                                          >
+                                            <div className="flex items-center gap-2">
+                                              <span className="font-bold text-gray-500">#{index + 1}</span>
+                                              <span className="text-gray-900">
+                                                {memberInfo.firstName} {memberInfo.lastName}
+                                              </span>
+                                              {memberInfo.returningCount > 1 && (
+                                                <>
+                                                  <span className="text-gray-500">•</span>
+                                                  <span className="text-gray-600">
+                                                    ({memberInfo.returningCount})
+                                                  </span>
+                                                </>
+                                              )}
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                              <button
+                                                onClick={() => {
+                                                  const booking = {
+                                                    bookingId: memberInfo.bookingId,
+                                                    studentName: `${memberInfo.firstName} ${memberInfo.lastName}`,
+                                                    studentId: memberInfo.studentId,
+                                                    classInstance: classInstance,
+                                                    weekNumber: getWeekNumberFromClassType(classInstance.class_type)
+                                                  };
+                                                  setReschedulingBooking(booking);
+                                                  setRescheduleData({
+                                                    newClassInstanceId: null,
+                                                    reason: '',
+                                                    isGlazing: classInstance.class_type?.toLowerCase().includes('glazing')
+                                                  });
+                                                  loadAvailableClassesForReschedule(classInstance, memberInfo.studentId);
+                                                  setShowRescheduleModal(true);
+                                                }}
+                                                className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                                              >
+                                                <span className="material-symbols-outlined text-sm">schedule</span>
+                                                <span>Reschedule</span>
+                                              </button>
+                                              <button
+                                                onClick={() => handleRemoveStudent(
+                                                  memberInfo.bookingId,
+                                                  classInstance.id,
+                                                  `${memberInfo.firstName} ${memberInfo.lastName}`
+                                                )}
+                                                className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                                              >
+                                                <span className="material-symbols-outlined text-sm">close</span>
+                                                <span>Remove</span>
+                                              </button>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Makeup Students Section */}
+                            {totalMakeup > 0 && (
+                              <div>
+                                <button
+                                  onClick={() => {
+                                    const expandKey = `course-makeup-${course.identifier}`;
+                                    setExpandedClassId(expandedClassId === expandKey ? null : expandKey);
+                                  }}
+                                  className="flex items-center gap-2 text-sm font-semibold text-purple-700 hover:text-purple-900"
+                                >
+                                  <span className="material-symbols-outlined text-base">
+                                    {expandedClassId === `course-makeup-${course.identifier}` ? 'expand_less' : 'expand_more'}
+                                  </span>
+                                  Makeup Students ({totalMakeup})
+                                </button>
+
+                                {/* Expandable Makeup Student List */}
+                                {expandedClassId === `course-makeup-${course.identifier}` && (
+                                  <div className="mt-3">
+                                    <div className="bg-purple-50 rounded p-2">
+                                      {Array.from(uniqueMakeupIds).map((studentId, index) => {
+                                        // Find the first makeup member record for this student across all classes
+                                        let memberInfo = null;
+                                        let classInstance = null;
+                                        for (const cls of course.classes) {
+                                          const members = classMembers[cls.id] || [];
+                                          const member = members.find(m => m.isMakeup && m.studentId === studentId);
+                                          if (member) {
+                                            memberInfo = member;
+                                            classInstance = cls;
+                                            break;
+                                          }
+                                        }
+
+                                        if (!memberInfo) return null;
+
+                                        return (
+                                          <div
+                                            key={studentId}
+                                            className="text-sm py-1 flex items-center justify-between gap-2"
+                                          >
+                                            <div className="flex items-center gap-2">
+                                              <span className="font-bold text-purple-500">#{index + 1}</span>
+                                              <span className="text-gray-900">
+                                                {memberInfo.firstName} {memberInfo.lastName}
+                                              </span>
+                                              {memberInfo.returningCount > 1 && (
+                                                <>
+                                                  <span className="text-gray-500">•</span>
+                                                  <span className="text-gray-600">
+                                                    ({memberInfo.returningCount})
+                                                  </span>
+                                                </>
+                                              )}
+                                              <span className="text-gray-500">•</span>
+                                              <span className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded font-mono">
+                                                from {memberInfo.originalClassIdentifier}
+                                              </span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                              <button
+                                                onClick={() => {
+                                                  const booking = {
+                                                    bookingId: memberInfo.bookingId,
+                                                    studentName: `${memberInfo.firstName} ${memberInfo.lastName}`,
+                                                    studentId: memberInfo.studentId,
+                                                    classInstance: classInstance,
+                                                    weekNumber: getWeekNumberFromClassType(classInstance.class_type)
+                                                  };
+                                                  setReschedulingBooking(booking);
+                                                  setRescheduleData({
+                                                    newClassInstanceId: null,
+                                                    reason: '',
+                                                    isGlazing: classInstance.class_type?.toLowerCase().includes('glazing')
+                                                  });
+                                                  loadAvailableClassesForReschedule(classInstance, memberInfo.studentId);
+                                                  setShowRescheduleModal(true);
+                                                }}
+                                                className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                                              >
+                                                <span className="material-symbols-outlined text-sm">schedule</span>
+                                                <span>Reschedule</span>
+                                              </button>
+                                              <button
+                                                onClick={() => handleRemoveStudent(
+                                                  memberInfo.bookingId,
+                                                  classInstance.id,
+                                                  `${memberInfo.firstName} ${memberInfo.lastName}`
+                                                )}
+                                                className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                                              >
+                                                <span className="material-symbols-outlined text-sm">close</span>
+                                                <span>Remove</span>
+                                              </button>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-400">No students enrolled yet</p>
+                        )}
+                      </div>
+                    );
+                  })
+                )
               ) : (
-                classesForSelectedDate.map((classInstance) => (
+                // Date Detail Mode
+                classesForSelectedDate.length === 0 ? (
+                  <p className="text-text-muted">No classes scheduled for this date.</p>
+                ) : (
+                  classesForSelectedDate.map((classInstance) => (
                   <div
                     key={classInstance.id}
                     className="bg-white border border-gray-200 rounded-xl p-6"
@@ -894,7 +1393,7 @@ export default function AdminClasses() {
                               <span className="material-symbols-outlined text-base">
                                 {expandedClassId === classInstance.id ? 'expand_less' : 'expand_more'}
                               </span>
-                              Enrolled Members ({classMembers[classInstance.id] ? classMembers[classInstance.id].filter(m => !m.isMakeup).length : classInstance.bookingCount})
+                              Enrolled Members ({classMembers[classInstance.id] ? classMembers[classInstance.id].filter(m => !m.isMakeup).length : '...'})
                             </button>
 
                             {/* Expandable Member List */}
@@ -914,10 +1413,14 @@ export default function AdminClasses() {
                                           <span className="text-gray-900">
                                             {member.firstName} {member.lastName}
                                           </span>
-                                          <span className="text-gray-500">•</span>
-                                          <span className="text-gray-600">
-                                            {member.returningCount} {member.returningCount === 1 ? 'class' : 'classes'}
-                                          </span>
+                                          {member.returningCount > 1 && (
+                                            <>
+                                              <span className="text-gray-500">•</span>
+                                              <span className="text-gray-600">
+                                                ({member.returningCount})
+                                              </span>
+                                            </>
+                                          )}
                                         </div>
                                         <div className="flex items-center gap-2">
                                           <button
@@ -967,8 +1470,8 @@ export default function AdminClasses() {
                           </div>
                         )}
 
-                        {/* Makeup Students Section - Separate collapsible */}
-                        {classMembers[classInstance.id]?.filter(m => m.isMakeup).length > 0 && (
+                        {/* Makeup Students Section - Separate collapsible - Always show if members loaded */}
+                        {classMembers[classInstance.id] && (
                           <div>
                             <button
                               onClick={() => {
@@ -997,10 +1500,14 @@ export default function AdminClasses() {
                                         <span className="text-gray-900">
                                           {member.firstName} {member.lastName}
                                         </span>
-                                        <span className="text-gray-500">•</span>
-                                        <span className="text-gray-600">
-                                          {member.returningCount} {member.returningCount === 1 ? 'class' : 'classes'}
-                                        </span>
+                                        {member.returningCount > 1 && (
+                                          <>
+                                            <span className="text-gray-500">•</span>
+                                            <span className="text-gray-600">
+                                              ({member.returningCount})
+                                            </span>
+                                          </>
+                                        )}
                                         <span className="text-gray-500">•</span>
                                         <span className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded font-mono">
                                           from {member.originalClassIdentifier}
@@ -1112,7 +1619,7 @@ export default function AdminClasses() {
                     )}
                   </div>
                 ))
-              )}
+              ))}
             </div>
           </div>
         </div>

@@ -2,11 +2,13 @@ import { useState, useEffect } from 'react';
 import api, { classesAPI } from '../utils/api';
 import Navigation from '../components/Navigation';
 import ClassCalendar from '../components/ClassCalendar';
+import { getCourseTypeInfo } from '../utils/courseTypes';
 
 export default function ClassScheduleNew() {
   const [classes, setClasses] = useState([]);
   const [myBookings, setMyBookings] = useState([]);
   const [studentData, setStudentData] = useState(null);
+  const [dashboardData, setDashboardData] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedClass, setSelectedClass] = useState(null);
@@ -25,6 +27,8 @@ export default function ClassScheduleNew() {
   const [rescheduleCurrentMonth, setRescheduleCurrentMonth] = useState(new Date());
   const [showPauseModal, setShowPauseModal] = useState(false);
   const [pauseCalculation, setPauseCalculation] = useState(null);
+  const [expandedPastCourses, setExpandedPastCourses] = useState({}); // Track which course groups show past classes
+  const [hbEnrollment, setHbEnrollment] = useState(null); // Active HB enrollment with credits
 
   const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'];
@@ -33,6 +37,7 @@ export default function ClassScheduleNew() {
     fetchClasses();
     fetchMyBookings();
     fetchStudentData();
+    fetchDashboardData();
   }, []);
 
   const fetchStudentData = async () => {
@@ -44,6 +49,22 @@ export default function ClassScheduleNew() {
       setStudentData(response.data.student);
     } catch (error) {
       console.error('Error fetching student data:', error);
+    }
+  };
+
+  const fetchDashboardData = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return; // Not logged in
+
+      const response = await api.get('/students/me/dashboard');
+      setDashboardData(response.data);
+      // Set active HB enrollment if available
+      if (response.data.hbEnrollments && response.data.hbEnrollments.length > 0) {
+        setHbEnrollment(response.data.hbEnrollments[0]);
+      }
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
     }
   };
 
@@ -245,27 +266,45 @@ export default function ClassScheduleNew() {
 
   // Remove availability status - students don't see capacity numbers
 
+  const [bookingLoading, setBookingLoading] = useState(false);
+
   const handleBooking = async () => {
+    console.log('handleBooking called', { courseWeeks, selectedClass, hbEnrollment });
     if (!courseWeeks) {
       alert('Please select a course length');
       return;
     }
 
+    setBookingLoading(true);
     try {
-      await api.post('/classes/enroll-course', {
-        firstClassId: selectedClass.id,
-        courseWeeks: courseWeeks
-      });
+      const isHB = getClassCategory(selectedClass?.classType) === 'handbuilding';
+      console.log('isHB:', isHB, 'hbEnrollment:', hbEnrollment);
 
-      alert(`Successfully booked in ${courseWeeks}-week course with ${selectedClass.instructor}!`);
+      if (isHB && hbEnrollment) {
+        // Use existing HB enrollment with credits
+        console.log('Calling bookHBSchedule', { enrollmentId: hbEnrollment.id, classId: selectedClass.id, courseWeeks });
+        await classesAPI.bookHBSchedule(hbEnrollment.id, selectedClass.id, courseWeeks);
+        alert(`Successfully booked ${courseWeeks}-week Handbuilding schedule! ${courseWeeks} credits used.`);
+      } else {
+        // Existing WT flow (creates new enrollment)
+        await api.post('/classes/enroll-course', {
+          firstClassId: selectedClass.id,
+          courseWeeks: courseWeeks
+        });
+        alert(`Successfully booked in ${courseWeeks}-week course with ${selectedClass.instructor}!`);
+      }
+
       setShowModal(false);
       setBookingNotes('');
       setCourseWeeks(null);
       fetchClasses();
       fetchMyBookings();
+      fetchDashboardData();
     } catch (error) {
       console.error('Error enrolling in course:', error);
-      alert(error.response?.data?.error || 'Failed to enroll in course');
+      alert(error.response?.data?.error || error.message || 'Failed to enroll in course');
+    } finally {
+      setBookingLoading(false);
     }
   };
 
@@ -459,8 +498,8 @@ export default function ClassScheduleNew() {
     const totalBookings = myBookings.length;
     const is10thClass = has10ClassPackage && totalBookings >= 9;
 
-    // Check if old class is glazing
-    const isOldClassGlazing = selectedClass.classType?.includes('Week 6/6') && selectedClass.classType?.includes('Glazing');
+    // Check if old class is glazing (Week 6.6)
+    const isOldClassGlazing = selectedClass.classType?.includes('6.6');
 
     // Flatten all classes from all courses
     const allClasses = [];
@@ -483,7 +522,12 @@ export default function ClassScheduleNew() {
     });
 
     console.log('🔍 RESCHEDULE - Looking for classes to reschedule to');
-    console.log('Selected class category:', classCategory);
+    console.log('Selected class data:', {
+      classType: selectedClass.classType,
+      fullCourseIdentifier: selectedClass.fullCourseIdentifier,
+      courseIdentifier: selectedClass.courseIdentifier,
+      category: classCategory
+    });
     console.log('Has 10-class package:', has10ClassPackage);
     console.log('Is 10th class (must be glazing):', is10thClass);
     console.log('Is old class glazing:', isOldClassGlazing);
@@ -507,25 +551,34 @@ export default function ClassScheduleNew() {
       const isValidTime = !isNaN(classDateTime.getTime());
 
       // For 10-class package: if this is the 10th class, must be glazing
-      const isNewClassGlazing = c.classType?.includes('Week 6/6') && c.classType?.includes('Glazing');
+      const isNewClassGlazing = c.classType?.includes('6.6');
       if (is10thClass && !isNewClassGlazing) {
         return false; // 10th class must be glazing
       }
 
-      // Apply cohort restrictions (only for standard 6-week WT, not 10-class package)
+      // Apply glazing restriction first (applies to ALL students, regardless of package type)
       let cohortRestrictionPasses = true;
-      if (!has10ClassPackage && sameCategory) {
-        if (isOldClassGlazing) {
-          // Old class is glazing: can only reschedule to another glazing class
-          cohortRestrictionPasses = isNewClassGlazing;
-        } else {
-          // Old class is weeks 1-5: must be within cohort dates (we don't have cohort dates in frontend, so skip for now)
+      if (isOldClassGlazing) {
+        // If old class is glazing (Week 6.6), new class MUST also be glazing AND same category
+        // Can reschedule to ANY 6.6 glazing class (no cohort date restriction for glazing)
+        cohortRestrictionPasses = isNewClassGlazing && sameCategory;
+      } else {
+        // If old class is NOT glazing (weeks 1-5), new class MUST NOT be glazing
+        // Non-glazing classes can only reschedule to other non-glazing classes
+        if (isNewClassGlazing) {
+          cohortRestrictionPasses = false; // Block 6.1-6.5 → 6.6 rescheduling
+        } else if (!has10ClassPackage && sameCategory) {
+          // For regular 6-week courses (not 10-class packages), apply cohort date restrictions
+          // Old class is weeks 1-5: must be within cohort dates
           // The backend will enforce this restriction
           cohortRestrictionPasses = true;
         }
       }
 
-      const passes = sameCategory && isDifferentClass && hasSpace && isAtLeast24HoursAway && isValidTime && cohortRestrictionPasses;
+      // For 10-class package: allow cross-category rescheduling (HB to WT, WT to HB)
+      // For regular courses: must stay within same category
+      const categoryCheck = has10ClassPackage ? true : sameCategory;
+      const passes = categoryCheck && isDifferentClass && hasSpace && isAtLeast24HoursAway && isValidTime && cohortRestrictionPasses;
 
       // Log all classes to see what's happening
       console.log('Checking class:', {
@@ -533,6 +586,8 @@ export default function ClassScheduleNew() {
         classType: c.classType,
         category: categoryMatch,
         sameCategory,
+        has10ClassPackage,
+        categoryCheck,
         isDifferentClass,
         date: c.classDate,
         time: c.startTime,
@@ -543,6 +598,8 @@ export default function ClassScheduleNew() {
         isValidTime,
         isAtLeast24HoursAway,
         twentyFourHoursFromNow: twentyFourHoursFromNow.toString(),
+        isOldClassGlazing,
+        isNewClassGlazing,
         cohortRestrictionPasses,
         passes
       });
@@ -721,216 +778,393 @@ export default function ClassScheduleNew() {
               </p>
             </div>
 
-            {/* Class Credits Display */}
-            {studentData && (() => {
-              const total = studentData.classes_allocated || 0;
-              // Count all active bookings (booked + attended) as they take up allocated slots
-              // Exclude cancelled bookings as they free up the slot
-              const booked = myBookings.filter(b => b.status === 'booked' || b.status === 'attended').length;
-              const available = total - booked;
+            {/* Summary strip — matches dashboard style */}
+            {dashboardData?.stats && (() => {
+              const { remaining, attended } = dashboardData.stats;
+              return (
+                <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-1 text-gray-600">
+                  <span className="text-lg">
+                    <span className="font-semibold text-gray-900">{remaining}</span> classes remaining
+                  </span>
+                  <span className="text-gray-300">·</span>
+                  <span className="text-lg">
+                    <span className="font-semibold text-gray-900">{attended}</span> attended
+                  </span>
+                </div>
+              );
+            })()}
 
-              // Calculate attended from current course bookings only
-              // Count bookings that have ended (status: attended or completed)
-              // Also count past classes with 'booked' status as attended
-              const today = new Date();
-              today.setHours(0, 0, 0, 0);
+            {/* My Classes — grouped by course */}
+            {(() => {
+              const allBookings = myBookings.filter(b => b.status === 'booked' || b.status === 'attended');
+              if (allBookings.length === 0) return null;
 
-              const attended = myBookings.filter(booking => {
+              // Group all bookings by base course code
+              const courseGroups = {};
+              allBookings.forEach(booking => {
+                const classType = booking.class?.classType || booking.classInstance?.classType || booking.class_type;
+                const baseCourse = classType ? classType.split('.')[0] : 'unknown';
+                if (!courseGroups[baseCourse]) {
+                  courseGroups[baseCourse] = [];
+                }
+                courseGroups[baseCourse].push(booking);
+              });
+
+              // Calculate date ranges for each course
+              const courseDateRanges = {};
+              Object.keys(courseGroups).forEach(baseCourse => {
+                const dates = courseGroups[baseCourse].map(b => {
+                  const classDate = b.class?.classDate || b.classInstance?.classDate || b.class_date;
+                  return new Date(classDate);
+                });
+                const minDate = new Date(Math.min(...dates));
+                const maxDate = new Date(Math.max(...dates));
+                courseDateRanges[baseCourse] = { start: minDate, end: maxDate };
+              });
+
+              // Generate human-readable course name
+              const generateCourseName = (baseCode) => {
+                if (!baseCode) return 'N/A';
+                const typeMatch = baseCode.match(/^(WT|HB)/);
+                const courseType = typeMatch ? (typeMatch[1] === 'WT' ? 'Wheelthrowing' : 'Handbuilding') : 'Class';
+                const weeksMatch = baseCode.match(/(DL|JL|LT)(\d+)/);
+                const weeks = weeksMatch ? `${weeksMatch[2]}wks` : '';
+                const dateRange = courseDateRanges[baseCode];
+                if (dateRange) {
+                  const startStr = dateRange.start.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+                  const endStr = dateRange.end.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+                  return `${courseType} ${weeks} ${startStr} - ${endStr}`;
+                }
+                return `${courseType} ${weeks}`;
+              };
+
+              // Get week number from classType suffix (e.g., "WT1701PM_DL6.3" → "Wk 3", ".6" → "Wk 6")
+              const getWeekLabel = (classType) => {
+                if (!classType) return '';
+                const match = classType.match(/\.(\d+)$/);
+                return match ? `Wk ${match[1]}` : '';
+              };
+
+              // Helper: extract booking fields
+              const getBookingFields = (booking) => {
                 const classDate = booking.class?.classDate || booking.classInstance?.classDate || booking.class_date;
-                if (!classDate) return false;
-
-                // Get just the date part for comparison
-                const bookingDate = new Date(classDate);
-                bookingDate.setHours(0, 0, 0, 0);
-                const isPast = bookingDate < today;
-
-                // Count if status is 'attended' or 'completed'
-                if (booking.status === 'attended' || booking.status === 'completed') {
-                  return true;
-                }
-
-                // Also count if status is 'booked' but class date is in the past
-                if (booking.status === 'booked' && isPast) {
-                  return true;
-                }
-
-                return false;
-              }).length;
-
-              const remaining = total - attended;
+                const date = new Date(classDate);
+                const classType = booking.class?.classType || booking.classInstance?.classType || booking.class_type;
+                const courseIdentifier = booking.courseIdentifier ||
+                  booking.course_identifier ||
+                  booking.class?.courseIdentifier ||
+                  booking.class?.course_identifier ||
+                  booking.classInstance?.courseIdentifier ||
+                  booking.classInstance?.course_identifier ||
+                  classType;
+                const startTime = booking.class?.startTime || booking.classInstance?.startTime || booking.start_time || '7:00pm';
+                const endTime = booking.class?.endTime || booking.classInstance?.endTime || booking.end_time || '9:30pm';
+                const instructor = booking.class?.instructor || booking.classInstance?.instructor || booking.instructor;
+                const isGlazingClass = classType?.includes('6.6');
+                const weekLabel = getWeekLabel(classType);
+                return { classDate, date, classType, courseIdentifier, startTime, endTime, instructor, isGlazingClass, weekLabel };
+              };
 
               return (
                 <div className="mb-8">
-                  <h2 className="text-xl font-bold text-gray-900 mb-4">Total Classes ({total})</h2>
-                  <div className="bg-background-alt border border-border p-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      {/* Booking Status */}
-                      <div className="space-y-2">
-                        <div className="text-xs font-bold text-text-muted uppercase">Booking Status</div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="px-3 py-2 bg-purple-50 rounded text-center border border-purple-200">
-                            <div className="text-xs text-purple-600 font-medium uppercase">Booked</div>
-                            <div className="text-xl font-bold text-purple-900">{booked}</div>
-                          </div>
-                          <div className="px-3 py-2 bg-green-50 rounded text-center border border-green-200">
-                            <div className="text-xs text-green-600 font-medium uppercase">Available</div>
-                            <div className="text-xl font-bold text-green-900">{available}</div>
-                          </div>
-                        </div>
-                        <div className="text-xs text-center text-text-muted">
-                          {booked} + {available} = {total}
-                        </div>
-                      </div>
+                  <h2 className="text-xl font-bold text-gray-900 mb-4">My Classes</h2>
+                  <div className="space-y-4">
+                    {Object.entries(courseGroups).map(([baseCourse, bookings]) => {
+                      const now = new Date();
+                      const sortedBookings = [...bookings].sort((a, b) => {
+                        const dateA = new Date(a.class?.classDate || a.classInstance?.classDate || a.class_date);
+                        const dateB = new Date(b.class?.classDate || b.classInstance?.classDate || b.class_date);
+                        return dateA - dateB;
+                      });
 
-                      {/* Attendance Status */}
-                      <div className="space-y-2">
-                        <div className="text-xs font-bold text-text-muted uppercase">Attendance Status</div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="px-3 py-2 bg-gray-50 rounded text-center border border-gray-200">
-                            <div className="text-xs text-gray-600 font-medium uppercase">Attended</div>
-                            <div className="text-xl font-bold text-gray-900">{attended}</div>
+                      const upcomingBookings = sortedBookings.filter(b => {
+                        const f = getBookingFields(b);
+                        const endDT = parseClassDateTime(f.classDate, f.endTime);
+                        return endDT >= now;
+                      });
+                      const pastBookings = sortedBookings.filter(b => {
+                        const f = getBookingFields(b);
+                        const endDT = parseClassDateTime(f.classDate, f.endTime);
+                        return endDT < now;
+                      });
+
+                      const isPastExpanded = expandedPastCourses[baseCourse] || false;
+                      const courseName = generateCourseName(baseCourse);
+
+                      return (
+                        <div key={baseCourse} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                          {/* Course header */}
+                          <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                            <h3 className="font-bold text-gray-900 text-sm">{courseName}</h3>
+                            <span className="text-xs text-gray-500">
+                              {upcomingBookings.length} upcoming{pastBookings.length > 0 ? ` · ${pastBookings.length} attended` : ''}
+                            </span>
                           </div>
-                          <div className="px-3 py-2 bg-blue-50 rounded text-center border border-blue-200">
-                            <div className="text-xs text-blue-600 font-medium uppercase">Remaining</div>
-                            <div className="text-xl font-bold text-blue-900">{remaining}</div>
+
+                          <div className="divide-y divide-gray-100">
+                            {/* Upcoming classes */}
+                            {upcomingBookings.length > 0 ? (
+                              upcomingBookings.map((booking, i) => {
+                                const f = getBookingFields(booking);
+                                const classItem = {
+                                  id: booking.class?.id || booking.classInstance?.id || booking.class_id,
+                                  classDate: f.classDate, classType: f.classType,
+                                  startTime: f.startTime, endTime: f.endTime, instructor: f.instructor,
+                                  fullCourseIdentifier: f.courseIdentifier, courseIdentifier: f.courseIdentifier
+                                };
+                                const classEndDateTime = parseClassDateTime(f.classDate, f.endTime);
+                                const hasEnded = classEndDateTime < new Date();
+                                const classStartDateTime = parseClassDateTime(f.classDate, f.startTime);
+                                const twentyFourHoursFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+                                const isWithin24Hours = classStartDateTime < twentyFourHoursFromNow && classStartDateTime > now;
+
+                                return (
+                                  <div key={`upcoming-${i}`} className="px-4 py-3 flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                                      {/* Date block */}
+                                      <div className={`flex flex-col items-center justify-center shrink-0 w-12 h-12 rounded ${
+                                        f.isGlazingClass ? 'bg-amber-100 text-amber-900' : 'bg-blue-50 text-blue-600'
+                                      }`}>
+                                        <span className="text-[10px] font-bold leading-none uppercase">
+                                          {f.date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
+                                        </span>
+                                        <span className="text-lg font-bold leading-none mt-0.5">
+                                          {f.date.getDate()}
+                                        </span>
+                                      </div>
+                                      {/* Details */}
+                                      <div className="min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <span className="text-xs font-semibold text-gray-500">{f.weekLabel}</span>
+                                          {f.isGlazingClass ? (
+                                            <span className="px-1.5 py-0.5 bg-amber-900 text-white text-[10px] font-bold uppercase">Glazing</span>
+                                          ) : (
+                                            <span className="px-1.5 py-0.5 bg-blue-500 text-white text-[10px] font-bold uppercase">Booked</span>
+                                          )}
+                                        </div>
+                                        <p className="text-sm text-gray-600 truncate">
+                                          {f.startTime} - {f.endTime} · {f.instructor}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <button
+                                      onClick={() => {
+                                        if (booking.status !== 'booked') {
+                                          alert(`Cannot reschedule: This class booking is ${booking.status}. Please refresh the page.`);
+                                          fetchMyBookings();
+                                          return;
+                                        }
+                                        if (isWithin24Hours) {
+                                          alert('Cannot reschedule classes within 24 hours of start time. This class will be marked as attended.');
+                                          return;
+                                        }
+                                        setSelectedClass(classItem);
+                                        setShowRescheduleModal(true);
+                                        setRescheduleSelectedDate(new Date());
+                                        setRescheduleCurrentMonth(new Date());
+                                      }}
+                                      disabled={hasEnded || isWithin24Hours || booking.status !== 'booked'}
+                                      className={`shrink-0 px-3 py-1.5 text-xs font-medium text-white ${
+                                        hasEnded || isWithin24Hours || booking.status !== 'booked' ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-600 cursor-pointer'
+                                      }`}
+                                    >
+                                      {hasEnded ? 'Ended' : isWithin24Hours ? 'Within 24h' : booking.status !== 'booked' ? 'Unavailable' : 'Reschedule'}
+                                    </button>
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              <div className="px-4 py-3">
+                                <p className="text-sm text-gray-400">No upcoming classes</p>
+                              </div>
+                            )}
+
+                            {/* Collapsible past classes */}
+                            {pastBookings.length > 0 && (
+                              <div className="px-4 py-2">
+                                <button
+                                  onClick={() => setExpandedPastCourses(prev => ({
+                                    ...prev,
+                                    [baseCourse]: !prev[baseCourse]
+                                  }))}
+                                  className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                                >
+                                  <span className="material-symbols-outlined text-sm">
+                                    {isPastExpanded ? 'expand_less' : 'expand_more'}
+                                  </span>
+                                  Past classes ({pastBookings.length})
+                                </button>
+                                {isPastExpanded && (
+                                  <div className="mt-1 space-y-0.5">
+                                    {pastBookings.map((booking, i) => {
+                                      const f = getBookingFields(booking);
+                                      return (
+                                        <div key={`past-${i}`} className="flex items-center gap-3 py-1.5 text-gray-400 text-sm">
+                                          <span className="w-12 shrink-0 text-xs text-center">
+                                            {f.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                          </span>
+                                          <span className="text-xs font-semibold">{f.weekLabel}</span>
+                                          <span className="flex-1 truncate">{f.startTime} - {f.endTime} · {f.instructor}</span>
+                                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-green-50 text-green-600">
+                                            attended
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
-                        <div className="text-xs text-center text-text-muted">
-                          {attended} + {remaining} = {total}
-                        </div>
-                      </div>
-                    </div>
+                      );
+                    })}
                   </div>
                 </div>
               );
             })()}
 
-            {/* My Booked Classes */}
-            {myBookings.filter(b => b.status === 'booked' || b.status === 'attended').length > 0 && (
-              <div className="mb-8">
-                <h2 className="text-xl font-bold text-gray-900 mb-4">Booked ({myBookings.filter(b => b.status === 'booked' || b.status === 'attended').length})</h2>
-                <div className="flex flex-col gap-3">
-                  {[...myBookings]
-                    .filter(b => b.status === 'booked' || b.status === 'attended')
-                    .sort((a, b) => {
-                      const dateA = new Date(a.class?.classDate || a.classInstance?.classDate || a.class_date);
-                      const dateB = new Date(b.class?.classDate || b.classInstance?.classDate || b.class_date);
-                      return dateA - dateB;
-                    }).map((booking, index) => {
-                    const classDate = booking.class?.classDate || booking.classInstance?.classDate || booking.class_date;
-                    const date = new Date(classDate);
-                    const classType = booking.class?.classType || booking.classInstance?.classType || booking.class_type;
-                    // Get courseIdentifier from multiple possible locations
-                    // If not found, use classType as fallback since it often contains the course identifier
-                    const courseIdentifier = booking.courseIdentifier ||
-                                            booking.course_identifier ||
-                                            booking.class?.courseIdentifier ||
-                                            booking.class?.course_identifier ||
-                                            booking.classInstance?.courseIdentifier ||
-                                            booking.classInstance?.course_identifier ||
-                                            classType; // Fallback to classType which often is the course identifier
-                    const startTime = booking.class?.startTime || booking.classInstance?.startTime || booking.start_time || '7:00pm';
-                    const endTime = booking.class?.endTime || booking.classInstance?.endTime || booking.end_time || '9:30pm';
-                    const instructor = booking.class?.instructor || booking.classInstance?.instructor || booking.instructor;
-
-                    // Convert class to the format expected by reschedule modal
-                    const classItem = {
-                      id: booking.class?.id || booking.classInstance?.id || booking.class_id,
-                      classDate: classDate,
-                      classType: classType,
-                      startTime: startTime,
-                      endTime: endTime,
-                      instructor: instructor,
-                      fullCourseIdentifier: courseIdentifier,
-                      courseIdentifier: courseIdentifier
-                    };
-
-                    // Check if class has completely ended
-                    const classEndDateTime = parseClassDateTime(classDate, endTime);
-                    const hasEnded = classEndDateTime < new Date();
-
-                    // Check if class is within 24 hours
-                    const classStartDateTime = parseClassDateTime(classDate, startTime);
-                    const now = new Date();
-                    const twentyFourHoursFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-                    const isWithin24Hours = classStartDateTime < twentyFourHoursFromNow && classStartDateTime > now;
-
-                    // Check if this class's date matches the selected date
-                    const isSelectedDate = selectedDate &&
-                      date.getFullYear() === selectedDate.getFullYear() &&
-                      date.getMonth() === selectedDate.getMonth() &&
-                      date.getDate() === selectedDate.getDate();
-
-                    return (
-                      <div
-                        key={index}
-                        className={`bg-blue-50 p-4 flex items-center justify-between ${
-                          isSelectedDate ? 'border-2 border-blue-700' : 'border border-blue-200'
-                        }`}
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="bg-blue-100 text-blue-600 flex flex-col items-center justify-center shrink-0 px-3 py-2">
-                            <span className="text-xs font-bold leading-none uppercase">
-                              {date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
-                            </span>
-                            <span className="text-2xl font-bold leading-none mt-1">
-                              {date.getDate()}
-                            </span>
-                          </div>
-                          <div className="flex flex-col">
-                            <div className="flex items-center gap-2">
-                              <p className="font-bold text-gray-900">{courseIdentifier || classType}</p>
-                              <span className="px-2 py-0.5 bg-blue-500 text-white text-xs font-bold uppercase">Booked</span>
-                            </div>
-                            <p className="text-sm text-gray-600">
-                              {startTime} - {endTime} with {instructor}
-                            </p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => {
-                            if (isWithin24Hours) {
-                              alert('Cannot reschedule classes within 24 hours of start time. This class will be marked as attended.');
-                              return;
-                            }
-                            setSelectedClass(classItem);
-                            setShowRescheduleModal(true);
-                            setRescheduleSelectedDate(new Date());
-                            setRescheduleCurrentMonth(new Date());
-                          }}
-                          disabled={hasEnded || isWithin24Hours}
-                          className={`px-4 py-2 ${
-                            hasEnded || isWithin24Hours ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-600 cursor-pointer'
-                          } text-white text-sm font-medium`}
-                        >
-                          {hasEnded ? 'Ended' : isWithin24Hours ? 'Within 24h' : 'Reschedule'}
-                        </button>
+            {/* HB Credits Banner */}
+            {hbEnrollment && hbEnrollment.creditsRemaining > 0 && (
+              <div className="bg-amber-50 border-2 border-amber-200 rounded-lg p-5 my-6">
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl">🎨</span>
+                  <div className="flex-1">
+                    <h2 className="text-lg font-bold text-gray-900 mb-1">
+                      Handbuilding Credits
+                    </h2>
+                    <p className="text-gray-700 text-sm mb-3">
+                      You have <strong>{hbEnrollment.creditsRemaining}</strong> HB class {hbEnrollment.creditsRemaining === 1 ? 'credit' : 'credits'} remaining.
+                      Select a Handbuilding class below to book your schedule.
+                    </p>
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 bg-gray-200 rounded-full h-2">
+                        <div
+                          className="bg-amber-500 h-2 rounded-full transition-all"
+                          style={{ width: `${(hbEnrollment.creditsUsed / hbEnrollment.creditsAllocated) * 100}%` }}
+                        />
                       </div>
-                    );
-                  })}
+                      <span className="text-xs text-gray-500">
+                        {hbEnrollment.creditsUsed} / {hbEnrollment.creditsAllocated} used
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* Available Classes Section */}
-            {classesForSelectedDate.filter(classItem => !isEnrolled(classItem.id)).length > 0 && (() => {
-              const remainingCredits = (studentData?.classes_allocated || 0) - (myBookings?.filter(b => b.status === 'booked' || b.status === 'attended').length || 0);
-              return (
-                <h2 className="text-xl font-bold text-gray-900 mb-4 mt-4">
-                  Available {studentData && remainingCredits > 0 && (
-                    <span className="text-green-600">({remainingCredits} {remainingCredits === 1 ? 'credit' : 'credits'})</span>
-                  )}
-                </h2>
-              );
-            })()}
+            {/* Package Status or Available Classes Section */}
+            {studentData && (() => {
+              // Check if student has a course package with courses remaining
+              const packageInfo = dashboardData?.packageInfo;
+              const hasPackage = packageInfo && packageInfo.totalCourses > 0 && packageInfo.coursesRemaining > 0;
 
-            <div className="flex flex-col gap-4">
-              {classesForSelectedDate.filter(classItem => !isEnrolled(classItem.id)).length === 0 ? (
-                <p className="text-text-muted">No available classes on this date.</p>
-              ) : (
-                classesForSelectedDate.filter(classItem => !isEnrolled(classItem.id)).map((classItem) => {
+              if (hasPackage) {
+                // PACKAGE STUDENT - Show package status card
+                const coursesRemaining = packageInfo.coursesRemaining;
+                const coursesEnrolled = packageInfo.totalCourses - coursesRemaining;
+                const classesRemaining = coursesRemaining * 6; // Assuming 6-week courses
+
+                return (
+                  <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-6 my-6">
+                    <div className="flex items-start gap-3">
+                      <span className="text-3xl">📦</span>
+                      <div className="flex-1">
+                        <h2 className="text-xl font-bold text-gray-900 mb-2">
+                          Course Package Status
+                        </h2>
+
+                        <p className="text-gray-700 mb-4">
+                          You have <strong>{coursesRemaining} {coursesRemaining === 1 ? 'course' : 'courses'} remaining</strong> in your {packageInfo.totalCourses}-Course Package
+                          <span className="text-gray-600"> ({classesRemaining} classes total)</span>
+                        </p>
+
+                        {/* Progress indicator */}
+                        <div className="mb-4">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="flex-1 bg-gray-200 rounded-full h-3">
+                              <div
+                                className="bg-blue-500 h-3 rounded-full transition-all"
+                                style={{ width: `${(coursesEnrolled / packageInfo.totalCourses) * 100}%` }}
+                              ></div>
+                            </div>
+                            <span className="text-sm text-gray-600">
+                              {coursesEnrolled} enrolled / {packageInfo.totalCourses} total
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Course status list */}
+                        <div className="space-y-2 mb-4">
+                          {[...Array(packageInfo.totalCourses)].map((_, index) => {
+                            const courseNum = index + 1;
+                            const isEnrolled = courseNum <= coursesEnrolled;
+                            const isPending = courseNum > coursesEnrolled;
+
+                            return (
+                              <div key={courseNum} className="flex items-center gap-2 text-sm">
+                                {isEnrolled && <span className="text-blue-600">▶</span>}
+                                {isPending && <span className="text-gray-400">⏳</span>}
+                                <span className={
+                                  isEnrolled ? 'text-blue-700 font-medium' :
+                                  'text-gray-500'
+                                }>
+                                  Course {courseNum}: {
+                                    isEnrolled ? 'Scheduled' :
+                                    'Not yet scheduled'
+                                  }
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Info message */}
+                        <div className="bg-white rounded-lg p-4 border border-blue-200">
+                          <p className="text-sm text-gray-700">
+                            <strong>What happens next?</strong><br/>
+                            You'll be automatically enrolled when the next course schedule is published.
+                            We'll notify you via email once dates are confirmed (typically 2-3 weeks before start).
+                          </p>
+                        </div>
+
+                        {/* Optional: Contact button */}
+                        <div className="mt-4 flex gap-2">
+                          <a
+                            href="https://ves.sg/pages/contact"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-blue-600 hover:text-blue-800 underline"
+                          >
+                            Questions about your package?
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              // NON-PACKAGE STUDENT - Show individual credits
+              const remainingCredits = (studentData?.classes_allocated || 0) - (myBookings?.filter(b => b.status === 'booked' || b.status === 'attended').length || 0);
+
+              if (remainingCredits <= 0) return null;
+
+              // Get classes for the selected date that are available
+              const availableClassesForDate = classesForSelectedDate.filter(classItem => !isEnrolled(classItem.id));
+
+              return (
+                <>
+                  <h2 className="text-xl font-bold text-gray-900 mb-4 mt-4">
+                    Available <span className="text-green-600">({remainingCredits} {remainingCredits === 1 ? 'credit' : 'credits'})</span>
+                  </h2>
+                  <div className="flex flex-col gap-4">
+                    {availableClassesForDate.length === 0 ? (
+                      <p className="text-text-muted">No available classes. Click another date on the calendar.</p>
+                    ) : (
+                      availableClassesForDate.map((classItem) => {
                   const enrolled = false; // Already filtered out enrolled classes
-                  const isGlazingClass = classItem.fullCourseIdentifier?.endsWith('.6');
+                  const isGlazingClass = classItem.classType?.includes('6.6');
                   // Check if class has completely ended (date + end time has passed)
                   const classEndDateTime = parseClassDateTime(classItem.classDate, classItem.endTime);
                   const hasEnded = classEndDateTime < new Date();
@@ -1019,6 +1253,27 @@ export default function ClassScheduleNew() {
                             <span className="truncate">SOLD OUT</span>
                           </button>
                         ) : (() => {
+                          // Check if this is an HB class and student has HB enrollment credits
+                          const isHBClass = getClassCategory(classItem.classType) === 'handbuilding';
+                          if (isHBClass && hbEnrollment && hbEnrollment.creditsRemaining > 0) {
+                            return (
+                              <button
+                                onClick={() => {
+                                  if (hasEnded) return;
+                                  setSelectedClass(classItem);
+                                  setCourseWeeks(null);
+                                  setShowModal(true);
+                                }}
+                                disabled={hasEnded}
+                                className={`flex min-w-[84px] max-w-[480px] items-center justify-center overflow-hidden h-8 px-4 text-white text-sm font-medium ${
+                                  hasEnded ? 'bg-text-muted cursor-not-allowed' : 'bg-amber-600 cursor-pointer hover:bg-amber-700'
+                                }`}
+                              >
+                                <span className="truncate">{hasEnded ? 'Ended' : 'Book Schedule'}</span>
+                              </button>
+                            );
+                          }
+
                           // Calculate remaining credits
                           const remainingCredits = (studentData?.classes_allocated || 0) - (myBookings?.filter(b => b.status === 'booked' || b.status === 'attended').length || 0);
                           const hasCredits = remainingCredits > 0;
@@ -1027,6 +1282,15 @@ export default function ClassScheduleNew() {
                             <button
                               onClick={async () => {
                                 if (hasEnded) return;
+
+                                // Add confirmation prompt
+                                const classDate = new Date(classItem.classDate);
+                                const confirmMessage = `Book this class?\n\n${classItem.classType}\n${formatDate(classDate)} at ${classItem.startTime}\nwith ${classItem.instructor}\n\nThis will use 1 of your ${remainingCredits} available credit${remainingCredits === 1 ? '' : 's'}.`;
+
+                                if (!confirm(confirmMessage)) {
+                                  return;
+                                }
+
                                 try {
                                   const response = await classesAPI.bookMakeupClass(classItem.id);
                                   alert(response.message || 'Class booked successfully!');
@@ -1068,9 +1332,12 @@ export default function ClassScheduleNew() {
                       </div>
                     </div>
                   );
-                })
-              )}
-            </div>
+                      })
+                    )}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       </main>
@@ -1098,62 +1365,89 @@ export default function ClassScheduleNew() {
               {getClassCategory(selectedClass?.classType) === 'handbuilding' ? (
                 <>
                   <div className="bg-amber-600/10 border border-amber-600 p-3 mb-4">
-                    <p className="text-sm font-bold text-amber-700">HANDBUILDING COURSE BOOKING</p>
+                    <p className="text-sm font-bold text-amber-700">
+                      {hbEnrollment ? 'BOOK YOUR HANDBUILDING SCHEDULE' : 'HANDBUILDING COURSE BOOKING'}
+                    </p>
                     <p className="text-xs text-text-muted mt-1">
-                      Select your course length below. All courses meet weekly on Wednesdays.
+                      {hbEnrollment
+                        ? `You have ${hbEnrollment.creditsRemaining} credits remaining. Select how many weeks to book.`
+                        : 'Select your course length below. Classes available on Mon 7pm, Wed 7pm, and Sat 4pm.'
+                      }
                     </p>
                   </div>
 
                   <div className="space-y-3">
-                    <button
-                      onClick={() => setCourseWeeks(4)}
-                      className={`w-full p-4 border text-left transition-all ${
-                        courseWeeks === 4
-                          ? 'border-amber-600 bg-amber-600/10'
-                          : 'border-border hover:border-amber-600/50'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="font-bold text-lg">4-Week Course</p>
-                          <p className="text-sm text-text-muted mt-1">
-                            Learn pottery basics and fundamental handbuilding techniques
-                          </p>
-                          <p className="text-xs text-text-muted mt-1">
-                            Pinching, coiling, slab-building, and glazing
-                          </p>
+                    {(!hbEnrollment || hbEnrollment.creditsRemaining >= 4) && (
+                      <button
+                        onClick={() => setCourseWeeks(4)}
+                        className={`w-full p-4 border text-left transition-all ${
+                          courseWeeks === 4
+                            ? 'border-amber-600 bg-amber-600/10'
+                            : 'border-border hover:border-amber-600/50'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="font-bold text-lg">4-Week Course</p>
+                            <p className="text-sm text-text-muted mt-1">
+                              Learn pottery basics and fundamental handbuilding techniques
+                            </p>
+                            <p className="text-xs text-text-muted mt-1">
+                              Pinching, coiling, slab-building, and glazing
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            {hbEnrollment ? (
+                              <>
+                                <p className="font-bold text-xl">4 credits</p>
+                                <p className="text-xs text-text-muted">4 consecutive weeks</p>
+                              </>
+                            ) : (
+                              <>
+                                <p className="font-bold text-xl">$360</p>
+                                <p className="text-xs text-text-muted">4 sessions</p>
+                              </>
+                            )}
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <p className="font-bold text-xl">$360</p>
-                          <p className="text-xs text-text-muted">4 sessions</p>
-                        </div>
-                      </div>
-                    </button>
+                      </button>
+                    )}
 
-                    <button
-                      onClick={() => setCourseWeeks(8)}
-                      className={`w-full p-4 border text-left transition-all ${
-                        courseWeeks === 8
-                          ? 'border-amber-600 bg-amber-600/10'
-                          : 'border-border hover:border-amber-600/50'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="font-bold text-lg">8-Week Course</p>
-                          <p className="text-sm text-text-muted mt-1">
-                            Extend into sculptural work and expressive forms
-                          </p>
-                          <p className="text-xs text-text-muted mt-1">
-                            Faces, figures, and abstract designs
-                          </p>
+                    {(!hbEnrollment || hbEnrollment.creditsRemaining >= 8) && (
+                      <button
+                        onClick={() => setCourseWeeks(8)}
+                        className={`w-full p-4 border text-left transition-all ${
+                          courseWeeks === 8
+                            ? 'border-amber-600 bg-amber-600/10'
+                            : 'border-border hover:border-amber-600/50'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="font-bold text-lg">8-Week Course</p>
+                            <p className="text-sm text-text-muted mt-1">
+                              Extend into sculptural work and expressive forms
+                            </p>
+                            <p className="text-xs text-text-muted mt-1">
+                              Faces, figures, and abstract designs
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            {hbEnrollment ? (
+                              <>
+                                <p className="font-bold text-xl">8 credits</p>
+                                <p className="text-xs text-text-muted">8 consecutive weeks</p>
+                              </>
+                            ) : (
+                              <>
+                                <p className="font-bold text-xl">$640</p>
+                                <p className="text-xs text-text-muted">8 sessions</p>
+                              </>
+                            )}
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <p className="font-bold text-xl">$640</p>
-                          <p className="text-xs text-text-muted">8 sessions</p>
-                        </div>
-                      </div>
-                    </button>
+                      </button>
+                    )}
                   </div>
                 </>
               ) : (
@@ -1207,9 +1501,12 @@ export default function ClassScheduleNew() {
                   </button>
                   <button
                     type="submit"
-                    className="flex min-w-[84px] max-w-[480px] cursor-pointer items-center justify-center overflow-hidden h-10 px-4 bg-accent text-white text-sm font-bold"
+                    disabled={bookingLoading}
+                    className={`flex min-w-[84px] max-w-[480px] items-center justify-center overflow-hidden h-10 px-4 text-white text-sm font-bold ${
+                      bookingLoading ? 'bg-gray-400 cursor-wait' : 'bg-accent cursor-pointer'
+                    }`}
                   >
-                    <span>Book Now</span>
+                    <span>{bookingLoading ? 'Booking...' : 'Book Now'}</span>
                   </button>
                 </div>
               </form>
@@ -1295,7 +1592,7 @@ export default function ClassScheduleNew() {
                       </p>
                     ) : (
                       getRescheduleClassesForDate(rescheduleSelectedDate).map((classItem) => {
-                        const isGlazingClass = classItem.classType?.includes('Week 6/6') && classItem.classType?.includes('Glazing');
+                        const isGlazingClass = classItem.classType?.includes('6.6');
                         const classDate = new Date(classItem.classDate);
 
                         return (

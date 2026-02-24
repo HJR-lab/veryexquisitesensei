@@ -75,7 +75,7 @@ export default function Login() {
 
         <div className="auth-footer">
           <p>
-            Don't have an account? <Link to="/register">Register</Link>
+            First time? <Link to="/verify-email">Verify Your Email</Link>
           </p>
           <p style={{ marginTop: '0.5rem', fontSize: '0.875rem' }}>
             Admin? <Link to="/admin/login">Admin Login</Link>

@@ -8,11 +8,16 @@ async function createRecurringHBClasses() {
   const startDate = new Date('2025-09-17'); // Sept 17, 2025 (Wednesday)
   const endDate = new Date('2026-12-31');   // Dec 31, 2026
 
-  const classTime = '19:00';  // 7:00 PM
-  const endTime = '21:00';    // 9:00 PM
   const instructor = 'LT';       // Default instructor
   const room = 'Main Studio';
   const maxCapacity = 12;        // HB classes capacity
+
+  // HB class schedule: Wednesday 7pm, Monday 7pm, Saturday 4pm
+  const hbSchedule = [
+    { dayOfWeek: 3, dayName: 'Wednesday', startTime: '7:00pm',  endTime: '9:00pm',  timeSuffix: 'NT' },  // Wed 7pm (existing)
+    { dayOfWeek: 1, dayName: 'Monday',    startTime: '7:00pm',  endTime: '9:00pm',  timeSuffix: 'NT' },  // Mon 7pm (new)
+    { dayOfWeek: 6, dayName: 'Saturday',  startTime: '4:00pm',  endTime: '6:00pm',  timeSuffix: 'PM' },  // Sat 4pm (new)
+  ];
 
   const classesToCreate = [];
   let currentDate = new Date(startDate);
@@ -20,8 +25,12 @@ async function createRecurringHBClasses() {
   console.log(`Generating classes from ${startDate.toDateString()} to ${endDate.toDateString()}\n`);
 
   while (currentDate <= endDate) {
-    // Only create on Wednesdays (day 3)
-    if (currentDate.getDay() === 3) {
+    const dayOfWeek = currentDate.getDay();
+
+    // Check if this day matches any HB schedule
+    const schedule = hbSchedule.find(s => s.dayOfWeek === dayOfWeek);
+
+    if (schedule) {
       const dateStr = currentDate.toISOString().split('T')[0];
 
       // Format: HB_DDMMYY_LT (e.g., HB_170925_LT)
@@ -32,8 +41,8 @@ async function createRecurringHBClasses() {
 
       classesToCreate.push({
         class_date: dateStr,
-        start_time: classTime,
-        end_time: endTime,
+        start_time: schedule.startTime,
+        end_time: schedule.endTime,
         class_type: classType,
         instructor: instructor,
         room: room,
@@ -50,18 +59,31 @@ async function createRecurringHBClasses() {
     currentDate.setDate(currentDate.getDate() + 1);
   }
 
-  console.log(`Generated ${classesToCreate.length} Wednesday HB classes\n`);
+  // Count by day
+  const byCounts = {};
+  classesToCreate.forEach(c => {
+    const d = new Date(c.class_date);
+    const dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getDay()];
+    byCounts[dayName] = (byCounts[dayName] || 0) + 1;
+  });
+  console.log(`Generated ${classesToCreate.length} HB classes:`);
+  Object.entries(byCounts).forEach(([day, count]) => console.log(`  ${day}: ${count}`));
+  console.log();
 
   // Check if any already exist
   const { data: existingClasses } = await supabase
     .from('class_instances')
-    .select('class_type')
+    .select('class_type, class_date, start_time')
     .like('class_type', 'HB_%');
 
-  const existingClassTypes = new Set((existingClasses || []).map(c => c.class_type));
-  const newClasses = classesToCreate.filter(c => !existingClassTypes.has(c.class_type));
+  // Build set of existing class identifiers (class_type + date to handle same type different days)
+  const existingKeys = new Set((existingClasses || []).map(c => `${c.class_type}_${c.class_date}_${c.start_time}`));
+  const newClasses = classesToCreate.filter(c => {
+    const key = `${c.class_type}_${c.class_date}_${c.start_time}`;
+    return !existingKeys.has(key);
+  });
 
-  console.log(`Existing HB classes: ${existingClassTypes.size}`);
+  console.log(`Existing HB classes: ${existingClasses?.length || 0}`);
   console.log(`New classes to create: ${newClasses.length}\n`);
 
   if (newClasses.length === 0) {
@@ -92,18 +114,21 @@ async function createRecurringHBClasses() {
 
   console.log(`\n✅ Created ${created} recurring HB classes!\n`);
 
-  // Show sample of created classes
-  const { data: sampleClasses } = await supabase
-    .from('class_instances')
-    .select('*')
-    .like('class_type', 'HB_%')
-    .order('class_date')
-    .limit(5);
+  // Show sample of created classes grouped by day
+  for (const schedule of hbSchedule) {
+    const { data: sampleClasses } = await supabase
+      .from('class_instances')
+      .select('class_date, class_type, start_time, end_time')
+      .like('class_type', 'HB_%')
+      .eq('start_time', schedule.startTime)
+      .order('class_date', { ascending: false })
+      .limit(3);
 
-  console.log('Sample of created classes:');
-  sampleClasses?.forEach(c => {
-    console.log(`   ${c.class_date} - ${c.class_type} - ${c.start_time} to ${c.end_time}`);
-  });
+    console.log(`${schedule.dayName} ${schedule.startTime} classes (latest 3):`);
+    sampleClasses?.forEach(c => {
+      console.log(`   ${c.class_date} - ${c.class_type} - ${c.start_time} to ${c.end_time}`);
+    });
+  }
 
   console.log('\n');
   process.exit(0);

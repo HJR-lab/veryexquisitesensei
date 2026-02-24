@@ -96,6 +96,18 @@ export const classesAPI = {
     });
     return response.data;
   },
+
+  bookMakeupClass: async (classInstanceId) => {
+    const { data } = await api.post('/classes/book-makeup', { classInstanceId });
+    return data;
+  },
+
+  bookHBSchedule: async (enrollmentId, firstClassId, courseWeeks) => {
+    const { data } = await api.post('/classes/book-hb-schedule', {
+      enrollmentId, firstClassId, courseWeeks
+    });
+    return data;
+  },
 };
 
 export default api;

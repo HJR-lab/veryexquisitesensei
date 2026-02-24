@@ -122,10 +122,12 @@ function parseCourseInfo(title, variantTitle) {
     }
   }
 
-  // Parse time if present (e.g., "7:00 PM - 9:30 PM")
-  const timeMatch = variantTitle.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))\s*[-–]\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
+  // Parse time if present (e.g., "7:00 PM - 9:30 PM" or "7:00pm–9:00pm" or "4:00pm-6:00pm")
+  const timeMatch = variantTitle.match(/(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm))\s*[-–]\s*(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm))/i);
   if (timeMatch) {
-    result.classTime = `${timeMatch[1]} - ${timeMatch[2]}`;
+    // Normalize to uppercase AM/PM with space
+    const normalizeTime = (t) => t.replace(/\s*(am|pm)/i, (m) => ' ' + m.toUpperCase());
+    result.classTime = `${normalizeTime(timeMatch[1])} - ${normalizeTime(timeMatch[2])}`;
   }
 
   return result;

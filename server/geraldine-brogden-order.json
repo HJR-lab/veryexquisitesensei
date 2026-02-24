@@ -1,0 +1,397 @@
+{
+  "id": 6543924166814,
+  "admin_graphql_api_id": "gid://shopify/Order/6543924166814",
+  "app_id": 580111,
+  "browser_ip": "27.125.161.254",
+  "buyer_accepts_marketing": false,
+  "cancel_reason": null,
+  "cancelled_at": null,
+  "cart_token": "hWN8CZE7LncE3HgRNAkqeck8",
+  "checkout_id": 42352739319966,
+  "checkout_token": "9e479813f5fdc5d2e1e716c4e758880c",
+  "client_details": {
+    "accept_language": "en-SG",
+    "browser_height": null,
+    "browser_ip": "27.125.161.254",
+    "browser_width": null,
+    "session_hash": null,
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
+  },
+  "closed_at": null,
+  "confirmation_number": "7LPYNIJVI",
+  "confirmed": true,
+  "contact_email": "gbr@uwcsea.edu.sg",
+  "created_at": "2026-01-30T18:19:59+08:00",
+  "currency": "SGD",
+  "current_subtotal_price": "480.00",
+  "current_subtotal_price_set": {
+    "shop_money": {
+      "amount": "480.00",
+      "currency_code": "SGD"
+    },
+    "presentment_money": {
+      "amount": "480.00",
+      "currency_code": "SGD"
+    }
+  },
+  "current_total_additional_fees_set": null,
+  "current_total_discounts": "0.00",
+  "current_total_discounts_set": {
+    "shop_money": {
+      "amount": "0.00",
+      "currency_code": "SGD"
+    },
+    "presentment_money": {
+      "amount": "0.00",
+      "currency_code": "SGD"
+    }
+  },
+  "current_total_duties_set": null,
+  "current_total_price": "480.00",
+  "current_total_price_set": {
+    "shop_money": {
+      "amount": "480.00",
+      "currency_code": "SGD"
+    },
+    "presentment_money": {
+      "amount": "480.00",
+      "currency_code": "SGD"
+    }
+  },
+  "current_total_tax": "0.00",
+  "current_total_tax_set": {
+    "shop_money": {
+      "amount": "0.00",
+      "currency_code": "SGD"
+    },
+    "presentment_money": {
+      "amount": "0.00",
+      "currency_code": "SGD"
+    }
+  },
+  "customer_locale": "en-SG",
+  "device_id": null,
+  "discount_codes": [],
+  "duties_included": false,
+  "email": "gbr@uwcsea.edu.sg",
+  "estimated_taxes": false,
+  "financial_status": "paid",
+  "fulfillment_status": null,
+  "landing_site": "/",
+  "landing_site_ref": null,
+  "location_id": null,
+  "merchant_business_entity_id": "MTU5NTMxODUzOTgy",
+  "merchant_of_record_app_id": null,
+  "name": "#2459",
+  "note": null,
+  "note_attributes": [],
+  "number": 1459,
+  "order_number": 2459,
+  "order_status_url": "https://ves.sg/59531853982/orders/c03038ab2375566db7ff7aa202cc5cbb/authenticate?key=7d79821def4024c4a08c6c79db06d2dd",
+  "original_total_additional_fees_set": null,
+  "original_total_duties_set": null,
+  "payment_gateway_names": [
+    "shopify_payments"
+  ],
+  "phone": null,
+  "po_number": null,
+  "presentment_currency": "SGD",
+  "processed_at": "2026-01-30T18:19:56+08:00",
+  "reference": null,
+  "referring_site": "https://ves.sg/",
+  "source_identifier": null,
+  "source_name": "web",
+  "source_url": null,
+  "subtotal_price": "480.00",
+  "subtotal_price_set": {
+    "shop_money": {
+      "amount": "480.00",
+      "currency_code": "SGD"
+    },
+    "presentment_money": {
+      "amount": "480.00",
+      "currency_code": "SGD"
+    }
+  },
+  "tags": "",
+  "tax_exempt": false,
+  "tax_lines": [],
+  "taxes_included": false,
+  "test": false,
+  "token": "c03038ab2375566db7ff7aa202cc5cbb",
+  "total_cash_rounding_payment_adjustment_set": {
+    "shop_money": {
+      "amount": "0.00",
+      "currency_code": "SGD"
+    },
+    "presentment_money": {
+      "amount": "0.00",
+      "currency_code": "SGD"
+    }
+  },
+  "total_cash_rounding_refund_adjustment_set": {
+    "shop_money": {
+      "amount": "0.00",
+      "currency_code": "SGD"
+    },
+    "presentment_money": {
+      "amount": "0.00",
+      "currency_code": "SGD"
+    }
+  },
+  "total_discounts": "0.00",
+  "total_discounts_set": {
+    "shop_money": {
+      "amount": "0.00",
+      "currency_code": "SGD"
+    },
+    "presentment_money": {
+      "amount": "0.00",
+      "currency_code": "SGD"
+    }
+  },
+  "total_line_items_price": "480.00",
+  "total_line_items_price_set": {
+    "shop_money": {
+      "amount": "480.00",
+      "currency_code": "SGD"
+    },
+    "presentment_money": {
+      "amount": "480.00",
+      "currency_code": "SGD"
+    }
+  },
+  "total_outstanding": "0.00",
+  "total_price": "480.00",
+  "total_price_set": {
+    "shop_money": {
+      "amount": "480.00",
+      "currency_code": "SGD"
+    },
+    "presentment_money": {
+      "amount": "480.00",
+      "currency_code": "SGD"
+    }
+  },
+  "total_shipping_price_set": {
+    "shop_money": {
+      "amount": "0.00",
+      "currency_code": "SGD"
+    },
+    "presentment_money": {
+      "amount": "0.00",
+      "currency_code": "SGD"
+    }
+  },
+  "total_tax": "0.00",
+  "total_tax_set": {
+    "shop_money": {
+      "amount": "0.00",
+      "currency_code": "SGD"
+    },
+    "presentment_money": {
+      "amount": "0.00",
+      "currency_code": "SGD"
+    }
+  },
+  "total_tip_received": "0.00",
+  "total_weight": 0,
+  "updated_at": "2026-01-30T18:21:37+08:00",
+  "user_id": null,
+  "billing_address": {
+    "first_name": "Geraldine",
+    "address1": "4 zehnder road",
+    "phone": "+6597885464",
+    "city": "Singapore",
+    "zip": "117688",
+    "province": null,
+    "country": "Singapore",
+    "last_name": "Brogden",
+    "address2": "03-04 buona vista gardens",
+    "company": null,
+    "latitude": 1.2832933,
+    "longitude": 103.7863991,
+    "name": "Geraldine Brogden",
+    "country_code": "SG",
+    "province_code": null
+  },
+  "customer": {
+    "id": 9041866850462,
+    "created_at": "2026-01-27T13:37:29+08:00",
+    "updated_at": "2026-01-30T18:20:00+08:00",
+    "first_name": "Geraldine",
+    "last_name": "Brogden",
+    "state": "disabled",
+    "note": null,
+    "verified_email": true,
+    "multipass_identifier": null,
+    "tax_exempt": false,
+    "email_marketing_consent": {
+      "state": "not_subscribed",
+      "opt_in_level": "single_opt_in",
+      "consent_updated_at": null
+    },
+    "sms_marketing_consent": null,
+    "tags": "",
+    "email": "gbr@uwcsea.edu.sg",
+    "phone": null,
+    "currency": "SGD",
+    "tax_exemptions": [],
+    "admin_graphql_api_id": "gid://shopify/Customer/9041866850462",
+    "default_address": {
+      "id": 9731222536350,
+      "customer_id": 9041866850462,
+      "first_name": "Geraldine",
+      "last_name": "Brogden",
+      "company": null,
+      "address1": "4 zehnder road",
+      "address2": "03-04 buona vista gardens",
+      "city": "Singapore",
+      "province": null,
+      "country": "Singapore",
+      "zip": "117688",
+      "phone": "+6597885464",
+      "name": "Geraldine Brogden",
+      "province_code": null,
+      "country_code": "SG",
+      "country_name": "Singapore",
+      "default": true
+    }
+  },
+  "discount_applications": [],
+  "fulfillments": [
+    {
+      "id": 5849733824670,
+      "admin_graphql_api_id": "gid://shopify/Fulfillment/5849733824670",
+      "created_at": "2026-01-30T18:20:01+08:00",
+      "location_id": 64897056926,
+      "name": "#2459.1",
+      "order_id": 6543924166814,
+      "origin_address": {},
+      "receipt": {
+        "gift_cards": [
+          {
+            "id": 518872072350,
+            "line_item_id": 15096535482526,
+            "masked_code": "•••• •••• •••• e93e"
+          }
+        ]
+      },
+      "service": "gift_card",
+      "shipment_status": null,
+      "status": "cancelled",
+      "tracking_company": null,
+      "tracking_number": null,
+      "tracking_numbers": [],
+      "tracking_url": null,
+      "tracking_urls": [],
+      "updated_at": "2026-01-30T18:21:36+08:00",
+      "line_items": [
+        {
+          "id": 15096535482526,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15096535482526",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 1,
+          "fulfillment_service": "gift_card",
+          "fulfillment_status": null,
+          "gift_card": true,
+          "grams": 0,
+          "name": "Ves ♥︎ Gift Voucher - Wheelthrowing - Beginner/Ext 6 Wk",
+          "price": "480.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "480.00",
+              "currency_code": "SGD"
+            },
+            "presentment_money": {
+              "amount": "480.00",
+              "currency_code": "SGD"
+            }
+          },
+          "product_exists": true,
+          "product_id": 8438278815902,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": false,
+          "sku": null,
+          "taxable": false,
+          "title": "Ves ♥︎ Gift Voucher",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "SGD"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "SGD"
+            }
+          },
+          "variant_id": 45981271490718,
+          "variant_inventory_management": null,
+          "variant_title": "Wheelthrowing - Beginner/Ext 6 Wk",
+          "vendor": "BEGINNER",
+          "tax_lines": [],
+          "duties": [],
+          "discount_allocations": []
+        }
+      ]
+    }
+  ],
+  "line_items": [
+    {
+      "id": 15096535482526,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15096535482526",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 1,
+      "fulfillment_service": "gift_card",
+      "fulfillment_status": null,
+      "gift_card": true,
+      "grams": 0,
+      "name": "Ves ♥︎ Gift Voucher - Wheelthrowing - Beginner/Ext 6 Wk",
+      "price": "480.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "480.00",
+          "currency_code": "SGD"
+        },
+        "presentment_money": {
+          "amount": "480.00",
+          "currency_code": "SGD"
+        }
+      },
+      "product_exists": true,
+      "product_id": 8438278815902,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": false,
+      "sku": null,
+      "taxable": false,
+      "title": "Ves ♥︎ Gift Voucher",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "SGD"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "SGD"
+        }
+      },
+      "variant_id": 45981271490718,
+      "variant_inventory_management": null,
+      "variant_title": "Wheelthrowing - Beginner/Ext 6 Wk",
+      "vendor": "BEGINNER",
+      "tax_lines": [],
+      "duties": [],
+      "discount_allocations": []
+    }
+  ],
+  "payment_terms": null,
+  "refunds": [],
+  "shipping_address": null,
+  "shipping_lines": []
+}

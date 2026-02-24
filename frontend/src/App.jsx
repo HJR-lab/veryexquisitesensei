@@ -4,6 +4,8 @@ import AIChat from './components/AIChat';
 import Login from './pages/Login';
 import AdminLogin from './pages/AdminLogin';
 import Register from './pages/Register';
+import VerifyEmail from './pages/VerifyEmail';
+import SetupPassword from './pages/SetupPassword';
 import Gallery from './pages/Gallery';
 import GalleryNew from './pages/GalleryNew';
 import ClassScheduleNew from './pages/ClassScheduleNew';
@@ -56,12 +58,15 @@ function AdminRoute({ children }) {
     return <Navigate to="/admin/login" />;
   }
 
-  // If logged in but not admin, redirect to student gallery
-  if (!user.isAdmin) {
+  // Allow access if user is admin OR if impersonating (has originalAdminToken)
+  const isAdminOrImpersonating = user.isAdmin || user.originalAdminToken || user.impersonatedBy;
+
+  // If logged in but not admin and not impersonating, redirect to student gallery
+  if (!isAdminOrImpersonating) {
     return <Navigate to="/gallery" />;
   }
 
-  // User is admin, allow access
+  // User is admin or impersonating, allow access
   return children;
 }
 
@@ -125,6 +130,15 @@ function App() {
               </PublicRoute>
             }
           />
+          <Route
+            path="/verify-email"
+            element={
+              <PublicRoute>
+                <VerifyEmail />
+              </PublicRoute>
+            }
+          />
+          <Route path="/setup-password" element={<SetupPassword />} />
           <Route
             path="/gallery"
             element={
@@ -250,6 +264,11 @@ function App() {
             }
           />
           <Route path="/" element={<HomeRoute />} />
+          <Route path="/dashboard" element={
+            <PrivateRoute>
+              <Dashboard />
+            </PrivateRoute>
+          } />
           <Route path="/my-gallery" element={
             <PrivateRoute>
               <GalleryNew />

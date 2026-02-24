@@ -260,7 +260,7 @@ async function getAvailableClasses() {
     .eq('status', 'active')
     .order('class_date', { ascending: true })
     .order('start_time', { ascending: true })
-    .limit(200);
+    .limit(1000);
 
   if (error) {
     throw error;
@@ -678,20 +678,41 @@ async function getStudentAttendance(studentId) {
 }
 
 /**
- * Get student's bookings
+ * Get student's bookings for their current active courses only
+ * Shows ALL bookings (including past attended classes) from active enrollments
+ * Filters out bookings from old/completed courses
  */
 async function getStudentBookings(studentId) {
+  // Get bookings with class instance and enrollment details
   const { data, error } = await supabase
     .from('bookings')
     .select(`
       *,
-      class_instance:class_instances!bookings_class_instance_id_fkey (*)
+      class_instance:class_instances!bookings_class_instance_id_fkey (*),
+      course_enrollment:course_enrollments!bookings_course_enrollment_id_fkey (
+        status,
+        course_start_date,
+        course_end_date
+      )
     `)
     .eq('student_id', studentId)
-    .order('created_at', { ascending: false });
+    .order('class_instance(class_date)', { ascending: true });
 
   if (error) throw error;
-  return data || [];
+
+  // Filter to show bookings from ONLY active or paused enrollments
+  // This ensures students only see their current course, not completed past courses
+  // Completed courses are shown in Course History instead
+  const activeBookings = (data || []).filter(booking => {
+    // Include bookings without an enrollment (legacy data/standalone bookings)
+    if (!booking.course_enrollment) return true;
+
+    // Only include bookings from active or paused enrollments
+    // Do NOT include completed enrollments
+    return ['active', 'paused'].includes(booking.course_enrollment.status);
+  });
+
+  return activeBookings;
 }
 
 /**
@@ -1209,6 +1230,22 @@ async function updateCourseEnrollment(enrollmentId, updates) {
   if (updates.pendingStudentCount !== undefined) dbUpdates.pending_student_count = updates.pendingStudentCount;
   if (updates.thresholdMetAt !== undefined) dbUpdates.threshold_met_at = updates.thresholdMetAt;
   if (updates.bookingsCreatedAt !== undefined) dbUpdates.bookings_created_at = updates.bookingsCreatedAt;
+
+  // HB credit fields
+  if (updates.class_credits_allocated !== undefined) dbUpdates.class_credits_allocated = updates.class_credits_allocated;
+  if (updates.class_credits_used !== undefined) dbUpdates.class_credits_used = updates.class_credits_used;
+  if (updates.class_credits_remaining !== undefined) dbUpdates.class_credits_remaining = updates.class_credits_remaining;
+  if (updates.glazing_class_used !== undefined) dbUpdates.glazing_class_used = updates.glazing_class_used;
+
+  // Flexible credits (10-class packages)
+  if (updates.flexible_credits_allocated !== undefined) dbUpdates.flexible_credits_allocated = updates.flexible_credits_allocated;
+  if (updates.flexible_credits_used !== undefined) dbUpdates.flexible_credits_used = updates.flexible_credits_used;
+  if (updates.flexible_credits_remaining !== undefined) dbUpdates.flexible_credits_remaining = updates.flexible_credits_remaining;
+
+  // Package fields
+  if (updates.packageTotalCourses !== undefined) dbUpdates.package_total_courses = updates.packageTotalCourses;
+  if (updates.packageTotalClasses !== undefined) dbUpdates.package_total_classes = updates.packageTotalClasses;
+  if (updates.packageCoursesRemaining !== undefined) dbUpdates.package_courses_remaining = updates.packageCoursesRemaining;
 
   const { data, error } = await supabase
     .from('course_enrollments')

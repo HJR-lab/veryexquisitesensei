@@ -111,24 +111,6 @@ export default function AdminDashboard() {
       ]
     },
     {
-      title: 'Course Templates',
-      description: 'Manage course templates and recurring classes',
-      icon: 'school',
-      path: '/admin/courses'
-    },
-    {
-      title: 'Bookings & Attendance',
-      description: 'View bookings and mark attendance',
-      icon: 'fact_check',
-      path: '/admin/bookings',
-      stat: stats?.bookings?.total,
-      statLabel: 'Total Bookings',
-      statDetails: [
-        { label: 'This week', value: stats?.bookings?.thisWeek },
-        { label: 'Attendance rate', value: stats?.bookings?.attendanceRate ? `${stats.bookings.attendanceRate}%` : '--' }
-      ]
-    },
-    {
       title: 'Reference Data',
       description: 'Manage clay types and glazes',
       icon: 'inventory_2',
@@ -139,6 +121,12 @@ export default function AdminDashboard() {
         { label: 'Clay types', value: stats?.clayTypes },
         { label: 'Glazes', value: stats?.glazes }
       ]
+    },
+    {
+      title: 'Course Templates',
+      description: 'Manage course templates and recurring classes',
+      icon: 'school',
+      path: '/admin/courses'
     },
     {
       title: 'Analytics',
@@ -173,15 +161,15 @@ export default function AdminDashboard() {
         {/* Period Filter */}
         <PeriodFilter onPeriodChange={handlePeriodChange} />
 
-        {/* Top 4 Stat Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-          {adminCards.filter(card => card.stat !== undefined).map((card) => (
+        {/* All Cards - 2 Rows of 4 */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+          {adminCards.map((card) => (
             <button
               key={card.path}
               onClick={() => navigate(card.path)}
               className="group bg-white border border-gray-200 rounded-xl p-3 hover:border-gray-400 hover:shadow-md transition-all duration-200 text-left relative"
             >
-              <div className="flex items-start justify-between gap-3">
+              <div className={card.stat !== undefined ? "flex items-start justify-between gap-3" : "flex items-start gap-2"}>
                 {/* Left Column: Icon + Title */}
                 <div className="flex items-start gap-2 min-w-0">
                   <span className="material-symbols-outlined text-gray-700 text-xl flex-shrink-0">
@@ -215,73 +203,29 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                {/* Right Column: Stats */}
-                <div className="text-right flex-shrink-0">
-                  <p className="text-2xl font-bold text-gray-900 mb-1">
-                    {loading ? '--' : card.stat}
-                  </p>
-                  <p className="text-xs text-gray-600 mb-2">{card.statLabel}</p>
-                  {card.statDetails && (
-                    <div className="space-y-0.5">
-                      {card.statDetails.map((detail, idx) => (
-                        <div key={idx} className="text-xs text-gray-500">
-                          <span className="font-semibold">{detail.value}</span> {detail.label}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </button>
-          ))}
-        </div>
-
-        {/* Other Admin Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-          {adminCards.filter(card => card.stat === undefined).map((card) => (
-            <button
-              key={card.path}
-              onClick={() => navigate(card.path)}
-              className="group bg-white border border-gray-200 rounded-xl p-3 hover:border-gray-400 hover:shadow-md transition-all duration-200 text-left relative"
-            >
-              <div className="flex items-start gap-2">
-                <span className="material-symbols-outlined text-gray-700 text-xl flex-shrink-0">
-                  {card.icon}
-                </span>
-
-                <div className="flex-1 flex flex-col min-w-0">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <h3 className="text-sm font-semibold text-gray-900">
-                      {card.title}
-                    </h3>
-                    <div
-                      className="relative flex-shrink-0"
-                      onMouseEnter={(e) => {
-                        e.stopPropagation();
-                        setHoveredCard(card.path);
-                      }}
-                      onMouseLeave={(e) => {
-                        e.stopPropagation();
-                        setHoveredCard(null);
-                      }}
-                    >
-                      <span className="material-symbols-outlined text-gray-400 text-sm cursor-help">
-                        info
-                      </span>
-                      {hoveredCard === card.path && (
-                        <div className="absolute left-0 top-5 z-10 w-56 p-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg">
-                          {card.description}
-                          <div className="absolute -top-1 left-2 w-2 h-2 bg-gray-900 transform rotate-45"></div>
-                        </div>
-                      )}
-                    </div>
+                {/* Right Column: Stats (if card has stats) */}
+                {card.stat !== undefined ? (
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-2xl font-bold text-gray-900 mb-1">
+                      {loading ? '--' : card.stat}
+                    </p>
+                    <p className="text-xs text-gray-600 mb-2">{card.statLabel}</p>
+                    {card.statDetails && (
+                      <div className="space-y-0.5">
+                        {card.statDetails.map((detail, idx) => (
+                          <div key={idx} className="text-xs text-gray-500">
+                            <span className="font-semibold">{detail.value}</span> {detail.label}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-
+                ) : (
                   <div className="flex items-center text-gray-700 mt-auto pt-1 text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity">
                     <span>Open</span>
                     <span className="material-symbols-outlined text-sm ml-1">arrow_forward</span>
                   </div>
-                </div>
+                )}
               </div>
             </button>
           ))}

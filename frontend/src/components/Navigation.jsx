@@ -1,10 +1,12 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { authAPI } from '../utils/api';
 import { useState, useRef, useEffect } from 'react';
 
 export default function Navigation() {
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [controlDropdownOpen, setControlDropdownOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
@@ -18,6 +20,7 @@ export default function Navigation() {
 
   const isActive = (path) => location.pathname === path;
   const isAdminPage = location.pathname.startsWith('/admin');
+  const isImpersonating = user && user.impersonatedBy;
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -106,6 +109,30 @@ export default function Navigation() {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  const handleReturnToAdmin = async () => {
+    if (user && user.originalAdminToken) {
+      try {
+        console.log('🔙 Returning to admin view...');
+
+        // Restore the original admin token
+        localStorage.setItem('token', user.originalAdminToken);
+
+        // Fetch the admin user data with the restored token
+        const adminData = await authAPI.getMe();
+
+        // Update the user context with admin data
+        updateUser(adminData.user);
+
+        // Navigate back to admin
+        navigate('/admin/students');
+      } catch (error) {
+        console.error('Error returning to admin:', error);
+        // If there's an error, reload the page as fallback
+        window.location.reload();
+      }
+    }
+  };
 
   return (
     <header className="bg-background border-b border-border sticky top-0 z-50">
@@ -251,12 +278,22 @@ export default function Navigation() {
           {/* Right side - Auth buttons */}
           <div className="flex items-center gap-2">
             <div className="hidden md:flex gap-2 items-center">
-              {isAdminPage && (
-                <Link
-                  to="/classes"
-                  className="px-2 py-1 bg-gray-100 text-gray-700 text-xs font-normal uppercase tracking-wide hover:bg-gray-200 transition-colors border border-gray-300 rounded"
+              {isImpersonating && !isAdminPage && (
+                <button
+                  onClick={handleReturnToAdmin}
+                  className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-normal uppercase tracking-wide hover:bg-blue-200 transition-colors border border-blue-300 rounded flex items-center gap-1"
                 >
-                  View as Member
+                  <span className="material-symbols-outlined text-sm">admin_panel_settings</span>
+                  <span>Return to Admin</span>
+                </button>
+              )}
+              {!isAdminPage && user && !isImpersonating && (
+                <Link
+                  to="/admin"
+                  className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-normal uppercase tracking-wide hover:bg-blue-200 transition-colors border border-blue-300 rounded flex items-center gap-1"
+                >
+                  <span className="material-symbols-outlined text-sm">admin_panel_settings</span>
+                  <span>Admin</span>
                 </Link>
               )}
               {user ? (
@@ -375,17 +412,22 @@ export default function Navigation() {
                       </Link>
                     </div>
                   </div>
-                  <Link
-                    to="/classes"
-                    className="text-sm font-normal uppercase tracking-wide text-gray-600 hover:text-gray-900"
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    View as Member →
-                  </Link>
                 </>
               ) : (
                 /* Member Mobile Navigation */
                 <>
+                  {isImpersonating && (
+                    <button
+                      onClick={() => {
+                        handleReturnToAdmin();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="w-full px-4 py-2 bg-blue-100 text-blue-700 text-sm font-normal uppercase tracking-wide border border-blue-300 rounded flex items-center justify-center gap-2"
+                    >
+                      <span className="material-symbols-outlined text-sm">admin_panel_settings</span>
+                      <span>Return to Admin</span>
+                    </button>
+                  )}
                   <Link
                     className={`text-sm font-normal uppercase tracking-wide ${isActive('/classes') ? 'text-text font-bold' : 'text-text-muted'}`}
                     to="/classes"

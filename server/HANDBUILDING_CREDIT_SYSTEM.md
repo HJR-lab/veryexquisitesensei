@@ -1,5 +1,36 @@
 # Handbuilding Credit System
 
+## ⚠️ CRITICAL SETUP REQUIREMENT
+
+**HB CLASSES MUST BE CREATED IN THE DATABASE FIRST!**
+
+Unlike wheelthrowing courses that are created dynamically, **handbuilding classes must be pre-created** in the `class_instances` table.
+
+### If HB Classes Are Missing:
+
+```bash
+# Run this script to create all Wednesday HB classes
+node server/create-hb-classes.js
+```
+
+This creates 68 Wednesday classes (7-9pm) from Sept 17, 2025 through Dec 31, 2026.
+
+**Without running this script, NO HB classes will appear in:**
+- Admin Class Management page
+- Student booking calendar
+- Any class listings
+
+### How to Verify HB Classes Exist:
+
+```bash
+# Check if HB classes are in database
+node server/check-hb-classes.js
+```
+
+You should see 68 total HB classes. If you see 0, run the creation script above.
+
+---
+
 ## Overview
 
 The Handbuilding (HB) system works differently from Wheelthrowing (WT) courses:

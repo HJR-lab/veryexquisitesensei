@@ -5533,6 +5533,47 @@ app.post('/api/admin/classes', authenticateToken, async (req, res) => {
   }
 });
 
+// Admin: Bulk delete phantom classes after a cutoff date (no active bookings)
+app.delete('/api/admin/classes/bulk-after', authenticateToken, async (req, res) => {
+  try {
+    const { afterDate } = req.body || {};
+    if (!afterDate) return res.status(400).json({ error: 'afterDate required (YYYY-MM-DD)' });
+
+    const { data: classes, error: fetchErr } = await supabaseDb.supabase
+      .from('class_instances')
+      .select('id')
+      .gt('class_date', afterDate);
+
+    if (fetchErr) return res.status(500).json({ error: fetchErr.message });
+    if (!classes || classes.length === 0) return res.json({ message: 'No classes found after ' + afterDate, deleted: 0 });
+
+    const classIds = classes.map(c => c.id);
+
+    // Delete any bookings referencing these classes first
+    const { error: bookingErr } = await supabaseDb.supabase
+      .from('bookings')
+      .delete()
+      .in('class_instance_id', classIds);
+
+    if (bookingErr) console.error('Warning: error deleting bookings:', bookingErr);
+
+    // Now delete the class instances
+    const { data: deleted, error: deleteErr } = await supabaseDb.supabase
+      .from('class_instances')
+      .delete()
+      .in('id', classIds)
+      .select('id');
+
+    if (deleteErr) return res.status(500).json({ error: deleteErr.message });
+
+    console.log(`🗑️ Bulk cleanup: deleted ${deleted.length} classes after ${afterDate}`);
+    res.json({ message: `Deleted ${deleted.length} classes after ${afterDate}`, deleted: deleted.length });
+  } catch (error) {
+    console.error('Bulk cleanup error:', error);
+    res.status(500).json({ error: 'Bulk cleanup failed' });
+  }
+});
+
 // Delete a class
 app.delete('/api/admin/classes/:classId', authenticateToken, async (req, res) => {
   try {

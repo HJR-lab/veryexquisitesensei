@@ -3846,32 +3846,27 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
           return classDate >= today;
         }).length;
 
-        // Classes remaining = allocated - attended in CURRENT course
-        // For package students (10-class, 3×6wk): use total pool math
+        // Classes remaining = allocated - ALL attended (including completed courses)
+        // For package students (10-class, 3×6wk): use total pool math across ALL enrollments
         const isPackageStudent = (s.classes_allocated || 0) > 6;
         let classesRemaining;
 
+        // Count ALL attended classes for this student (including completed courses)
+        const totalAttendedAllCourses = allBookingsWithClasses.filter(b => {
+          if (b.student_id !== s.id) return false;
+          const ci = b.class_instances;
+          if (!ci) return false;
+          if (b.status === 'attended' || b.status === 'completed') return true;
+          if (b.status === 'booked') {
+            const d = new Date(ci.class_date); d.setHours(0,0,0,0);
+            const t = new Date(); t.setHours(0,0,0,0);
+            return d < t;
+          }
+          return false;
+        }).length;
+
         if (isPackageStudent) {
-          // Package: remaining = total allocated - ALL attended from active enrollments
-          const activeEnrollmentIds = new Set(
-            (allEnrollments || [])
-              .filter(e => e.student_id === s.id && ['active', 'paused'].includes(e.status))
-              .map(e => e.id)
-          );
-          const totalEnded = allBookingsWithClasses.filter(b => {
-            if (b.student_id !== s.id) return false;
-            if (b.course_enrollment_id && !activeEnrollmentIds.has(b.course_enrollment_id)) return false;
-            const ci = b.class_instances;
-            if (!ci) return false;
-            if (b.status === 'attended' || b.status === 'completed') return true;
-            if (b.status === 'booked') {
-              const d = new Date(ci.class_date); d.setHours(0,0,0,0);
-              const t = new Date(); t.setHours(0,0,0,0);
-              return d < t;
-            }
-            return false;
-          }).length;
-          classesRemaining = Math.max(0, s.classes_allocated - totalEnded);
+          classesRemaining = Math.max(0, s.classes_allocated - totalAttendedAllCourses);
         } else {
           // Regular 6-week: remaining = allocated - attended in THIS course only
           classesRemaining = Math.max(0, (s.classes_allocated || 6) - endedClassesInCurrentCourse);
@@ -3886,28 +3881,10 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
           coursePurchaseDate: s.course_purchase_date,
           enrollmentStatus: enrollment?.status || 'active',
           weeksRemaining: classesRemaining,
-          classesAttended: (() => {
-            // Total attended across ALL active enrollments for this student
-            const activeEnrollmentIds = new Set(
-              (allEnrollments || [])
-                .filter(e => e.student_id === s.id && ['active', 'paused'].includes(e.status))
-                .map(e => e.id)
-            );
-            return allBookingsWithClasses.filter(b => {
-              if (b.student_id !== s.id) return false;
-              if (b.course_enrollment_id && !activeEnrollmentIds.has(b.course_enrollment_id)) return false;
-              const ci = b.class_instances;
-              if (!ci) return false;
-              if (b.status === 'attended' || b.status === 'completed') return true;
-              if (b.status === 'booked') {
-                const d = new Date(ci.class_date); d.setHours(0,0,0,0);
-                const t = new Date(); t.setHours(0,0,0,0);
-                return d < t;
-              }
-              return false;
-            }).length;
-          })(),
-          classesAllocated: s.classes_allocated || (enrollment?.number_of_weeks || 6),
+          classesAttended: isPackageStudent ? totalAttendedAllCourses : endedClassesInCurrentCourse,
+          classesAllocated: isPackageStudent
+            ? (s.classes_allocated || 6)
+            : (enrollment?.number_of_weeks || 6),
           hasUpcomingCourse: upcomingCourses.length > 0, // Flag to indicate student has upcoming courses
           cohortSize: getCohortSize(s.id)
         };
@@ -3969,20 +3946,13 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
         const enrollment = enrollmentMap[s.id];
 
         // Upcoming course hasn't started yet
-        // Regular students (6-week): each purchase = fresh 6 classes → remaining = course weeks
-        // Package students (10-class, 3×6wk): shared pool → remaining = allocated - total attended
+        // Count ALL attended classes for this student (including completed courses)
         const isPackageStudent = (s.classes_allocated || 0) > 6;
         let classesRemaining;
 
         if (isPackageStudent) {
-          const activeEnrollmentIds = new Set(
-            (allEnrollments || [])
-              .filter(e => e.student_id === s.id && ['active', 'paused'].includes(e.status))
-              .map(e => e.id)
-          );
-          const totalEnded = allBookingsWithClasses.filter(b => {
+          const totalAttended = allBookingsWithClasses.filter(b => {
             if (b.student_id !== s.id) return false;
-            if (b.course_enrollment_id && !activeEnrollmentIds.has(b.course_enrollment_id)) return false;
             const ci = b.class_instances;
             if (!ci) return false;
             if (b.status === 'attended' || b.status === 'completed') return true;
@@ -3993,7 +3963,7 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
             }
             return false;
           }).length;
-          classesRemaining = Math.max(0, s.classes_allocated - totalEnded);
+          classesRemaining = Math.max(0, s.classes_allocated - totalAttended);
         } else {
           // Fresh course purchase → full course weeks remaining
           classesRemaining = enrollment?.number_of_weeks || 6;

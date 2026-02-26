@@ -430,7 +430,7 @@ export default function AdminStudents() {
 
   // Get filtered and sorted students (combining active and upcoming by cohort)
   const getSortedActiveStudents = () => {
-    // Combine active students and upcoming students
+    // Combine active students and upcoming students (both rows should be visible if both exist)
     const combinedStudents = [
       ...activeStudentsList,
       ...upcomingEnrollmentsList.map(s => ({

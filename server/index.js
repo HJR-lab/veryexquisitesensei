@@ -2402,25 +2402,55 @@ app.post('/api/classes/reschedule', authenticateToken, async (req, res) => {
     }
 
     // Get the current booking
-    const currentBooking = await supabaseDb.findBooking(dbCustomerId, parseInt(oldClassId), 'booked');
+    let currentBooking = await supabaseDb.findBooking(dbCustomerId, parseInt(oldClassId), 'booked');
+    let isRecoveryReschedule = false;
 
     if (!currentBooking) {
       console.log(`Booking not found for student ${dbCustomerId}, class ${oldClassId} with status 'booked'`);
-      // Check if booking exists with any status to provide better error message
-      const { data: anyBooking } = await supabaseDb.supabase
+      // Check bookings with any status (old and target) to provide better error message
+      const { data: oldBookingAny } = await supabaseDb.supabase
         .from('bookings')
-        .select('status')
+        .select('*')
         .eq('student_id', dbCustomerId)
         .eq('class_instance_id', parseInt(oldClassId))
         .maybeSingle();
 
-      if (anyBooking) {
-        console.log(`Found booking with status: ${anyBooking.status}`);
+      const { data: targetBookingAny } = await supabaseDb.supabase
+        .from('bookings')
+        .select('*')
+        .eq('student_id', dbCustomerId)
+        .eq('class_instance_id', parseInt(newClassId))
+        .maybeSingle();
+
+      // Recovery path: previous reschedule attempt cancelled the old booking, then failed on duplicate insert.
+      // If the target already has a cancelled/rescheduled row, we can complete the reschedule by reactivating it.
+      if (
+        oldBookingAny?.status === 'cancelled' &&
+        targetBookingAny &&
+        ['cancelled', 'rescheduled'].includes(targetBookingAny.status)
+      ) {
+        console.log('Recovering partial reschedule by reactivating existing target booking');
+        currentBooking = oldBookingAny;
+        isRecoveryReschedule = true;
+      } else if (targetBookingAny?.status === 'booked') {
+        return res.json({
+          success: true,
+          booking: {
+            id: targetBookingAny.id,
+            classInstanceId: targetBookingAny.class_instance_id
+          },
+          rescheduleFee: 0,
+          message: 'Class was already rescheduled successfully.'
+        });
+      } else if (oldBookingAny) {
+        console.log(`Found booking with status: ${oldBookingAny.status}`);
         return res.status(400).json({
-          error: `Cannot reschedule: booking status is '${anyBooking.status}' (expected 'booked')`
+          error: `Cannot reschedule: booking status is '${oldBookingAny.status}' (expected 'booked')`
         });
       }
-      return res.status(404).json({ error: 'You are not enrolled in the original class' });
+      if (!currentBooking) {
+        return res.status(404).json({ error: 'You are not enrolled in the original class' });
+      }
     }
 
     // Get the old and new class instances
@@ -2576,9 +2606,19 @@ app.post('/api/classes/reschedule', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'This class is completely full' });
     }
 
-    // Check if student already enrolled in new class
-    const existingBooking = await supabaseDb.findBooking(dbCustomerId, parseInt(newClassId), 'booked');
-    if (existingBooking) {
+    // Check if student already has any booking row for the target class
+    const { data: targetBookingAnyStatus, error: targetBookingLookupError } = await supabaseDb.supabase
+      .from('bookings')
+      .select('*')
+      .eq('student_id', dbCustomerId)
+      .eq('class_instance_id', parseInt(newClassId))
+      .maybeSingle();
+
+    if (targetBookingLookupError) {
+      throw targetBookingLookupError;
+    }
+
+    if (targetBookingAnyStatus?.status === 'booked') {
       return res.status(400).json({ error: 'You are already enrolled in this class' });
     }
 
@@ -2605,25 +2645,51 @@ app.post('/api/classes/reschedule', authenticateToken, async (req, res) => {
       }
     }
 
-    // Cancel old booking
-    await supabaseDb.updateBooking(currentBooking.id, {
-      status: 'cancelled',
-      advanceNoticeGiven: true
-    });
-    await supabaseDb.updateClassEnrollment(parseInt(oldClassId), -1);
+    // Cancel old booking only if it is still booked (skip in recovery mode to avoid double-decrementing)
+    if (currentBooking.status === 'booked') {
+      await supabaseDb.updateBooking(currentBooking.id, {
+        status: 'cancelled',
+        advanceNoticeGiven: true
+      });
+      await supabaseDb.updateClassEnrollment(parseInt(oldClassId), -1);
+    }
 
-    // Create new make-up booking
-    const newBooking = await supabaseDb.createBooking({
-      studentId: dbCustomerId,
-      classInstanceId: parseInt(newClassId),
-      status: 'booked',
-      bookingType: 'makeup',
-      courseEnrollmentId: currentBooking.course_enrollment_id, // Keep same course enrollment ID
-      isGlazingReschedule: isOldClassGlazing,
-      originalClassInstanceId: parseInt(oldClassId),
-      rescheduledFromDate: oldClass.class_date,
-      rescheduleFeePaid: 0 // Fee is pending payment
-    });
+    let newBooking;
+
+    if (targetBookingAnyStatus && ['cancelled', 'rescheduled'].includes(targetBookingAnyStatus.status)) {
+      // Reactivate existing target booking row instead of inserting a duplicate
+      const { data: reactivatedBooking, error: reactivateError } = await supabaseDb.supabase
+        .from('bookings')
+        .update({
+          status: 'booked',
+          booking_type: 'makeup',
+          course_enrollment_id: currentBooking.course_enrollment_id || null,
+          is_glazing_reschedule: isOldClassGlazing,
+          original_class_instance_id: parseInt(oldClassId),
+          rescheduled_from_date: oldClass.class_date,
+          reschedule_fee_paid: 0,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', targetBookingAnyStatus.id)
+        .select()
+        .single();
+
+      if (reactivateError) throw reactivateError;
+      newBooking = reactivatedBooking;
+    } else {
+      // Create new make-up booking
+      newBooking = await supabaseDb.createBooking({
+        studentId: dbCustomerId,
+        classInstanceId: parseInt(newClassId),
+        status: 'booked',
+        bookingType: 'makeup',
+        courseEnrollmentId: currentBooking.course_enrollment_id, // Keep same course enrollment ID
+        isGlazingReschedule: isOldClassGlazing,
+        originalClassInstanceId: parseInt(oldClassId),
+        rescheduledFromDate: oldClass.class_date,
+        rescheduleFeePaid: 0 // Fee is pending payment
+      });
+    }
 
     await supabaseDb.updateClassEnrollment(parseInt(newClassId), 1);
 
@@ -2634,7 +2700,9 @@ app.post('/api/classes/reschedule', authenticateToken, async (req, res) => {
         classInstanceId: newBooking.class_instance_id
       },
       rescheduleFee: rescheduleFee,
-      message: isOldClassGlazing
+      message: isRecoveryReschedule
+        ? 'Class rescheduled successfully (recovered from a previous failed attempt).'
+        : isOldClassGlazing
         ? 'Glazing class rescheduled successfully (no fee)!'
         : `Class rescheduled successfully! A $${rescheduleFee} reschedule fee has been added to your account.`
     });
@@ -2687,7 +2755,7 @@ app.post('/api/classes/pause/calculate', authenticateToken, async (req, res) => 
     // Check if pause has already been used for this course
     const { data: customer, error: customerError } = await supabaseDb.supabase
       .from('customers')
-      .select('pause_used_for_course, course_paused')
+      .select('*')
       .eq('id', dbCustomerId)
       .single();
 
@@ -2696,20 +2764,22 @@ app.post('/api/classes/pause/calculate', authenticateToken, async (req, res) => 
       return res.status(500).json({ error: 'Failed to fetch customer information' });
     }
 
-    if (customer.pause_used_for_course) {
+    if (customer?.pause_used_for_course) {
       return res.status(400).json({
         error: 'You have already used your one-time pause for this course'
       });
     }
 
-    if (customer.course_paused) {
+    if (customer?.course_paused) {
       return res.status(400).json({
         error: 'Your course is already paused'
       });
     }
 
     // Calculate remaining classes from enrollment
-    const remainingCount = enrollment.weeks_remaining;
+    const remainingCount = Number.isFinite(enrollment.weeks_remaining)
+      ? enrollment.weeks_remaining
+      : Math.max(0, (enrollment.number_of_weeks || 0) - (enrollment.weeks_completed || 0));
     const pauseFeePerClass = 40;
     const totalPauseFee = remainingCount * pauseFeePerClass;
 
@@ -2765,7 +2835,7 @@ app.post('/api/classes/pause', authenticateToken, async (req, res) => {
     // Get customer info
     const { data: customer, error: customerError } = await supabaseDb.supabase
       .from('customers')
-      .select('pause_used_for_course, course_paused, email, first_name, last_name')
+      .select('*')
       .eq('id', dbCustomerId)
       .single();
 
@@ -2775,41 +2845,48 @@ app.post('/api/classes/pause', authenticateToken, async (req, res) => {
     }
 
     // Check if pause has already been used
-    if (customer.pause_used_for_course) {
+    if (customer?.pause_used_for_course) {
       return res.status(400).json({
         error: 'You have already used your one-time pause for this course'
       });
     }
 
     // Check if course is currently paused
-    if (customer.course_paused) {
+    if (customer?.course_paused) {
       return res.status(400).json({
         error: 'Your course is already paused'
       });
     }
 
     // Calculate pause fee from enrollment data
-    const remainingCount = enrollment.weeks_remaining;
+    const remainingCount = Number.isFinite(enrollment.weeks_remaining)
+      ? enrollment.weeks_remaining
+      : Math.max(0, (enrollment.number_of_weeks || 0) - (enrollment.weeks_completed || 0));
     const pauseFeePerClass = 40;
     const totalPauseFee = remainingCount * pauseFeePerClass;
 
     // Update customer pause status
-    const { error: updateError } = await supabaseDb.supabase
-      .from('customers')
-      .update({
-        course_paused: true,
-        pause_start_date: new Date().toISOString().split('T')[0],
-        pause_reason: 'Student requested pause',
-        paused_at_week: enrollment.weeks_completed + 1,
-        resume_course_identifier: enrollment.course_identifier,
-        pause_used_for_course: true,
-        pause_used_date: new Date().toISOString()
-      })
-      .eq('id', dbCustomerId);
+    const customerUpdate = {};
+    if ('course_paused' in customer) customerUpdate.course_paused = true;
+    if ('pause_start_date' in customer) customerUpdate.pause_start_date = new Date().toISOString().split('T')[0];
+    if ('pause_reason' in customer) customerUpdate.pause_reason = 'Student requested pause';
+    if ('paused_at_week' in customer) customerUpdate.paused_at_week = (enrollment.weeks_completed || 0) + 1;
+    if ('resume_course_identifier' in customer) customerUpdate.resume_course_identifier = enrollment.course_identifier;
+    if ('pause_used_for_course' in customer) customerUpdate.pause_used_for_course = true;
+    if ('pause_used_date' in customer) customerUpdate.pause_used_date = new Date().toISOString();
 
-    if (updateError) {
-      console.error('Error updating customer pause status:', updateError);
-      return res.status(500).json({ error: 'Failed to pause course' });
+    if (Object.keys(customerUpdate).length > 0) {
+      const { error: updateError } = await supabaseDb.supabase
+        .from('customers')
+        .update(customerUpdate)
+        .eq('id', dbCustomerId);
+
+      if (updateError) {
+        console.error('Error updating customer pause status:', updateError);
+        return res.status(500).json({ error: 'Failed to pause course' });
+      }
+    } else {
+      console.warn('Pause tracking columns not found on customers table; skipping customer pause status update');
     }
 
     // Update course enrollment status to paused
@@ -2840,7 +2917,7 @@ app.post('/api/classes/pause', authenticateToken, async (req, res) => {
 
     // TODO: Generate payment link (needs Shopify integration setup)
     // For now, return a placeholder that should be updated with actual payment link
-    const paymentLink = `https://ves.sg/pages/pause-payment?amount=${totalPauseFee}&student=${customer.email}`;
+    const paymentLink = `https://ves.sg/pages/pause-payment?amount=${totalPauseFee}&student=${encodeURIComponent(customer?.email || '')}`;
 
     res.json({
       success: true,
@@ -3643,13 +3720,49 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
     // Get all active/paused enrollments to include status and weeks remaining
     const { data: allEnrollments } = await supabaseDb.supabase
       .from('course_enrollments')
-      .select('id, student_id, status, weeks_remaining, number_of_weeks, course_variant_title, course_title, schedule_pattern, class_time, course_start_date, course_type')
+      .select('id, student_id, status, weeks_remaining, number_of_weeks, course_variant_title, course_title, schedule_pattern, class_time, course_start_date, course_end_date, course_type')
       .in('status', ['active', 'paused']);
 
     const enrollmentMap = {};
+    const activeEnrollmentIds = new Set();
+    const studentActiveEnrollmentIds = {}; // student_id -> Set of enrollment IDs
+    const studentActiveEnrollmentsMap = {}; // student_id -> active/paused enrollment rows
     if (allEnrollments) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
       allEnrollments.forEach(enrollment => {
-        enrollmentMap[enrollment.student_id] = enrollment;
+        activeEnrollmentIds.add(enrollment.id);
+        if (!studentActiveEnrollmentIds[enrollment.student_id]) {
+          studentActiveEnrollmentIds[enrollment.student_id] = new Set();
+        }
+        studentActiveEnrollmentIds[enrollment.student_id].add(enrollment.id);
+        if (!studentActiveEnrollmentsMap[enrollment.student_id]) {
+          studentActiveEnrollmentsMap[enrollment.student_id] = [];
+        }
+        studentActiveEnrollmentsMap[enrollment.student_id].push(enrollment);
+
+        // Pick the most relevant enrollment per student:
+        // Prefer the one closest to today (already started or about to start)
+        // over one far in the future
+        const existing = enrollmentMap[enrollment.student_id];
+        if (!existing) {
+          enrollmentMap[enrollment.student_id] = enrollment;
+        } else {
+          const existingStart = existing.course_start_date ? new Date(existing.course_start_date) : null;
+          const newStart = enrollment.course_start_date ? new Date(enrollment.course_start_date) : null;
+
+          if (existingStart && newStart) {
+            const existingDiff = Math.abs(existingStart - today);
+            const newDiff = Math.abs(newStart - today);
+            // Pick the enrollment whose start date is closest to today
+            if (newDiff < existingDiff) {
+              enrollmentMap[enrollment.student_id] = enrollment;
+            }
+          } else if (newStart && !existingStart) {
+            enrollmentMap[enrollment.student_id] = enrollment;
+          }
+        }
       });
     }
 
@@ -3709,6 +3822,121 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
       return hasStarted ? 'current' : 'upcoming';
     };
 
+    const getPooledProgressForStudent = (student) => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const activeEnrollmentsForStudent = (studentActiveEnrollmentsMap[student.id] || []).filter(e => {
+        // Ignore stale "active" enrollments that have already ended
+        if (e.status === 'active' && e.course_end_date) {
+          const end = new Date(e.course_end_date);
+          end.setHours(0, 0, 0, 0);
+          if (end < today) return false;
+        }
+        return true;
+      });
+      const totalAllocatedFromEnrollments = activeEnrollmentsForStudent.reduce(
+        (sum, e) => sum + (e.number_of_weeks || 0),
+        0
+      );
+
+      const studentEnrollIds = new Set(activeEnrollmentsForStudent.map(e => e.id));
+      const totalAttended = allBookingsWithClasses.filter(b => {
+        if (b.student_id !== student.id) return false;
+        if (!studentEnrollIds.has(b.course_enrollment_id)) return false;
+        const ci = b.class_instances;
+        if (!ci) return false;
+        if (b.status === 'attended' || b.status === 'completed') return true;
+        if (b.status === 'booked') {
+          const d = new Date(ci.class_date); d.setHours(0,0,0,0);
+          const t = new Date(); t.setHours(0,0,0,0);
+          return d < t;
+        }
+        return false;
+      }).length;
+
+      // For Student Management progress, prefer allocation derived from ACTIVE/PAUSED enrollments.
+      // Customer.classes_allocated can be lifetime/legacy and causes inflated values (e.g. 18).
+      const inferredAllocated = totalAllocatedFromEnrollments || (student.classes_allocated || 0);
+
+      const hasPooledAllocation =
+        activeEnrollmentsForStudent.length > 1 || totalAllocatedFromEnrollments > 6;
+
+      return {
+        hasPooledAllocation,
+        totalAttended,
+        totalAllocated: inferredAllocated || 6
+      };
+    };
+
+    const getStartedActiveEnrollment = (studentId) => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const enrollments = (studentActiveEnrollmentsMap[studentId] || [])
+        .filter(e => e.status === 'active');
+
+      const started = enrollments.filter(e => {
+        if (!e.course_start_date) return false;
+        const start = new Date(e.course_start_date);
+        start.setHours(0, 0, 0, 0);
+        if (start > today) return false;
+
+        // Exclude enrollments that have already ended
+        if (e.course_end_date) {
+          const end = new Date(e.course_end_date);
+          end.setHours(0, 0, 0, 0);
+          if (end < today) return false;
+        }
+
+        return true;
+      });
+
+      // A "current" enrollment should still have at least one future booked class.
+      const startedWithFutureBookings = started.filter(e => {
+        return allBookingsWithClasses.some(b => {
+          if (b.student_id !== studentId) return false;
+          if (b.course_enrollment_id !== e.id) return false;
+          if (b.status !== 'booked') return false;
+          const ci = b.class_instances;
+          if (!ci?.class_date) return false;
+          const d = new Date(ci.class_date);
+          d.setHours(0, 0, 0, 0);
+          return d >= today;
+        });
+      });
+
+      // Prefer the most recently started active enrollment
+      startedWithFutureBookings.sort((a, b) => {
+        const aDate = a.course_start_date ? new Date(a.course_start_date) : new Date(0);
+        const bDate = b.course_start_date ? new Date(b.course_start_date) : new Date(0);
+        return bDate - aDate;
+      });
+
+      return startedWithFutureBookings[0] || null;
+    };
+
+    const getEnrollmentBaseCourseCode = (studentId, enrollmentId) => {
+      if (!enrollmentId) return null;
+
+      const enrollmentBookings = allBookingsWithClasses.filter(b =>
+        b.student_id === studentId &&
+        b.course_enrollment_id === enrollmentId &&
+        b.booking_type !== 'makeup' &&
+        b.class_instances?.class_type
+      );
+
+      if (enrollmentBookings.length === 0) return null;
+
+      const latestRegularBooking = enrollmentBookings[0];
+      return latestRegularBooking.class_instances?.class_type?.split('.')[0] || null;
+    };
+
+    const getCourseFromBaseCode = (courses, baseCourseCode) => {
+      if (!baseCourseCode) return null;
+      return courses.find(c => (c.courseIdentifier || '').split('.')[0] === baseCourseCode) || null;
+    };
+
     // Paused Students List (students with paused enrollments)
     const pausedStudentsList = allStudents
       .filter(s => {
@@ -3765,20 +3993,26 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
         if (hbStudentIds.has(s.id)) return false;
 
         const courses = studentCourseMap[s.id] || [];
-        // Only include if student has at least ONE current course (started but not completed)
+        const startedActiveEnrollment = getStartedActiveEnrollment(s.id);
+        if (startedActiveEnrollment) return true;
+        // Fallback to booking-based status if enrollment dates are missing
         return courses.some(c => getCourseStatus(c.courseIdentifier, s.id) === 'current');
       })
       .map(s => {
         // Get all courses for this student
         const courses = studentCourseMap[s.id] || [];
+        const startedActiveEnrollment = getStartedActiveEnrollment(s.id);
+        const startedActiveBaseCourse = getEnrollmentBaseCourseCode(s.id, startedActiveEnrollment?.id);
 
         // Separate current and upcoming courses
-        const currentCourse = courses.find(c => getCourseStatus(c.courseIdentifier, s.id) === 'current');
+        const currentCourse =
+          getCourseFromBaseCode(courses, startedActiveBaseCourse) ||
+          courses.find(c => getCourseStatus(c.courseIdentifier, s.id) === 'current');
         const upcomingCourses = courses.filter(c => getCourseStatus(c.courseIdentifier, s.id) === 'upcoming');
 
         // Use current course if available, otherwise use the most recent one
         const displayCourse = currentCourse || (courses.length > 0 ? courses[0] : null);
-        const enrollment = enrollmentMap[s.id];
+        const enrollment = startedActiveEnrollment || enrollmentMap[s.id];
 
         // For active students, calculate classes remaining from CURRENT COURSE ONLY
         // Get bookings for the current active course enrollment
@@ -3846,31 +4080,11 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
           return classDate >= today;
         }).length;
 
-        // Classes remaining = allocated - ALL attended (including completed courses)
-        // For package students (10-class, 3×6wk): use total pool math across ALL enrollments
-        const isPackageStudent = (s.classes_allocated || 0) > 6;
-        let classesRemaining;
-
-        // Count ALL attended classes for this student (including completed courses)
-        const totalAttendedAllCourses = allBookingsWithClasses.filter(b => {
-          if (b.student_id !== s.id) return false;
-          const ci = b.class_instances;
-          if (!ci) return false;
-          if (b.status === 'attended' || b.status === 'completed') return true;
-          if (b.status === 'booked') {
-            const d = new Date(ci.class_date); d.setHours(0,0,0,0);
-            const t = new Date(); t.setHours(0,0,0,0);
-            return d < t;
-          }
-          return false;
-        }).length;
-
-        if (isPackageStudent) {
-          classesRemaining = Math.max(0, s.classes_allocated - totalAttendedAllCourses);
-        } else {
-          // Regular 6-week: remaining = allocated - attended in THIS course only
-          classesRemaining = Math.max(0, (s.classes_allocated || 6) - endedClassesInCurrentCourse);
-        }
+        // Classes remaining = allocated - attended
+        // For package / multi-enrollment students, use pooled math across active enrollments
+        // Active Students table should show CURRENT COURSE progress only (not pooled purchases)
+        const currentCourseAllocated = enrollment?.number_of_weeks || 6;
+        const classesRemaining = Math.max(0, currentCourseAllocated - endedClassesInCurrentCourse);
 
         return {
           name: `${s.first_name || ''} ${s.last_name || ''}`.trim() || 'Unknown',
@@ -3881,10 +4095,8 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
           coursePurchaseDate: s.course_purchase_date,
           enrollmentStatus: enrollment?.status || 'active',
           weeksRemaining: classesRemaining,
-          classesAttended: isPackageStudent ? totalAttendedAllCourses : endedClassesInCurrentCourse,
-          classesAllocated: isPackageStudent
-            ? (s.classes_allocated || 6)
-            : (enrollment?.number_of_weeks || 6),
+          classesAttended: endedClassesInCurrentCourse,
+          classesAllocated: currentCourseAllocated,
           hasUpcomingCourse: upcomingCourses.length > 0, // Flag to indicate student has upcoming courses
           cohortSize: getCohortSize(s.id)
         };
@@ -3930,10 +4142,24 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
       });
 
     // Upcoming Enrollments List (students with courses that haven't started yet)
+    // Debug: Check Meghna's course map
+    const meghnaStudent = allStudents.find(s => s.email === 'meghna@newcampus.com');
+    if (meghnaStudent) {
+      const meghnaCourses = studentCourseMap[meghnaStudent.id] || [];
+      console.log(`[DEBUG Meghna] id=${meghnaStudent.id}, classes_allocated=${meghnaStudent.classes_allocated}, courses in map:`, meghnaCourses.length);
+      meghnaCourses.forEach(c => console.log(`  course: ${c.courseIdentifier}, status: ${getCourseStatus(c.courseIdentifier, meghnaStudent.id)}`));
+      console.log(`[DEBUG Meghna] isHB: ${hbStudentIds.has(meghnaStudent.id)}`);
+    }
+
     const upcomingEnrollmentsList = allStudents
       .filter(s => {
         // EXCLUDE HB students (they have their own section)
         if (hbStudentIds.has(s.id)) return false;
+
+        // Must have an active/paused enrollment record to appear in Student Management upcoming list.
+        // This prevents historical students with stale/future-coded course identifiers from leaking in.
+        const enrollment = enrollmentMap[s.id];
+        if (!enrollment || !['active', 'paused'].includes(enrollment.status)) return false;
 
         const courses = studentCourseMap[s.id] || [];
         // Only include students who have at least one upcoming course
@@ -3946,27 +4172,21 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
         const enrollment = enrollmentMap[s.id];
 
         // Upcoming course hasn't started yet
-        // Count ALL attended classes for this student (including completed courses)
-        const isPackageStudent = (s.classes_allocated || 0) > 6;
+        const pooledProgress = getPooledProgressForStudent(s);
+        const isPackageStudent = pooledProgress.hasPooledAllocation;
         let classesRemaining;
+        let classesAllocated;
+        let classesAttended;
 
         if (isPackageStudent) {
-          const totalAttended = allBookingsWithClasses.filter(b => {
-            if (b.student_id !== s.id) return false;
-            const ci = b.class_instances;
-            if (!ci) return false;
-            if (b.status === 'attended' || b.status === 'completed') return true;
-            if (b.status === 'booked') {
-              const d = new Date(ci.class_date); d.setHours(0,0,0,0);
-              const t = new Date(); t.setHours(0,0,0,0);
-              return d < t;
-            }
-            return false;
-          }).length;
-          classesRemaining = Math.max(0, s.classes_allocated - totalAttended);
+          classesAllocated = pooledProgress.totalAllocated;
+          classesAttended = pooledProgress.totalAttended;
+          classesRemaining = Math.max(0, classesAllocated - classesAttended);
         } else {
           // Fresh course purchase → full course weeks remaining
-          classesRemaining = enrollment?.number_of_weeks || 6;
+          classesAllocated = enrollment?.number_of_weeks || 6;
+          classesAttended = 0;
+          classesRemaining = classesAllocated;
         }
 
         return {
@@ -3977,8 +4197,8 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
           startDate: upcomingCourses[0]?.classDate || null,
           coursePurchaseCount: s.course_purchase_count || 0,
           weeksRemaining: classesRemaining,
-          classesAllocated: classesRemaining,
-          classesAttended: 0,
+          classesAllocated,
+          classesAttended,
           cohortSize: getCohortSize(s.id)
         };
       })
@@ -4839,10 +5059,11 @@ app.get('/api/admin/classes', authenticateToken, async (req, res) => {
   try {
     console.log('🔍 Fetching admin classes...');
 
-    // Get all class instances with enrollment data
+    // Get class instances from 2026 onwards (exclude historical 2025 classes)
     const { data: allClassInstances, error: classesError } = await supabaseDb.supabase
       .from('class_instances')
       .select('id, class_type, class_date, start_time, end_time, instructor, room, max_capacity, current_enrollment')
+      .gte('class_date', '2026-01-01')
       .order('class_date', { ascending: true });
 
     if (classesError) {
@@ -5779,7 +6000,7 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, async (
           booking_id: newBooking.id,
           fee_type: 'makeup',
           amount: fee,
-          payment_status: 'pending',
+          payment_status: 'waived', // Admin reschedules are automatically waived
           notes: rescheduleReason || null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()

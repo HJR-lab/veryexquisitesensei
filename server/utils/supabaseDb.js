@@ -258,6 +258,7 @@ async function getAvailableClasses() {
     .from('class_instances')
     .select('*')
     .eq('status', 'active')
+    .gte('class_date', '2026-01-01')
     .order('class_date', { ascending: true })
     .order('start_time', { ascending: true })
     .limit(1000);

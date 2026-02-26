@@ -40,6 +40,16 @@ export default function AdminStudentDetail() {
   const [makeupSelectedDate, setMakeupSelectedDate] = useState(new Date());
   const [makeupCurrentMonth, setMakeupCurrentMonth] = useState(new Date());
   const [rescheduling, setRescheduling] = useState(false);
+  const [reschedulingClassId, setReschedulingClassId] = useState(null);
+
+  const resetMakeupModalState = () => {
+    setShowMakeupModal(false);
+    setSelectedBookingForMakeup(null);
+    setMakeupSelectedDate(new Date());
+    setMakeupCurrentMonth(new Date());
+    setRescheduling(false);
+    setReschedulingClassId(null);
+  };
 
   useEffect(() => {
     loadStudentData();
@@ -244,31 +254,14 @@ export default function AdminStudentDetail() {
         return hasSpace;
       });
     } else {
-      // For rescheduling existing bookings, apply category + glazing restrictions
-      const bookingClassType = selectedBookingForMakeup.class_type;
-      const classCategory = getClassCategory(bookingClassType);
-
-      // Check if the old class is a glazing class (Week 6.6)
-      const isOldClassGlazing = bookingClassType?.includes('6.6');
+      // Admin reschedule: no category restrictions (WT↔HB allowed)
+      // Category restrictions only apply to students
+      const isDifferentClassId = selectedBookingForMakeup.class_instance_id;
 
       return flatClasses.filter(c => {
-        const categoryMatch = getClassCategory(c.classType);
-        const sameCategory = categoryMatch === classCategory;
-        // Compare with class_instance_id, not booking id
-        const isDifferentClass = c.id !== selectedBookingForMakeup.class_instance_id;
+        const isDifferentClass = c.id !== isDifferentClassId;
         const hasSpace = c.currentEnrollment < 10; // Total capacity is 10
-
-        // Check if new class is glazing
-        const isNewClassGlazing = c.classType?.includes('6.6');
-
-        // Apply glazing restriction: 6.6 → 6.6 only
-        if (isOldClassGlazing) {
-          // If old class is glazing, new class MUST also be glazing AND same category
-          return isNewClassGlazing && sameCategory && isDifferentClass && hasSpace;
-        }
-
-        // For non-glazing classes, admin can reschedule freely (no restriction)
-        return sameCategory && isDifferentClass && hasSpace;
+        return isDifferentClass && hasSpace;
       });
     }
   };
@@ -287,6 +280,8 @@ export default function AdminStudentDetail() {
 
   const handleOpenMakeupModal = async (booking) => {
     console.log('Opening reschedule modal for booking:', booking);
+    setRescheduling(false);
+    setReschedulingClassId(null);
     setSelectedBookingForMakeup(booking);
     setShowMakeupModal(true);
 
@@ -294,12 +289,58 @@ export default function AdminStudentDetail() {
     try {
       const { data } = await api.get('/admin/classes');
       console.log('Loaded classes for reschedule:', data.courses?.length, 'courses');
-      setAllClasses(data.courses || []);
+      const loadedCourses = data.courses || [];
+      setAllClasses(loadedCourses);
 
-      // Set initial date to today
+      // Find available classes to auto-navigate to the first available date
+      const isUnbookedCredit = booking.isPlaceholder;
+      const flatClasses = [];
+      loadedCourses.forEach(course => {
+        course.classes?.forEach(cls => {
+          flatClasses.push({
+            id: cls.id,
+            classDate: cls.class_date,
+            classType: cls.class_type,
+            currentEnrollment: cls.bookingCount || 0
+          });
+        });
+      });
+
+      // Only consider current/future classes (2026+)
       const today = new Date();
-      setMakeupSelectedDate(today);
-      setMakeupCurrentMonth(today);
+      today.setHours(0, 0, 0, 0);
+      const futureClasses = flatClasses.filter(c => {
+        const classDate = new Date(c.classDate);
+        return classDate >= today;
+      });
+
+      let availableClasses;
+      if (isUnbookedCredit) {
+        availableClasses = futureClasses.filter(c => c.currentEnrollment < 10);
+      } else {
+        const bookingClassType = booking.class_type;
+        const classCategory = getClassCategory(bookingClassType);
+        availableClasses = futureClasses.filter(c => {
+          const sameCategory = getClassCategory(c.classType) === classCategory;
+          const isDifferentClass = c.id !== booking.class_instance_id;
+          const hasSpace = c.currentEnrollment < 10;
+          return sameCategory && isDifferentClass && hasSpace;
+        });
+      }
+
+      if (availableClasses.length > 0) {
+        // Auto-navigate calendar to first available date
+        const uniqueDates = [...new Set(availableClasses.map(c => c.classDate.split('T')[0]))];
+        const sortedDates = uniqueDates.sort();
+        const firstDateStr = sortedDates[0];
+        const firstDate = new Date(firstDateStr + 'T12:00:00');
+        console.log('Auto-selecting first available date:', firstDateStr);
+        setMakeupSelectedDate(firstDate);
+        setMakeupCurrentMonth(new Date(firstDate.getFullYear(), firstDate.getMonth(), 1));
+      } else {
+        setMakeupSelectedDate(today);
+        setMakeupCurrentMonth(today);
+      }
     } catch (error) {
       console.error('Failed to load classes:', error);
       alert('Failed to load classes');
@@ -307,19 +348,12 @@ export default function AdminStudentDetail() {
   };
 
   const handleRescheduleToMakeup = async (newClassId) => {
-    if (!selectedBookingForMakeup) return;
-
+    if (!selectedBookingForMakeup || rescheduling) return;
     const isUnbookedCredit = selectedBookingForMakeup.isPlaceholder;
-    const confirmMessage = isUnbookedCredit
-      ? 'Are you sure you want to book this student into the selected class?'
-      : 'Are you sure you want to reschedule this student to the selected class?';
-
-    if (!confirm(confirmMessage)) {
-      return;
-    }
 
     try {
       setRescheduling(true);
+      setReschedulingClassId(newClassId);
 
       if (isUnbookedCredit) {
         // Booking an unbooked credit - just create a new booking
@@ -366,8 +400,7 @@ export default function AdminStudentDetail() {
         alert('Student rescheduled successfully!');
       }
 
-      setShowMakeupModal(false);
-      setSelectedBookingForMakeup(null);
+      resetMakeupModalState();
       await loadStudentData();
     } catch (error) {
       console.error('Failed to book/reschedule class:', error);
@@ -375,6 +408,7 @@ export default function AdminStudentDetail() {
       alert(`Failed to book/reschedule class: ${error.response?.data?.error || error.message}`);
     } finally {
       setRescheduling(false);
+      setReschedulingClassId(null);
     }
   };
 
@@ -389,8 +423,7 @@ export default function AdminStudentDetail() {
       setDeletingBookingId(selectedBookingForMakeup.id);
       await api.delete(`/admin/bookings/${selectedBookingForMakeup.id}`);
       alert('Booking converted to credit successfully!');
-      setShowMakeupModal(false);
-      setSelectedBookingForMakeup(null);
+      resetMakeupModalState();
       await loadStudentData();
     } catch (error) {
       console.error('Failed to convert to credit:', error);
@@ -1185,9 +1218,9 @@ export default function AdminStudentDetail() {
 
       {/* Makeup Class Modal */}
       {showMakeupModal && selectedBookingForMakeup && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white border border-gray-200 shadow-lg w-full max-w-5xl my-8 rounded-xl">
-            <div className="p-6 border-b border-gray-200">
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 overflow-y-auto pointer-events-none">
+          <div className="relative isolate pointer-events-auto z-[60] bg-white border border-gray-200 shadow-lg w-full max-w-5xl my-8 rounded-xl">
+            <div className="relative z-10 p-6 border-b border-gray-200">
               <div className="flex justify-between items-start">
                 <div>
                   <h3 className="text-2xl font-bold uppercase text-gray-900">
@@ -1206,19 +1239,15 @@ export default function AdminStudentDetail() {
                 </div>
                 <button
                   className="p-2 hover:bg-gray-100 rounded"
-                  onClick={() => {
-                    setShowMakeupModal(false);
-                    setSelectedBookingForMakeup(null);
-                    setMakeupSelectedDate(new Date());
-                    setMakeupCurrentMonth(new Date());
-                  }}
+                  type="button"
+                  onClick={resetMakeupModalState}
                 >
                   <span className="material-symbols-outlined">close</span>
                 </button>
               </div>
             </div>
 
-            <div className="p-6">
+            <div className="relative z-10 p-6">
               <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 mb-4">
                 <p className="text-xs text-gray-700">
                   {selectedBookingForMakeup.isPlaceholder
@@ -1227,9 +1256,9 @@ export default function AdminStudentDetail() {
                 </p>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-6">
+              <div className="relative z-10 grid md:grid-cols-2 gap-6 items-start">
                 {/* Calendar Section */}
-                <div>
+                <div className="min-w-0 relative z-0 overflow-hidden">
                   <ClassCalendar
                     currentMonth={makeupCurrentMonth}
                     onMonthChange={setMakeupCurrentMonth}
@@ -1259,11 +1288,11 @@ export default function AdminStudentDetail() {
                 </div>
 
                 {/* Class List Section */}
-                <div>
+                <div className="min-w-0 relative z-10">
                   <p className="text-sm font-bold text-gray-700 mb-3 uppercase">
                     Available Classes on {formatDate(makeupSelectedDate)}
                   </p>
-                  <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+                  <div className="relative z-20 space-y-3 max-h-[400px] overflow-y-auto pr-2">
                     {getMakeupClassesForDate(makeupSelectedDate).length === 0 ? (
                       <p className="text-gray-500 text-center py-8">
                         No available classes on this date. Please select another date.
@@ -1279,14 +1308,17 @@ export default function AdminStudentDetail() {
                         return (
                           <div
                             key={classItem.id}
-                            className={`p-4 border rounded flex flex-col gap-2 ${
+                            onClick={() => {
+                              if (!rescheduling) handleRescheduleToMakeup(classItem.id);
+                            }}
+                            className={`p-4 border rounded flex flex-col gap-2 cursor-pointer ${
                               isGlazingClass
                                 ? 'bg-amber-50 border-amber-900'
                                 : 'bg-gray-50 border-gray-200'
                             }`}
                           >
                             <div className="flex items-start justify-between gap-2">
-                              <div className="flex-1">
+                              <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1">
                                   <p className={`font-bold text-sm ${
                                     isGlazingClass ? 'text-amber-900' : 'text-gray-900'
@@ -1314,19 +1346,19 @@ export default function AdminStudentDetail() {
                                 </p>
                               </div>
                               <button
-                                onClick={() => {
-                                  if (window.confirm(`Reschedule to ${formatDate(classDate)} at ${classItem.startTime} with ${classItem.instructor}?`)) {
-                                    handleRescheduleToMakeup(classItem.id);
-                                  }
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRescheduleToMakeup(classItem.id);
                                 }}
                                 disabled={rescheduling}
-                                className={`flex min-w-[70px] cursor-pointer items-center justify-center h-8 px-3 text-white text-xs font-medium rounded disabled:opacity-50 disabled:cursor-not-allowed ${
+                                className={`relative z-20 shrink-0 flex min-w-[70px] cursor-pointer items-center justify-center h-8 px-3 text-white text-xs font-medium rounded disabled:opacity-50 disabled:cursor-not-allowed ${
                                   isGlazingClass
                                     ? 'bg-amber-700 hover:bg-amber-800'
                                     : 'bg-purple-500 hover:bg-purple-600'
                                 }`}
                               >
-                                {rescheduling ? (
+                                {rescheduling && reschedulingClassId === classItem.id ? (
                                   <span className="material-symbols-outlined text-sm animate-spin">refresh</span>
                                 ) : (
                                   <span className="truncate">Select</span>
@@ -1342,7 +1374,7 @@ export default function AdminStudentDetail() {
               </div>
             </div>
 
-            <div className="p-6 bg-gray-50 border-t border-gray-200 flex justify-between">
+            <div className="relative z-20 p-6 bg-gray-50 border-t border-gray-200 flex justify-between">
               {/* Convert to Credit button - only show for actual bookings */}
               {!selectedBookingForMakeup.isPlaceholder && (
                 <button
@@ -1356,12 +1388,8 @@ export default function AdminStudentDetail() {
 
               <button
                 className="flex min-w-[84px] max-w-[480px] cursor-pointer items-center justify-center overflow-hidden h-10 px-4 bg-gray-300 text-gray-700 text-sm font-bold rounded hover:bg-gray-400"
-                onClick={() => {
-                  setShowMakeupModal(false);
-                  setSelectedBookingForMakeup(null);
-                  setMakeupSelectedDate(new Date());
-                  setMakeupCurrentMonth(new Date());
-                }}
+                type="button"
+                onClick={resetMakeupModalState}
               >
                 <span>Cancel</span>
               </button>

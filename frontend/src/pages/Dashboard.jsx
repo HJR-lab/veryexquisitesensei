@@ -167,12 +167,12 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {enrollments.map((enrollment, index) => {
                 const { config } = getCourseTypeInfo(enrollment);
-                const totalClasses = enrollment.number_of_weeks || 6;
+                const totalClasses = enrollment.class_credits_allocated || enrollment.number_of_weeks || 6;
                 // Count attended from this enrollment's own bookings array
                 const enrollmentBookings = enrollment.bookings || [];
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
-                const attendedCount = enrollmentBookings.filter(b => {
+                const bookingAttendedCount = enrollmentBookings.filter(b => {
                   if (b.status === 'attended' || b.status === 'completed') return true;
                   // Past booked classes count as attended
                   if (b.status === 'booked' && b.class_instances) {
@@ -182,6 +182,8 @@ export default function Dashboard() {
                   }
                   return false;
                 }).length;
+                // HB courses track attendance via credits, not bookings
+                const attendedCount = enrollmentBookings.length > 0 ? bookingAttendedCount : (enrollment.class_credits_used || 0);
                 const progress = totalClasses > 0 ? Math.min((attendedCount / totalClasses) * 100, 100) : 0;
 
                 // Flexible credits for 10-class packages

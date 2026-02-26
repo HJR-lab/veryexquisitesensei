@@ -193,8 +193,8 @@ export default function AdminClasses() {
   };
 
   const loadAvailableClassesForReschedule = async (currentClass, studentId) => {
-    // Find classes of the same type (same category) that haven't happened yet (based on today)
-    const category = getClassCategory(currentClass.class_type);
+    // Admin reschedule: no category restrictions (WT↔HB allowed)
+    // Category restrictions only apply to students
 
     // Compare to TODAY, not the current class date
     // This allows rescheduling to earlier classes if they haven't happened yet
@@ -215,17 +215,14 @@ export default function AdminClasses() {
       course.classes?.forEach(cls => {
         const clsDate = new Date(cls.class_date);
         clsDate.setHours(0, 0, 0, 0); // Set to start of day for comparison
-        const clsCategory = getClassCategory(cls.class_type);
 
         // Include if:
-        // 1. Same category (or glazing class can go to any glazing)
-        // 2. Class date is today or in the future (hasn't happened yet)
-        // 3. Not full
-        // 4. Not the current class
-        // 5. Student is not already booked in this class
+        // 1. Class date is today or in the future (hasn't happened yet)
+        // 2. Not full
+        // 3. Not the current class
+        // 4. Student is not already booked in this class
         if (
-          clsCategory === category &&
-          clsDate >= today &&  // Compare to today, not the original class date
+          clsDate >= today &&
           cls.bookingCount < cls.max_capacity &&
           cls.id !== currentClass.id &&
           !studentBookingClassIds.includes(cls.id)  // Prevent double-booking

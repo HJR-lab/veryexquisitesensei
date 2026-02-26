@@ -328,7 +328,14 @@ async function findExistingClassInstances(enrollment) {
     .order('class_date');
 
   if (startDate) query = query.gte('class_date', startDate);
-  if (endDate) query = query.lte('class_date', endDate);
+  if (endDate) {
+    // Add 2-day buffer to end date to account for timezone conversion issues
+    // (e.g., "10 Apr" SGT stored as "2026-04-09" UTC can miss the last class on Apr 10)
+    const bufferedEnd = new Date(endDate);
+    bufferedEnd.setDate(bufferedEnd.getDate() + 2);
+    const bufferedEndStr = bufferedEnd.toISOString().split('T')[0];
+    query = query.lte('class_date', bufferedEndStr);
+  }
 
   const { data: allClasses } = await query;
 

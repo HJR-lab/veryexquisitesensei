@@ -23,6 +23,16 @@ import UploadPiece from './pages/UploadPiece';
 import PublicGallery from './pages/PublicGallery';
 import Dashboard from './pages/Dashboard';
 import Membership from './pages/Membership';
+import TestDash from './test-pages/TestDash';
+import TestClasses from './test-pages/TestClasses';
+import TestGallery from './test-pages/TestGallery';
+import TestAccount from './test-pages/TestAccount';
+import TestMembership from './test-pages/TestMembership';
+import TestAdminDash from './test-pages/TestAdminDash';
+import TestAdminStudents from './test-pages/TestAdminStudents';
+import TestAdminStudentDetail from './test-pages/TestAdminStudentDetail';
+import TestAdminClasses from './test-pages/TestAdminClasses';
+import TestAdminMemberships from './test-pages/TestAdminMemberships';
 import Contact from './pages/Contact';
 import Account from './pages/Account';
 
@@ -286,6 +296,20 @@ function App() {
               <Account />
             </PrivateRoute>
           } />
+
+          {/* ── Test pages — student (no auth required) ── */}
+          <Route path="/test/dashboard"   element={<TestDash />} />
+          <Route path="/test/classes"     element={<TestClasses />} />
+          <Route path="/test/gallery"     element={<TestGallery />} />
+          <Route path="/test/account"     element={<TestAccount />} />
+          <Route path="/test/membership"  element={<TestMembership />} />
+
+          {/* ── Test pages — admin ── */}
+          <Route path="/test/admin"                    element={<TestAdminDash />} />
+          <Route path="/test/admin/students"           element={<TestAdminStudents />} />
+          <Route path="/test/admin/students/detail"    element={<TestAdminStudentDetail />} />
+          <Route path="/test/admin/classes"            element={<TestAdminClasses />} />
+          <Route path="/test/admin/memberships"        element={<TestAdminMemberships />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>

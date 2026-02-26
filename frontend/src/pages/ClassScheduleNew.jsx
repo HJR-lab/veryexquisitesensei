@@ -781,6 +781,7 @@ export default function ClassScheduleNew() {
             {/* Summary strip — matches dashboard style */}
             {dashboardData?.stats && (() => {
               const { remaining, attended } = dashboardData.stats;
+              if (remaining === 0 && attended === 0) return null;
               return (
                 <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-1 text-gray-600">
                   <span className="text-lg">
@@ -1517,9 +1518,9 @@ export default function ClassScheduleNew() {
 
       {/* Reschedule Modal */}
       {showRescheduleModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-background-alt border border-border shadow-lg w-full max-w-5xl my-8">
-            <div className="p-6 border-b border-border">
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 overflow-y-auto pointer-events-none">
+          <div className="relative isolate z-[60] pointer-events-auto bg-background-alt border border-border shadow-lg w-full max-w-5xl my-8">
+            <div className="relative z-10 p-6 border-b border-border">
               <div className="flex justify-between items-start">
                 <div>
                   <h3 className="text-2xl font-bold uppercase">Reschedule Class</h3>
@@ -1528,6 +1529,7 @@ export default function ClassScheduleNew() {
                   </p>
                 </div>
                 <button
+                  type="button"
                   className="p-2 hover:bg-background"
                   onClick={() => {
                     setShowRescheduleModal(false);
@@ -1540,16 +1542,16 @@ export default function ClassScheduleNew() {
               </div>
             </div>
 
-            <div className="p-6">
+            <div className="relative z-10 p-6">
               <div className="bg-blue-500/10 border border-blue-500 p-3 mb-4">
                 <p className="text-xs text-text-muted">
                   Select an available date below to see classes you can reschedule to. Your current booking will be canceled. Only classes starting at least 24 hours from now are shown.
                 </p>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-6">
+              <div className="relative z-10 grid md:grid-cols-2 gap-6 items-start">
                 {/* Calendar Section - Using Shared ClassCalendar Component */}
-                <div>
+                <div className="min-w-0 relative z-0 overflow-hidden">
                   <ClassCalendar
                     currentMonth={rescheduleCurrentMonth}
                     onMonthChange={setRescheduleCurrentMonth}
@@ -1581,11 +1583,11 @@ export default function ClassScheduleNew() {
                 </div>
 
                 {/* Class List Section */}
-                <div>
+                <div className="min-w-0 relative z-10">
                   <p className="text-sm font-bold text-text-muted mb-3 uppercase">
                     Available Classes on {formatDate(rescheduleSelectedDate)}
                   </p>
-                  <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+                  <div className="relative z-20 space-y-3 max-h-[400px] overflow-y-auto pr-2">
                     {getRescheduleClassesForDate(rescheduleSelectedDate).length === 0 ? (
                       <p className="text-text-muted text-center py-8">
                         No available classes on this date. Please select another date or contact the studio.
@@ -1598,12 +1600,13 @@ export default function ClassScheduleNew() {
                         return (
                           <div
                             key={classItem.id}
+                            onClick={() => handleReschedule(classItem.id)}
                             className={`bg-background p-4 border ${
                               isGlazingClass ? 'border-amber-900' : 'border-border'
-                            } flex flex-col gap-2`}
+                            } flex flex-col gap-2 cursor-pointer`}
                           >
                             <div className="flex items-start justify-between gap-2">
-                              <div className="flex-1">
+                              <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1">
                                   <p className="font-bold text-sm">{classItem.classType}</p>
                                   {isGlazingClass && (
@@ -1618,12 +1621,12 @@ export default function ClassScheduleNew() {
                                 </p>
                               </div>
                               <button
-                                onClick={() => {
-                                  if (window.confirm(`Reschedule to ${formatDate(classDate)} at ${classItem.startTime} with ${classItem.instructor}?`)) {
-                                    handleReschedule(classItem.id);
-                                  }
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleReschedule(classItem.id);
                                 }}
-                                className="flex min-w-[70px] cursor-pointer items-center justify-center h-8 px-3 bg-accent text-white text-xs font-medium"
+                                className="relative z-20 shrink-0 flex min-w-[70px] cursor-pointer items-center justify-center h-8 px-3 bg-accent text-white text-xs font-medium"
                               >
                                 <span className="truncate">Select</span>
                               </button>
@@ -1637,8 +1640,9 @@ export default function ClassScheduleNew() {
               </div>
             </div>
 
-            <div className="p-6 bg-background border-t border-border flex justify-between items-center">
+            <div className="relative z-20 p-6 bg-background border-t border-border flex justify-between items-center">
               <button
+                type="button"
                 onClick={handlePauseRequest}
                 className="flex items-center gap-2 px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors text-sm font-bold"
               >
@@ -1646,6 +1650,7 @@ export default function ClassScheduleNew() {
                 <span>Pause Course</span>
               </button>
               <button
+                type="button"
                 className="flex min-w-[84px] max-w-[480px] cursor-pointer items-center justify-center overflow-hidden h-10 px-4 bg-border text-text text-sm font-bold"
                 onClick={() => {
                   setShowRescheduleModal(false);

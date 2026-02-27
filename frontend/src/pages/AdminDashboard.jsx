@@ -94,9 +94,13 @@ export default function AdminDashboard() {
   const [hoveredModule, setHoveredModule] = useState(null);
   const [alerts, setAlerts] = useState([]);
   const [activity, setActivity] = useState([]);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   useEffect(() => {
     loadStats();
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, []);
 
   const loadStats = async () => {
@@ -258,7 +262,7 @@ export default function AdminDashboard() {
         {/* Stats row */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
+          gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)',
           gap: '1px',
           backgroundColor: RULE,
           border: `1px solid ${RULE}`,
@@ -282,17 +286,17 @@ export default function AdminDashboard() {
           ))}
         </div>
 
-        {/* 3-col layout: modules (span 2) + right column */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 300px', gap: '24px', alignItems: 'start' }}>
+        {/* Layout: modules + right column */}
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 300px', gap: '24px', alignItems: 'start' }}>
 
           {/* Module grid */}
-          <div style={{ gridColumn: 'span 2' }}>
+          <div style={{ gridColumn: isMobile ? '1' : 'span 2' }}>
             <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, marginBottom: '12px' }}>
               Manage
             </div>
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(3, 1fr)',
+              gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)',
               gap: '1px',
               backgroundColor: RULE,
               border: `1px solid ${RULE}`,

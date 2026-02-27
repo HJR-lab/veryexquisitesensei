@@ -367,25 +367,29 @@ export default function AdminClasses() {
     return evs;
   };
 
-  // ── Toggle class member load ───────────────────────────────────────────────────
+  // ── Load class members (fetch only, no expansion toggle) ─────────────────────
+  const loadClassMembers = async (classInstance) => {
+    if (classMembers[classInstance.id]) return;
+    try {
+      setLoadingMembers(prev => ({ ...prev, [classInstance.id]: true }));
+      const { data } = await api.get(`/admin/classes/${classInstance.id}/members`);
+      setClassMembers(prev => ({ ...prev, [classInstance.id]: data.members || [] }));
+      setAbsentMembers(prev => ({ ...prev, [classInstance.id]: data.absentMembers || [] }));
+    } catch (error) {
+      console.error('Failed to load class members:', error);
+    } finally {
+      setLoadingMembers(prev => ({ ...prev, [classInstance.id]: false }));
+    }
+  };
+
+  // ── Toggle class member load (used by day-detail panel) ───────────────────────
   const toggleClassMembers = async (classInstance) => {
     if (expandedCourse === classInstance.id) {
       setExpandedCourse(null);
       return;
     }
     setExpandedCourse(classInstance.id);
-    if (!classMembers[classInstance.id]) {
-      try {
-        setLoadingMembers(prev => ({ ...prev, [classInstance.id]: true }));
-        const { data } = await api.get(`/admin/classes/${classInstance.id}/members`);
-        setClassMembers(prev => ({ ...prev, [classInstance.id]: data.members || [] }));
-        setAbsentMembers(prev => ({ ...prev, [classInstance.id]: data.absentMembers || [] }));
-      } catch (error) {
-        console.error('Failed to load class members:', error);
-      } finally {
-        setLoadingMembers(prev => ({ ...prev, [classInstance.id]: false }));
-      }
-    }
+    await loadClassMembers(classInstance);
   };
 
   // ── Load available classes for reschedule ──────────────────────────────────────
@@ -710,7 +714,7 @@ export default function AdminClasses() {
             {/* Fetch members for first class if not yet loaded */}
             {course.classes[0] && !classMembers[course.classes[0].id] && (
               <button
-                onClick={e => { e.stopPropagation(); toggleClassMembers(course.classes[0]); }}
+                onClick={e => { e.stopPropagation(); loadClassMembers(course.classes[0]); }}
                 style={{ fontSize: '10px', color: TC, border: 'none', background: 'none', cursor: 'pointer', padding: '0 0 8px', fontWeight: 700 }}
               >
                 Load students ↓
@@ -806,7 +810,7 @@ export default function AdminClasses() {
             </div>
             {hb.classes[0] && !classMembers[hb.classes[0].id] && (
               <button
-                onClick={e => { e.stopPropagation(); toggleClassMembers(hb.classes[0]); }}
+                onClick={e => { e.stopPropagation(); loadClassMembers(hb.classes[0]); }}
                 style={{ fontSize: '10px', color: MUTED, border: 'none', background: 'none', cursor: 'pointer', padding: '0 0 8px', fontWeight: 700 }}
               >
                 Load students ↓

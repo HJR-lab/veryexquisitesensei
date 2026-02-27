@@ -4905,7 +4905,8 @@ app.get('/api/admin/dashboard/activity', authenticateToken, async (req, res) => 
         const capacity = c.max_capacity || 8;
         const spotsLeft = capacity - booked;
         if (spotsLeft <= 2 && booked > 0) {
-          const dateStr = new Date(c.class_date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+          const rawDate = (c.class_date || '').split('T')[0];
+          const dateStr = rawDate ? new Date(rawDate + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : '';
           const shortType = (c.class_type || '').substring(0, 8);
           if (spotsLeft === 0) {
             alerts.push({ type: 'class', text: `${shortType} ${dateStr} — now full` });
@@ -4935,7 +4936,8 @@ app.get('/api/admin/dashboard/activity', authenticateToken, async (req, res) => 
       const ci = b.class_instance;
       let detail = '';
       if (ci) {
-        const dateStr = new Date(ci.class_date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+        const rawDate = (ci.class_date || '').split('T')[0];
+        const dateStr = rawDate ? new Date(rawDate + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : '';
         const typeShort = (ci.class_type || '').startsWith('WT') ? 'WT' : (ci.class_type || '').startsWith('HB') ? 'HB' : (ci.class_type || '').substring(0, 6);
         detail = `${typeShort} ${dateStr}${ci.start_time ? `, ${ci.start_time}` : ''}`;
       }

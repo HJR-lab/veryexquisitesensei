@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+import api from '../utils/api';
 
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
@@ -65,14 +63,9 @@ export default function GalleryNew() {
 
   const fetchReferenceData = async () => {
     try {
-      const token = localStorage.getItem('token');
       const [clayTypesRes, glazesRes] = await Promise.all([
-        axios.get(`${API_URL}/api/reference/clay-types`, {
-          headers: { Authorization: `Bearer ${token}` }
-        }),
-        axios.get(`${API_URL}/api/reference/glazes`, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
+        api.get('/reference/clay-types'),
+        api.get('/reference/glazes')
       ]);
       setClayTypes(clayTypesRes.data.clayTypes || []);
       setGlazes(glazesRes.data.glazes || []);
@@ -83,10 +76,7 @@ export default function GalleryNew() {
 
   const fetchPieces = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/api/pottery/pieces`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/pottery/pieces');
       setPieces(response.data.pieces || []);
     } catch (error) {
       console.error('Error fetching pieces:', error);
@@ -97,10 +87,7 @@ export default function GalleryNew() {
 
   const fetchCommunityPieces = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/api/pottery/community`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/pottery/community');
       setCommunityPieces(response.data.pieces || []);
     } catch (error) {
       // Community endpoint may not exist yet — silently ignore
@@ -182,13 +169,12 @@ export default function GalleryNew() {
     if (!selectedPiece) return;
     try {
       setUploading(true);
-      const token = localStorage.getItem('token');
       let newImageUrls = [];
       if (editImageFiles.length > 0) {
         const uploadFormData = new FormData();
         editImageFiles.forEach(file => uploadFormData.append('images', file));
-        const uploadRes = await axios.post(`${API_URL}/api/upload/images`, uploadFormData, {
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
+        const uploadRes = await api.post('/upload/images', uploadFormData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
         });
         newImageUrls = uploadRes.data.images.map(img => img.url);
       }
@@ -208,9 +194,7 @@ export default function GalleryNew() {
         is_public: formData.is_public,
         images: allImages
       };
-      await axios.put(`${API_URL}/api/pottery/pieces/${selectedPiece.id}`, updateData, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.put(`/pottery/pieces/${selectedPiece.id}`, updateData);
       closeEditModal();
       await fetchPieces();
       alert('Changes saved successfully!');
@@ -227,10 +211,7 @@ export default function GalleryNew() {
     if (!confirm(`Are you sure you want to delete "${selectedPiece.title}"? This action cannot be undone.`)) return;
     try {
       setUploading(true);
-      const token = localStorage.getItem('token');
-      await axios.delete(`${API_URL}/api/pottery/pieces/${selectedPiece.id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.delete(`/pottery/pieces/${selectedPiece.id}`);
       closeEditModal();
       closePieceDetail();
       await fetchPieces();
@@ -246,13 +227,10 @@ export default function GalleryNew() {
   // Toggle is_public on the server and reflect locally
   const handleTogglePublic = async (piece) => {
     try {
-      const token = localStorage.getItem('token');
       const newValue = !piece.is_public;
-      await axios.put(`${API_URL}/api/pottery/pieces/${piece.id}`, {
+      await api.put(`/pottery/pieces/${piece.id}`, {
         ...piece,
         is_public: newValue
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
       });
       // Update local state
       setPieces(prev => prev.map(p => p.id === piece.id ? { ...p, is_public: newValue } : p));
@@ -654,6 +632,7 @@ export default function GalleryNew() {
                     type="file"
                     multiple
                     accept="image/*"
+                    capture="environment"
                     onChange={handleEditImageSelect}
                     id="edit-image-upload"
                     style={{ display: 'none' }}

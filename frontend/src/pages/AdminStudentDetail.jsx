@@ -154,7 +154,7 @@ function CalendarWidget({ month, onMonthChange, selectedDate, onDateSelect, avai
 export default function AdminStudentDetail() {
   const navigate = useNavigate();
   const { email } = useParams();
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   const isMobile = useIsMobile();
 
   console.log('AdminStudentDetail component loaded, email param:', email);
@@ -173,10 +173,12 @@ export default function AdminStudentDetail() {
     firstName: '',
     lastName: '',
     email: '',
+    customerType: 'student',
     coursePurchaseCount: 0,
     classesAllocated: 0,
   });
-  const [showEditModal, setShowEditModal] = useState(false);
+  const [isEditing, setIsEditing]     = useState(false);
+  const [saveMessage, setSaveMessage] = useState(null); // { type: 'ok'|'err', text }
 
   // ── Pause / Resume ───────────────────────────────────────────────────────
   const [showPauseModal, setShowPauseModal] = useState(false);
@@ -322,11 +324,12 @@ export default function AdminStudentDetail() {
       console.log('Student data received:', studentData);
       setStudent(studentData);
       setEditForm({
-        firstName: studentData.first_name || '',
-        lastName:  studentData.last_name  || '',
-        email:     studentData.email      || '',
+        firstName:          studentData.first_name         || '',
+        lastName:           studentData.last_name          || '',
+        email:              studentData.email              || '',
+        customerType:       studentData.customer_type      || 'student',
         coursePurchaseCount: studentData.course_purchase_count || 0,
-        classesAllocated:    studentData.classes_allocated     || 0,
+        classesAllocated:   studentData.classes_allocated  || 0,
       });
 
       const { data: bookingsData } = await api.get(`/admin/students/${decodedEmail}/bookings`);
@@ -345,7 +348,6 @@ export default function AdminStudentDetail() {
       }
     } catch (error) {
       console.error('Failed to load student data:', error);
-      alert('Failed to load student data');
     } finally {
       setLoading(false);
     }
@@ -359,16 +361,19 @@ export default function AdminStudentDetail() {
   const saveChanges = async () => {
     try {
       setSaving(true);
+      setSaveMessage(null);
       const decodedEmail = decodeURIComponent(email);
       await api.put(`/admin/students/${decodedEmail}`, {
-        first_name:           editForm.firstName.trim(),
-        last_name:            editForm.lastName.trim(),
-        email:                editForm.email.trim(),
+        first_name:            editForm.firstName.trim(),
+        last_name:             editForm.lastName.trim(),
+        email:                 editForm.email.trim(),
+        customer_type:         editForm.customerType,
         course_purchase_count: parseInt(editForm.coursePurchaseCount),
-        classes_allocated:    parseInt(editForm.classesAllocated),
+        classes_allocated:     parseInt(editForm.classesAllocated),
       });
-      alert('Student updated successfully!');
-      setShowEditModal(false);
+      setSaveMessage({ type: 'ok', text: 'Saved' });
+      setIsEditing(false);
+      setTimeout(() => setSaveMessage(null), 3000);
       if (editForm.email.trim() !== decodedEmail) {
         navigate(`/admin/students/${encodeURIComponent(editForm.email.trim())}`);
       } else {
@@ -376,7 +381,7 @@ export default function AdminStudentDetail() {
       }
     } catch (error) {
       console.error('Failed to update student:', error);
-      alert('Failed to update student');
+      setSaveMessage({ type: 'err', text: 'Save failed' });
     } finally {
       setSaving(false);
     }
@@ -602,14 +607,18 @@ export default function AdminStudentDetail() {
   const handleImpersonate = async () => {
     try {
       const decodedEmail = decodeURIComponent(email);
-      const { data } = await api.post(`/auth/impersonate/${decodedEmail}`);
+      // If currently in an impersonated session, use the original admin token
+      const adminToken = (user.originalAdminToken) || localStorage.getItem('token');
+      const { data } = await api.post(`/auth/impersonate/${decodedEmail}`, {}, {
+        headers: { Authorization: `Bearer ${adminToken}` }
+      });
       if (data.success && data.token) {
         localStorage.setItem('token', data.token);
         window.location.href = '/dashboard';
       }
     } catch (error) {
       console.error('Impersonation failed:', error);
-      alert('Failed to impersonate student');
+      setSaveMessage('Failed to impersonate — try refreshing and logging in again.');
     }
   };
 
@@ -716,84 +725,108 @@ export default function AdminStudentDetail() {
 
               {/* Details fields */}
               <div style={{ paddingTop: '14px', borderTop: `1px solid ${RULE}` }}>
-                <div style={{ marginBottom: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                   <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: MUTED }}>Details</span>
+                  {saveMessage && (
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: saveMessage.type === 'ok' ? '#1E6B1E' : '#C0392B' }}>{saveMessage.text}</span>
+                  )}
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {[
-                    { label: 'Email',             value: student.email },
-                    { label: 'Customer Type',      value: student.customer_type || 'student' },
-                    { label: 'Shopify ID',         value: student.shopify_customer_id || 'N/A' },
-                    { label: 'Courses Purchased',  value: student.course_purchase_count ?? 'N/A' },
-                    { label: 'Classes Allocated',  value: student.classes_allocated ?? 'N/A' },
-                    { label: 'Created',            value: formatDate(student.created_at) },
-                  ].map(f => (
-                    <div key={f.label}>
-                      <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '3px' }}>{f.label}</div>
-                      <div style={{ fontSize: '13px', wordBreak: 'break-all' }}>{f.value}</div>
+
+                {isEditing ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {/* Name row */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      <div>
+                        <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '4px' }}>First Name</div>
+                        <input value={editForm.firstName} onChange={e => setEditForm(f => ({ ...f, firstName: e.target.value }))}
+                          style={{ width: '100%', padding: '7px 9px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '4px' }}>Last Name</div>
+                        <input value={editForm.lastName} onChange={e => setEditForm(f => ({ ...f, lastName: e.target.value }))}
+                          style={{ width: '100%', padding: '7px 9px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }} />
+                      </div>
                     </div>
-                  ))}
-                </div>
+                    <div>
+                      <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '4px' }}>Email</div>
+                      <input value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))}
+                        style={{ width: '100%', padding: '7px 9px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '4px' }}>Customer Type</div>
+                      <select value={editForm.customerType} onChange={e => setEditForm(f => ({ ...f, customerType: e.target.value }))}
+                        style={{ width: '100%', padding: '7px 9px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none', backgroundColor: '#FFF' }}>
+                        <option value="student">Student</option>
+                        <option value="member">Member</option>
+                        <option value="student & member">Student & Member</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      <div>
+                        <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '4px' }}>Courses Purchased</div>
+                        <input type="number" value={editForm.coursePurchaseCount} onChange={e => setEditForm(f => ({ ...f, coursePurchaseCount: e.target.value }))}
+                          style={{ width: '100%', padding: '7px 9px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '4px' }}>Classes Allocated</div>
+                        <input type="number" value={editForm.classesAllocated} onChange={e => setEditForm(f => ({ ...f, classesAllocated: e.target.value }))}
+                          style={{ width: '100%', padding: '7px 9px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }} />
+                      </div>
+                    </div>
+                    {/* Read-only */}
+                    <div>
+                      <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '3px' }}>Shopify ID</div>
+                      <div style={{ fontSize: '12px', color: MUTED }}>{student.shopify_customer_id || 'N/A'}</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {[
+                      { label: 'Email',            value: student.email },
+                      { label: 'Customer Type',    value: student.customer_type || 'student' },
+                      { label: 'Shopify ID',       value: student.shopify_customer_id || 'N/A' },
+                      { label: 'Courses Purchased', value: student.course_purchase_count ?? 'N/A' },
+                      { label: 'Classes Allocated', value: student.classes_allocated ?? 'N/A' },
+                      { label: 'Created',          value: formatDate(student.created_at) },
+                    ].map(f => (
+                      <div key={f.label}>
+                        <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '3px' }}>{f.label}</div>
+                        <div style={{ fontSize: '13px', wordBreak: 'break-all' }}>{f.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              {/* Enrollment status */}
-              {enrollment && (
-                <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: `1px solid ${RULE}` }}>
-                  <div style={{ marginBottom: '10px' }}>
-                    <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: MUTED }}>Current Enrollment</span>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <div>
-                      <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '3px' }}>Course</div>
-                      <div style={{ fontSize: '13px' }}>{enrollment.course_title || enrollment.course_identifier || 'N/A'}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '3px' }}>Status</div>
-                      <span style={{
-                        fontSize: '9px', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase',
-                        padding: '3px 8px', display: 'inline-block',
-                        backgroundColor: enrollment.status === 'active' ? TC_LIGHT : enrollment.status === 'paused' ? '#FFF7E6' : ALT,
-                        color: enrollment.status === 'active' ? TC_DARK : enrollment.status === 'paused' ? '#9E6200' : MUTED,
-                      }}>{enrollment.status}</span>
-                      {enrollment.status === 'paused' && (
-                        <div style={{ marginTop: '4px', fontSize: '11px', color: MUTED }}>
-                          Progress: {enrollment.weeks_completed}/{enrollment.number_of_weeks} weeks
-                        </div>
-                      )}
-                    </div>
-                    {enrollment.class_credits_allocated > 0 && (
-                      <div>
-                        <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '6px' }}>HB Credits</div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginBottom: '8px' }}>
-                          {[
-                            { label: 'Allocated', val: enrollment.class_credits_allocated },
-                            { label: 'Used',       val: enrollment.class_credits_used || 0 },
-                            { label: 'Remaining',  val: enrollment.class_credits_remaining || 0 },
-                          ].map(s => (
-                            <div key={s.label} style={{ textAlign: 'center', padding: '8px', backgroundColor: ALT }}>
-                              <div style={{ fontSize: '10px', color: MUTED, marginBottom: '2px' }}>{s.label}</div>
-                              <div style={{ fontSize: '18px', fontWeight: 700 }}>{s.val}</div>
-                            </div>
-                          ))}
-                        </div>
-                        <div style={{ height: '4px', backgroundColor: RULE }}>
-                          <div style={{ height: '100%', backgroundColor: TC, width: `${((enrollment.class_credits_used || 0) / enrollment.class_credits_allocated) * 100}%` }} />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Action buttons */}
             <div style={{ display: 'flex', flexDirection: isMobile ? 'row' : 'column', gap: '8px' }}>
-              <button
-                onClick={() => setShowEditModal(true)}
-                style={{ flex: 1, padding: '11px', backgroundColor: INK, color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
-              >
-                Edit Student
-              </button>
+              {isEditing ? (
+                <>
+                  <button
+                    onClick={saveChanges}
+                    disabled={saving}
+                    style={{ flex: 1, padding: '11px', backgroundColor: INK, color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.7 : 1 }}
+                  >
+                    {saving ? 'Saving…' : 'Save'}
+                  </button>
+                  <button
+                    onClick={() => { setIsEditing(false); setSaveMessage(null); }}
+                    style={{ flex: 1, padding: '11px', backgroundColor: 'transparent', color: INK, border: `1px solid ${RULE}`, fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => setIsEditing(true)}
+                  style={{ flex: 1, padding: '11px', backgroundColor: INK, color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
+                >
+                  Edit
+                </button>
+              )}
               {enrollment && enrollment.status === 'active' && (
                 <button
                   onClick={() => setShowPauseModal(true)}
@@ -815,7 +848,7 @@ export default function AdminStudentDetail() {
                 onClick={handleImpersonate}
                 style={{ flex: 1, padding: '11px', backgroundColor: 'transparent', color: MUTED, border: `1px solid ${RULE}`, fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
               >
-                View as Member
+                View as Student
               </button>
             </div>
 
@@ -858,6 +891,9 @@ export default function AdminStudentDetail() {
                             </span>
                             <span style={{ fontSize: '13px', fontWeight: 700 }}>{enrollment.course_title || 'N/A'}</span>
                           </div>
+                          {enrollment.course_variant_title && (
+                            <div style={{ fontSize: '12px', color: MUTED, marginBottom: '3px' }}>{enrollment.course_variant_title}</div>
+                          )}
                           <div style={{ fontSize: '10px', fontFamily: 'monospace', color: TC_DARK }}>{enrollment.course_identifier || ''}</div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
@@ -876,27 +912,57 @@ export default function AdminStudentDetail() {
                         }} />
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: '11px', color: MUTED }}>{attendedCount} attended</span>
+                        <span style={{ fontSize: '11px', color: MUTED }}>{attendedCount} attended · {totalBooked - attendedCount} booked</span>
                         <span style={{ fontSize: '11px', color: TC_DARK, fontWeight: 700 }}>
-                          {Math.max(0, (totalAllocated || enrollment.number_of_weeks || 6) - attendedCount)} remaining
+                          {unbookedCount} available
                         </span>
                       </div>
                     </div>
 
                     {/* Status + dates */}
-                    <div style={{ paddingTop: '16px', borderTop: `1px solid ${RULE}`, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+                    <div style={{ paddingTop: '16px', borderTop: `1px solid ${RULE}`, display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                       {[
-                        { label: 'Status',      value: enrollment.status },
-                        { label: 'Total Weeks', value: enrollment.number_of_weeks || 'N/A' },
-                        { label: 'Start Date',  value: formatDate(enrollment.start_date) },
-                        { label: 'End Date',    value: formatDate(enrollment.end_date) },
-                      ].map(f => (
-                        <div key={f.label}>
-                          <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '3px' }}>{f.label}</div>
-                          <div style={{ fontSize: '13px', textTransform: 'capitalize' }}>{String(f.value)}</div>
-                        </div>
+                        enrollment.status,
+                        enrollment.number_of_weeks ? `${enrollment.number_of_weeks} Weeks` : null,
+                        formatDate(enrollment.start_date),
+                        formatDate(enrollment.end_date),
+                      ].filter(Boolean).map((v, i) => (
+                        <span key={i} style={{ fontSize: '12px', color: MUTED, textTransform: 'capitalize' }}>
+                          {i > 0 && <span style={{ marginRight: '8px', opacity: 0.4 }}>·</span>}
+                          {v}
+                        </span>
                       ))}
                     </div>
+
+                    {/* Package progress */}
+                    {enrollment.package_total_courses > 1 && (
+                      <div style={{ marginTop: '16px', padding: '14px 16px', backgroundColor: '#FFF8F0', border: `1px solid ${TC_LIGHT}`, borderRadius: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                          <span style={{ fontSize: '12px', fontWeight: 700, color: TC_DARK }}>
+                            Course {enrollment.package_current_course} of {enrollment.package_total_courses}
+                          </span>
+                          <span style={{ fontSize: '11px', color: MUTED }}>
+                            {enrollment.package_total_courses}-Course Package
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
+                          {Array.from({ length: enrollment.package_total_courses }).map((_, i) => (
+                            <div key={i} style={{
+                              flex: 1, height: '4px', borderRadius: '2px',
+                              backgroundColor: i < enrollment.package_courses_completed ? TC
+                                : i < enrollment.package_current_course ? TC_LIGHT
+                                : RULE,
+                            }} />
+                          ))}
+                        </div>
+                        <div style={{ fontSize: '11px', color: MUTED }}>
+                          {enrollment.package_courses_completed} completed
+                          {enrollment.package_courses_remaining > 0 && (
+                            <span> · <span style={{ color: TC_DARK, fontWeight: 600 }}>{enrollment.package_courses_remaining} more course{enrollment.package_courses_remaining > 1 ? 's' : ''} remaining ({enrollment.package_courses_remaining * (enrollment.number_of_weeks || 6)} classes)</span></span>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1124,49 +1190,6 @@ export default function AdminStudentDetail() {
           </div>
         </div>
       </main>
-
-      {/* ── EDIT STUDENT MODAL ── */}
-      {showEditModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
-          <div style={{ backgroundColor: '#FFFFFF', padding: '32px', width: '480px', maxWidth: '90vw', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '20px' }}>Edit Student</div>
-
-            {[
-              { label: 'First Name',          key: 'firstName',          type: 'text'   },
-              { label: 'Last Name',           key: 'lastName',           type: 'text'   },
-              { label: 'Email',               key: 'email',              type: 'email'  },
-              { label: 'Courses Purchased',   key: 'coursePurchaseCount', type: 'number' },
-              { label: 'Classes Allocated',   key: 'classesAllocated',   type: 'number' },
-            ].map(f => (
-              <div key={f.key} style={{ marginBottom: '16px' }}>
-                <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '6px' }}>{f.label}</label>
-                <input
-                  type={f.type}
-                  value={editForm[f.key]}
-                  onChange={e => setEditForm(form => ({ ...form, [f.key]: e.target.value }))}
-                  style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '14px', boxSizing: 'border-box', fontFamily: 'Atak, sans-serif', outline: 'none' }}
-                />
-              </div>
-            ))}
-
-            {/* Profile picture */}
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '6px' }}>Profile Picture</label>
-              <input type="file" accept="image/*" onChange={handleProfilePictureUpload} disabled={uploading} id="profile-picture-upload-modal" style={{ display: 'none' }} />
-              <label htmlFor="profile-picture-upload-modal" style={{ display: 'inline-block', padding: '8px 14px', border: `1px solid ${RULE}`, fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', cursor: uploading ? 'not-allowed' : 'pointer', color: MUTED }}>
-                {uploading ? 'Uploading…' : 'Upload Image'}
-              </label>
-            </div>
-
-            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-              <button onClick={() => setShowEditModal(false)} style={{ flex: 1, padding: '12px', border: `1px solid ${RULE}`, backgroundColor: 'transparent', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}>Cancel</button>
-              <button onClick={saveChanges} disabled={saving} style={{ flex: 1, padding: '12px', backgroundColor: INK, color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
-                {saving ? 'Saving…' : 'Save Changes'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── PAUSE COURSE MODAL ── */}
       {showPauseModal && enrollment && (

@@ -1193,7 +1193,10 @@ async function createCourseEnrollment(enrollmentData) {
       class_time: enrollmentData.classTime,
       instructor: enrollmentData.instructor,
       room: enrollmentData.room,
-      status: enrollmentData.status || 'pending'
+      status: enrollmentData.status || 'pending',
+      ...(enrollmentData.packageTotalCourses && { package_total_courses: enrollmentData.packageTotalCourses }),
+      ...(enrollmentData.packageTotalClasses && { package_total_classes: enrollmentData.packageTotalClasses }),
+      ...(enrollmentData.packageCoursesRemaining != null && { package_courses_remaining: enrollmentData.packageCoursesRemaining })
     }])
     .select()
     .single();

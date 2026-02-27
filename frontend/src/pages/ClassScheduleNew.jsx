@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
-import api, { classesAPI } from '../utils/api';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
+import api, { classesAPI, authAPI } from '../utils/api';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const TC       = '#C4622D';
@@ -77,6 +79,24 @@ function BottomNav() {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function ClassScheduleNew() {
+  const navigate = useNavigate();
+  const { user, updateUser } = useAuth();
+  const isImpersonating = user && user.impersonatedBy;
+
+  const handleReturnToAdmin = async () => {
+    if (user && user.originalAdminToken) {
+      try {
+        localStorage.setItem('token', user.originalAdminToken);
+        const adminData = await authAPI.getMe();
+        updateUser(adminData.user);
+        navigate('/admin/students');
+      } catch (error) {
+        console.error('Error returning to admin:', error);
+        window.location.reload();
+      }
+    }
+  };
+
   // ── API state (preserved from production) ──────────────────────────────────
   const [classes, setClasses] = useState([]);
   const [myBookings, setMyBookings] = useState([]);
@@ -92,7 +112,6 @@ export default function ClassScheduleNew() {
   const [rescheduleCurrentMonth, setRescheduleCurrentMonth] = useState(new Date());
   const [showPauseModal, setShowPauseModal] = useState(false);
   const [pauseCalculation, setPauseCalculation] = useState(null);
-  const [expandedPastCourses, setExpandedPastCourses] = useState({});
 
   // ── UI state (new design) ───────────────────────────────────────────────────
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -321,9 +340,6 @@ export default function ClassScheduleNew() {
       return da - db;
     });
 
-  // For "My Classes" grouped view (reschedule logic preserved)
-  const allBookings = myBookings.filter(b => b.status === 'booked' || b.status === 'attended');
-
   const getBookingFields = (booking) => {
     const classDate = booking.class?.classDate || booking.classInstance?.classDate || booking.class_date;
     const date = new Date(classDate + (classDate?.includes('T') ? '' : 'T12:00:00'));
@@ -339,41 +355,14 @@ export default function ClassScheduleNew() {
     return { classDate, date, classType, courseIdentifier, startTime, endTime, instructor, isGlazingClass, weekLabel };
   };
 
-  // Group all bookings by base course code for My Classes section
-  const courseGroups = {};
-  allBookings.forEach(booking => {
-    const classType = booking.class?.classType || booking.classInstance?.classType || booking.class_type;
-    const baseCourse = classType ? classType.split('.')[0] : 'unknown';
-    if (!courseGroups[baseCourse]) courseGroups[baseCourse] = [];
-    courseGroups[baseCourse].push(booking);
-  });
-
-  const generateCourseName = (baseCode) => {
-    if (!baseCode) return 'N/A';
-    const typeMatch = baseCode.match(/^(WT|HB)/);
-    const courseType = typeMatch ? (typeMatch[1] === 'WT' ? 'Wheelthrowing' : 'Handbuilding') : 'Class';
-    const weeksMatch = baseCode.match(/(DL|JL|LT)(\d+)/);
-    const weeks = weeksMatch ? `${weeksMatch[2]}wks` : '';
-    const dates = courseGroups[baseCode]?.map(b => {
-      const cd = b.class?.classDate || b.classInstance?.classDate || b.class_date;
-      return new Date(cd);
-    }) || [];
-    if (dates.length > 0) {
-      const minDate = new Date(Math.min(...dates));
-      const maxDate = new Date(Math.max(...dates));
-      const startStr = minDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-      const endStr   = maxDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-      return `${courseType} ${weeks} ${startStr} - ${endStr}`;
-    }
-    return `${courseType} ${weeks}`;
-  };
-
   // Reschedule helpers (preserved from production)
   const getAvailableMakeupClasses = () => {
     if (!selectedClass || !studentData) return [];
     const classCategory = getClassCategory(selectedClass.classType);
     const twentyFourHoursFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
     const has10ClassPackage = studentData.classes_allocated === 10 && !studentData.course_expiry_date;
+    const has3CoursePackage = dashboardData?.packageInfo?.totalCourses === 3;
+    const canSwapGlazingToWT = has3CoursePackage && (dashboardData?.packageInfo?.coursesRemaining >= 1);
     const totalBookings = myBookings.length;
     const is10thClass = has10ClassPackage && totalBookings >= 9;
     const isOldClassGlazing = selectedClass.classType?.includes('6.6');
@@ -407,7 +396,12 @@ export default function ClassScheduleNew() {
       if (is10thClass && !isNewClassGlazing) return false;
       let cohortRestrictionPasses = true;
       if (isOldClassGlazing) {
-        cohortRestrictionPasses = isNewClassGlazing && sameCategory;
+        if (canSwapGlazingToWT) {
+          // 3-course package, courses 1 or 2: allow glazing → any WT class
+          cohortRestrictionPasses = sameCategory;
+        } else {
+          cohortRestrictionPasses = isNewClassGlazing && sameCategory;
+        }
       } else {
         if (isNewClassGlazing) cohortRestrictionPasses = false;
         else if (!has10ClassPackage && sameCategory) cohortRestrictionPasses = true;
@@ -576,6 +570,21 @@ export default function ClassScheduleNew() {
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#FFFFFF', minHeight: '100vh' }}>
 
+      {/* ── IMPERSONATION BANNER ─────────────────────────────────────────── */}
+      {isImpersonating && (
+        <div style={{ backgroundColor: '#EBF5FB', borderBottom: '1px solid #AED6F1', padding: '8px 20px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+          <span style={{ fontSize: '11px', color: '#2471A3' }}>
+            Viewing as <strong>{user.firstName} {user.lastName}</strong>
+          </span>
+          <button
+            onClick={handleReturnToAdmin}
+            style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 10px', backgroundColor: '#2471A3', color: '#FFF', border: 'none', cursor: 'pointer' }}
+          >
+            Return to Admin
+          </button>
+        </div>
+      )}
+
       {/* ── TOP BAR ─────────────────────────────────────────────────────────── */}
       <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: '#FFFFFF', borderBottom: `1px solid ${RULE}` }}>
         <div style={{ maxWidth: '520px', margin: '0 auto', padding: '0 20px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -605,6 +614,36 @@ export default function ClassScheduleNew() {
             )}
           </button>
         </div>
+
+        {/* ── PACKAGE PROGRESS ──────────────────────────────────────────── */}
+        {dashboardData?.packageInfo?.totalCourses > 1 && (() => {
+          const pkg = dashboardData.packageInfo;
+          const currentCourse = pkg.currentCourse || (pkg.totalCourses - (pkg.coursesRemaining || 0));
+          return (
+            <div style={{ padding: '14px 20px', borderBottom: `1px solid ${RULE}`, backgroundColor: '#FFF8F0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: TC_DARK, letterSpacing: '0.03em' }}>
+                  {pkg.totalCourses}-Course Package · Course {currentCourse} of {pkg.totalCourses}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
+                {Array.from({ length: pkg.totalCourses }).map((_, i) => (
+                  <div key={i} style={{
+                    flex: 1, height: '4px', borderRadius: '2px',
+                    backgroundColor: i < currentCourse - 1 ? TC
+                      : i < currentCourse ? TC_DARK
+                      : RULE,
+                  }} />
+                ))}
+              </div>
+              {pkg.coursesRemaining > 0 && (
+                <div style={{ fontSize: '11px', color: MUTED }}>
+                  {pkg.coursesRemaining} more course{pkg.coursesRemaining > 1 ? 's' : ''} remaining ({pkg.coursesRemaining * 6} classes)
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* ── DATE STRIP ────────────────────────────────────────────────────── */}
         <div style={{ borderBottom: `1px solid ${RULE}` }}>
@@ -830,125 +869,6 @@ export default function ClassScheduleNew() {
             )}
           </div>
 
-          {/* ── MY CLASSES (grouped by course) ─────────────────────────────── */}
-          {allBookings.length > 0 && (
-            <div style={{ borderTop: `1px solid ${RULE}`, paddingTop: '24px', marginTop: '24px' }}>
-              <SectionLabel>My Classes</SectionLabel>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {Object.entries(courseGroups).map(([baseCourse, bookings]) => {
-                  const sortedBookings = [...bookings].sort((a, b) => {
-                    const da = new Date(a.class?.classDate || a.classInstance?.classDate || a.class_date);
-                    const db = new Date(b.class?.classDate || b.classInstance?.classDate || b.class_date);
-                    return da - db;
-                  });
-                  const upcomingB = sortedBookings.filter(b => {
-                    const f = getBookingFields(b);
-                    return parseClassDateTime(f.classDate, f.endTime) >= now;
-                  });
-                  const pastB = sortedBookings.filter(b => {
-                    const f = getBookingFields(b);
-                    return parseClassDateTime(f.classDate, f.endTime) < now;
-                  });
-                  const isPastExpanded = expandedPastCourses[baseCourse] || false;
-                  const courseName = generateCourseName(baseCourse);
-
-                  return (
-                    <div key={baseCourse} style={{ border: `1px solid ${RULE}`, overflow: 'hidden' }}>
-                      {/* Course header */}
-                      <div style={{ padding: '10px 14px', backgroundColor: ALT, borderBottom: `1px solid ${RULE}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '12px', fontWeight: 700 }}>{courseName}</span>
-                        <span style={{ fontSize: '11px', color: MUTED }}>
-                          {upcomingB.length} upcoming{pastB.length > 0 ? ` · ${pastB.length} attended` : ''}
-                        </span>
-                      </div>
-
-                      {/* Upcoming */}
-                      {upcomingB.length > 0 ? upcomingB.map((booking, i) => {
-                        const f = getBookingFields(booking);
-                        const classItem = {
-                          id: booking.class?.id || booking.classInstance?.id || booking.class_id,
-                          classDate: f.classDate, classType: f.classType,
-                          startTime: f.startTime, endTime: f.endTime, instructor: f.instructor,
-                          fullCourseIdentifier: f.courseIdentifier, courseIdentifier: f.courseIdentifier,
-                        };
-                        const startDT = parseClassDateTime(f.classDate, f.startTime);
-                        const twentyFourHoursFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-                        const isWithin24Hours = startDT < twentyFourHoursFromNow && startDT > now;
-                        const hasEnded = parseClassDateTime(f.classDate, f.endTime) < now;
-
-                        return (
-                          <div key={`ub-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', borderBottom: `1px solid ${RULE}` }}>
-                            <div style={{ flexShrink: 0, textAlign: 'center', width: '40px' }}>
-                              <div style={{ fontSize: '9px', fontWeight: 700, color: TC_DARK, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                                {MONTH_LABELS[f.date.getMonth()]}
-                              </div>
-                              <div style={{ fontSize: '18px', fontWeight: 700, lineHeight: 1 }}>{f.date.getDate()}</div>
-                            </div>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: '12px', fontWeight: 700 }}>{displayClassType(f.classType)} {f.weekLabel}</div>
-                              <div style={{ fontSize: '11px', color: MUTED }}>{f.startTime} – {f.endTime} · {f.instructor}</div>
-                            </div>
-                            <button
-                              onClick={() => {
-                                if (booking.status !== 'booked') { alert(`Cannot reschedule: booking is ${booking.status}.`); fetchMyBookings(); return; }
-                                if (isWithin24Hours) { alert('Cannot reschedule within 24 hours.'); return; }
-                                setSelectedClass(classItem);
-                                setShowRescheduleModal(true);
-                                setRescheduleSelectedDate(new Date());
-                                setRescheduleCurrentMonth(new Date());
-                              }}
-                              disabled={hasEnded || isWithin24Hours || booking.status !== 'booked'}
-                              style={{
-                                fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-                                padding: '4px 8px', border: 'none', cursor: hasEnded || isWithin24Hours ? 'default' : 'pointer',
-                                backgroundColor: hasEnded || isWithin24Hours || booking.status !== 'booked' ? '#EBEBEB' : TC_LIGHT,
-                                color: hasEnded || isWithin24Hours || booking.status !== 'booked' ? MUTED : TC,
-                                flexShrink: 0,
-                              }}
-                            >
-                              {hasEnded ? 'Ended' : isWithin24Hours ? 'Within 24h' : booking.status !== 'booked' ? 'Unavailable' : 'Reschedule'}
-                            </button>
-                          </div>
-                        );
-                      }) : (
-                        <div style={{ padding: '12px 14px', fontSize: '12px', color: MUTED }}>No upcoming classes</div>
-                      )}
-
-                      {/* Past (collapsible) */}
-                      {pastB.length > 0 && (
-                        <div style={{ padding: '8px 14px', borderTop: `1px solid ${RULE}` }}>
-                          <button
-                            onClick={() => setExpandedPastCourses(prev => ({ ...prev, [baseCourse]: !prev[baseCourse] }))}
-                            style={{ fontSize: '11px', color: MUTED, background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', padding: 0 }}
-                          >
-                            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>{isPastExpanded ? 'expand_less' : 'expand_more'}</span>
-                            Past classes ({pastB.length})
-                          </button>
-                          {isPastExpanded && (
-                            <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                              {pastB.map((booking, i) => {
-                                const f = getBookingFields(booking);
-                                return (
-                                  <div key={`pb-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 0', color: MUTED, fontSize: '11px' }}>
-                                    <span style={{ width: '40px', flexShrink: 0, textAlign: 'center', fontSize: '10px' }}>
-                                      {f.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                                    </span>
-                                    <span style={{ fontWeight: 700 }}>{f.weekLabel}</span>
-                                    <span style={{ flex: 1 }}>{f.startTime} – {f.endTime} · {f.instructor}</span>
-                                    <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', padding: '3px 6px', backgroundColor: '#E8F5E9', color: '#388E3C' }}>attended</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </div>
       </main>
 

@@ -396,8 +396,18 @@ app.get('/api/students/me', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Student not found' });
     }
 
+    // Calculate classes_allocated from active enrollments only (not lifetime cumulative)
+    const { data: activeEnrollments } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('id, number_of_weeks')
+      .eq('student_id', dbCustomerId)
+      .eq('status', 'active');
+
+    if (activeEnrollments && activeEnrollments.length > 0) {
+      student.classes_allocated = activeEnrollments.reduce((sum, e) => sum + (e.number_of_weeks || 0), 0);
+    }
+
     // Calculate classes used from ALL BOOKINGS (enrollment + makeup)
-    // classes_allocated should stay as-is from the customers table (package size)
     // classes_used = classes that have ENDED (end time has passed)
 
     // Get ALL bookings for this student (both enrollment and makeup classes)
@@ -577,10 +587,13 @@ app.get('/api/students/me/dashboard', authenticateToken, async (req, res) => {
       // Check if this is part of a package
       if (enrollment.package_total_courses) {
         if (!packageInfo) {
+          const currentCourse = enrollment.package_total_courses - (enrollment.package_courses_remaining || 0);
           packageInfo = {
             totalCourses: enrollment.package_total_courses,
             totalClasses: enrollment.package_total_classes,
-            coursesRemaining: enrollment.package_courses_remaining || 0
+            coursesRemaining: enrollment.package_courses_remaining || 0,
+            currentCourse: currentCourse,
+            coursesCompleted: currentCourse - 1
           };
         }
       }
@@ -2562,7 +2575,7 @@ app.post('/api/classes/reschedule', authenticateToken, async (req, res) => {
       // Get student's course enrollment to find cohort dates
       const { data: enrollment, error: enrollmentError } = await supabaseDb.supabase
         .from('course_enrollments')
-        .select('course_start_date, course_end_date, course_title')
+        .select('course_start_date, course_end_date, course_title, package_total_courses')
         .eq('id', currentBooking.course_enrollment_id)
         .single();
 
@@ -2577,10 +2590,27 @@ app.post('/api/classes/reschedule', authenticateToken, async (req, res) => {
 
       if (isWheelthrowing6Week && enrollment.course_start_date && enrollment.course_end_date) {
         if (isOldClassGlazing) {
-          // Glazing class (Week 6): can only reschedule to another glazing class
-          if (!isNewClassGlazing) {
+          // 3-course package students on courses 1 or 2 can swap glazing → regular WT
+          const is3CoursePackage = enrollment.package_total_courses === 3;
+          let canSwapGlazingToWT = false;
+
+          if (is3CoursePackage) {
+            const { data: completedPkgCourses } = await supabaseDb.supabase
+              .from('course_enrollments')
+              .select('id')
+              .eq('student_id', dbCustomerId)
+              .eq('status', 'completed')
+              .ilike('course_title', '%3 Course Package%');
+            const completedCount = completedPkgCourses?.length || 0;
+            // Courses 1 & 2 can swap glazing→WT; course 3 (2 completed) cannot
+            canSwapGlazingToWT = completedCount < 2;
+          }
+
+          if (!isNewClassGlazing && !canSwapGlazingToWT) {
             return res.status(400).json({
-              error: 'Glazing class can only be rescheduled to another glazing class (Week 6).'
+              error: is3CoursePackage
+                ? 'Your final course glazing class cannot be rescheduled to a regular class.'
+                : 'Glazing class can only be rescheduled to another glazing class (Week 6).'
             });
           }
           // No date restriction for glazing - can reschedule to any future cohort's glazing class
@@ -4151,8 +4181,18 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
       console.log(`[DEBUG Meghna] isHB: ${hbStudentIds.has(meghnaStudent.id)}`);
     }
 
+    // Build set of student IDs already in active list to avoid duplicates
+    const activeListStudentIds = new Set(activeStudentsList.map(s => {
+      // Find the customer by email to get the DB id
+      const customer = allStudents.find(c => c.email === s.email);
+      return customer?.id;
+    }).filter(Boolean));
+
     const upcomingEnrollmentsList = allStudents
       .filter(s => {
+        // EXCLUDE students already in the active list
+        if (activeListStudentIds.has(s.id)) return false;
+
         // EXCLUDE HB students (they have their own section)
         if (hbStudentIds.has(s.id)) return false;
 
@@ -4460,18 +4500,18 @@ app.get('/api/admin/students/:email', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Student not found' });
     }
 
-    // Keep classes_allocated from customers table (package size)
-    // Only calculate classes_used from attended bookings in active enrollments
-
-    // Get active enrollments
+    // Calculate classes_allocated from active enrollments only (not lifetime cumulative)
     const { data: activeEnrollments } = await supabaseDb.supabase
       .from('course_enrollments')
-      .select('id')
+      .select('id, number_of_weeks')
       .eq('student_id', student.id)
       .eq('status', 'active');
 
     if (activeEnrollments && activeEnrollments.length > 0) {
       const enrollmentIds = activeEnrollments.map(e => e.id);
+
+      // Sum allocation from active enrollments only
+      student.classes_allocated = activeEnrollments.reduce((sum, e) => sum + (e.number_of_weeks || 0), 0);
 
       // Get attended bookings from active enrollments only
       const { data: attendedBookings } = await supabaseDb.supabase
@@ -4526,6 +4566,53 @@ app.get('/api/admin/students/:id/enrollment', authenticateToken, async (req, res
       currentEnrollment = packageCourses[0]; // Most recent package if no individual
     } else {
       currentEnrollment = enrollments[0]; // Fallback to most recent
+    }
+
+    // If course_identifier is missing, derive it from the student's bookings for this enrollment
+    if (!currentEnrollment.course_identifier) {
+      const { data: bookings } = await supabaseDb.supabase
+        .from('bookings')
+        .select('class_instance_id')
+        .eq('student_id', studentId)
+        .eq('course_enrollment_id', currentEnrollment.id)
+        .in('status', ['booked', 'attended', 'completed'])
+        .limit(1);
+
+      if (bookings && bookings.length > 0) {
+        const { data: cls } = await supabaseDb.supabase
+          .from('class_instances')
+          .select('class_type')
+          .eq('id', bookings[0].class_instance_id)
+          .single();
+
+        if (cls?.class_type) {
+          const derived = cls.class_type.split('.')[0]; // e.g. WT0103AM_DL6.1 → WT0103AM_DL6
+          currentEnrollment = { ...currentEnrollment, course_identifier: derived };
+          // Backfill the DB so it's correct next time
+          await supabaseDb.supabase
+            .from('course_enrollments')
+            .update({ course_identifier: derived })
+            .eq('id', currentEnrollment.id);
+        }
+      }
+    }
+
+    // If this is a package enrollment, count completed courses in the package
+    if (currentEnrollment.package_total_courses && currentEnrollment.package_total_courses > 1) {
+      const { data: allEnrollments } = await supabaseDb.supabase
+        .from('course_enrollments')
+        .select('id, status')
+        .eq('student_id', studentId)
+        .ilike('course_title', '%3 Course Package%');
+
+      const completedInPackage = (allEnrollments || []).filter(e => e.status === 'completed').length;
+      const activeInPackage = (allEnrollments || []).filter(e => e.status === 'active').length;
+      currentEnrollment = {
+        ...currentEnrollment,
+        package_courses_completed: completedInPackage,
+        package_current_course: completedInPackage + activeInPackage,
+        package_courses_remaining: currentEnrollment.package_total_courses - completedInPackage - activeInPackage,
+      };
     }
 
     res.json(currentEnrollment);
@@ -5147,28 +5234,20 @@ app.put('/api/admin/students/:email', authenticateToken, async (req, res) => {
   try {
     const { email } = req.params;
     const decodedEmail = decodeURIComponent(email);
-    const { first_name, last_name, email: newEmail, course_purchase_count, classes_allocated } = req.body;
+    const { first_name, last_name, email: newEmail, customer_type, course_purchase_count, classes_allocated, phone } = req.body;
 
     const updateData = {
       updated_at: new Date().toISOString()
     };
 
     // Only update fields if they're provided in the request
-    if (first_name !== undefined) {
-      updateData.first_name = first_name;
-    }
-    if (last_name !== undefined) {
-      updateData.last_name = last_name;
-    }
-    if (newEmail !== undefined) {
-      updateData.email = newEmail;
-    }
-    if (course_purchase_count !== undefined) {
-      updateData.course_purchase_count = course_purchase_count;
-    }
-    if (classes_allocated !== undefined) {
-      updateData.classes_allocated = classes_allocated;
-    }
+    if (first_name !== undefined)          updateData.first_name = first_name;
+    if (last_name !== undefined)           updateData.last_name = last_name;
+    if (newEmail !== undefined)            updateData.email = newEmail;
+    if (customer_type !== undefined)       updateData.customer_type = customer_type;
+    if (course_purchase_count !== undefined) updateData.course_purchase_count = course_purchase_count;
+    if (classes_allocated !== undefined)   updateData.classes_allocated = classes_allocated;
+    if (phone !== undefined)               updateData.phone = phone;
 
     const { data, error } = await supabaseDb.supabase
       .from('customers')
@@ -5191,7 +5270,8 @@ app.get('/api/admin/classes', authenticateToken, async (req, res) => {
   try {
     console.log('🔍 Fetching admin classes...');
 
-    // Get class instances from 2026 onwards (exclude historical 2025 classes)
+    // Get all 2026 class instances for accurate enrollment counts
+    const todayStr = new Date().toISOString().split('T')[0];
     const { data: allClassInstances, error: classesError } = await supabaseDb.supabase
       .from('class_instances')
       .select('id, class_type, class_date, start_time, end_time, instructor, room, max_capacity, current_enrollment')
@@ -5255,7 +5335,7 @@ app.get('/api/admin/classes', authenticateToken, async (req, res) => {
       const { data, error } = await supabaseDb.supabase
         .from('bookings')
         .select('class_instance_id, student_id, status')
-        .in('status', ['booked', 'completed'])
+        .in('status', ['booked', 'attended', 'completed'])
         .range(page * pageSize, (page + 1) * pageSize - 1);
 
       if (error) {
@@ -5292,9 +5372,8 @@ app.get('/api/admin/classes', authenticateToken, async (req, res) => {
       course.totalEnrollment = uniqueStudents.size; // Count of unique students
     });
 
-    // Show ALL courses regardless of enrollment (removed the 4+ student filter)
-    // Admin should see all courses to manage them properly
-    const filteredCourses = courses; // No filtering - show all courses
+    // Return all courses (client handles active/past filtering)
+    const filteredCourses = courses;
 
     console.log(`✅ Successfully fetched and processed ${allClassInstances.length} classes in ${filteredCourses.length} courses`);
 
@@ -5318,10 +5397,12 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, async (req, re
         status,
         attended,
         original_class_instance_id,
+        course_enrollment_id,
         customers (
           id,
           first_name,
           last_name,
+          email,
           course_purchase_count
         )
       `)
@@ -5403,9 +5484,11 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, async (req, re
         studentId: booking.student_id,
         firstName: booking.customers?.first_name,
         lastName: booking.customers?.last_name,
+        email: booking.customers?.email,
         returningCount: booking.customers?.course_purchase_count || 0,
         status: booking.status,
-        attended: booking.attended
+        attended: booking.attended,
+        courseEnrollmentId: booking.course_enrollment_id,
       };
 
       // Check if this is a makeup student (rescheduled TO this class)
@@ -5414,8 +5497,8 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, async (req, re
         member.originalClassIdentifier = originalClassIdentifiers[booking.original_class_instance_id] || 'N/A';
       }
 
-      // Active members: status is 'booked' or 'completed'
-      if (booking.status === 'booked' || booking.status === 'completed') {
+      // Active members: status is 'booked', 'attended', or 'completed'
+      if (booking.status === 'booked' || booking.status === 'attended' || booking.status === 'completed') {
         activeMembers.push(member);
       }
       // Absent members: rescheduled, cancelled (manual absence), or marked as not attended

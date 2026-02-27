@@ -19,7 +19,7 @@ const NAV_LINKS = [
   { id: 'memberships', label: 'Members',     href: '/admin/memberships' },
 ];
 
-function AdminNav({ active }) {
+function AdminNav({ active, onSync, syncing, syncMessage }) {
   return (
     <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: '#FFFFFF', borderBottom: `1px solid ${RULE}` }}>
       <div style={{ maxWidth: '1140px', margin: '0 auto', padding: '0 24px', height: '52px', display: 'flex', alignItems: 'center', gap: '24px', overflowX: 'auto' }}>
@@ -48,6 +48,19 @@ function AdminNav({ active }) {
             </a>
           ))}
         </nav>
+        {syncMessage && (
+          <span style={{ fontSize: '11px', fontWeight: 600, color: syncMessage.type === 'ok' ? '#1E6B1E' : '#C0392B', flexShrink: 0 }}>
+            {syncMessage.text}
+          </span>
+        )}
+        <button
+          onClick={onSync}
+          disabled={syncing}
+          style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 10px', backgroundColor: 'transparent', border: `1px solid ${RULE}`, color: syncing ? MUTED : INK, fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: syncing ? 'default' : 'pointer', flexShrink: 0 }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>sync</span>
+          {syncing ? 'Syncing…' : 'Sync'}
+        </button>
         <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', backgroundColor: INK, color: '#FFF', flexShrink: 0 }}>Admin</span>
       </div>
     </header>
@@ -178,6 +191,10 @@ export default function AdminClasses() {
   // ── Add single class modal (test page design) ─────────────────────────────────
   const [showAddSingleClass, setShowAddSingleClass] = useState(false);
 
+  // ── Sync state ───────────────────────────────────────────────────────────────
+  const [syncing, setSyncing]         = useState(false);
+  const [syncMessage, setSyncMessage] = useState(null); // { type: 'ok'|'err', text }
+
   // ── Cal months ───────────────────────────────────────────────────────────────
   const CAL_MONTHS = getCalMonths();
 
@@ -196,22 +213,70 @@ export default function AdminClasses() {
     }
   };
 
+  const handleSync = async () => {
+    try {
+      setSyncing(true);
+      setSyncMessage(null);
+      await api.post('/admin/sync-shopify-customers');
+      const { data } = await api.post('/admin/sync-shopify-orders');
+      const msg = data.enrollmentsCreated > 0
+        ? `Synced — ${data.enrollmentsCreated} new enrollment${data.enrollmentsCreated !== 1 ? 's' : ''}`
+        : 'Synced — no new enrollments';
+      setSyncMessage({ type: 'ok', text: msg });
+      await loadCourses();
+    } catch (err) {
+      setSyncMessage({ type: 'err', text: 'Sync failed' });
+      console.error('Sync error:', err);
+    } finally {
+      setSyncing(false);
+      setTimeout(() => setSyncMessage(null), 5000);
+    }
+  };
+
   // ── Helper: format date string ────────────────────────────────────────────────
   const formatDate = (dateString) => new Date(dateString).toLocaleDateString('en-US', {
     weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
   });
 
-  // ── Cohort detection ──────────────────────────────────────────────────────────
-  const getClassCohort = (classDate) => {
-    if (!classDate) return null;
-    const date  = new Date(classDate);
-    const day   = date.getDate();
-    const month = date.getMonth();
-    if (month === 0 && [17, 19, 20, 22, 23].includes(day)) return 'cohort1';
-    if (month === 1 && day === 28) return 'cohort2';
-    if (month === 2 && [1, 5, 6, 10].includes(day)) return 'cohort2';
-    return null;
+  // ── Cohort = start month of the course (YYYY-MM of first class) ───────────────
+  const getCourseStartMonth = (course) => {
+    if (!course.classes || course.classes.length === 0) return null;
+    const firstDate = course.classes.map(c => c.class_date).sort()[0];
+    if (!firstDate) return null;
+    return firstDate.split('T')[0].substring(0, 7); // 'YYYY-MM'
   };
+
+  // Derive cohort options: group courses whose start dates are within 21 days of each other
+  const cohortOptions = (() => {
+    // Collect unique start dates per course
+    const startDates = courses
+      .map(c => getCourseStartMonth(c) ? { month: getCourseStartMonth(c), date: new Date(c.classes.map(cl => cl.class_date).sort()[0]) } : null)
+      .filter(Boolean);
+    if (!startDates.length) return [];
+
+    // Sort by date and group: new cohort when gap > 21 days
+    const sorted = startDates.sort((a, b) => a.date - b.date);
+    const groups = [];
+    sorted.forEach(({ month, date }) => {
+      const prev = groups[groups.length - 1];
+      if (prev && (date - prev.lastDate) / 86400000 <= 21) {
+        if (!prev.months.includes(month)) prev.months.push(month);
+        prev.lastDate = date > prev.lastDate ? date : prev.lastDate;
+      } else {
+        groups.push({ months: [month], lastDate: date });
+      }
+    });
+
+    const fmt = m => { const [y, mo] = m.split('-'); return new Date(Number(y), Number(mo) - 1).toLocaleDateString('en-GB', { month: 'short' }); };
+    return groups.map((g, i) => {
+      const uniqueMonths = [...new Set(g.months)].sort();
+      const year = uniqueMonths[0].split('-')[0];
+      const range = uniqueMonths.length === 1
+        ? `${fmt(uniqueMonths[0])} ${year}`
+        : `${fmt(uniqueMonths[0])}–${fmt(uniqueMonths[uniqueMonths.length - 1])} ${year}`;
+      return { value: uniqueMonths.join(','), label: range };
+    });
+  })();
 
   // ── Class category ────────────────────────────────────────────────────────────
   const getClassCategory = (classType) => {
@@ -260,7 +325,10 @@ export default function AdminClasses() {
     });
     return all.filter(c => {
       if (classTypeFilter !== 'all' && getClassCategory(c.class_type) !== classTypeFilter) return false;
-      if (cohortFilter !== 'all' && getClassCohort(c.class_date) !== cohortFilter) return false;
+      if (cohortFilter !== 'all') {
+        const parentCourse = courses.find(co => co.classes?.some(cl => cl.id === c.id));
+        if (parentCourse && !cohortFilter.split(',').includes(getCourseStartMonth(parentCourse))) return false;
+      }
       return true;
     });
   };
@@ -269,7 +337,9 @@ export default function AdminClasses() {
   const getWTCourses = () => {
     const wtCourses = courses.filter(c => {
       if (!c.classes || c.classes.length === 0) return false;
-      return getClassCategory(c.classes[0]?.class_type) !== 'handbuilding';
+      if (getClassCategory(c.classes[0]?.class_type) === 'handbuilding') return false;
+      if (cohortFilter !== 'all' && !cohortFilter.split(',').includes(getCourseStartMonth(c))) return false;
+      return true;
     });
 
     if (classTypeFilter !== 'all' && classTypeFilter !== 'wheelthrowing-beginner' && classTypeFilter !== 'wheelthrowing-intermediate') {
@@ -314,7 +384,9 @@ export default function AdminClasses() {
   const getHBCourses = () => {
     const hbCourses = courses.filter(c => {
       if (!c.classes || c.classes.length === 0) return false;
-      return getClassCategory(c.classes[0]?.class_type) === 'handbuilding';
+      if (getClassCategory(c.classes[0]?.class_type) !== 'handbuilding') return false;
+      // HB is ongoing drop-in — always show regardless of cohort filter
+      return true;
     });
 
     if (classTypeFilter !== 'all' && classTypeFilter !== 'handbuilding') return [];
@@ -665,10 +737,10 @@ export default function AdminClasses() {
     const seenIds = new Set();
     course.classes.forEach(cls => {
       const members = classMembers[cls.id] || [];
-      members.filter(m => !m.isMakeup).forEach(m => {
+      members.filter(m => !m.isMakeup && m.courseEnrollmentId !== null).forEach(m => {
         if (!seenIds.has(m.studentId)) {
           seenIds.add(m.studentId);
-          allMembersForCourse.push({ name: `${m.firstName} ${m.lastName}`, orders: m.returningCount || 1, studentId: m.studentId, bookingId: m.bookingId, classInstance: cls });
+          allMembersForCourse.push({ name: `${m.firstName} ${m.lastName}`, orders: m.returningCount || 1, studentId: m.studentId, email: m.email, bookingId: m.bookingId, classInstance: cls });
         }
       });
     });
@@ -681,14 +753,14 @@ export default function AdminClasses() {
       <div key={course.id} style={{ borderBottom: `1px solid ${RULE}`, borderRight: rightBorder }}>
         {/* Card header */}
         <div
-          onClick={() => setExpandedCourse(isExpanded ? null : course.id)}
+          onClick={() => { if (isExpanded) { setExpandedCourse(null); } else { setExpandedCourse(course.id); if (course.classes[0]) loadClassMembers(course.classes[0]); } }}
           style={{ borderLeft: `3px solid ${borderColor}`, backgroundColor: isExpanded ? hoverBg : bgColor, padding: '12px 12px 12px 11px', cursor: 'pointer', transition: 'background-color 0.1s' }}
           onMouseEnter={e => { e.currentTarget.style.backgroundColor = hoverBg; }}
           onMouseLeave={e => { e.currentTarget.style.backgroundColor = isExpanded ? hoverBg : bgColor; }}
         >
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '4px', marginBottom: '5px' }}>
             <span style={{ fontFamily: 'monospace', fontSize: '11px', fontWeight: 700, letterSpacing: '0.03em', lineHeight: 1.3 }}>{course.id}</span>
-            <span style={{ fontSize: '8px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '2px 5px', backgroundColor: TC_LIGHT, color: TC_DARK, flexShrink: 0 }}>On</span>
+            <span style={{ fontSize: '8px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '2px 5px', backgroundColor: course.enrolled < 4 ? '#FFF7E6' : TC_LIGHT, color: course.enrolled < 4 ? '#9E6200' : TC_DARK, flexShrink: 0 }}>{course.enrolled < 4 ? 'Standby' : 'On'}</span>
           </div>
           <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '1px' }}>{course.dayName} · {course.timeLabel}</div>
           <div style={{ fontSize: '10px', color: MUTED, marginBottom: '10px' }}>{course.instructor}</div>
@@ -711,20 +783,11 @@ export default function AdminClasses() {
             <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: TC_DARK, marginBottom: '8px' }}>
               Enrolled — {enrolled}/{course.capacity}
             </div>
-            {/* Fetch members for first class if not yet loaded */}
-            {course.classes[0] && !classMembers[course.classes[0].id] && (
-              <button
-                onClick={e => { e.stopPropagation(); loadClassMembers(course.classes[0]); }}
-                style={{ fontSize: '10px', color: TC, border: 'none', background: 'none', cursor: 'pointer', padding: '0 0 8px', fontWeight: 700 }}
-              >
-                Load students ↓
-              </button>
-            )}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px', marginBottom: '10px' }}>
               {allMembersForCourse.map((s, j) => (
                 <div
                   key={j}
-                  onClick={e => { e.stopPropagation(); navigate(`/admin/students/${s.studentId}`); }}
+                  onClick={e => { e.stopPropagation(); navigate(`/admin/students/${encodeURIComponent(s.email)}`); }}
                   style={{ fontSize: '10px', fontWeight: 600, padding: '5px 8px', backgroundColor: '#FFFFFF', border: `1px solid rgba(196,98,45,0.2)`, color: INK, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '3px', cursor: 'pointer' }}
                 >
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortName(s.name)}</span>
@@ -780,7 +843,7 @@ export default function AdminClasses() {
     return (
       <div key={hb.id} style={{ borderBottom: `1px solid ${RULE}`, borderRight: rightBorder }}>
         <div
-          onClick={() => setExpandedHBCard(isExpanded ? null : hb.id)}
+          onClick={() => { if (isExpanded) { setExpandedHBCard(null); } else { setExpandedHBCard(hb.id); if (hb.classes[0]) loadClassMembers(hb.classes[0]); } }}
           style={{ borderLeft: `3px solid ${borderColor}`, backgroundColor: isExpanded ? ALT : '#FFFFFF', padding: '12px 12px 12px 11px', cursor: 'pointer', transition: 'background-color 0.1s' }}
           onMouseEnter={e => { e.currentTarget.style.backgroundColor = ALT; }}
           onMouseLeave={e => { e.currentTarget.style.backgroundColor = isExpanded ? ALT : '#FFFFFF'; }}
@@ -808,19 +871,11 @@ export default function AdminClasses() {
             <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED, marginBottom: '8px' }}>
               Enrolled — {count}/{hb.capacity}
             </div>
-            {hb.classes[0] && !classMembers[hb.classes[0].id] && (
-              <button
-                onClick={e => { e.stopPropagation(); loadClassMembers(hb.classes[0]); }}
-                style={{ fontSize: '10px', color: MUTED, border: 'none', background: 'none', cursor: 'pointer', padding: '0 0 8px', fontWeight: 700 }}
-              >
-                Load students ↓
-              </button>
-            )}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px' }}>
               {allMembers.map((m, j) => (
                 <div
                   key={j}
-                  onClick={() => navigate(`/admin/students/${m.studentId}`)}
+                  onClick={() => navigate(`/admin/students/${encodeURIComponent(m.email)}`)}
                   style={{ fontSize: '10px', fontWeight: 600, padding: '5px 8px', backgroundColor: '#FFFFFF', border: `1px solid ${RULE}`, color: INK, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '3px', cursor: 'pointer' }}
                 >
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortName(`${m.firstName} ${m.lastName}`)}</span>
@@ -940,7 +995,7 @@ export default function AdminClasses() {
             onMouseLeave={e => e.currentTarget.style.backgroundColor = '#FFFFFF'}
           >
             <span
-              onClick={() => navigate(`/admin/students/${m.studentId}`)}
+              onClick={() => navigate(`/admin/students/${encodeURIComponent(m.email)}`)}
               style={{ fontSize: '12px', fontWeight: 600, cursor: 'pointer', color: TC_DARK, textDecoration: 'underline' }}
             >
               {m.firstName} {m.lastName}
@@ -975,7 +1030,7 @@ export default function AdminClasses() {
             style={{ display: 'grid', gridTemplateColumns: '1fr 80px 60px', padding: '9px 12px', borderTop: `1px solid ${RULE}`, backgroundColor: '#FAF8FF', alignItems: 'center' }}
           >
             <span
-              onClick={() => navigate(`/admin/students/${m.studentId}`)}
+              onClick={() => navigate(`/admin/students/${encodeURIComponent(m.email)}`)}
               style={{ fontSize: '12px', fontWeight: 600, cursor: 'pointer', color: '#5A2D82', textDecoration: 'underline' }}
             >
               {m.firstName} {m.lastName}
@@ -1025,7 +1080,7 @@ export default function AdminClasses() {
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <AdminNav active="classes" />
+      <AdminNav active="classes" onSync={handleSync} syncing={syncing} syncMessage={syncMessage} />
 
       <main style={{ maxWidth: '1140px', margin: '0 auto', padding: isMobile ? '20px 16px 60px' : '32px 24px 60px' }}>
 
@@ -1035,7 +1090,7 @@ export default function AdminClasses() {
             <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>Admin</div>
             <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Class Schedule</h1>
           </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <button
               onClick={() => setShowAddSingleClass(true)}
               style={{ padding: isMobile ? '9px 14px' : '10px 18px', backgroundColor: 'transparent', color: TC, border: `1px solid ${TC}`, fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
@@ -1062,7 +1117,7 @@ export default function AdminClasses() {
               {/* WT */}
               {wtCourses.length > 0 && (
                 <>
-                  <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, marginBottom: '12px' }}>Wheelthrowing</div>
+                  <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, marginBottom: '12px' }}>Wheelthrowing Courses</div>
                   <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF', display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : `repeat(${Math.min(4, wtCourses.length)}, 1fr)` }}>
                     {wtCourses.map((course, i) => renderWTCard(course, i))}
                   </div>
@@ -1072,7 +1127,7 @@ export default function AdminClasses() {
               {/* HB */}
               {hbCourses.length > 0 && (
                 <>
-                  <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, margin: '16px 0 12px' }}>Handbuilding</div>
+                  <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, margin: '16px 0 12px' }}>Handbuilding Classes</div>
                   <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF', display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)' }}>
                     {hbCourses.map((hb, i) => renderHBCard(hb, i))}
                   </div>
@@ -1101,9 +1156,10 @@ export default function AdminClasses() {
               <div>
                 <label style={labelSt}>Cohort</label>
                 <select value={cohortFilter} onChange={e => setCohortFilter(e.target.value)} style={{ ...selectSt, width: 'auto', padding: '7px 10px' }}>
-                  <option value="all">All Cohorts</option>
-                  <option value="cohort1">Cohort 1 (Jan)</option>
-                  <option value="cohort2">Cohort 2 (Feb–Mar)</option>
+                  <option value="all">All</option>
+                  {cohortOptions.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
                 </select>
               </div>
             </div>

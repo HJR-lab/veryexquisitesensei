@@ -19,7 +19,7 @@ const NAV = [
   { id: 'memberships', label: 'Members',   href: '/admin/memberships' },
 ];
 
-function AdminNav({ active }) {
+function AdminNav({ active, onSync, syncing, syncMessage }) {
   return (
     <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: '#FFFFFF', borderBottom: `1px solid ${RULE}` }}>
       <div style={{ maxWidth: '1140px', margin: '0 auto', padding: '0 24px', height: '52px', display: 'flex', alignItems: 'center', gap: '24px' }}>
@@ -54,6 +54,19 @@ function AdminNav({ active }) {
             </a>
           ))}
         </nav>
+        {syncMessage && (
+          <span style={{ fontSize: '11px', fontWeight: 600, color: syncMessage.type === 'ok' ? '#1E6B1E' : '#C0392B', flexShrink: 0 }}>
+            {syncMessage.text}
+          </span>
+        )}
+        <button
+          onClick={onSync}
+          disabled={syncing}
+          style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 10px', backgroundColor: 'transparent', border: `1px solid ${RULE}`, color: syncing ? MUTED : INK, fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: syncing ? 'default' : 'pointer', flexShrink: 0 }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>sync</span>
+          {syncing ? 'Syncing…' : 'Sync'}
+        </button>
         <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', backgroundColor: INK, color: '#FFF', flexShrink: 0 }}>
           Admin
         </span>
@@ -108,8 +121,9 @@ export default function AdminStudents() {
   const navigate = useNavigate();
   const { logout } = useAuth();
 
-  const [loading,  setLoading]  = useState(false);
-  const [syncing,  setSyncing]  = useState(false);
+  const [loading,     setLoading]     = useState(false);
+  const [syncing,     setSyncing]     = useState(false);
+  const [syncMessage, setSyncMessage] = useState(null); // { type: 'ok'|'err', text }
 
   // Stats
   const [stats, setStats] = useState({
@@ -151,7 +165,7 @@ export default function AdminStudents() {
   // UI: active tab, search, sort within unified view
   const [tab,    setTab]    = useState('all');   // 'all' | 'wt-now' | 'wt-next' | 'hb' | 'paused'
   const [search, setSearch] = useState('');
-  const [uiSort, setUiSort] = useState('cohort'); // 'cohort'|'earliest'|'latest'|'name'|'orders'
+  const [uiSort, setUiSort] = useState('cohort'); // 'cohort'|'course-asc'|'course-desc'|'name'|'recent'
 
   useEffect(() => { loadStats(); }, []);
 
@@ -178,21 +192,18 @@ export default function AdminStudents() {
   const syncFromShopify = async () => {
     try {
       setSyncing(true);
-      const customersResponse = await api.post('/admin/sync-shopify-customers');
-      const ordersResponse    = await api.post('/admin/sync-shopify-orders');
-      const hbResponse        = await api.post('/admin/backfill-hb-credits');
+      setSyncMessage(null);
+      await api.post('/admin/sync-shopify-customers');
+      const ordersResponse = await api.post('/admin/sync-shopify-orders');
+      await api.post('/admin/backfill-hb-credits');
       await loadStats();
-      alert(
-        `Successfully synced from Shopify!\n\n` +
-        `Customers: ${customersResponse.data.count || 0}\n` +
-        `Enrollments created: ${ordersResponse.data.enrollmentsCreated || 0}\n` +
-        `Orders processed: ${ordersResponse.data.processedCount || 0}\n` +
-        `HB credits fixed: ${hbResponse.data.fixed || 0}`
-      );
+      const n = ordersResponse.data.enrollmentsCreated || 0;
+      setSyncMessage({ type: 'ok', text: n > 0 ? `Synced — ${n} new enrollment${n !== 1 ? 's' : ''}` : 'Synced — no new enrollments' });
     } catch (error) {
-      alert(`Failed to sync from Shopify: ${error.response?.data?.error || error.message}`);
+      setSyncMessage({ type: 'err', text: 'Sync failed' });
     } finally {
       setSyncing(false);
+      setTimeout(() => setSyncMessage(null), 5000);
     }
   };
 
@@ -413,6 +424,7 @@ export default function AdminStudents() {
       _enrollmentId: s.enrollmentId,
       _variantTitle: s.variantTitle || s.courseIdentifier || '',
       _lastClassDate: null,
+      _recentDate: s.coursePurchaseDate || null,
     }));
 
     const hbAll = getSortedHbStudents().map(s => ({
@@ -425,6 +437,7 @@ export default function AdminStudents() {
       _enrollmentId: s.enrollmentId,
       _variantTitle: s.variantTitle || s.courseTitle || 'HB',
       _lastClassDate: null,
+      _recentDate: s.createdAt || null,
     }));
 
     const paused = pausedStudentsList.map(s => ({
@@ -436,6 +449,7 @@ export default function AdminStudents() {
       _enrollmentId: s.enrollmentId,
       _variantTitle: s.variantTitle || s.courseIdentifier || '',
       _lastClassDate: null,
+      _recentDate: s.coursePurchaseDate || null,
     }));
 
     return [...wtActive, ...hbAll, ...paused];
@@ -452,10 +466,10 @@ export default function AdminStudents() {
 
   const applySort = (list) => {
     switch (uiSort) {
-      case 'name':     return [...list].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-      case 'earliest': return [...list].sort((a, b) => (parseCourseStartDate(a.courseIdentifier) || new Date(9e14)) - (parseCourseStartDate(b.courseIdentifier) || new Date(9e14)));
-      case 'latest':   return [...list].sort((a, b) => (parseCourseStartDate(b.courseIdentifier) || new Date(0)) - (parseCourseStartDate(a.courseIdentifier) || new Date(0)));
-      case 'orders':   return [...list].sort((a, b) => (b._purchaseCount || 0) - (a._purchaseCount || 0));
+      case 'name':       return [...list].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      case 'course-asc': return [...list].sort((a, b) => (parseCourseStartDate(a.courseIdentifier) || new Date(9e14)) - (parseCourseStartDate(b.courseIdentifier) || new Date(9e14)));
+      case 'course-desc':return [...list].sort((a, b) => (parseCourseStartDate(b.courseIdentifier) || new Date(0)) - (parseCourseStartDate(a.courseIdentifier) || new Date(0)));
+      case 'recent':     return [...list].sort((a, b) => new Date(b._recentDate || 0) - new Date(a._recentDate || 0));
       case 'cohort':
       default: {
         return [...list].sort((a, b) => {
@@ -489,7 +503,7 @@ export default function AdminStudents() {
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <AdminNav active="students" />
+      <AdminNav active="students" onSync={syncFromShopify} syncing={syncing} syncMessage={syncMessage} />
 
       <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '32px 24px 60px' }}>
 
@@ -499,89 +513,53 @@ export default function AdminStudents() {
             <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>Admin</div>
             <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Students</h1>
           </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              onClick={syncFromShopify}
-              disabled={syncing}
-              style={{ padding: '10px 16px', backgroundColor: 'transparent', border: `1px solid ${RULE}`, color: INK, fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', cursor: syncing ? 'not-allowed' : 'pointer', opacity: syncing ? 0.5 : 1 }}
-            >
-              {syncing ? 'Syncing…' : 'Sync Shopify'}
-            </button>
-          </div>
         </div>
 
-        {/* ── Stats strip ──────────────────────────────────────────────── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1px', backgroundColor: RULE, border: `1px solid ${RULE}`, marginBottom: '24px' }}>
-          {[
-            { label: 'Total',       value: tabCounts.all },
-            { label: 'WT Current',  value: tabCounts['wt-now'] },
-            { label: 'WT Upcoming', value: tabCounts['wt-next'] },
-            { label: 'HB Ongoing',  value: tabCounts.hb },
-            { label: 'Paused',      value: tabCounts.paused },
-          ].map((s, i) => (
-            <div key={i} style={{ backgroundColor: '#FFFFFF', padding: '16px 20px' }}>
-              <div style={{ fontSize: '28px', fontWeight: 700 }}>{loading ? '—' : s.value}</div>
-              <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '3px' }}>{s.label}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* ── Search + filter tabs + sort ───────────────────────────────── */}
-        <div style={{ display: 'flex', alignItems: 'stretch', borderBottom: `1px solid ${RULE}`, gap: 0, flexWrap: 'wrap' }}>
-
-          {/* Search */}
-          <div style={{ position: 'relative', width: '220px', flexShrink: 0, borderRight: `1px solid ${RULE}` }}>
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search students…"
-              style={{ width: '100%', height: '100%', padding: '10px 12px', border: 'none', backgroundColor: '#FFFFFF', fontSize: '13px', color: INK, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
-            />
-          </div>
-
-          {/* Filter tabs */}
-          <div style={{ display: 'flex', flex: 1, overflowX: 'auto' }}>
+        {/* ── Stats strip (clickable filter) + sort ────────────────────── */}
+        <div style={{ border: `1px solid ${RULE}`, marginBottom: '0' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1px', backgroundColor: RULE }}>
             {[
-              { key: 'all',      label: 'All' },
-              { key: 'wt-now',   label: 'WT Current' },
-              { key: 'wt-next',  label: 'WT Upcoming' },
-              { key: 'hb',       label: 'HB' },
-              { key: 'paused',   label: 'Paused' },
-            ].map(t => (
+              { key: 'all',     label: 'Total',       value: tabCounts.all },
+              { key: 'wt-now',  label: 'WT Current',  value: tabCounts['wt-now'] },
+              { key: 'wt-next', label: 'WT Upcoming', value: tabCounts['wt-next'] },
+              { key: 'hb',      label: 'HB Ongoing',  value: tabCounts.hb },
+              { key: 'paused',  label: 'Paused',      value: tabCounts.paused },
+            ].map((s) => (
               <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
+                key={s.key}
+                onClick={() => setTab(s.key)}
                 style={{
-                  padding: '12px 16px', border: 'none', background: 'transparent', cursor: 'pointer',
-                  fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', whiteSpace: 'nowrap',
-                  color: tab === t.key ? INK : MUTED,
-                  borderBottom: `2px solid ${tab === t.key ? INK : 'transparent'}`,
-                  marginBottom: '-1px',
+                  backgroundColor: tab === s.key ? INK : '#FFFFFF',
+                  padding: '16px 20px', border: 'none', cursor: 'pointer', textAlign: 'left',
+                  transition: 'background-color 0.1s',
                 }}
               >
-                {t.label}{' '}
-                <span style={{ color: tab === t.key ? TC : MUTED, marginLeft: '3px' }}>{tabCounts[t.key]}</span>
+                <div style={{ fontSize: '28px', fontWeight: 700, color: tab === s.key ? '#FFF' : INK, lineHeight: 1 }}>
+                  {loading ? '—' : s.value}
+                </div>
+                <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '4px', color: tab === s.key ? 'rgba(255,255,255,0.55)' : MUTED }}>
+                  {s.label}
+                </div>
               </button>
             ))}
           </div>
-
-          {/* Sort */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '0 12px', borderLeft: `1px solid ${RULE}`, flexShrink: 0 }}>
-            <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginRight: '4px' }}>Sort</span>
+          {/* Sort row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '8px 16px', borderTop: `1px solid ${RULE}`, backgroundColor: ALT }}>
+            <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginRight: '6px' }}>Sort</span>
             {[
-              { key: 'cohort',   label: 'Cohort' },
-              { key: 'earliest', label: 'Earliest' },
-              { key: 'latest',   label: 'Latest' },
-              { key: 'name',     label: 'Name' },
-              { key: 'orders',   label: 'Orders' },
+              { key: 'cohort',      label: 'Cohort' },
+              { key: 'course-asc',  label: 'Course ↑' },
+              { key: 'course-desc', label: 'Course ↓' },
+              { key: 'name',        label: 'Name' },
+              { key: 'recent',      label: 'Recent' },
             ].map(s => (
               <button
                 key={s.key}
                 onClick={() => setUiSort(s.key)}
                 style={{
-                  padding: '5px 10px',
+                  padding: '4px 10px',
                   border: `1px solid ${uiSort === s.key ? INK : RULE}`,
-                  backgroundColor: uiSort === s.key ? INK : 'transparent',
+                  backgroundColor: uiSort === s.key ? INK : '#FFFFFF',
                   color: uiSort === s.key ? '#FFF' : MUTED,
                   fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', cursor: 'pointer',
                 }}
@@ -590,6 +568,16 @@ export default function AdminStudents() {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* ── Search ────────────────────────────────────────────────────── */}
+        <div style={{ borderBottom: `1px solid ${RULE}`, borderLeft: `1px solid ${RULE}`, borderRight: `1px solid ${RULE}`, marginBottom: '24px' }}>
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search students…"
+            style={{ width: '100%', padding: '10px 14px', border: 'none', backgroundColor: '#FFFFFF', fontSize: '13px', color: INK, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
+          />
         </div>
 
         {/* ── HB bulk action bar (shown only when in HB tab with selections) */}

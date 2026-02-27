@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import AIChat from './components/AIChat';
@@ -53,6 +54,14 @@ function PrivateRoute({ children }) {
 
 function AdminRoute({ children }) {
   const { user, loading } = useAuth();
+
+  // If in an impersonated session accessing admin routes, restore the admin token
+  // so subsequent API calls (like re-impersonating) use the admin token
+  useEffect(() => {
+    if (user && user.originalAdminToken && !user.isAdmin) {
+      localStorage.setItem('token', user.originalAdminToken);
+    }
+  }, [user]);
 
   if (loading) {
     return (

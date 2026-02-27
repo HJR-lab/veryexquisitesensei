@@ -25,7 +25,6 @@ function useIsMobile(bp = 768) {
 
 // ─── Nav ──────────────────────────────────────────────────────────────────────
 const NAV_LINKS = [
-  { id: 'dashboard',   label: 'Dashboard', href: '/admin' },
   { id: 'classes',     label: 'Classes',   href: '/admin/classes' },
   { id: 'students',    label: 'Students',  href: '/admin/students' },
   { id: 'memberships', label: 'Members',   href: '/admin/memberships' },
@@ -35,11 +34,13 @@ function AdminNav({ active }) {
   return (
     <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: '#FFFFFF', borderBottom: `1px solid ${RULE}` }}>
       <div style={{ maxWidth: '1140px', margin: '0 auto', padding: '0 24px', height: '52px', display: 'flex', alignItems: 'center', gap: '24px' }}>
-        <img
-          src="https://ves.sg/cdn/shop/files/logo_04a04687-57f4-4141-b0bc-ec30b527fd73.png?v=1686045719&width=600"
-          alt="VES"
-          style={{ height: '22px', width: 'auto', flexShrink: 0 }}
-        />
+        <a href="/admin" style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+          <img
+            src="https://ves.sg/cdn/shop/files/logo_04a04687-57f4-4141-b0bc-ec30b527fd73.png?v=1686045719&width=600"
+            alt="VES"
+            style={{ height: '22px', width: 'auto' }}
+          />
+        </a>
         <div style={{ width: '1px', height: '18px', backgroundColor: RULE, flexShrink: 0 }} />
         <nav style={{ display: 'flex', flex: 1 }}>
           {NAV_LINKS.map(link => (

@@ -4756,11 +4756,8 @@ app.get('/api/admin/dashboard/stats', authenticateToken, async (req, res) => {
 
     // Use future classes for capacity calculation
     const totalCapacity = futureClasses.reduce((sum, cls) => sum + (cls.max_capacity || 8), 0);
-    const futureBookings = allBookings.filter(b => {
-      // We need to join with class_instances to check if booking is for a future class
-      // For now, just use total bookings as an approximation
-      return true;
-    });
+    const futureClassIdSet = new Set(futureClasses.map(c => c.id));
+    const futureBookings = allBookings.filter(b => futureClassIdSet.has(b.class_instance_id));
     const availableSpots = Math.max(0, totalCapacity - futureBookings.length);
 
     // Calculate booking stats
@@ -4800,7 +4797,7 @@ app.get('/api/admin/dashboard/stats', authenticateToken, async (req, res) => {
         paused: pausedStudentsCount
       },
       classes: {
-        total: allClasses.length,
+        total: futureClasses.length,
         enrolled: totalEnrolled,
         availableSpots: Math.max(0, availableSpots)
       },

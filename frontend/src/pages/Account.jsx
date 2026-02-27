@@ -2,10 +2,43 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import axios from 'axios';
-import Navigation from '../components/Navigation';
+
+const TC       = '#C4622D';
+const TC_LIGHT = '#F9EDE6';
+const TC_DARK  = '#9E4A1E';
+const INK      = '#282828';
+const MUTED    = '#888888';
+const RULE     = 'rgba(40,40,40,0.09)';
+const ALT      = '#F5F3F0';
+
+function FieldRow({ label, value, type = 'text', readOnly = false, onChange }) {
+  return (
+    <div style={{ marginBottom: '16px' }}>
+      <label style={{
+        display: 'block', fontSize: '10px', fontWeight: 700,
+        letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED, marginBottom: '6px',
+      }}>
+        {label}
+      </label>
+      <input
+        type={type}
+        value={value}
+        readOnly={readOnly}
+        onChange={onChange}
+        style={{
+          width: '100%', padding: '10px 12px',
+          border: `1px solid ${RULE}`, backgroundColor: readOnly ? ALT : '#FFFFFF',
+          fontSize: '14px', color: readOnly ? MUTED : INK,
+          outline: 'none', boxSizing: 'border-box',
+          fontFamily: 'Atak, sans-serif',
+        }}
+      />
+    </div>
+  );
+}
 
 export default function Account() {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, logout } = useAuth();
   const [activeTab, setActiveTab] = useState('details');
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -212,309 +245,316 @@ export default function Account() {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
+  const memberSince = user?.createdAt
+    ? new Date(user.createdAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+    : null;
+
+  const tabs = [
+    { id: 'details',  label: 'Details'  },
+    { id: 'security', label: 'Password' },
+    { id: 'history',  label: 'History'  },
+  ];
+
+  const bottomNavTabs = [
+    { id: 'home',    label: 'Home',    icon: 'home',           href: '/dashboard' },
+    { id: 'classes', label: 'Classes', icon: 'calendar_month', href: '/classes' },
+    { id: 'gallery', label: 'Gallery', icon: 'photo_library',  href: '/gallery' },
+    { id: 'account', label: 'Account', icon: 'person',         href: '/account' },
+  ];
+
   return (
-    <div className="min-h-screen bg-background font-display text-text">
-      <Navigation />
+    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#FFFFFF', minHeight: '100vh' }}>
 
-      <main className="flex-1 w-full max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <h1 className="text-3xl font-bold text-text mb-6">My Account</h1>
+      {/* MEMBERSHIP HINT BANNER */}
+      <div style={{ backgroundColor: TC_LIGHT, width: '100%' }}>
+        <div style={{
+          maxWidth: '520px', margin: '0 auto', padding: '9px 20px',
+          display: 'flex', alignItems: 'center', gap: '10px',
+        }}>
+          <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: TC_DARK, flexShrink: 0 }}>
+            Ves &bull; Clay Club Membership
+          </span>
+          <span style={{ fontSize: '11px', color: INK, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            Unlock unlimited studio access now!
+          </span>
+          <a href="/membership" style={{
+            fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+            color: TC, textDecoration: 'none', whiteSpace: 'nowrap',
+            borderBottom: `1px solid ${TC}`, paddingBottom: '1px', flexShrink: 0,
+          }}>
+            View plans
+          </a>
+        </div>
+      </div>
 
-        {/* Message Display */}
+      {/* TOP BAR */}
+      <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: '#FFFFFF', borderBottom: `1px solid ${RULE}` }}>
+        <div style={{ maxWidth: '520px', margin: '0 auto', padding: '0 20px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <img
+            src="https://ves.sg/cdn/shop/files/logo_04a04687-57f4-4141-b0bc-ec30b527fd73.png?v=1686045719&width=600"
+            alt="VES"
+            style={{ height: '26px', width: 'auto' }}
+          />
+        </div>
+      </header>
+
+      <main style={{ maxWidth: '520px', margin: '0 auto', padding: '0 0 88px' }}>
+
+        {/* PAGE HEADER + AVATAR */}
+        <div style={{ padding: '28px 20px 20px', borderBottom: `1px solid ${RULE}`, display: 'flex', alignItems: 'center', gap: '16px' }}>
+          {/* Avatar */}
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <div style={{
+              width: '56px', height: '56px', backgroundColor: TC_LIGHT,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+            }}>
+              {memberDetails.profilePicture ? (
+                <img
+                  src={memberDetails.profilePicture}
+                  alt={`${memberDetails.firstName} ${memberDetails.lastName}`}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              ) : (
+                <span style={{ fontSize: '22px', fontWeight: 700, color: TC_DARK }}>
+                  {memberDetails.firstName ? memberDetails.firstName.charAt(0).toUpperCase() : '?'}
+                </span>
+              )}
+            </div>
+            {/* Hidden file input */}
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleProfilePictureUpload}
+              disabled={uploading}
+              id="profile-picture-upload"
+              style={{ display: 'none' }}
+            />
+          </div>
+
+          <div>
+            <h1 style={{ fontSize: '22px', fontWeight: 700, letterSpacing: '-0.2px', margin: '0 0 3px' }}>
+              {memberDetails.firstName} {memberDetails.lastName}
+            </h1>
+            {memberSince && (
+              <div style={{ fontSize: '12px', color: MUTED }}>Member since {memberSince}</div>
+            )}
+            <label
+              htmlFor="profile-picture-upload"
+              style={{
+                display: 'inline-block', marginTop: '4px',
+                fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                color: TC, cursor: uploading ? 'not-allowed' : 'pointer',
+                borderBottom: `1px solid ${TC}`, paddingBottom: '1px',
+              }}
+            >
+              {uploading ? 'Uploading...' : 'Update photo'}
+            </label>
+          </div>
+        </div>
+
+        {/* SECTION TABS */}
+        <div style={{ display: 'flex', borderBottom: `1px solid ${RULE}` }}>
+          {tabs.map(t => (
+            <button
+              key={t.id}
+              onClick={() => { setActiveTab(t.id); setMessage({ type: '', text: '' }); }}
+              style={{
+                flex: 1, padding: '12px 0', border: 'none', background: 'transparent', cursor: 'pointer',
+                fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+                color: activeTab === t.id ? INK : MUTED,
+                borderBottom: `2px solid ${activeTab === t.id ? INK : 'transparent'}`,
+                transition: 'all 0.15s ease',
+                fontFamily: 'Atak, sans-serif',
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* MESSAGE BAR */}
         {message.text && (
-          <div className={`mb-6 p-4 border ${
-            message.type === 'success'
-              ? 'bg-green-50 border-green-500 text-green-700'
-              : 'bg-red-50 border-red-500 text-red-700'
-          }`}>
+          <div style={{
+            margin: '16px 20px 0',
+            padding: '10px 14px',
+            fontSize: '12px',
+            fontWeight: 600,
+            backgroundColor: message.type === 'success' ? '#F0FAF0' : '#FFF0F0',
+            color: message.type === 'success' ? '#2A7A2A' : '#C03030',
+            border: `1px solid ${message.type === 'success' ? 'rgba(42,122,42,0.25)' : 'rgba(192,48,48,0.25)'}`,
+          }}>
             {message.text}
           </div>
         )}
 
-        {/* Tab Navigation */}
-        <div className="mb-6 border-b border-border">
-          <div className="flex gap-8">
-            <button
-              onClick={() => setActiveTab('details')}
-              className={`pb-3 px-1 text-sm font-medium uppercase tracking-wide transition-colors ${
-                activeTab === 'details'
-                  ? 'text-text border-b-2 border-text'
-                  : 'text-text-muted hover:text-text'
-              }`}
-            >
-              Details
-            </button>
-            <button
-              onClick={() => setActiveTab('security')}
-              className={`pb-3 px-1 text-sm font-medium uppercase tracking-wide transition-colors ${
-                activeTab === 'security'
-                  ? 'text-text border-b-2 border-text'
-                  : 'text-text-muted hover:text-text'
-              }`}
-            >
-              Password
-            </button>
-            <button
-              onClick={() => setActiveTab('history')}
-              className={`pb-3 px-1 text-sm font-medium uppercase tracking-wide transition-colors ${
-                activeTab === 'history'
-                  ? 'text-text border-b-2 border-text'
-                  : 'text-text-muted hover:text-text'
-              }`}
-            >
-              Course History
-            </button>
-          </div>
-        </div>
-
-        {/* Details Tab */}
+        {/* DETAILS TAB */}
         {activeTab === 'details' && (
-          <div className="bg-background-alt border border-border p-6">
-            <h2 className="text-xl font-bold text-text mb-4">Details</h2>
-            <form onSubmit={handleMemberDetailsSubmit} className="space-y-4">
-              {/* Profile Picture */}
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-text mb-3">Profile Picture</label>
-                <div className="flex items-center gap-6">
-                  {memberDetails.profilePicture || user?.profilePicture ? (
-                    <img
-                      src={memberDetails.profilePicture || user?.profilePicture}
-                      alt={`${user?.firstName} ${user?.lastName}`}
-                      className="w-24 h-24 rounded-full object-cover border-2 border-border"
-                    />
-                  ) : (
-                    <div className="w-24 h-24 rounded-full bg-gray-200 flex items-center justify-center border-2 border-border">
-                      <span className="material-symbols-outlined text-gray-400 text-4xl">person</span>
-                    </div>
-                  )}
-                  <div className="flex-1">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleProfilePictureUpload}
-                      disabled={uploading}
-                      className="hidden"
-                      id="profile-picture-upload"
-                    />
-                    <label
-                      htmlFor="profile-picture-upload"
-                      className={`inline-flex items-center gap-2 px-4 py-2 border border-border cursor-pointer transition-colors ${
-                        uploading
-                          ? 'bg-gray-100 cursor-not-allowed'
-                          : 'bg-background hover:bg-background-alt'
-                      }`}
-                    >
-                      <span className="material-symbols-outlined text-sm">
-                        {uploading ? 'sync' : 'upload'}
-                      </span>
-                      <span className="text-sm text-text">
-                        {uploading ? 'Uploading...' : 'Upload Image'}
-                      </span>
-                    </label>
-                    {(memberDetails.profilePicture || user?.profilePicture) && (
-                      <button
-                        type="button"
-                        onClick={() => setMemberDetails({ ...memberDetails, profilePicture: '' })}
-                        className="ml-2 inline-flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 border border-red-600 transition-colors"
-                      >
-                        <span className="material-symbols-outlined text-sm">delete</span>
-                        <span>Remove</span>
-                      </button>
-                    )}
+          <div style={{ padding: '24px 20px' }}>
+            <form onSubmit={handleMemberDetailsSubmit}>
+              <FieldRow
+                label="First Name"
+                value={memberDetails.firstName}
+                onChange={e => setMemberDetails({ ...memberDetails, firstName: e.target.value })}
+              />
+              <FieldRow
+                label="Last Name"
+                value={memberDetails.lastName}
+                onChange={e => setMemberDetails({ ...memberDetails, lastName: e.target.value })}
+              />
+              <FieldRow
+                label="Email"
+                value={memberDetails.email}
+                type="email"
+                onChange={e => setMemberDetails({ ...memberDetails, email: e.target.value })}
+              />
+              <FieldRow
+                label="Mobile"
+                value={memberDetails.mobile}
+                type="tel"
+                onChange={e => setMemberDetails({ ...memberDetails, mobile: e.target.value })}
+              />
+              <FieldRow
+                label="Date of Birth"
+                value={memberDetails.dateOfBirth}
+                type="date"
+                onChange={e => setMemberDetails({ ...memberDetails, dateOfBirth: e.target.value })}
+              />
+
+              <button
+                type="submit"
+                disabled={loading}
+                style={{
+                  width: '100%', padding: '13px', marginTop: '8px',
+                  border: 'none', backgroundColor: loading ? MUTED : INK, color: '#FFF',
+                  fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  fontFamily: 'Atak, sans-serif',
+                }}
+              >
+                {loading ? 'Saving...' : 'Save Changes'}
+              </button>
+            </form>
+
+            <div style={{ marginTop: '32px', paddingTop: '24px', borderTop: `1px solid ${RULE}` }}>
+              <button
+                onClick={logout}
+                style={{
+                  width: '100%', padding: '13px',
+                  border: '1px solid rgba(200,50,50,0.3)', backgroundColor: 'transparent',
+                  fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+                  cursor: 'pointer', color: '#C03030',
+                  fontFamily: 'Atak, sans-serif',
+                }}
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* PASSWORD TAB */}
+        {activeTab === 'security' && (
+          <div style={{ padding: '24px 20px' }}>
+            <form onSubmit={handlePasswordChange}>
+              <FieldRow
+                label="Current Password"
+                value={passwords.currentPassword}
+                type="password"
+                onChange={e => setPasswords({ ...passwords, currentPassword: e.target.value })}
+              />
+              <FieldRow
+                label="New Password"
+                value={passwords.newPassword}
+                type="password"
+                onChange={e => setPasswords({ ...passwords, newPassword: e.target.value })}
+              />
+              <FieldRow
+                label="Confirm Password"
+                value={passwords.confirmPassword}
+                type="password"
+                onChange={e => setPasswords({ ...passwords, confirmPassword: e.target.value })}
+              />
+              <div style={{ fontSize: '11px', color: MUTED, marginTop: '-8px', marginBottom: '20px' }}>
+                Minimum 6 characters
+              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                style={{
+                  width: '100%', padding: '13px',
+                  border: 'none', backgroundColor: loading ? MUTED : INK, color: '#FFF',
+                  fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  fontFamily: 'Atak, sans-serif',
+                }}
+              >
+                {loading ? 'Changing...' : 'Change Password'}
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* HISTORY TAB */}
+        {activeTab === 'history' && (
+          <div style={{ padding: '24px 20px' }}>
+            {/* Stats strip */}
+            <div style={{ display: 'flex', gap: '1px', marginBottom: '24px' }}>
+              {[
+                { label: 'Courses',          value: history.length },
+                { label: 'Completed',        value: history.filter(h => h.status === 'completed').length },
+                { label: 'Classes Attended', value: stats.attendedClasses || history.reduce((s, h) => s + (h.classesAttended || 0), 0) },
+              ].map((stat, i) => (
+                <div key={i} style={{ flex: 1, padding: '12px', backgroundColor: ALT, textAlign: 'center' }}>
+                  <div style={{ fontSize: '22px', fontWeight: 700 }}>{stat.value}</div>
+                  <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '2px' }}>
+                    {stat.label}
                   </div>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="firstName" className="block text-sm font-medium text-text mb-1">
-                    First Name *
-                  </label>
-                  <input
-                    type="text"
-                    id="firstName"
-                    value={memberDetails.firstName}
-                    onChange={(e) => setMemberDetails({ ...memberDetails, firstName: e.target.value })}
-                    required
-                    className="w-full px-3 py-2 border border-border bg-background text-text focus:outline-none focus:border-text"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="lastName" className="block text-sm font-medium text-text mb-1">
-                    Last Name *
-                  </label>
-                  <input
-                    type="text"
-                    id="lastName"
-                    value={memberDetails.lastName}
-                    onChange={(e) => setMemberDetails({ ...memberDetails, lastName: e.target.value })}
-                    required
-                    className="w-full px-3 py-2 border border-border bg-background text-text focus:outline-none focus:border-text"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-text mb-1">
-                  Email *
-                </label>
-                <input
-                  type="email"
-                  id="email"
-                  value={memberDetails.email}
-                  onChange={(e) => setMemberDetails({ ...memberDetails, email: e.target.value })}
-                  required
-                  className="w-full px-3 py-2 border border-border bg-background text-text focus:outline-none focus:border-text"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="mobile" className="block text-sm font-medium text-text mb-1">
-                  Mobile Number
-                </label>
-                <input
-                  type="tel"
-                  id="mobile"
-                  value={memberDetails.mobile}
-                  onChange={(e) => setMemberDetails({ ...memberDetails, mobile: e.target.value })}
-                  className="w-full px-3 py-2 border border-border bg-background text-text focus:outline-none focus:border-text"
-                  placeholder="+65 1234 5678"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="dateOfBirth" className="block text-sm font-medium text-text mb-1">
-                  Date of Birth
-                </label>
-                <input
-                  type="date"
-                  id="dateOfBirth"
-                  value={memberDetails.dateOfBirth}
-                  onChange={(e) => setMemberDetails({ ...memberDetails, dateOfBirth: e.target.value })}
-                  className="w-full px-3 py-2 border border-border bg-background text-text focus:outline-none focus:border-text"
-                />
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4">
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="px-6 py-2 bg-gray-800 text-white text-sm font-normal uppercase tracking-wide hover:bg-gray-700 transition-colors border border-gray-800 disabled:opacity-50"
-                >
-                  {loading ? 'Saving...' : 'Save Changes'}
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
-        {/* Password Tab */}
-        {activeTab === 'security' && (
-          <div className="bg-background-alt border border-border p-6">
-            <h2 className="text-xl font-bold text-text mb-4">Password</h2>
-            <form onSubmit={handlePasswordChange} className="space-y-4 max-w-md">
-              <div>
-                <label htmlFor="currentPassword" className="block text-sm font-medium text-text mb-1">
-                  Current Password *
-                </label>
-                <input
-                  type="password"
-                  id="currentPassword"
-                  value={passwords.currentPassword}
-                  onChange={(e) => setPasswords({ ...passwords, currentPassword: e.target.value })}
-                  required
-                  className="w-full px-3 py-2 border border-border bg-background text-text focus:outline-none focus:border-text"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="newPassword" className="block text-sm font-medium text-text mb-1">
-                  New Password *
-                </label>
-                <input
-                  type="password"
-                  id="newPassword"
-                  value={passwords.newPassword}
-                  onChange={(e) => setPasswords({ ...passwords, newPassword: e.target.value })}
-                  required
-                  minLength={6}
-                  className="w-full px-3 py-2 border border-border bg-background text-text focus:outline-none focus:border-text"
-                />
-                <p className="text-xs text-text-muted mt-1">Minimum 6 characters</p>
-              </div>
-
-              <div>
-                <label htmlFor="confirmPassword" className="block text-sm font-medium text-text mb-1">
-                  Confirm New Password *
-                </label>
-                <input
-                  type="password"
-                  id="confirmPassword"
-                  value={passwords.confirmPassword}
-                  onChange={(e) => setPasswords({ ...passwords, confirmPassword: e.target.value })}
-                  required
-                  minLength={6}
-                  className="w-full px-3 py-2 border border-border bg-background text-text focus:outline-none focus:border-text"
-                />
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4">
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="px-6 py-2 bg-gray-800 text-white text-sm font-normal uppercase tracking-wide hover:bg-gray-700 transition-colors border border-gray-800 disabled:opacity-50"
-                >
-                  {loading ? 'Changing...' : 'Change Password'}
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
-        {/* Class History Tab */}
-        {activeTab === 'history' && (
-          <div className="bg-background-alt border border-border p-6">
-            <div className="mb-4">
-              <h2 className="text-xl font-bold text-text mb-1">My Course History</h2>
-              <div className="text-sm text-text-muted">
-                <p>
-                  {history.length} courses purchased, {history.filter(c => c.status === 'completed').length} completed
-                </p>
-              </div>
+              ))}
             </div>
 
+            {/* Course list */}
             {history.length === 0 ? (
-              <div className="text-center py-12">
-                <span className="material-symbols-outlined text-6xl text-text-muted mb-4 block">
-                  history_edu
-                </span>
-                <h3 className="text-xl font-bold text-text mb-2">No Course History</h3>
-                <p className="text-text-muted">Your completed courses will appear here</p>
+              <div style={{ textAlign: 'center', padding: '40px 0', color: MUTED }}>
+                <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '6px' }}>No Course History</div>
+                <div style={{ fontSize: '12px' }}>Your completed courses will appear here</div>
               </div>
             ) : (
-              <div className="space-y-3">
-                {history.map((course) => (
-                  <div key={course.id} className="p-4 bg-background border border-border">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1">
-                        <h4 className="font-bold text-text mb-1">{course.courseIdentifier || course.courseTitle}</h4>
-                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted mb-2">
-                          <span>{formatHistoryDate(course.startDate)} - {formatHistoryDate(course.endDate)}</span>
-                          <span>with {course.instructor || 'VES Instructor'}</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {history.map(course => (
+                  <div key={course.id} style={{ padding: '14px', border: `1px solid ${RULE}`, backgroundColor: ALT }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '3px' }}>
+                          {course.courseIdentifier || course.courseTitle || course.title}
+                        </div>
+                        <div style={{ fontSize: '11px', color: MUTED }}>
+                          {formatHistoryDate(course.startDate)} – {formatHistoryDate(course.endDate)}
                         </div>
                       </div>
-
-                      <div className="flex flex-col gap-2">
-                        {course.status === 'completed' && (
-                          <span className="px-2 py-1 bg-green-500/10 text-green-700 text-xs font-bold">Completed</span>
-                        )}
-                        <button
-                          onClick={() => loadCoursePieces(course.id)}
-                          className="px-3 py-1 bg-blue-500 text-white text-xs font-medium hover:bg-blue-600 transition-colors"
-                        >
-                          View Gallery
-                        </button>
+                      <span style={{
+                        fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+                        padding: '4px 8px', marginLeft: '8px', flexShrink: 0,
+                        backgroundColor: TC_LIGHT, color: TC_DARK,
+                      }}>
+                        {course.status}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontSize: '11px', color: MUTED }}>
+                        {course.classesAttended != null ? `${course.classesAttended} classes attended` : ''}
+                        {course.instructor ? ` · ${course.instructor}` : ''}
                       </div>
+                      <button
+                        onClick={() => loadCoursePieces(course.id)}
+                        style={{
+                          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                          fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                          color: TC, fontFamily: 'Atak, sans-serif',
+                        }}
+                      >
+                        View Gallery →
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -524,68 +564,72 @@ export default function Account() {
         )}
       </main>
 
-      {/* Gallery Pieces Modal */}
+      {/* GALLERY PIECES MODAL */}
       {showPiecesModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-background-alt border border-border rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-border">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-2xl font-bold text-text">Gallery Pieces</h2>
-                  {selectedCourse && (
-                    <p className="text-sm text-text-muted mt-1">
-                      {selectedCourse.title} • {formatHistoryDate(selectedCourse.startDate)} - {formatHistoryDate(selectedCourse.endDate)}
-                    </p>
-                  )}
-                </div>
-                <button
-                  onClick={() => {
-                    setShowPiecesModal(false);
-                    setSelectedCourse(null);
-                    setCoursePieces([]);
-                  }}
-                  className="p-2 hover:bg-background rounded-lg transition-colors"
-                >
-                  <span className="material-symbols-outlined">close</span>
-                </button>
+        <div style={{
+          position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 50, padding: '16px',
+        }}>
+          <div style={{
+            backgroundColor: '#FFFFFF', width: '100%', maxWidth: '640px',
+            maxHeight: '90vh', overflowY: 'auto',
+          }}>
+            {/* Modal header */}
+            <div style={{ padding: '20px 20px 16px', borderBottom: `1px solid ${RULE}`, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '4px' }}>Gallery Pieces</div>
+                {selectedCourse && (
+                  <div style={{ fontSize: '11px', color: MUTED }}>
+                    {selectedCourse.title} &bull; {formatHistoryDate(selectedCourse.startDate)} – {formatHistoryDate(selectedCourse.endDate)}
+                  </div>
+                )}
               </div>
+              <button
+                onClick={() => { setShowPiecesModal(false); setSelectedCourse(null); setCoursePieces([]); }}
+                style={{
+                  background: 'none', border: `1px solid ${RULE}`, cursor: 'pointer',
+                  padding: '4px 8px', fontSize: '12px', color: MUTED, fontFamily: 'Atak, sans-serif',
+                }}
+              >
+                Close
+              </button>
             </div>
 
-            <div className="p-6">
+            {/* Modal body */}
+            <div style={{ padding: '20px' }}>
               {coursePieces.length === 0 ? (
-                <div className="text-center py-12">
-                  <span className="material-symbols-outlined text-6xl text-text-muted mb-4 block">
-                    photo_library
-                  </span>
-                  <h3 className="text-xl font-bold text-text mb-2">No Gallery Pieces Yet</h3>
-                  <p className="text-text-muted mb-6">You haven't added any pieces from this course</p>
+                <div style={{ textAlign: 'center', padding: '40px 0', color: MUTED }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '6px' }}>No Gallery Pieces Yet</div>
+                  <div style={{ fontSize: '12px' }}>You haven't added any pieces from this course</div>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {coursePieces.map((piece) => (
-                    <div
-                      key={piece.id}
-                      className="bg-background border border-border rounded-lg overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
-                    >
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '12px' }}>
+                  {coursePieces.map(piece => (
+                    <div key={piece.id} style={{ backgroundColor: ALT, overflow: 'hidden' }}>
                       {piece.images && piece.images.length > 0 && piece.images[0].url ? (
                         <img
                           src={piece.images[0].url}
                           alt={piece.title}
-                          className="w-full h-48 object-cover"
+                          style={{ width: '100%', height: '160px', objectFit: 'cover', display: 'block' }}
                         />
                       ) : (
-                        <div className="w-full h-48 bg-gray-200 flex items-center justify-center">
-                          <span className="material-symbols-outlined text-4xl text-gray-400">
-                            photo
-                          </span>
+                        <div style={{ width: '100%', height: '160px', backgroundColor: ALT, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: '36px', color: MUTED }}>photo</span>
                         </div>
                       )}
-                      <div className="p-4">
-                        <h3 className="font-bold text-text mb-1">{piece.title}</h3>
-                        <p className="text-sm text-text-muted line-clamp-2">{piece.description}</p>
-                        <p className="text-xs text-text-muted mt-2">
-                          Completed: {formatHistoryDate(piece.date_completed)}
-                        </p>
+                      <div style={{ padding: '10px 12px' }}>
+                        <div style={{ fontSize: '12px', fontWeight: 700, marginBottom: '4px' }}>{piece.title}</div>
+                        {piece.description && (
+                          <div style={{ fontSize: '11px', color: MUTED, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                            {piece.description}
+                          </div>
+                        )}
+                        {piece.date_completed && (
+                          <div style={{ fontSize: '10px', color: MUTED, marginTop: '6px' }}>
+                            Completed: {formatHistoryDate(piece.date_completed)}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -595,6 +639,50 @@ export default function Account() {
           </div>
         </div>
       )}
+
+      {/* BOTTOM TAB BAR */}
+      <nav style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50,
+        backgroundColor: '#FFFFFF', borderTop: `1px solid ${RULE}`,
+        display: 'flex', height: '60px',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+      }}>
+        {bottomNavTabs.map(tab => {
+          const active = tab.id === 'account';
+          return (
+            <a
+              key={tab.id}
+              href={tab.href}
+              style={{
+                flex: 1, border: 'none', background: 'transparent', cursor: 'pointer',
+                display: 'flex', flexDirection: 'column', alignItems: 'center',
+                justifyContent: 'center', gap: '2px', padding: '8px 0',
+                position: 'relative', textDecoration: 'none',
+              }}
+            >
+              {active && (
+                <span style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: '20px', height: '2px', backgroundColor: TC }} />
+              )}
+              <span
+                className="material-symbols-outlined"
+                style={{
+                  fontSize: '22px',
+                  color: active ? TC : '#BBBBBB',
+                  fontVariationSettings: active ? "'FILL' 1, 'wght' 500" : "'FILL' 0, 'wght' 400",
+                }}
+              >
+                {tab.icon}
+              </span>
+              <span style={{
+                fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+                color: active ? TC : '#BBBBBB',
+              }}>
+                {tab.label}
+              </span>
+            </a>
+          );
+        })}
+      </nav>
     </div>
   );
 }

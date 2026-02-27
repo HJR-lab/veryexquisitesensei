@@ -1,27 +1,46 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import Navigation from '../components/Navigation';
 
-const API_URL = 'http://localhost:3000';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+const TC       = '#C4622D';
+const TC_LIGHT = '#F9EDE6';
+const TC_DARK  = '#9E4A1E';
+const INK      = '#282828';
+const MUTED    = '#888888';
+const RULE     = 'rgba(40,40,40,0.09)';
+const ALT      = '#F5F3F0';
 
 export default function GalleryNew() {
+  const navigate = useNavigate();
+
+  // --- gallery sub-tab ---
+  const [galleryTab, setGalleryTab] = useState('mine'); // 'mine' | 'community'
+
+  // --- piece data ---
   const [pieces, setPieces] = useState([]);
+  const [communityPieces, setCommunityPieces] = useState([]);
   const [selectedPiece, setSelectedPiece] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [showAddModal, setShowAddModal] = useState(false);
+
+  // --- reference data ---
   const [clayTypes, setClayTypes] = useState([]);
   const [glazes, setGlazes] = useState([]);
+
+  // --- upload / edit state ---
   const [imageFiles, setImageFiles] = useState([]);
   const [imagePreviewUrls, setImagePreviewUrls] = useState([]);
   const [uploading, setUploading] = useState(false);
-  const [editMode, setEditMode] = useState(false);
   const [editImageFiles, setEditImageFiles] = useState([]);
   const [editImagePreviewUrls, setEditImagePreviewUrls] = useState([]);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [viewMode, setViewMode] = useState('grid-with-details'); // 'grid-with-details' or 'grid-only'
+
+  // --- filters ---
   const [filterClayType, setFilterClayType] = useState('');
   const [filterGlaze, setFilterGlaze] = useState('');
 
+  // --- form ---
   const [formData, setFormData] = useState({
     title: '',
     clay_type: '',
@@ -41,12 +60,12 @@ export default function GalleryNew() {
   useEffect(() => {
     fetchPieces();
     fetchReferenceData();
+    fetchCommunityPieces();
   }, []);
 
   const fetchReferenceData = async () => {
     try {
       const token = localStorage.getItem('token');
-
       const [clayTypesRes, glazesRes] = await Promise.all([
         axios.get(`${API_URL}/api/reference/clay-types`, {
           headers: { Authorization: `Bearer ${token}` }
@@ -55,7 +74,6 @@ export default function GalleryNew() {
           headers: { Authorization: `Bearer ${token}` }
         })
       ]);
-
       setClayTypes(clayTypesRes.data.clayTypes || []);
       setGlazes(glazesRes.data.glazes || []);
     } catch (error) {
@@ -69,12 +87,24 @@ export default function GalleryNew() {
       const response = await axios.get(`${API_URL}/api/pottery/pieces`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-
       setPieces(response.data.pieces || []);
     } catch (error) {
       console.error('Error fetching pieces:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchCommunityPieces = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_URL}/api/pottery/community`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setCommunityPieces(response.data.pieces || []);
+    } catch (error) {
+      // Community endpoint may not exist yet — silently ignore
+      console.info('Community pieces not available:', error.message);
     }
   };
 
@@ -97,100 +127,21 @@ export default function GalleryNew() {
       is_public: piece.is_public || false,
       images: piece.images || []
     });
-    setShowEditModal(true); // Open edit modal when clicking a piece
   };
 
-  const resetAddModal = () => {
-    setFormData({
-      title: '',
-      clay_type: '',
-      date_completed: '',
-      glazes: [],
-      height: '',
-      width: '',
-      length: '',
-      original_weight: '',
-      final_weight: '',
-      description: '',
-      tags: [],
-      is_public: false,
-      images: []
-    });
-    setImageFiles([]);
-    setImagePreviewUrls([]);
+  const closePieceDetail = () => {
+    setSelectedPiece(null);
   };
 
-  const handleImageSelect = (e) => {
-    const files = Array.from(e.target.files);
-    setImageFiles(files);
-
-    // Create preview URLs
-    const previews = files.map(file => URL.createObjectURL(file));
-    setImagePreviewUrls(previews);
+  const openEditModal = () => {
+    setShowEditModal(true);
   };
 
-  const handleSubmitNew = async () => {
-    try {
-      setUploading(true);
-      const token = localStorage.getItem('token');
-
-      // Upload images first
-      let imageUrls = [];
-      if (imageFiles.length > 0) {
-        const uploadFormData = new FormData();
-        imageFiles.forEach(file => {
-          uploadFormData.append('images', file);
-        });
-
-        const uploadRes = await axios.post(`${API_URL}/api/upload/images`, uploadFormData, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'multipart/form-data'
-          }
-        });
-
-        imageUrls = uploadRes.data.images.map(img => img.url);
-      }
-
-      // Create pottery piece with properly formatted data
-      const pieceData = {
-        title: formData.title,
-        clay_type: formData.clay_type,
-        date_completed: formData.date_completed,
-        glazes: formData.glazes,
-        height: formData.height || null,
-        width: formData.width || null,
-        length: formData.length || null,
-        original_weight: formData.original_weight || null,
-        final_weight: formData.final_weight || null,
-        description: formData.description || '',
-        tags: formData.tags,
-        is_public: formData.is_public,
-        images: imageUrls
-      };
-
-      console.log('Creating pottery piece with data:', pieceData);
-
-      const response = await axios.post(`${API_URL}/api/pottery/create-piece`, pieceData, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      console.log('Pottery piece created:', response.data);
-
-      // Reset form and close modal
-      setShowAddModal(false);
-      resetAddModal();
-
-      // Refresh the pieces list
-      await fetchPieces();
-      alert('Pottery piece created successfully!');
-    } catch (error) {
-      console.error('Error creating piece:', error);
-      console.error('Error details:', error.response?.data);
-      alert(`Failed to create pottery piece: ${error.response?.data?.error || error.message}`);
-    } finally {
-      setUploading(false);
-    }
+  const closeEditModal = () => {
+    setShowEditModal(false);
+    setSelectedPiece(null);
+    setEditImageFiles([]);
+    setEditImagePreviewUrls([]);
   };
 
   const toggleGlaze = (glazeName) => {
@@ -204,10 +155,7 @@ export default function GalleryNew() {
 
   const addTag = (tag) => {
     if (tag && !formData.tags.includes(tag)) {
-      setFormData(prev => ({
-        ...prev,
-        tags: [...prev.tags, tag]
-      }));
+      setFormData(prev => ({ ...prev, tags: [...prev.tags, tag] }));
     }
   };
 
@@ -221,48 +169,30 @@ export default function GalleryNew() {
   const handleEditImageSelect = (e) => {
     const files = Array.from(e.target.files);
     const currentImageCount = selectedPiece?.images?.length || 0;
-    const newImageCount = files.length;
-    const totalImages = currentImageCount + newImageCount;
-
+    const totalImages = currentImageCount + files.length;
     if (totalImages > 3) {
       alert(`You can only have a maximum of 3 images. You currently have ${currentImageCount} image(s).`);
       return;
     }
-
     setEditImageFiles(files);
-    const previews = files.map(file => URL.createObjectURL(file));
-    setEditImagePreviewUrls(previews);
+    setEditImagePreviewUrls(files.map(file => URL.createObjectURL(file)));
   };
 
   const handleSaveChanges = async () => {
     if (!selectedPiece) return;
-
     try {
       setUploading(true);
       const token = localStorage.getItem('token');
-
-      // Upload new images if any
       let newImageUrls = [];
       if (editImageFiles.length > 0) {
         const uploadFormData = new FormData();
-        editImageFiles.forEach(file => {
-          uploadFormData.append('images', file);
-        });
-
+        editImageFiles.forEach(file => uploadFormData.append('images', file));
         const uploadRes = await axios.post(`${API_URL}/api/upload/images`, uploadFormData, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'multipart/form-data'
-          }
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
         });
-
         newImageUrls = uploadRes.data.images.map(img => img.url);
       }
-
-      // Combine existing images with new ones (max 3)
       const allImages = [...(selectedPiece.images || []), ...newImageUrls].slice(0, 3);
-
-      // Update pottery piece
       const updateData = {
         title: formData.title,
         clay_type: formData.clay_type,
@@ -278,18 +208,10 @@ export default function GalleryNew() {
         is_public: formData.is_public,
         images: allImages
       };
-
       await axios.put(`${API_URL}/api/pottery/pieces/${selectedPiece.id}`, updateData, {
         headers: { Authorization: `Bearer ${token}` }
       });
-
-      // Close modal and reset
-      setShowEditModal(false);
-      setEditImageFiles([]);
-      setEditImagePreviewUrls([]);
-      setSelectedPiece(null);
-
-      // Refresh pieces
+      closeEditModal();
       await fetchPieces();
       alert('Changes saved successfully!');
     } catch (error) {
@@ -302,21 +224,15 @@ export default function GalleryNew() {
 
   const handleDeletePiece = async () => {
     if (!selectedPiece) return;
-
-    if (!confirm(`Are you sure you want to delete "${selectedPiece.title}"? This action cannot be undone.`)) {
-      return;
-    }
-
+    if (!confirm(`Are you sure you want to delete "${selectedPiece.title}"? This action cannot be undone.`)) return;
     try {
       setUploading(true);
       const token = localStorage.getItem('token');
-
       await axios.delete(`${API_URL}/api/pottery/pieces/${selectedPiece.id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-
-      setShowEditModal(false);
-      setSelectedPiece(null);
+      closeEditModal();
+      closePieceDetail();
       await fetchPieces();
       alert('Piece deleted successfully!');
     } catch (error) {
@@ -327,575 +243,510 @@ export default function GalleryNew() {
     }
   };
 
+  // Toggle is_public on the server and reflect locally
+  const handleTogglePublic = async (piece) => {
+    try {
+      const token = localStorage.getItem('token');
+      const newValue = !piece.is_public;
+      await axios.put(`${API_URL}/api/pottery/pieces/${piece.id}`, {
+        ...piece,
+        is_public: newValue
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      // Update local state
+      setPieces(prev => prev.map(p => p.id === piece.id ? { ...p, is_public: newValue } : p));
+      if (selectedPiece && selectedPiece.id === piece.id) {
+        setSelectedPiece(prev => ({ ...prev, is_public: newValue }));
+        setFormData(prev => ({ ...prev, is_public: newValue }));
+      }
+    } catch (error) {
+      console.error('Error toggling public:', error);
+      alert(`Failed to update sharing: ${error.response?.data?.error || error.message}`);
+    }
+  };
+
   const handleRemoveImage = (indexToRemove) => {
     if (!selectedPiece) return;
     const updatedImages = selectedPiece.images.filter((_, index) => index !== indexToRemove);
-    setSelectedPiece({...selectedPiece, images: updatedImages});
-    setFormData({...formData, images: updatedImages});
+    setSelectedPiece({ ...selectedPiece, images: updatedImages });
+    setFormData({ ...formData, images: updatedImages });
   };
 
-  // Get filtered pieces based on clay type and glaze filters
   const filteredPieces = pieces.filter(piece => {
     const matchesClayType = !filterClayType || piece.clay_type === filterClayType;
     const matchesGlaze = !filterGlaze || (piece.glazes && piece.glazes.includes(filterGlaze));
     return matchesClayType && matchesGlaze;
   });
 
-  // Get unique clay types from all pieces
-  const uniqueClayTypes = [...new Set(pieces.map(p => p.clay_type).filter(Boolean))];
-
-  // Get unique glazes from all pieces
-  const uniqueGlazes = [...new Set(pieces.flatMap(p => p.glazes || []))].sort();
-
+  // ─── Loading state ────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="min-h-screen bg-background font-display text-text">
-        <Navigation />
-        <div className="flex flex-col items-center justify-center py-16 space-y-4">
-          <div className="w-10 h-10 border-3 border-border border-t-accent rounded-full animate-spin"></div>
-          <p className="text-text-muted">Loading...</p>
+      <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#FFFFFF', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{
+            width: '32px', height: '32px', border: `3px solid ${RULE}`, borderTopColor: TC,
+            borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px'
+          }} />
+          <div style={{ fontSize: '13px', color: MUTED }}>Loading…</div>
         </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen bg-background font-display text-text">
-      <Navigation />
+  // ─── Helper: format date ──────────────────────────────────────────────────
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '';
+    try {
+      return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    } catch {
+      return dateStr;
+    }
+  };
 
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
-          <div className="flex flex-col gap-2">
-            <h1 className="text-3xl font-black leading-tight tracking-tighter">My Gallery</h1>
-            <p className="text-text-muted text-base font-normal">Manage your pottery pieces.</p>
+  // ─── Render ───────────────────────────────────────────────────────────────
+  return (
+    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#FFFFFF', minHeight: '100vh' }}>
+
+      {/* TOP BAR */}
+      <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: '#FFFFFF', borderBottom: `1px solid ${RULE}` }}>
+        <div style={{ maxWidth: '520px', margin: '0 auto', padding: '0 20px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <img
+            src="https://ves.sg/cdn/shop/files/logo_04a04687-57f4-4141-b0bc-ec30b527fd73.png?v=1686045719&width=600"
+            alt="VES"
+            style={{ height: '26px', width: 'auto' }}
+          />
+        </div>
+      </header>
+
+      <main style={{ maxWidth: '520px', margin: '0 auto', padding: '0 0 88px' }}>
+
+        {/* PAGE HEADER */}
+        <div style={{ padding: '28px 20px 0', borderBottom: `1px solid ${RULE}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '20px' }}>
+            <div>
+              <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: '0 0 4px' }}>Gallery</h1>
+              <div style={{ fontSize: '13px', color: MUTED }}>{pieces.length} {pieces.length === 1 ? 'piece' : 'pieces'}</div>
+            </div>
+            <button
+              onClick={() => navigate('/upload')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                padding: '10px 14px', border: 'none', backgroundColor: TC, color: '#FFF',
+                fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
+                cursor: 'pointer',
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>add_photo_alternate</span>
+              Upload
+            </button>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setViewMode(viewMode === 'grid-with-details' ? 'grid-only' : 'grid-with-details')}
-              className="flex items-center justify-center rounded-lg h-10 px-4 bg-border text-text text-sm font-bold gap-2 hover:bg-border/80 transition-colors"
-            >
-              <span className="material-symbols-outlined">
-                {viewMode === 'grid-with-details' ? 'grid_view' : 'view_agenda'}
-              </span>
-              <span className="truncate">{viewMode === 'grid-with-details' ? 'Images Only' : 'Show Details'}</span>
-            </button>
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="flex min-w-[84px] max-w-[480px] cursor-pointer items-center justify-center overflow-hidden rounded-lg h-10 px-4 bg-accent text-white text-sm font-bold leading-normal tracking-wide gap-2 hover:bg-accent/90 transition-colors"
-            >
-              <span className="material-symbols-outlined">add</span>
-              <span className="truncate">Add New Work</span>
-            </button>
+
+          {/* SUB-TABS */}
+          <div style={{ display: 'flex' }}>
+            {[{ id: 'mine', label: 'My Work' }, { id: 'community', label: 'Community' }].map(t => (
+              <button
+                key={t.id}
+                onClick={() => setGalleryTab(t.id)}
+                style={{
+                  flex: 1, padding: '10px', border: 'none', background: 'transparent', cursor: 'pointer',
+                  fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+                  color: galleryTab === t.id ? INK : MUTED,
+                  borderBottom: `2px solid ${galleryTab === t.id ? INK : 'transparent'}`,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Filters */}
-        {pieces.length > 0 && (
-          <div className="flex flex-wrap gap-3 mb-6">
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium">Clay Type:</label>
-              <select
-                value={filterClayType}
-                onChange={(e) => setFilterClayType(e.target.value)}
-                className="form-select rounded-lg border-border bg-background-alt text-text h-10 px-3 text-sm"
-              >
-                <option value="">All Types</option>
-                {uniqueClayTypes.map(type => (
-                  <option key={type} value={type}>{type}</option>
+        {/* MY WORK TAB */}
+        {galleryTab === 'mine' && (
+          <div style={{ padding: '16px 20px' }}>
+            {filteredPieces.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '48px 0' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '48px', color: RULE, display: 'block', marginBottom: '12px' }}>photo_library</span>
+                <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '6px' }}>No pieces yet</div>
+                <div style={{ fontSize: '13px', color: MUTED, marginBottom: '20px' }}>Start building your gallery by uploading your first piece</div>
+                <button
+                  onClick={() => navigate('/upload')}
+                  style={{
+                    padding: '10px 20px', backgroundColor: TC, color: '#FFF', border: 'none',
+                    fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Upload First Piece
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '4px' }}>
+                {filteredPieces.map(piece => (
+                  <div
+                    key={piece.id}
+                    onClick={() => selectPiece(piece)}
+                    style={{ position: 'relative', aspectRatio: '1', overflow: 'hidden', backgroundColor: '#F0EDE9', cursor: 'pointer' }}
+                  >
+                    {piece.images?.[0] ? (
+                      <img
+                        src={piece.images[0]}
+                        alt={piece.title}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                      />
+                    ) : (
+                      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: '28px', color: MUTED }}>image_not_supported</span>
+                      </div>
+                    )}
+                    {/* Public indicator badge */}
+                    {piece.is_public && (
+                      <div style={{
+                        position: 'absolute', top: '6px', right: '6px',
+                        backgroundColor: TC, width: '18px', height: '18px',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: '11px', color: '#FFF', fontVariationSettings: "'FILL' 1" }}>visibility</span>
+                      </div>
+                    )}
+                  </div>
                 ))}
-              </select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium">Glaze:</label>
-              <select
-                value={filterGlaze}
-                onChange={(e) => setFilterGlaze(e.target.value)}
-                className="form-select rounded-lg border-border bg-background-alt text-text h-10 px-3 text-sm"
-              >
-                <option value="">All Glazes</option>
-                {uniqueGlazes.map(glaze => (
-                  <option key={glaze} value={glaze}>{glaze}</option>
-                ))}
-              </select>
-            </div>
-
-            {(filterClayType || filterGlaze) && (
-              <button
-                onClick={() => {
-                  setFilterClayType('');
-                  setFilterGlaze('');
-                }}
-                className="flex items-center gap-1 rounded-lg h-10 px-3 bg-red-500/10 text-red-500 text-sm font-bold hover:bg-red-500/20 transition-colors"
-              >
-                <span className="material-symbols-outlined text-sm">close</span>
-                Clear Filters
-              </button>
+              </div>
             )}
-
-            <div className="ml-auto text-sm text-text-muted">
-              Showing {filteredPieces.length} of {pieces.length} pieces
-            </div>
           </div>
         )}
 
-        {/* Gallery Grid */}
-        {pieces.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <span className="material-symbols-outlined text-6xl text-text-muted mb-4">photo_library</span>
-            <h3 className="text-xl font-bold mb-2">No pottery pieces yet</h3>
-            <p className="text-text-muted mb-4">Start building your gallery by adding your first piece</p>
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="flex items-center justify-center rounded-lg h-10 px-6 bg-accent text-white text-sm font-bold gap-2"
-            >
-              <span className="material-symbols-outlined">add</span>
-              <span>Add Your First Piece</span>
-            </button>
-          </div>
-        ) : filteredPieces.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <span className="material-symbols-outlined text-6xl text-text-muted mb-4">filter_alt_off</span>
-            <h3 className="text-xl font-bold mb-2">No pieces match your filters</h3>
-            <p className="text-text-muted mb-4">Try adjusting your clay type or glaze filters</p>
-            <button
-              onClick={() => {
-                setFilterClayType('');
-                setFilterGlaze('');
-              }}
-              className="flex items-center justify-center rounded-lg h-10 px-6 bg-accent text-white text-sm font-bold gap-2"
-            >
-              <span className="material-symbols-outlined">refresh</span>
-              <span>Clear Filters</span>
-            </button>
-          </div>
-        ) : viewMode === 'grid-only' ? (
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-4">
-            {filteredPieces.map((piece) => (
-              <div
-                key={piece.id}
-                onClick={() => selectPiece(piece)}
-                className="group relative bg-cover bg-center flex flex-col gap-3 justify-end aspect-square overflow-hidden rounded-lg cursor-pointer hover:ring-2 hover:ring-accent transition-all"
-                style={{ backgroundImage: `url('${piece.images?.[0] || 'https://via.placeholder.com/300'}')` }}
-              >
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                  <span className="material-symbols-outlined text-white text-4xl">edit</span>
-                </div>
+        {/* COMMUNITY TAB */}
+        {galleryTab === 'community' && (
+          <div style={{ padding: '20px' }}>
+            <p style={{ fontSize: '13px', color: MUTED, marginBottom: '18px', lineHeight: 1.5 }}>
+              Get inspired by what your fellow potters are making.
+            </p>
+            {communityPieces.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '48px 0' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '48px', color: RULE, display: 'block', marginBottom: '12px' }}>groups</span>
+                <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '6px' }}>Nothing shared yet</div>
+                <div style={{ fontSize: '13px', color: MUTED }}>Be the first to share a piece with the community!</div>
               </div>
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredPieces.map((piece) => (
-              <div
-                key={piece.id}
-                onClick={() => selectPiece(piece)}
-                className="bg-background-alt rounded-xl border border-border overflow-hidden cursor-pointer hover:border-accent transition-colors"
-              >
-                <div
-                  className="aspect-square bg-cover bg-center"
-                  style={{ backgroundImage: `url('${piece.images?.[0] || 'https://via.placeholder.com/300'}')` }}
-                ></div>
-                <div className="p-4 space-y-2">
-                  <h3 className="font-bold text-lg">{piece.title}</h3>
-                  <p className="text-sm text-text-muted">{piece.clay_type}</p>
-                  {piece.glazes && piece.glazes.length > 0 && (
-                    <p className="text-xs text-text-muted">Glazes: {piece.glazes.join(', ')}</p>
-                  )}
-                  {piece.date_completed && (
-                    <p className="text-xs text-text-muted">{piece.date_completed}</p>
-                  )}
-                </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                {communityPieces.map(p => (
+                  <div
+                    key={p.id}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => setSelectedPiece({ ...p, isCommunity: true })}
+                  >
+                    <div style={{ aspectRatio: '1', overflow: 'hidden', backgroundColor: '#F0EDE9', marginBottom: '8px' }}>
+                      {p.images?.[0] ? (
+                        <img src={p.images[0]} alt={p.title} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                      ) : (
+                        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: '28px', color: MUTED }}>image_not_supported</span>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '12px', fontWeight: 700, marginBottom: '1px' }}>{p.title}</div>
+                    <div style={{ fontSize: '11px', color: MUTED }}>
+                      by {p.student_name || p.user?.name || 'Student'} · {p.clay_type || ''}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
         )}
       </main>
 
-      {/* Add New Work Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-background rounded-xl border border-border max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-background border-b border-border p-6 flex justify-between items-center">
-              <h2 className="text-2xl font-black">Add New Work</h2>
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="p-2 hover:bg-background-alt rounded-lg transition-colors"
-              >
-                <span className="material-symbols-outlined">close</span>
-              </button>
+      {/* PIECE DETAIL BOTTOM SHEET */}
+      {selectedPiece && !showEditModal && (
+        <>
+          {/* Backdrop */}
+          <div
+            onClick={closePieceDetail}
+            style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 60 }}
+          />
+          {/* Sheet */}
+          <div style={{
+            position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 61,
+            backgroundColor: '#FFFFFF',
+            maxWidth: '520px', margin: '0 auto',
+            maxHeight: '85vh', overflowY: 'auto',
+          }}>
+            {/* Drag handle */}
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 0' }}>
+              <div style={{ width: '36px', height: '3px', backgroundColor: RULE }} />
             </div>
 
-            <div className="p-6 space-y-6">
-              {/* Image Upload */}
-              <div>
-                <label className="block text-sm font-medium mb-2">Images</label>
-                <div className="border-2 border-dashed border-border rounded-lg p-6 text-center">
-                  <input
-                    type="file"
-                    multiple
-                    accept="image/*"
-                    onChange={handleImageSelect}
-                    className="hidden"
-                    id="image-upload"
-                  />
-                  <label htmlFor="image-upload" className="cursor-pointer">
-                    <span className="material-symbols-outlined text-5xl text-text-muted mb-2 block">add_photo_alternate</span>
-                    <p className="text-sm text-text-muted mb-1">Click to upload images</p>
-                    <p className="text-xs text-text-muted">Support for multiple images</p>
-                  </label>
-                  {imagePreviewUrls.length > 0 && (
-                    <div className="grid grid-cols-4 gap-2 mt-4">
-                      {imagePreviewUrls.map((url, index) => (
-                        <img key={index} src={url} alt={`Preview ${index + 1}`} className="w-full h-24 object-cover rounded-lg" />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Title */}
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium mb-1">Title *</label>
-                  <input
-                    type="text"
-                    className="form-input w-full rounded-lg border-border bg-background-alt text-text h-10 px-3 text-sm"
-                    value={formData.title}
-                    onChange={(e) => setFormData({...formData, title: e.target.value})}
-                    placeholder="Enter piece title"
-                  />
-                </div>
-
-                {/* Clay Type */}
-                <div>
-                  <label className="block text-sm font-medium mb-1">Clay Type *</label>
-                  <select
-                    className="form-select w-full rounded-lg border-border bg-background-alt text-text h-10 px-3 text-sm"
-                    value={formData.clay_type}
-                    onChange={(e) => setFormData({...formData, clay_type: e.target.value})}
-                  >
-                    <option value="">Select clay type</option>
-                    {clayTypes.map(type => (
-                      <option key={type.id} value={type.name}>{type.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Date Completed */}
-                <div>
-                  <label className="block text-sm font-medium mb-1">Date Completed *</label>
-                  <input
-                    type="date"
-                    className="form-input w-full rounded-lg border-border bg-background-alt text-text h-10 px-3 text-sm"
-                    value={formData.date_completed}
-                    onChange={(e) => setFormData({...formData, date_completed: e.target.value})}
-                  />
-                </div>
-
-                {/* Dimensions */}
-                <div>
-                  <label className="block text-sm font-medium mb-1">Height (cm)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    className="form-input w-full rounded-lg border-border bg-background-alt text-text h-10 px-3 text-sm"
-                    value={formData.height}
-                    onChange={(e) => setFormData({...formData, height: e.target.value})}
-                    placeholder="0.0"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Width (cm)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    className="form-input w-full rounded-lg border-border bg-background-alt text-text h-10 px-3 text-sm"
-                    value={formData.width}
-                    onChange={(e) => setFormData({...formData, width: e.target.value})}
-                    placeholder="0.0"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Length (cm)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    className="form-input w-full rounded-lg border-border bg-background-alt text-text h-10 px-3 text-sm"
-                    value={formData.length}
-                    onChange={(e) => setFormData({...formData, length: e.target.value})}
-                    placeholder="0.0"
-                  />
-                </div>
-
-                {/* Weight */}
-                <div>
-                  <label className="block text-sm font-medium mb-1">Original Weight (g)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    className="form-input w-full rounded-lg border-border bg-background-alt text-text h-10 px-3 text-sm"
-                    value={formData.original_weight}
-                    onChange={(e) => setFormData({...formData, original_weight: e.target.value})}
-                    placeholder="0.0"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Final Weight (g)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    className="form-input w-full rounded-lg border-border bg-background-alt text-text h-10 px-3 text-sm"
-                    value={formData.final_weight}
-                    onChange={(e) => setFormData({...formData, final_weight: e.target.value})}
-                    placeholder="0.0"
-                  />
-                </div>
-              </div>
-
-              {/* Glazes */}
-              <div>
-                <label className="block text-sm font-medium mb-2">Glazes</label>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-2 bg-background-alt rounded-lg border border-border">
-                  {glazes.map(glaze => (
-                    <label key={glaze.id} className="flex items-center gap-2 cursor-pointer hover:bg-background p-2 rounded">
-                      <input
-                        type="checkbox"
-                        checked={formData.glazes.includes(glaze.name)}
-                        onChange={() => toggleGlaze(glaze.name)}
-                        className="rounded border-border text-accent focus:ring-accent"
-                      />
-                      <span className="text-sm">{glaze.name}</span>
-                    </label>
-                  ))}
-                </div>
-                {formData.glazes.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {formData.glazes.map(glaze => (
-                      <span key={glaze} className="inline-flex items-center gap-1 px-2 py-1 bg-accent/10 text-accent text-xs rounded-full">
-                        {glaze}
-                        <button onClick={() => toggleGlaze(glaze)} className="hover:bg-accent/20 rounded-full p-0.5">
-                          <span className="material-symbols-outlined text-xs">close</span>
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Tags */}
-              <div>
-                <label className="block text-sm font-medium mb-1">Tags</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    className="form-input flex-1 rounded-lg border-border bg-background-alt text-text h-10 px-3 text-sm"
-                    placeholder="Add a tag and press Enter"
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter') {
-                        addTag(e.target.value);
-                        e.target.value = '';
-                      }
-                    }}
-                  />
-                </div>
-                {formData.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {formData.tags.map(tag => (
-                      <span key={tag} className="inline-flex items-center gap-1 px-2 py-1 bg-border text-text text-xs rounded-full">
-                        {tag}
-                        <button onClick={() => removeTag(tag)} className="hover:bg-border/80 rounded-full p-0.5">
-                          <span className="material-symbols-outlined text-xs">close</span>
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Description */}
-              <div>
-                <label className="block text-sm font-medium mb-1">Description / Notes</label>
-                <textarea
-                  className="form-textarea w-full rounded-lg border-border bg-background-alt text-text px-3 py-2 text-sm"
-                  rows="4"
-                  value={formData.description}
-                  onChange={(e) => setFormData({...formData, description: e.target.value})}
-                  placeholder="Add notes about your piece..."
-                ></textarea>
-              </div>
-
-              {/* Public Toggle */}
-              <div className="flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  id="is-public"
-                  checked={formData.is_public}
-                  onChange={(e) => setFormData({...formData, is_public: e.target.checked})}
-                  className="rounded border-border text-accent focus:ring-accent"
+            {/* Image */}
+            <div style={{ aspectRatio: '1', overflow: 'hidden', backgroundColor: '#F0EDE9', margin: '12px 0 0' }}>
+              {selectedPiece.images?.[0] ? (
+                <img
+                  src={selectedPiece.images[0]}
+                  alt={selectedPiece.title}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                 />
-                <label htmlFor="is-public" className="text-sm font-medium cursor-pointer">
-                  Make this piece public (visible in public gallery)
-                </label>
-              </div>
+              ) : (
+                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '48px', color: MUTED }}>image_not_supported</span>
+                </div>
+              )}
             </div>
 
-            <div className="sticky bottom-0 bg-background border-t border-border p-6 flex gap-3 justify-end">
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="px-6 h-10 rounded-lg bg-border text-text text-sm font-bold hover:bg-border/80 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSubmitNew}
-                disabled={uploading || !formData.title || !formData.clay_type || !formData.date_completed}
-                className="px-6 h-10 rounded-lg bg-accent text-white text-sm font-bold hover:bg-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {uploading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>}
-                <span>{uploading ? 'Creating...' : 'Create Piece'}</span>
-              </button>
+            <div style={{ padding: '20px 20px 40px' }}>
+              {/* Title row */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                <div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, marginBottom: '2px' }}>{selectedPiece.title}</div>
+                  {selectedPiece.isCommunity
+                    ? <div style={{ fontSize: '13px', color: MUTED }}>by {selectedPiece.student_name || selectedPiece.user?.name || 'Student'}</div>
+                    : <div style={{ fontSize: '13px', color: MUTED }}>{selectedPiece.clay_type}{selectedPiece.date_completed ? ` · ${formatDate(selectedPiece.date_completed)}` : ''}</div>
+                  }
+                </div>
+                <button
+                  onClick={closePieceDetail}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '20px', color: MUTED }}>close</span>
+                </button>
+              </div>
+
+              {/* Meta tags row */}
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
+                {[
+                  selectedPiece.clay_type,
+                  ...(selectedPiece.glazes || []),
+                  selectedPiece.date_completed ? formatDate(selectedPiece.date_completed) : null,
+                ].filter(Boolean).map((tag, i) => (
+                  <span key={i} style={{
+                    fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                    padding: '4px 8px', backgroundColor: ALT, color: MUTED,
+                  }}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
+
+              {/* Share toggle (own pieces only) */}
+              {!selectedPiece.isCommunity && (
+                <div style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '14px', border: `1px solid ${RULE}`, backgroundColor: ALT, marginBottom: '0',
+                }}>
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 700, marginBottom: '2px' }}>Share with community</div>
+                    <div style={{ fontSize: '11px', color: MUTED }}>Visible to other VES students for inspiration</div>
+                  </div>
+                  {/* Toggle */}
+                  <button
+                    onClick={() => handleTogglePublic(selectedPiece)}
+                    style={{
+                      width: '44px', height: '24px',
+                      backgroundColor: selectedPiece.is_public ? TC : '#DDD',
+                      borderRadius: '12px', border: 'none', cursor: 'pointer',
+                      position: 'relative', transition: 'background-color 0.2s ease', flexShrink: 0,
+                    }}
+                  >
+                    <span style={{
+                      position: 'absolute', top: '3px',
+                      left: selectedPiece.is_public ? '23px' : '3px',
+                      width: '18px', height: '18px', borderRadius: '50%',
+                      backgroundColor: '#FFF', transition: 'left 0.2s ease',
+                    }} />
+                  </button>
+                </div>
+              )}
+
+              {/* Edit / Delete actions (own pieces only) */}
+              {!selectedPiece.isCommunity && (
+                <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                  <button
+                    onClick={openEditModal}
+                    style={{
+                      flex: 1, padding: '12px', border: `1px solid ${RULE}`, backgroundColor: 'transparent',
+                      fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                      cursor: 'pointer', color: MUTED,
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={handleDeletePiece}
+                    disabled={uploading}
+                    style={{
+                      flex: 1, padding: '12px', border: '1px solid rgba(200,50,50,0.3)', backgroundColor: 'transparent',
+                      fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                      cursor: uploading ? 'not-allowed' : 'pointer', color: '#C03030',
+                      opacity: uploading ? 0.5 : 1,
+                    }}
+                  >
+                    {uploading ? 'Deleting…' : 'Delete'}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
-        </div>
+        </>
       )}
 
-      {/* Edit Work Modal */}
+      {/* EDIT MODAL */}
       {showEditModal && selectedPiece && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-background rounded-xl border border-border max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-background border-b border-border p-6 flex justify-between items-center">
-              <h2 className="text-2xl font-black">Edit Work</h2>
-              <button
-                onClick={() => {
-                  setShowEditModal(false);
-                  setSelectedPiece(null);
-                }}
-                className="p-2 hover:bg-background-alt rounded-lg transition-colors"
-              >
-                <span className="material-symbols-outlined">close</span>
+        <div style={{
+          position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 80,
+          display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+        }}>
+          <div style={{
+            backgroundColor: '#FFFFFF', width: '100%', maxWidth: '520px',
+            maxHeight: '92vh', overflowY: 'auto',
+            borderTopLeftRadius: '16px', borderTopRightRadius: '16px',
+          }}>
+            {/* Header */}
+            <div style={{
+              position: 'sticky', top: 0, backgroundColor: '#FFFFFF',
+              borderBottom: `1px solid ${RULE}`, padding: '20px 20px 16px',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            }}>
+              <div style={{ fontSize: '18px', fontWeight: 700 }}>Edit Piece</div>
+              <button onClick={closeEditModal} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '20px', color: MUTED }}>close</span>
               </button>
             </div>
 
-            <div className="p-6 space-y-6">
-              {/* Current Images */}
-              <div>
-                <label className="block text-sm font-medium mb-2">Current Images ({selectedPiece.images?.length || 0}/3)</label>
+            <div style={{ padding: '20px' }}>
+
+              {/* Current images */}
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: '10px' }}>
+                  Images ({selectedPiece.images?.length || 0}/3)
+                </div>
                 {selectedPiece.images && selectedPiece.images.length > 0 ? (
-                  <div className="grid grid-cols-3 gap-2">
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
                     {selectedPiece.images.map((image, index) => (
-                      <div key={index} className="relative group">
-                        <img src={image} alt={`Image ${index + 1}`} className="w-full h-32 object-cover rounded-lg" />
+                      <div key={index} style={{ position: 'relative' }}>
+                        <img src={image} alt={`Image ${index + 1}`} style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', display: 'block' }} />
                         <button
                           onClick={() => handleRemoveImage(index)}
-                          className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                          style={{
+                            position: 'absolute', top: '4px', right: '4px',
+                            backgroundColor: 'rgba(0,0,0,0.6)', border: 'none', cursor: 'pointer',
+                            width: '22px', height: '22px', borderRadius: '50%',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}
                         >
-                          <span className="material-symbols-outlined text-sm">close</span>
+                          <span className="material-symbols-outlined" style={{ fontSize: '13px', color: '#FFF' }}>close</span>
                         </button>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-text-muted">No images yet</p>
+                  <div style={{ fontSize: '13px', color: MUTED }}>No images yet</div>
                 )}
               </div>
 
-              {/* Add More Images */}
-              {selectedPiece.images.length < 3 && (
-                <div>
-                  <label className="block text-sm font-medium mb-2">Add More Images</label>
-                  <div className="border-2 border-dashed border-border rounded-lg p-6 text-center">
-                    <input
-                      type="file"
-                      multiple
-                      accept="image/*"
-                      onChange={handleEditImageSelect}
-                      className="hidden"
-                      id="edit-image-upload-modal"
-                    />
-                    <label htmlFor="edit-image-upload-modal" className="cursor-pointer">
-                      <span className="material-symbols-outlined text-5xl text-text-muted mb-2 block">add_photo_alternate</span>
-                      <p className="text-sm text-text-muted mb-1">Click to add more images</p>
-                      <p className="text-xs text-text-muted">You can add {3 - selectedPiece.images.length} more image(s)</p>
-                    </label>
-                    {editImagePreviewUrls.length > 0 && (
-                      <div className="grid grid-cols-4 gap-2 mt-4">
-                        {editImagePreviewUrls.map((url, index) => (
-                          <img key={index} src={url} alt={`Preview ${index + 1}`} className="w-full h-24 object-cover rounded-lg" />
-                        ))}
-                      </div>
-                    )}
+              {/* Add more images */}
+              {(selectedPiece.images?.length || 0) < 3 && (
+                <div style={{ marginBottom: '20px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: '10px' }}>
+                    Add Images (up to {3 - (selectedPiece.images?.length || 0)} more)
                   </div>
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    onChange={handleEditImageSelect}
+                    id="edit-image-upload"
+                    style={{ display: 'none' }}
+                  />
+                  <label htmlFor="edit-image-upload" style={{
+                    display: 'block', border: `1px dashed ${RULE}`, padding: '20px',
+                    textAlign: 'center', cursor: 'pointer', backgroundColor: ALT,
+                  }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: '28px', color: MUTED, display: 'block', marginBottom: '6px' }}>add_photo_alternate</span>
+                    <div style={{ fontSize: '12px', color: MUTED }}>Tap to add photos</div>
+                  </label>
+                  {editImagePreviewUrls.length > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginTop: '8px' }}>
+                      {editImagePreviewUrls.map((url, index) => (
+                        <img key={index} src={url} alt={`Preview ${index + 1}`} style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', display: 'block' }} />
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Title */}
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium mb-1">Title *</label>
-                  <input
-                    type="text"
-                    className="form-input w-full rounded-lg border-border bg-background-alt text-text h-10 px-3 text-sm"
-                    value={formData.title}
-                    onChange={(e) => setFormData({...formData, title: e.target.value})}
-                  />
-                </div>
+              {/* Title */}
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: '6px' }}>Title *</label>
+                <input
+                  type="text"
+                  value={formData.title}
+                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  style={{
+                    width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, backgroundColor: ALT,
+                    fontSize: '14px', color: INK, boxSizing: 'border-box', outline: 'none',
+                  }}
+                />
+              </div>
 
-                {/* Clay Type */}
-                <div>
-                  <label className="block text-sm font-medium mb-1">Clay Type *</label>
-                  <select
-                    className="form-select w-full rounded-lg border-border bg-background-alt text-text h-10 px-3 text-sm"
-                    value={formData.clay_type}
-                    onChange={(e) => setFormData({...formData, clay_type: e.target.value})}
-                  >
-                    <option value="">Select clay type</option>
-                    {clayTypes.map(type => (
-                      <option key={type.id} value={type.name}>{type.name}</option>
-                    ))}
-                  </select>
-                </div>
+              {/* Clay Type */}
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: '6px' }}>Clay Type *</label>
+                <select
+                  value={formData.clay_type}
+                  onChange={(e) => setFormData({ ...formData, clay_type: e.target.value })}
+                  style={{
+                    width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, backgroundColor: ALT,
+                    fontSize: '14px', color: INK, boxSizing: 'border-box', outline: 'none', appearance: 'auto',
+                  }}
+                >
+                  <option value="">Select clay type</option>
+                  {clayTypes.map(type => (
+                    <option key={type.id} value={type.name}>{type.name}</option>
+                  ))}
+                </select>
+              </div>
 
-                {/* Date Completed */}
-                <div>
-                  <label className="block text-sm font-medium mb-1">Date Completed *</label>
-                  <input
-                    type="date"
-                    className="form-input w-full rounded-lg border-border bg-background-alt text-text h-10 px-3 text-sm"
-                    value={formData.date_completed}
-                    onChange={(e) => setFormData({...formData, date_completed: e.target.value})}
-                  />
-                </div>
+              {/* Date Completed */}
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: '6px' }}>Date Completed *</label>
+                <input
+                  type="date"
+                  value={formData.date_completed}
+                  onChange={(e) => setFormData({ ...formData, date_completed: e.target.value })}
+                  style={{
+                    width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, backgroundColor: ALT,
+                    fontSize: '14px', color: INK, boxSizing: 'border-box', outline: 'none',
+                  }}
+                />
               </div>
 
               {/* Glazes */}
-              <div>
-                <label className="block text-sm font-medium mb-2">Glazes</label>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-2 bg-background-alt rounded-lg border border-border">
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: '6px' }}>Glazes</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', maxHeight: '160px', overflowY: 'auto', padding: '8px', backgroundColor: ALT, border: `1px solid ${RULE}` }}>
                   {glazes.map(glaze => (
-                    <label key={glaze.id} className="flex items-center gap-2 cursor-pointer hover:bg-background p-2 rounded">
+                    <label key={glaze.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', padding: '4px 0' }}>
                       <input
                         type="checkbox"
                         checked={formData.glazes.includes(glaze.name)}
                         onChange={() => toggleGlaze(glaze.name)}
-                        className="rounded border-border text-accent focus:ring-accent"
+                        style={{ accentColor: TC }}
                       />
-                      <span className="text-sm">{glaze.name}</span>
+                      <span style={{ fontSize: '13px' }}>{glaze.name}</span>
                     </label>
                   ))}
                 </div>
                 {formData.glazes.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mt-2">
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
                     {formData.glazes.map(glaze => (
-                      <span key={glaze} className="inline-flex items-center gap-1 px-2 py-1 bg-accent/10 text-accent text-xs rounded-full">
+                      <span key={glaze} style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '4px',
+                        padding: '3px 8px', backgroundColor: TC_LIGHT, color: TC_DARK,
+                        fontSize: '11px', fontWeight: 700,
+                      }}>
                         {glaze}
-                        <button onClick={() => toggleGlaze(glaze)} className="hover:bg-accent/20 rounded-full p-0.5">
-                          <span className="material-symbols-outlined text-xs">close</span>
-                        </button>
+                        <button onClick={() => toggleGlaze(glaze)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0', lineHeight: 1, color: TC_DARK }}>×</button>
                       </span>
                     ))}
                   </div>
@@ -903,61 +754,161 @@ export default function GalleryNew() {
               </div>
 
               {/* Description */}
-              <div>
-                <label className="block text-sm font-medium mb-1">Description / Notes</label>
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: '6px' }}>Notes</label>
                 <textarea
-                  className="form-textarea w-full rounded-lg border-border bg-background-alt text-text px-3 py-2 text-sm"
-                  rows="4"
+                  rows={3}
                   value={formData.description}
-                  onChange={(e) => setFormData({...formData, description: e.target.value})}
-                  placeholder="Add notes about your piece..."
-                ></textarea>
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Add notes about your piece…"
+                  style={{
+                    width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, backgroundColor: ALT,
+                    fontSize: '14px', color: INK, boxSizing: 'border-box', outline: 'none', resize: 'vertical',
+                  }}
+                />
               </div>
 
-              {/* Public Toggle */}
-              <div className="flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  id="edit-is-public"
-                  checked={formData.is_public}
-                  onChange={(e) => setFormData({...formData, is_public: e.target.checked})}
-                  className="rounded border-border text-accent focus:ring-accent"
-                />
-                <label htmlFor="edit-is-public" className="text-sm font-medium cursor-pointer">
-                  Make this piece public (visible in public gallery)
-                </label>
+              {/* Public toggle */}
+              <div style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '14px', border: `1px solid ${RULE}`, backgroundColor: ALT,
+                marginBottom: '24px',
+              }}>
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: 700, marginBottom: '2px' }}>Share with community</div>
+                  <div style={{ fontSize: '11px', color: MUTED }}>Visible to other VES students for inspiration</div>
+                </div>
+                <button
+                  onClick={() => setFormData(prev => ({ ...prev, is_public: !prev.is_public }))}
+                  style={{
+                    width: '44px', height: '24px',
+                    backgroundColor: formData.is_public ? TC : '#DDD',
+                    borderRadius: '12px', border: 'none', cursor: 'pointer',
+                    position: 'relative', transition: 'background-color 0.2s ease', flexShrink: 0,
+                  }}
+                >
+                  <span style={{
+                    position: 'absolute', top: '3px',
+                    left: formData.is_public ? '23px' : '3px',
+                    width: '18px', height: '18px', borderRadius: '50%',
+                    backgroundColor: '#FFF', transition: 'left 0.2s ease',
+                  }} />
+                </button>
               </div>
             </div>
 
-            <div className="sticky bottom-0 bg-background border-t border-border p-6 flex gap-3 justify-end">
+            {/* Footer buttons */}
+            <div style={{
+              position: 'sticky', bottom: 0, backgroundColor: '#FFFFFF',
+              borderTop: `1px solid ${RULE}`, padding: '16px 20px',
+              display: 'flex', gap: '8px',
+            }}>
               <button
                 onClick={handleDeletePiece}
                 disabled={uploading}
-                className="mr-auto px-6 h-10 rounded-lg bg-red-500 text-white text-sm font-bold hover:bg-red-600 transition-colors disabled:opacity-50"
+                style={{
+                  padding: '12px 16px', border: '1px solid rgba(200,50,50,0.3)', backgroundColor: 'transparent',
+                  fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                  cursor: uploading ? 'not-allowed' : 'pointer', color: '#C03030', opacity: uploading ? 0.5 : 1,
+                }}
               >
                 Delete
               </button>
               <button
-                onClick={() => {
-                  setShowEditModal(false);
-                  setSelectedPiece(null);
+                onClick={closeEditModal}
+                style={{
+                  flex: 1, padding: '12px', border: `1px solid ${RULE}`, backgroundColor: 'transparent',
+                  fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                  cursor: 'pointer', color: MUTED,
                 }}
-                className="px-6 h-10 rounded-lg bg-border text-text text-sm font-bold hover:bg-border/80 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSaveChanges}
                 disabled={uploading || !formData.title || !formData.clay_type || !formData.date_completed}
-                className="px-6 h-10 rounded-lg bg-accent text-white text-sm font-bold hover:bg-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                style={{
+                  flex: 2, padding: '12px', border: 'none', backgroundColor: TC, color: '#FFF',
+                  fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                  cursor: (uploading || !formData.title || !formData.clay_type || !formData.date_completed) ? 'not-allowed' : 'pointer',
+                  opacity: (uploading || !formData.title || !formData.clay_type || !formData.date_completed) ? 0.5 : 1,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                }}
               >
-                {uploading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>}
-                <span>{uploading ? 'Saving...' : 'Save Changes'}</span>
+                {uploading && (
+                  <span style={{
+                    display: 'inline-block', width: '14px', height: '14px',
+                    border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#FFF',
+                    borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+                  }} />
+                )}
+                {uploading ? 'Saving…' : 'Save Changes'}
               </button>
             </div>
           </div>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
       )}
+
+      {/* BOTTOM TAB BAR */}
+      <BottomNav />
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
+  );
+}
+
+function BottomNav() {
+  const tabs = [
+    { id: 'home',    label: 'Home',    icon: 'home',           href: '/dashboard' },
+    { id: 'classes', label: 'Classes', icon: 'calendar_month', href: '/classes' },
+    { id: 'gallery', label: 'Gallery', icon: 'photo_library',  href: '/gallery' },
+    { id: 'account', label: 'Account', icon: 'person',         href: '/account' },
+  ];
+  const active = 'gallery';
+  return (
+    <nav style={{
+      position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50,
+      backgroundColor: '#FFFFFF', borderTop: `1px solid ${RULE}`,
+      display: 'flex', height: '60px', paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+    }}>
+      {tabs.map(tab => {
+        const isActive = active === tab.id;
+        return (
+          <a
+            key={tab.id}
+            href={tab.href}
+            style={{
+              flex: 1, border: 'none', background: 'transparent', cursor: 'pointer',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              gap: '2px', padding: '8px 0', position: 'relative', textDecoration: 'none',
+            }}
+          >
+            <span
+              className="material-symbols-outlined"
+              style={{
+                fontSize: '22px',
+                color: isActive ? TC : '#BBBBBB',
+                fontVariationSettings: isActive ? "'FILL' 1, 'wght' 500" : "'FILL' 0, 'wght' 400",
+              }}
+            >
+              {tab.icon}
+            </span>
+            <span style={{
+              fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+              color: isActive ? TC : '#BBBBBB',
+            }}>
+              {tab.label}
+            </span>
+            {isActive && (
+              <span style={{
+                position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)',
+                width: '20px', height: '2px', backgroundColor: TC,
+              }} />
+            )}
+          </a>
+        );
+      })}
+    </nav>
   );
 }

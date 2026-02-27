@@ -1,47 +1,214 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import Navigation from '../components/Navigation';
-import Footer from '../components/Footer';
-import ClassCalendar from '../components/ClassCalendar';
 import api from '../utils/api';
 
+// ─── Design tokens ───────────────────────────────────────────────────────────
+const TC       = '#C4622D';
+const TC_LIGHT = '#F9EDE6';
+const TC_DARK  = '#9E4A1E';
+const INK      = '#282828';
+const MUTED    = '#888888';
+const RULE     = 'rgba(40,40,40,0.09)';
+const ALT      = '#F5F3F0';
+
+// ─── Nav config ──────────────────────────────────────────────────────────────
+const NAV = [
+  { id: 'dashboard',   label: 'Dashboard', href: '/admin' },
+  { id: 'classes',     label: 'Classes',   href: '/admin/classes' },
+  { id: 'students',    label: 'Students',  href: '/admin/students' },
+  { id: 'memberships', label: 'Members',   href: '/admin/memberships' },
+];
+
+// ─── Month names for CalendarWidget ──────────────────────────────────────────
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+// ─── Shared style objects ─────────────────────────────────────────────────────
+const BOOKING_STYLE = {
+  booked:    { bg: TC_LIGHT,  text: TC_DARK    },
+  attended:  { bg: ALT,       text: MUTED      },
+  completed: { bg: ALT,       text: MUTED      },
+  missed:    { bg: '#FFF0F0', text: '#C03030'  },
+  cancelled: { bg: ALT,       text: MUTED      },
+  unbooked:  { bg: '#FFFBEA', text: '#9E6200'  },
+};
+
+const FEE_STYLE = {
+  paid:    { bg: TC_LIGHT,  text: TC_DARK  },
+  pending: { bg: '#FFF7E6', text: '#9E6200' },
+  waived:  { bg: ALT,       text: MUTED    },
+};
+
+// ─── useIsMobile hook ─────────────────────────────────────────────────────────
+function useIsMobile(bp = 768) {
+  const [mobile, setMobile] = useState(() => window.innerWidth < bp);
+  useEffect(() => {
+    const fn = () => setMobile(window.innerWidth < bp);
+    window.addEventListener('resize', fn);
+    return () => window.removeEventListener('resize', fn);
+  }, [bp]);
+  return mobile;
+}
+
+// ─── AdminNav ─────────────────────────────────────────────────────────────────
+function AdminNav({ active }) {
+  return (
+    <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: '#FFFFFF', borderBottom: `1px solid ${RULE}` }}>
+      <div style={{ maxWidth: '1140px', margin: '0 auto', padding: '0 24px', height: '52px', display: 'flex', alignItems: 'center', gap: '24px' }}>
+        <img
+          src="https://ves.sg/cdn/shop/files/logo_04a04687-57f4-4141-b0bc-ec30b527fd73.png?v=1686045719&width=600"
+          alt="VES"
+          style={{ height: '22px', width: 'auto', flexShrink: 0 }}
+        />
+        <div style={{ width: '1px', height: '18px', backgroundColor: RULE, flexShrink: 0 }} />
+        <nav style={{ display: 'flex', flex: 1 }}>
+          {NAV.map(link => (
+            <a key={link.id} href={link.href} style={{
+              padding: '0 14px', height: '52px', display: 'flex', alignItems: 'center',
+              fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+              color: active === link.id ? TC : MUTED,
+              textDecoration: 'none',
+              borderBottom: `2px solid ${active === link.id ? TC : 'transparent'}`,
+            }}>{link.label}</a>
+          ))}
+        </nav>
+        <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', backgroundColor: INK, color: '#FFF', flexShrink: 0 }}>Admin</span>
+      </div>
+    </header>
+  );
+}
+
+// ─── CalendarWidget ───────────────────────────────────────────────────────────
+// Self-contained calendar; receives availSet (Set of 'YYYY-MM-DD' strings) from parent
+function CalendarWidget({ month, onMonthChange, selectedDate, onDateSelect, availSet }) {
+  const year     = month.getFullYear();
+  const mon      = month.getMonth();
+  const daysInMonth = new Date(year, mon + 1, 0).getDate();
+  const startDow = (new Date(year, mon, 1).getDay() + 6) % 7; // Mon = 0
+
+  const fmt = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  return (
+    <div style={{ border: `1px solid ${RULE}`, backgroundColor: ALT, padding: '16px', userSelect: 'none' }}>
+      {/* Month nav */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+        <button
+          onClick={() => onMonthChange(new Date(year, mon - 1))}
+          style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '16px', color: MUTED, padding: '4px 8px' }}
+        >‹</button>
+        <span style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          {MONTH_NAMES[mon]} {year}
+        </span>
+        <button
+          onClick={() => onMonthChange(new Date(year, mon + 1))}
+          style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '16px', color: MUTED, padding: '4px 8px' }}
+        >›</button>
+      </div>
+
+      {/* Day-of-week headers */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', marginBottom: '4px' }}>
+        {['M','T','W','T','F','S','S'].map((d, i) => (
+          <div key={i} style={{ textAlign: 'center', fontSize: '10px', fontWeight: 700, color: MUTED, padding: '4px 0' }}>{d}</div>
+        ))}
+      </div>
+
+      {/* Day cells */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px' }}>
+        {Array.from({ length: startDow }).map((_, i) => <div key={`e${i}`} />)}
+        {Array.from({ length: daysInMonth }).map((_, i) => {
+          const day     = i + 1;
+          const date    = new Date(year, mon, day);
+          const dateStr = fmt(date);
+          const hasClass  = availSet ? availSet.has(dateStr) : false;
+          const isSelected = selectedDate && fmt(selectedDate) === dateStr;
+          return (
+            <button
+              key={day}
+              onClick={() => hasClass && onDateSelect(date)}
+              style={{
+                height: '36px', width: '100%', border: 'none',
+                cursor: hasClass ? 'pointer' : 'default',
+                fontSize: '12px', fontWeight: hasClass ? 700 : 400,
+                backgroundColor: isSelected ? TC : hasClass ? TC_LIGHT : 'transparent',
+                color: isSelected ? '#FFF' : hasClass ? TC_DARK : MUTED,
+                position: 'relative',
+              }}
+            >
+              {day}
+              {hasClass && !isSelected && (
+                <span style={{
+                  position: 'absolute', bottom: '4px', left: '50%', transform: 'translateX(-50%)',
+                  width: '4px', height: '4px', borderRadius: '50%', backgroundColor: TC,
+                }} />
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
 export default function AdminStudentDetail() {
   const navigate = useNavigate();
   const { email } = useParams();
   const { logout } = useAuth();
+  const isMobile = useIsMobile();
 
   console.log('AdminStudentDetail component loaded, email param:', email);
 
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [student, setStudent] = useState(null);
-  const [enrollment, setEnrollment] = useState(null);
-  const [bookings, setBookings] = useState([]);
-  const [fees, setFees] = useState([]);
+  // ── Data state ───────────────────────────────────────────────────────────
+  const [loading, setLoading]         = useState(true);
+  const [saving, setSaving]           = useState(false);
+  const [student, setStudent]         = useState(null);
+  const [enrollment, setEnrollment]   = useState(null);
+  const [bookings, setBookings]       = useState([]);
+  const [fees, setFees]               = useState([]);
   const [updatingFeeId, setUpdatingFeeId] = useState(null);
-  const [showPauseModal, setShowPauseModal] = useState(false);
-  const [pausing, setPausing] = useState(false);
-  const [resuming, setResuming] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [pauseForm, setPauseForm] = useState({
-    weeksCompleted: 0,
-    reason: ''
-  });
-  const [editForm, setEditForm] = useState({
-    coursePurchaseCount: 0
-  });
-  const [deletingBookingId, setDeletingBookingId] = useState(null);
-  const [togglingMakeupId, setTogglingMakeupId] = useState(null);
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [showMakeupModal, setShowMakeupModal] = useState(false);
-  const [selectedBookingForMakeup, setSelectedBookingForMakeup] = useState(null);
-  const [allClasses, setAllClasses] = useState([]);
-  const [makeupSelectedDate, setMakeupSelectedDate] = useState(new Date());
-  const [makeupCurrentMonth, setMakeupCurrentMonth] = useState(new Date());
-  const [rescheduling, setRescheduling] = useState(false);
-  const [reschedulingClassId, setReschedulingClassId] = useState(null);
 
+  // ── Edit form ────────────────────────────────────────────────────────────
+  const [editForm, setEditForm] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    coursePurchaseCount: 0,
+    classesAllocated: 0,
+  });
+  const [showEditModal, setShowEditModal] = useState(false);
+
+  // ── Pause / Resume ───────────────────────────────────────────────────────
+  const [showPauseModal, setShowPauseModal] = useState(false);
+  const [pausing, setPausing]   = useState(false);
+  const [resuming, setResuming] = useState(false);
+  const [pauseForm, setPauseForm] = useState({ weeksCompleted: 0, reason: '' });
+
+  // ── Bookings table ────────────────────────────────────────────────────────
+  const [statusFilter, setStatusFilter]         = useState('all');
+  const [deleteConfirmId, setDeleteConfirmId]   = useState(null);
+  const [deletingBookingId, setDeletingBookingId] = useState(null);
+
+  // ── Reschedule / Makeup modal ────────────────────────────────────────────
+  const [showMakeupModal, setShowMakeupModal]               = useState(false);
+  const [selectedBookingForMakeup, setSelectedBookingForMakeup] = useState(null);
+  const [allClasses, setAllClasses]                         = useState([]);
+  const [makeupSelectedDate, setMakeupSelectedDate]         = useState(new Date());
+  const [makeupCurrentMonth, setMakeupCurrentMonth]         = useState(new Date());
+  const [rescheduling, setRescheduling]                     = useState(false);
+  const [reschedulingClassId, setReschedulingClassId]       = useState(null);
+  const [rescheduleConfirmId, setRescheduleConfirmId]       = useState(null);
+
+  // ── Fees table ────────────────────────────────────────────────────────────
+  const [feeDeleteConfirmId, setFeeDeleteConfirmId] = useState(null);
+  const [deletingFeeId, setDeletingFeeId]           = useState(null);
+
+  // ── UI tabs ───────────────────────────────────────────────────────────────
+  const [section, setSection] = useState('enrollment');
+
+  // ── Profile picture ───────────────────────────────────────────────────────
+  const [uploading, setUploading] = useState(false);
+
+  // ─── Helpers ──────────────────────────────────────────────────────────────
   const resetMakeupModalState = () => {
     setShowMakeupModal(false);
     setSelectedBookingForMakeup(null);
@@ -49,47 +216,129 @@ export default function AdminStudentDetail() {
     setMakeupCurrentMonth(new Date());
     setRescheduling(false);
     setReschedulingClassId(null);
+    setRescheduleConfirmId(null);
   };
 
-  useEffect(() => {
-    loadStudentData();
-  }, [email]);
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric', month: 'short', day: 'numeric',
+    });
+  };
 
+  const parseCourseName = (courseIdentifier, classType) => {
+    if (courseIdentifier && courseIdentifier !== 'N/A') {
+      const typeMatch  = courseIdentifier.match(/^(WT|HB|CL)/);
+      const weeksMatch = courseIdentifier.match(/(\d+)\.\d+$/);
+      if (typeMatch) {
+        const type  = typeMatch[1] === 'WT' ? 'Wheelthrowing' : typeMatch[1] === 'HB' ? 'Handbuilding' : 'Class';
+        const weeks = weeksMatch ? `${weeksMatch[1]} Weeks` : '';
+        return weeks ? `${type} ${weeks}` : type;
+      }
+    }
+    if (classType) {
+      if (classType.toLowerCase().includes('wheelthrowing')) return 'Wheelthrowing 6 Weeks';
+      if (classType.toLowerCase().includes('handbuilding'))  return 'Handbuilding 4 Weeks';
+      return classType;
+    }
+    return 'N/A';
+  };
+
+  const getClassCategory = (classType) => {
+    if (!classType) return 'other';
+    const upper = classType.toUpperCase();
+    if (upper.startsWith('WT')) return 'wheelthrowing-beginner';
+    if (upper.startsWith('HB')) return 'handbuilding';
+    if (upper.startsWith('KD')) return 'kids';
+    const lower = classType.toLowerCase();
+    if (lower.includes('wheelthrowing') && lower.includes('intermediate')) return 'wheelthrowing-intermediate';
+    if (lower.includes('wheelthrowing')) return 'wheelthrowing-beginner';
+    if (lower.includes('handbuilding'))  return 'handbuilding';
+    if (lower.includes('kids') || lower.includes('children')) return 'kids';
+    return 'other';
+  };
+
+  const getTypeLabel = (classType) => {
+    if (!classType) return '??';
+    const upper = classType.toUpperCase();
+    if (upper.startsWith('WT')) return 'WT';
+    if (upper.startsWith('HB')) return 'HB';
+    if (upper.startsWith('KD')) return 'KD';
+    return classType.substring(0, 2).toUpperCase();
+  };
+
+  const getAvailableMakeupClasses = () => {
+    if (!selectedBookingForMakeup) return [];
+    const isUnbooked = selectedBookingForMakeup.isPlaceholder;
+    const flatClasses = [];
+    allClasses.forEach(course => {
+      course.classes?.forEach(cls => {
+        flatClasses.push({
+          id: cls.id,
+          classDate: cls.class_date,
+          classType: cls.class_type,
+          startTime: cls.start_time,
+          endTime: cls.end_time,
+          instructor: cls.instructor,
+          room: cls.room,
+          maxCapacity: cls.max_capacity,
+          currentEnrollment: cls.bookingCount || 0,
+        });
+      });
+    });
+    if (isUnbooked) {
+      return flatClasses.filter(c => c.currentEnrollment < 10);
+    }
+    return flatClasses.filter(c => c.id !== selectedBookingForMakeup.class_instance_id && c.currentEnrollment < 10);
+  };
+
+  const getMakeupClassesForDate = (date) => {
+    const year  = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day   = String(date.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
+    return getAvailableMakeupClasses().filter(c => c.classDate?.startsWith(dateStr));
+  };
+
+  // Build the set of available dates for the CalendarWidget
+  const getAvailSet = () => {
+    const classes = getAvailableMakeupClasses();
+    const set = new Set();
+    classes.forEach(c => {
+      if (c.classDate) set.add(c.classDate.split('T')[0]);
+    });
+    return set;
+  };
+
+  // ─── Data fetching ────────────────────────────────────────────────────────
   const loadStudentData = async () => {
     try {
       setLoading(true);
       const decodedEmail = decodeURIComponent(email);
       console.log('Loading student data for:', decodedEmail);
 
-      // Get student info
-      console.log('Fetching student info...');
       const { data: studentData } = await api.get(`/admin/students/${decodedEmail}`);
       console.log('Student data received:', studentData);
       setStudent(studentData);
       setEditForm({
         firstName: studentData.first_name || '',
-        lastName: studentData.last_name || '',
-        email: studentData.email || '',
+        lastName:  studentData.last_name  || '',
+        email:     studentData.email      || '',
         coursePurchaseCount: studentData.course_purchase_count || 0,
-        classesAllocated: studentData.classes_allocated || 0
+        classesAllocated:    studentData.classes_allocated     || 0,
       });
 
-      // Get student bookings
       const { data: bookingsData } = await api.get(`/admin/students/${decodedEmail}/bookings`);
       console.log('Bookings data received:', bookingsData);
       setBookings(bookingsData.bookings || []);
 
-      // Get student enrollment
       if (studentData.id) {
         try {
           const { data: enrollmentData } = await api.get(`/admin/students/${studentData.id}/enrollment`);
           setEnrollment(enrollmentData);
-        } catch (err) {
-          // No enrollment found - that's okay
+        } catch {
           setEnrollment(null);
         }
-
-        // Get student fees
         const { data: feesData } = await api.get(`/admin/students/${studentData.id}/fees`);
         setFees(feesData.fees || []);
       }
@@ -101,22 +350,24 @@ export default function AdminStudentDetail() {
     }
   };
 
+  useEffect(() => {
+    loadStudentData();
+  }, [email]);
+
+  // ─── Handlers ─────────────────────────────────────────────────────────────
   const saveChanges = async () => {
     try {
       setSaving(true);
       const decodedEmail = decodeURIComponent(email);
-
       await api.put(`/admin/students/${decodedEmail}`, {
-        first_name: editForm.firstName.trim(),
-        last_name: editForm.lastName.trim(),
-        email: editForm.email.trim(),
+        first_name:           editForm.firstName.trim(),
+        last_name:            editForm.lastName.trim(),
+        email:                editForm.email.trim(),
         course_purchase_count: parseInt(editForm.coursePurchaseCount),
-        classes_allocated: parseInt(editForm.classesAllocated)
+        classes_allocated:    parseInt(editForm.classesAllocated),
       });
-
       alert('Student updated successfully!');
-
-      // If email changed, navigate to new URL
+      setShowEditModal(false);
       if (editForm.email.trim() !== decodedEmail) {
         navigate(`/admin/students/${encodeURIComponent(editForm.email.trim())}`);
       } else {
@@ -131,16 +382,9 @@ export default function AdminStudentDetail() {
   };
 
   const updateFeeStatus = async (feeId, newStatus) => {
-    if (!confirm(`Are you sure you want to mark this fee as ${newStatus}?`)) {
-      return;
-    }
-
     try {
       setUpdatingFeeId(feeId);
-      await api.patch(`/admin/fees/${feeId}/payment`, {
-        paymentStatus: newStatus
-      });
-
+      await api.patch(`/admin/fees/${feeId}/payment`, { paymentStatus: newStatus });
       alert(`Fee marked as ${newStatus}!`);
       await loadStudentData();
     } catch (error) {
@@ -151,15 +395,27 @@ export default function AdminStudentDetail() {
     }
   };
 
-  const handleDeleteBooking = async (bookingId) => {
-    if (!confirm('Are you sure you want to delete this booking? This action cannot be undone.')) {
-      return;
+  const handleDeleteFee = async (feeId) => {
+    try {
+      setDeletingFeeId(feeId);
+      await api.delete(`/admin/fees/${feeId}`);
+      alert('Fee deleted successfully!');
+      setFeeDeleteConfirmId(null);
+      await loadStudentData();
+    } catch (error) {
+      console.error('Failed to delete fee:', error);
+      alert('Failed to delete fee');
+    } finally {
+      setDeletingFeeId(null);
     }
+  };
 
+  const handleDeleteBooking = async (bookingId) => {
     try {
       setDeletingBookingId(bookingId);
       await api.delete(`/admin/bookings/${bookingId}`);
       alert('Booking deleted successfully!');
+      setDeleteConfirmId(null);
       await loadStudentData();
     } catch (error) {
       console.error('Failed to delete booking:', error);
@@ -169,130 +425,20 @@ export default function AdminStudentDetail() {
     }
   };
 
-  // Helper function to get class category
-  const getClassCategory = (classType) => {
-    if (!classType) return 'other';
-    const upper = classType.toUpperCase();
-
-    if (upper.startsWith('WT')) return 'wheelthrowing-beginner';
-    if (upper.startsWith('HB')) return 'handbuilding';
-    if (upper.startsWith('KD')) return 'kids';
-
-    const lower = classType.toLowerCase();
-    if (lower.includes('wheelthrowing') && lower.includes('beginner')) return 'wheelthrowing-beginner';
-    if (lower.includes('wheelthrowing') && lower.includes('intermediate')) return 'wheelthrowing-intermediate';
-    if (lower.includes('handbuilding')) return 'handbuilding';
-    if (lower.includes('kids') || lower.includes('children')) return 'kids';
-    return 'other';
-  };
-
-  // Helper function to parse class datetime
-  const parseClassDateTime = (classDateStr, timeStr) => {
-    try {
-      const datePart = classDateStr.split('T')[0];
-      let hour24, minutes;
-
-      const time24Match = timeStr.trim().match(/^(\d{1,2}):(\d{2})$/);
-      if (time24Match) {
-        hour24 = parseInt(time24Match[1]);
-        minutes = parseInt(time24Match[2]);
-      } else {
-        const normalizedTime = timeStr.toUpperCase().trim();
-        const match = normalizedTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
-        if (!match) {
-          throw new Error(`Invalid time format: ${timeStr}`);
-        }
-
-        const hours = parseInt(match[1]);
-        minutes = parseInt(match[2]);
-        const period = match[3];
-
-        hour24 = hours;
-        if (period === 'PM' && hours !== 12) {
-          hour24 = hours + 12;
-        } else if (period === 'AM' && hours === 12) {
-          hour24 = 0;
-        }
-      }
-
-      const [year, month, day] = datePart.split('-').map(Number);
-      return new Date(year, month - 1, day, hour24, minutes);
-    } catch (error) {
-      console.error('Error parsing class datetime:', classDateStr, timeStr, error);
-      return new Date(NaN);
-    }
-  };
-
-  // Get available makeup classes (with glazing class restrictions)
-  const getAvailableMakeupClasses = () => {
-    if (!selectedBookingForMakeup) return [];
-
-    const isUnbookedCredit = selectedBookingForMakeup.isPlaceholder;
-
-    // Flatten all classes from allClasses
-    const flatClasses = [];
-    allClasses.forEach(course => {
-      course.classes?.forEach(cls => {
-        flatClasses.push({
-          id: cls.id,
-          classDate: cls.class_date,
-          classType: cls.class_type,
-          startTime: cls.start_time,
-          endTime: cls.end_time,
-          instructor: cls.instructor,
-          room: cls.room,
-          maxCapacity: cls.max_capacity,
-          currentEnrollment: cls.bookingCount || 0
-        });
-      });
-    });
-
-    if (isUnbookedCredit) {
-      // For unbooked credits, show all available classes with space
-      return flatClasses.filter(c => {
-        const hasSpace = c.currentEnrollment < 10; // Total capacity is 10
-        return hasSpace;
-      });
-    } else {
-      // Admin reschedule: no category restrictions (WT↔HB allowed)
-      // Category restrictions only apply to students
-      const isDifferentClassId = selectedBookingForMakeup.class_instance_id;
-
-      return flatClasses.filter(c => {
-        const isDifferentClass = c.id !== isDifferentClassId;
-        const hasSpace = c.currentEnrollment < 10; // Total capacity is 10
-        return isDifferentClass && hasSpace;
-      });
-    }
-  };
-
-  // Get classes for a specific date
-  const getMakeupClassesForDate = (date) => {
-    const makeupClasses = getAvailableMakeupClasses();
-
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const dateStr = `${year}-${month}-${day}`;
-
-    return makeupClasses.filter(c => c.classDate?.startsWith(dateStr));
-  };
-
   const handleOpenMakeupModal = async (booking) => {
     console.log('Opening reschedule modal for booking:', booking);
     setRescheduling(false);
     setReschedulingClassId(null);
+    setRescheduleConfirmId(null);
     setSelectedBookingForMakeup(booking);
     setShowMakeupModal(true);
 
-    // Load all classes for filtering
     try {
       const { data } = await api.get('/admin/classes');
       console.log('Loaded classes for reschedule:', data.courses?.length, 'courses');
       const loadedCourses = data.courses || [];
       setAllClasses(loadedCourses);
 
-      // Find available classes to auto-navigate to the first available date
       const isUnbookedCredit = booking.isPlaceholder;
       const flatClasses = [];
       loadedCourses.forEach(course => {
@@ -301,40 +447,28 @@ export default function AdminStudentDetail() {
             id: cls.id,
             classDate: cls.class_date,
             classType: cls.class_type,
-            currentEnrollment: cls.bookingCount || 0
+            currentEnrollment: cls.bookingCount || 0,
           });
         });
       });
 
-      // Only consider current/future classes (2026+)
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const futureClasses = flatClasses.filter(c => {
-        const classDate = new Date(c.classDate);
-        return classDate >= today;
-      });
+      const futureClasses = flatClasses.filter(c => new Date(c.classDate) >= today);
 
       let availableClasses;
       if (isUnbookedCredit) {
         availableClasses = futureClasses.filter(c => c.currentEnrollment < 10);
       } else {
-        const bookingClassType = booking.class_type;
-        const classCategory = getClassCategory(bookingClassType);
         availableClasses = futureClasses.filter(c => {
-          const sameCategory = getClassCategory(c.classType) === classCategory;
-          const isDifferentClass = c.id !== booking.class_instance_id;
-          const hasSpace = c.currentEnrollment < 10;
-          return sameCategory && isDifferentClass && hasSpace;
+          return c.id !== booking.class_instance_id && c.currentEnrollment < 10;
         });
       }
 
       if (availableClasses.length > 0) {
-        // Auto-navigate calendar to first available date
         const uniqueDates = [...new Set(availableClasses.map(c => c.classDate.split('T')[0]))];
-        const sortedDates = uniqueDates.sort();
-        const firstDateStr = sortedDates[0];
+        const firstDateStr = uniqueDates.sort()[0];
         const firstDate = new Date(firstDateStr + 'T12:00:00');
-        console.log('Auto-selecting first available date:', firstDateStr);
         setMakeupSelectedDate(firstDate);
         setMakeupCurrentMonth(new Date(firstDate.getFullYear(), firstDate.getMonth(), 1));
       } else {
@@ -350,61 +484,31 @@ export default function AdminStudentDetail() {
   const handleRescheduleToMakeup = async (newClassId) => {
     if (!selectedBookingForMakeup || rescheduling) return;
     const isUnbookedCredit = selectedBookingForMakeup.isPlaceholder;
-
     try {
       setRescheduling(true);
       setReschedulingClassId(newClassId);
-
       if (isUnbookedCredit) {
-        // Booking an unbooked credit - just create a new booking
-        console.log('Booking unbooked credit:', {
-          studentId: student.id,
-          newClassId: newClassId,
-          bookingType: 'makeup'
-        });
-
-        const newBookingData = {
-          studentId: student.id,
+        await api.post('/admin/bookings', {
+          studentId:       student.id,
           classInstanceId: newClassId,
-          bookingType: 'makeup',
-          status: 'booked'
-        };
-        console.log('Creating new booking:', newBookingData);
-        await api.post('/admin/bookings', newBookingData);
-        console.log('New booking created successfully');
-
+          bookingType:     'makeup',
+          status:          'booked',
+        });
         alert('Student booked successfully!');
       } else {
-        // Rescheduling an existing booking - delete old and create new
-        console.log('Rescheduling booking:', {
-          oldBookingId: selectedBookingForMakeup.id,
-          studentId: student.id,
-          newClassId: newClassId,
-          bookingType: 'makeup'
-        });
-
-        console.log('Deleting old booking:', selectedBookingForMakeup.id);
         await api.delete(`/admin/bookings/${selectedBookingForMakeup.id}`);
-        console.log('Old booking deleted successfully');
-
-        const newBookingData = {
-          studentId: student.id,
+        await api.post('/admin/bookings', {
+          studentId:       student.id,
           classInstanceId: newClassId,
-          bookingType: 'makeup',
-          status: 'booked'
-        };
-        console.log('Creating new booking:', newBookingData);
-        await api.post('/admin/bookings', newBookingData);
-        console.log('New booking created successfully');
-
+          bookingType:     'makeup',
+          status:          'booked',
+        });
         alert('Student rescheduled successfully!');
       }
-
       resetMakeupModalState();
       await loadStudentData();
     } catch (error) {
       console.error('Failed to book/reschedule class:', error);
-      console.error('Error details:', error.response?.data);
       alert(`Failed to book/reschedule class: ${error.response?.data?.error || error.message}`);
     } finally {
       setRescheduling(false);
@@ -414,11 +518,7 @@ export default function AdminStudentDetail() {
 
   const handleConvertToCredit = async () => {
     if (!selectedBookingForMakeup || selectedBookingForMakeup.isPlaceholder) return;
-
-    if (!confirm('Are you sure you want to convert this booking to a credit? The class booking will be deleted and the credit will become available for future use.')) {
-      return;
-    }
-
+    if (!confirm('Are you sure you want to convert this booking to a credit? The class booking will be deleted and the credit will become available for future use.')) return;
     try {
       setDeletingBookingId(selectedBookingForMakeup.id);
       await api.delete(`/admin/bookings/${selectedBookingForMakeup.id}`);
@@ -435,27 +535,19 @@ export default function AdminStudentDetail() {
 
   const handlePauseCourse = async () => {
     if (!enrollment) return;
-
     const weeksCompleted = parseInt(pauseForm.weeksCompleted);
     const totalWeeks = enrollment.number_of_weeks || 6;
-
     if (isNaN(weeksCompleted) || weeksCompleted < 0 || weeksCompleted >= totalWeeks) {
       alert(`Weeks completed must be between 0 and ${totalWeeks - 1}`);
       return;
     }
-
-    if (!confirm(`Are you sure you want to pause this student's course?\n\nWeeks completed: ${weeksCompleted}\nWeeks remaining: ${totalWeeks - weeksCompleted}`)) {
-      return;
-    }
-
     try {
       setPausing(true);
       await api.post(`/admin/enrollments/${enrollment.id}/pause`, {
         weeksCompleted,
         weeksRemaining: totalWeeks - weeksCompleted,
-        reason: pauseForm.reason
+        reason: pauseForm.reason,
       });
-
       alert('Course paused successfully!');
       setShowPauseModal(false);
       setPauseForm({ weeksCompleted: 0, reason: '' });
@@ -470,15 +562,10 @@ export default function AdminStudentDetail() {
 
   const handleResumeCourse = async () => {
     if (!enrollment || enrollment.status !== 'paused') return;
-
-    if (!confirm(`Are you sure you want to resume this student's course?\n\nThey will need to book ${enrollment.weeks_remaining} more classes to complete their course.`)) {
-      return;
-    }
-
+    if (!confirm(`Are you sure you want to resume this student's course?\n\nThey will need to book ${enrollment.weeks_remaining} more classes to complete their course.`)) return;
     try {
       setResuming(true);
       await api.post(`/admin/students/${student.id}/resume`);
-
       alert('Course resumed successfully! Student can now book their remaining classes.');
       await loadStudentData();
     } catch (error) {
@@ -492,33 +579,15 @@ export default function AdminStudentDetail() {
   const handleProfilePictureUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      alert('Please select an image file');
-      return;
-    }
-
-    // Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      alert('Image size must be less than 5MB');
-      return;
-    }
-
+    if (!file.type.startsWith('image/')) { alert('Please select an image file'); return; }
+    if (file.size > 5 * 1024 * 1024) { alert('Image size must be less than 5MB'); return; }
     try {
       setUploading(true);
-
       const formData = new FormData();
       formData.append('image', file);
-
-      const { data } = await api.post('/upload/image', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-
+      const { data } = await api.post('/upload/image', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       if (data.success && data.url) {
-        setEditForm({ ...editForm, profilePicture: data.url });
+        setEditForm(f => ({ ...f, profilePicture: data.url }));
         alert('Image uploaded successfully! Click "Save Changes" to save.');
       }
     } catch (error) {
@@ -532,958 +601,767 @@ export default function AdminStudentDetail() {
   const handleImpersonate = async () => {
     try {
       const decodedEmail = decodeURIComponent(email);
-      console.log('🎭 Impersonating student:', decodedEmail);
-
       const { data } = await api.post(`/auth/impersonate/${decodedEmail}`);
-
       if (data.success && data.token) {
-        // Store the new impersonation token
         localStorage.setItem('token', data.token);
-
-        console.log('✅ Impersonation successful, redirecting to dashboard...');
-
-        // Redirect to student dashboard and reload to update auth context
         window.location.href = '/dashboard';
       }
     } catch (error) {
-      console.error('❌ Impersonation failed:', error);
+      console.error('Impersonation failed:', error);
       alert('Failed to impersonate student');
     }
   };
 
-  const formatDate = (dateString) => {
-    if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  };
+  // ─── Derived values ───────────────────────────────────────────────────────
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
-  const parseCourseName = (courseIdentifier, classType) => {
-    // If we have a valid course identifier, parse it
-    if (courseIdentifier && courseIdentifier !== 'N/A') {
-      // Course identifier format: WT2001PM_DL6.1
-      // WT = Wheelthrowing, HB = Handbuilding
-      // 6 = number of weeks
-      const typeMatch = courseIdentifier.match(/^(WT|HB|CL)/);
-      const weeksMatch = courseIdentifier.match(/(\d+)\.\d+$/);
+  const attendedCount = bookings.filter(b => {
+    const classDate = new Date(b.class_date);
+    classDate.setHours(0, 0, 0, 0);
+    return b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && classDate < today);
+  }).length;
 
-      if (typeMatch) {
-        const type = typeMatch[1] === 'WT' ? 'Wheelthrowing' :
-                     typeMatch[1] === 'HB' ? 'Handbuilding' :
-                     'Class';
+  const totalAllocated = parseInt(editForm.classesAllocated) || 0;
+  const totalBooked    = bookings.length;
+  const unbookedCount  = Math.max(0, totalAllocated - totalBooked);
 
-        const weeks = weeksMatch ? `${weeksMatch[1]} Weeks` : '';
-        return weeks ? `${type} ${weeks}` : type;
-      }
-    }
+  const filteredBookings = [...bookings]
+    .filter(b => statusFilter === 'all' || b.status === statusFilter)
+    .sort((a, b) => new Date(a.class_date) - new Date(b.class_date));
 
-    // Fallback to class_type if course_identifier is N/A
-    if (classType) {
-      // Extract base type (remove "Beginner/Extension" etc)
-      if (classType.toLowerCase().includes('wheelthrowing')) {
-        return 'Wheelthrowing 6 Weeks';
-      } else if (classType.toLowerCase().includes('handbuilding')) {
-        return 'Handbuilding 4 Weeks';
-      }
-      return classType;
-    }
+  const totalFeePaid    = fees.filter(f => f.payment_status === 'paid').reduce((s, f) => s + parseFloat(f.amount || 0), 0);
+  const totalFeePending = fees.filter(f => f.payment_status === 'pending').reduce((s, f) => s + parseFloat(f.amount || 0), 0);
 
-    return 'N/A';
-  };
+  const memberSince = student
+    ? new Date(student.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+    : '';
 
+  const studentName = student ? `${student.first_name} ${student.last_name}` : '';
+  const studentInitial = studentName ? studentName[0] : '?';
+
+  // ─── Loading / not found ──────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex flex-col">
-        <Navigation />
-        <main className="flex-1 flex items-center justify-center">
-          <p className="text-text-muted">Loading...</p>
+      <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
+        <AdminNav active="students" />
+        <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '80px 24px', textAlign: 'center' }}>
+          <span style={{ fontSize: '14px', color: MUTED }}>Loading…</span>
         </main>
-        <Footer />
       </div>
     );
   }
 
   if (!student) {
     return (
-      <div className="min-h-screen bg-background flex flex-col">
-        <Navigation />
-        <main className="flex-1 flex items-center justify-center">
-          <p className="text-text-muted">Student not found</p>
+      <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
+        <AdminNav active="students" />
+        <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '80px 24px', textAlign: 'center' }}>
+          <span style={{ fontSize: '14px', color: MUTED }}>Student not found.</span>
         </main>
-        <Footer />
       </div>
     );
   }
 
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <Navigation />
+    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
+      <AdminNav active="students" />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-6">
-            <button
-              onClick={() => navigate('/admin/students')}
-              className="flex items-center gap-2 text-text-muted hover:text-accent transition-colors"
-            >
-              <span className="material-symbols-outlined">arrow_back</span>
-              <span>Back to Students</span>
-            </button>
+      <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '24px 24px 80px' }}>
 
-            <button
-              onClick={handleImpersonate}
-              className="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-normal uppercase tracking-wide hover:bg-gray-200 transition-colors border border-gray-300 rounded flex items-center gap-2"
-            >
-              <span className="material-symbols-outlined text-base">person_play</span>
-              <span>View as Member</span>
-            </button>
-          </div>
-
-          <div>
-            <h1 className="text-4xl font-bold text-text mb-2">
-              {student.first_name} {student.last_name}
-            </h1>
-          </div>
+        {/* Breadcrumb */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+          <a href="/admin/students" style={{ fontSize: '12px', color: TC, textDecoration: 'none', fontWeight: 700 }}>← Students</a>
+          <span style={{ fontSize: '12px', color: MUTED }}>/</span>
+          <span style={{ fontSize: '12px', color: MUTED }}>{studentName}</span>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Student Info Card */}
-          <div className="lg:col-span-1">
-            <div className="bg-white border border-gray-200 rounded-xl p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-6">Student Information</h2>
+        {/* Two-column layout */}
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '300px 1fr', gap: '24px', alignItems: 'start' }}>
 
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">First Name</label>
-                  <input
-                    type="text"
-                    value={editForm.firstName}
-                    onChange={(e) => setEditForm({ ...editForm, firstName: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
+          {/* ── LEFT: Student card ── */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Last Name</label>
-                  <input
-                    type="text"
-                    value={editForm.lastName}
-                    onChange={(e) => setEditForm({ ...editForm, lastName: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
+            {/* Profile + Membership */}
+            <div style={{ backgroundColor: '#FFFFFF', border: `1px solid ${RULE}`, padding: '24px' }}>
 
+              {/* Top row: avatar/name + membership */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
-                  <input
-                    type="email"
-                    value={editForm.email}
-                    onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Profile Picture</label>
-                  <div className="flex flex-col items-center gap-3">
-                    {editForm.profilePicture || student.profile_picture ? (
-                      <img
-                        src={editForm.profilePicture || student.profile_picture}
-                        alt={`${student.first_name} ${student.last_name}`}
-                        className="w-24 h-24 rounded-full object-cover border-2 border-gray-200"
-                      />
+                  <div style={{ width: '52px', height: '52px', backgroundColor: TC_LIGHT, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '14px', overflow: 'hidden' }}>
+                    {(editForm.profilePicture || student.profile_picture) ? (
+                      <img src={editForm.profilePicture || student.profile_picture} alt={studentName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     ) : (
-                      <div className="w-24 h-24 rounded-full bg-gray-200 flex items-center justify-center">
-                        <span className="material-symbols-outlined text-gray-400 text-4xl">person</span>
-                      </div>
+                      <span style={{ fontSize: '20px', fontWeight: 700, color: TC_DARK }}>{studentInitial}</span>
                     )}
-                    <div className="w-full">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleProfilePictureUpload}
-                        disabled={uploading}
-                        className="hidden"
-                        id="profile-picture-upload"
-                      />
-                      <label
-                        htmlFor="profile-picture-upload"
-                        className={`w-full flex items-center justify-center gap-2 px-4 py-2 border border-gray-300 rounded-lg cursor-pointer transition-colors ${
-                          uploading
-                            ? 'bg-gray-100 cursor-not-allowed'
-                            : 'bg-white hover:bg-gray-50'
-                        }`}
-                      >
-                        <span className="material-symbols-outlined text-sm">
-                          {uploading ? 'sync' : 'upload'}
-                        </span>
-                        <span className="text-sm text-gray-700">
-                          {uploading ? 'Uploading...' : 'Upload Image'}
-                        </span>
-                      </label>
-                      {(editForm.profilePicture || student.profile_picture) && (
-                        <button
-                          onClick={() => setEditForm({ ...editForm, profilePicture: null })}
-                          className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        >
-                          <span className="material-symbols-outlined text-sm">delete</span>
-                          <span>Remove Picture</span>
-                        </button>
+                  </div>
+                  <div style={{ fontSize: '18px', fontWeight: 700, marginBottom: '3px' }}>{studentName}</div>
+                  <div style={{ fontSize: '12px', color: MUTED }}>Member since {memberSince}</div>
+                </div>
+
+                {/* Membership badge */}
+                {student.membership_type && (
+                  <div style={{ backgroundColor: TC_LIGHT, border: `1px solid ${TC}`, padding: '10px 12px', flexShrink: 0, maxWidth: '160px' }}>
+                    <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>★ Membership</div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '2px' }}>{student.membership_type}</div>
+                    <div style={{ fontSize: '10px', color: MUTED, marginBottom: '8px' }}>
+                      {student.membership_start ? new Date(student.membership_start).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : ''}{student.membership_end ? ` — ${new Date(student.membership_end).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}` : ''}
+                    </div>
+                    <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', padding: '2px 7px', backgroundColor: TC, color: '#FFF' }}>active</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Details fields */}
+              <div style={{ paddingTop: '14px', borderTop: `1px solid ${RULE}` }}>
+                <div style={{ marginBottom: '10px' }}>
+                  <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: MUTED }}>Details</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {[
+                    { label: 'Email',             value: student.email },
+                    { label: 'Customer Type',      value: student.customer_type || 'student' },
+                    { label: 'Shopify ID',         value: student.shopify_customer_id || 'N/A' },
+                    { label: 'Courses Purchased',  value: student.course_purchase_count ?? 'N/A' },
+                    { label: 'Classes Allocated',  value: student.classes_allocated ?? 'N/A' },
+                    { label: 'Created',            value: formatDate(student.created_at) },
+                  ].map(f => (
+                    <div key={f.label}>
+                      <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '3px' }}>{f.label}</div>
+                      <div style={{ fontSize: '13px', wordBreak: 'break-all' }}>{f.value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Enrollment status */}
+              {enrollment && (
+                <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: `1px solid ${RULE}` }}>
+                  <div style={{ marginBottom: '10px' }}>
+                    <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: MUTED }}>Current Enrollment</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div>
+                      <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '3px' }}>Course</div>
+                      <div style={{ fontSize: '13px' }}>{enrollment.course_title || enrollment.course_identifier || 'N/A'}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '3px' }}>Status</div>
+                      <span style={{
+                        fontSize: '9px', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase',
+                        padding: '3px 8px', display: 'inline-block',
+                        backgroundColor: enrollment.status === 'active' ? TC_LIGHT : enrollment.status === 'paused' ? '#FFF7E6' : ALT,
+                        color: enrollment.status === 'active' ? TC_DARK : enrollment.status === 'paused' ? '#9E6200' : MUTED,
+                      }}>{enrollment.status}</span>
+                      {enrollment.status === 'paused' && (
+                        <div style={{ marginTop: '4px', fontSize: '11px', color: MUTED }}>
+                          Progress: {enrollment.weeks_completed}/{enrollment.number_of_weeks} weeks
+                        </div>
                       )}
                     </div>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Customer Type</label>
-                  <div className="px-3 py-2 bg-gray-50 rounded-lg text-gray-900">
-                    {student.customer_type || 'student'}
-                  </div>
-                </div>
-
-                {enrollment && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Current Course</label>
-                      <div className="px-3 py-2 bg-blue-50 rounded-lg">
-                        <div className="text-sm font-medium text-blue-900">{enrollment.course_title}</div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Course Identifier</label>
-                      <div className="px-3 py-2 bg-gray-50 rounded-lg text-gray-900 font-mono text-sm">
-                        {enrollment.course_identifier || 'Not set'}
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
-                      <div className="px-3 py-2 bg-gray-50 rounded-lg">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${
-                          enrollment.status === 'active' ? 'bg-green-100 text-green-800' :
-                          enrollment.status === 'paused' ? 'bg-yellow-100 text-yellow-800' :
-                          enrollment.status === 'completed' ? 'bg-blue-100 text-blue-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {enrollment.status}
-                        </span>
-                        {enrollment.status === 'paused' && (
-                          <div className="mt-2 text-xs text-gray-600">
-                            Progress: {enrollment.weeks_completed}/{enrollment.number_of_weeks} weeks
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* HB Credits Display */}
                     {enrollment.class_credits_allocated > 0 && (
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">HB Credits</label>
-                        <div className="px-3 py-2 bg-amber-50 rounded-lg">
-                          <div className="grid grid-cols-3 gap-2 mb-2">
-                            <div className="text-center">
-                              <div className="text-xs text-amber-600 font-medium">Allocated</div>
-                              <div className="text-lg font-bold text-amber-900">{enrollment.class_credits_allocated}</div>
+                        <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '6px' }}>HB Credits</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginBottom: '8px' }}>
+                          {[
+                            { label: 'Allocated', val: enrollment.class_credits_allocated },
+                            { label: 'Used',       val: enrollment.class_credits_used || 0 },
+                            { label: 'Remaining',  val: enrollment.class_credits_remaining || 0 },
+                          ].map(s => (
+                            <div key={s.label} style={{ textAlign: 'center', padding: '8px', backgroundColor: ALT }}>
+                              <div style={{ fontSize: '10px', color: MUTED, marginBottom: '2px' }}>{s.label}</div>
+                              <div style={{ fontSize: '18px', fontWeight: 700 }}>{s.val}</div>
                             </div>
-                            <div className="text-center">
-                              <div className="text-xs text-amber-600 font-medium">Used</div>
-                              <div className="text-lg font-bold text-amber-900">{enrollment.class_credits_used || 0}</div>
-                            </div>
-                            <div className="text-center">
-                              <div className="text-xs text-amber-600 font-medium">Remaining</div>
-                              <div className="text-lg font-bold text-amber-900">{enrollment.class_credits_remaining || 0}</div>
-                            </div>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2">
-                            <div
-                              className="bg-amber-500 h-2 rounded-full transition-all"
-                              style={{ width: `${((enrollment.class_credits_used || 0) / enrollment.class_credits_allocated) * 100}%` }}
-                            />
-                          </div>
+                          ))}
+                        </div>
+                        <div style={{ height: '4px', backgroundColor: RULE }}>
+                          <div style={{ height: '100%', backgroundColor: TC, width: `${((enrollment.class_credits_used || 0) / enrollment.class_credits_allocated) * 100}%` }} />
                         </div>
                       </div>
                     )}
-
-                    {enrollment.status === 'active' && (
-                      <button
-                        onClick={() => setShowPauseModal(true)}
-                        className="w-full px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors flex items-center justify-center gap-2"
-                      >
-                        <span className="material-symbols-outlined text-sm">pause_circle</span>
-                        <span>Pause Course</span>
-                      </button>
-                    )}
-
-                    {enrollment.status === 'paused' && (
-                      <button
-                        onClick={handleResumeCourse}
-                        disabled={resuming}
-                        className="w-full px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
-                      >
-                        {resuming ? (
-                          <>
-                            <span className="material-symbols-outlined text-sm animate-spin">refresh</span>
-                            <span>Resuming...</span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="material-symbols-outlined text-sm">play_arrow</span>
-                            <span>Resume Course</span>
-                          </>
-                        )}
-                      </button>
-                    )}
-                  </>
-                )}
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Classes</label>
-                  <div className="grid grid-cols-3 gap-2 mb-3">
-                    <div className="px-3 py-2 bg-blue-50 rounded-lg">
-                      <div className="text-xs text-blue-600 font-medium mb-1 text-center">Allocated</div>
-                      <input
-                        type="number"
-                        min="0"
-                        value={editForm.classesAllocated}
-                        onChange={(e) => setEditForm({ ...editForm, classesAllocated: e.target.value })}
-                        className="w-full text-center text-lg font-bold text-blue-900 bg-white border border-blue-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      />
-                    </div>
-                    <div className="px-3 py-2 bg-gray-50 rounded-lg text-center">
-                      <div className="text-xs text-gray-600 font-medium">Attended</div>
-                      <div className="text-lg font-bold text-gray-900">
-                        {(() => {
-                          // Calculate attended from bookings
-                          const today = new Date();
-                          today.setHours(0, 0, 0, 0);
-
-                          return bookings.filter(booking => {
-                            const classDate = new Date(booking.class_date);
-                            classDate.setHours(0, 0, 0, 0);
-                            const isPast = classDate < today;
-
-                            // Count if status is 'attended' or 'completed'
-                            if (booking.status === 'attended' || booking.status === 'completed') {
-                              return true;
-                            }
-
-                            // Also count if status is 'booked' but class date is in the past
-                            if (booking.status === 'booked' && isPast) {
-                              return true;
-                            }
-
-                            return false;
-                          }).length;
-                        })()}
-                      </div>
-                    </div>
-                    <div className="px-3 py-2 bg-green-50 rounded-lg text-center">
-                      <div className="text-xs text-green-600 font-medium">Remaining</div>
-                      <div className="text-lg font-bold text-green-900">
-                        {(() => {
-                          // Calculate attended from bookings
-                          const today = new Date();
-                          today.setHours(0, 0, 0, 0);
-
-                          const attended = bookings.filter(booking => {
-                            const classDate = new Date(booking.class_date);
-                            classDate.setHours(0, 0, 0, 0);
-                            const isPast = classDate < today;
-
-                            // Count if status is 'attended' or 'completed'
-                            if (booking.status === 'attended' || booking.status === 'completed') {
-                              return true;
-                            }
-
-                            // Also count if status is 'booked' but class date is in the past
-                            if (booking.status === 'booked' && isPast) {
-                              return true;
-                            }
-
-                            return false;
-                          }).length;
-
-                          return (parseInt(editForm.classesAllocated) || 0) - attended;
-                        })()}
-                      </div>
-                    </div>
                   </div>
                 </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Courses Purchased</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={editForm.coursePurchaseCount}
-                    onChange={(e) => setEditForm({ ...editForm, coursePurchaseCount: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Shopify Customer ID</label>
-                  <div className="px-3 py-2 bg-gray-50 rounded-lg text-gray-600 font-mono text-sm">
-                    {student.shopify_customer_id || 'N/A'}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Created</label>
-                  <div className="px-3 py-2 bg-gray-50 rounded-lg text-gray-600 text-sm">
-                    {new Date(student.created_at).toLocaleDateString()}
-                  </div>
-                </div>
-
-                <button
-                  onClick={saveChanges}
-                  disabled={saving}
-                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {saving ? 'Saving...' : 'Save Changes'}
-                </button>
-              </div>
+              )}
             </div>
+
+            {/* Action buttons */}
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'row' : 'column', gap: '8px' }}>
+              <button
+                onClick={() => setShowEditModal(true)}
+                style={{ flex: 1, padding: '11px', backgroundColor: INK, color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
+              >
+                Edit Student
+              </button>
+              {enrollment && enrollment.status === 'active' && (
+                <button
+                  onClick={() => setShowPauseModal(true)}
+                  style={{ flex: 1, padding: '11px', backgroundColor: 'transparent', color: INK, border: `1px solid ${RULE}`, fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
+                >
+                  Pause Course
+                </button>
+              )}
+              {enrollment && enrollment.status === 'paused' && (
+                <button
+                  onClick={handleResumeCourse}
+                  disabled={resuming}
+                  style={{ flex: 1, padding: '11px', backgroundColor: TC, color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: resuming ? 'not-allowed' : 'pointer', opacity: resuming ? 0.7 : 1 }}
+                >
+                  {resuming ? 'Resuming…' : 'Resume Course'}
+                </button>
+              )}
+              <button
+                onClick={handleImpersonate}
+                style={{ flex: 1, padding: '11px', backgroundColor: 'transparent', color: MUTED, border: `1px solid ${RULE}`, fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
+              >
+                View as Member
+              </button>
+            </div>
+
           </div>
 
-          {/* Bookings Card */}
-          <div className="lg:col-span-2">
-            <div className="bg-white border border-gray-200 rounded-xl p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-6">Class Bookings ({bookings.length})</h2>
+          {/* ── RIGHT: Tabbed detail ── */}
+          <div>
 
-              {/* Status Filter */}
-              {bookings.length > 0 && (
-                <div className="mb-4">
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-accent"
-                  >
-                    <option value="all">All</option>
-                    <option value="booked">Booked</option>
-                    <option value="attended">Attended</option>
-                  </select>
+            {/* Section tabs */}
+            <div style={{ display: 'flex', backgroundColor: '#FFFFFF', border: `1px solid ${RULE}`, borderBottom: 'none' }}>
+              {[
+                { id: 'enrollment', label: 'Enrollment' },
+                { id: 'bookings',   label: `Bookings (${bookings.length + unbookedCount})` },
+                { id: 'fees',       label: `Fees (${fees.length})` },
+              ].map(t => (
+                <button key={t.id} onClick={() => setSection(t.id)} style={{
+                  padding: '13px 20px', border: 'none', background: 'transparent', cursor: 'pointer',
+                  fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+                  color: section === t.id ? INK : MUTED,
+                  borderBottom: `2px solid ${section === t.id ? TC : 'transparent'}`,
+                  transition: 'all 0.1s',
+                }}>{t.label}</button>
+              ))}
+            </div>
+
+            {/* ── ENROLLMENT TAB ── */}
+            {section === 'enrollment' && (
+              <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF', padding: '24px' }}>
+                {!enrollment ? (
+                  <div style={{ padding: '40px 0', textAlign: 'center', color: MUTED, fontSize: '13px' }}>No enrollment found for this student.</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    {/* Single enrollment card */}
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                            <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 7px', backgroundColor: ALT, color: INK }}>
+                              {enrollment.course_type ? getTypeLabel(enrollment.course_type) : 'COURSE'}
+                            </span>
+                            <span style={{ fontSize: '13px', fontWeight: 700 }}>{enrollment.course_title || 'N/A'}</span>
+                          </div>
+                          <div style={{ fontSize: '10px', fontFamily: 'monospace', color: TC_DARK }}>{enrollment.course_identifier || ''}</div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: '22px', fontWeight: 700 }}>
+                            {attendedCount}<span style={{ fontSize: '14px', color: MUTED, fontWeight: 400 }}>/{totalAllocated || enrollment.number_of_weeks || 6}</span>
+                          </div>
+                          <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Attended</div>
+                        </div>
+                      </div>
+                      {/* Progress bar */}
+                      <div style={{ height: '6px', backgroundColor: ALT, position: 'relative', marginBottom: '8px' }}>
+                        <div style={{
+                          position: 'absolute', left: 0, top: 0, height: '100%',
+                          width: `${Math.min(100, (attendedCount / (totalAllocated || enrollment.number_of_weeks || 6)) * 100)}%`,
+                          backgroundColor: TC,
+                        }} />
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: '11px', color: MUTED }}>{attendedCount} attended</span>
+                        <span style={{ fontSize: '11px', color: TC_DARK, fontWeight: 700 }}>
+                          {Math.max(0, (totalAllocated || enrollment.number_of_weeks || 6) - attendedCount)} remaining
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Status + dates */}
+                    <div style={{ paddingTop: '16px', borderTop: `1px solid ${RULE}`, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+                      {[
+                        { label: 'Status',      value: enrollment.status },
+                        { label: 'Total Weeks', value: enrollment.number_of_weeks || 'N/A' },
+                        { label: 'Start Date',  value: formatDate(enrollment.start_date) },
+                        { label: 'End Date',    value: formatDate(enrollment.end_date) },
+                      ].map(f => (
+                        <div key={f.label}>
+                          <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '3px' }}>{f.label}</div>
+                          <div style={{ fontSize: '13px', textTransform: 'capitalize' }}>{String(f.value)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── BOOKINGS TAB ── */}
+            {section === 'bookings' && (
+              <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
+
+                {/* Filter row */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', padding: '12px 16px', borderBottom: `1px solid ${RULE}`, gap: '6px', alignItems: 'center' }}>
+                  <span style={{ fontSize: '11px', color: MUTED, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginRight: '4px' }}>Filter:</span>
+                  {['all', 'booked', 'attended', 'missed', 'cancelled'].map(f => (
+                    <button key={f} onClick={() => setStatusFilter(f)} style={{
+                      padding: '4px 10px', border: `1px solid ${statusFilter === f ? TC : RULE}`,
+                      backgroundColor: statusFilter === f ? TC_LIGHT : 'transparent',
+                      fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'capitalize',
+                      color: statusFilter === f ? TC_DARK : MUTED, cursor: 'pointer',
+                    }}>{f}</button>
+                  ))}
                 </div>
-              )}
 
-              {bookings.length === 0 ? (
-                <p className="text-center text-gray-400 py-12">No bookings found</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-gray-200">
-                        <th className="text-left py-3 px-4 font-semibold text-gray-900">Course</th>
-                        <th className="text-left py-3 px-4 font-semibold text-gray-900">Day</th>
-                        <th className="text-left py-3 px-4 font-semibold text-gray-900">Date</th>
-                        <th className="text-left py-3 px-4 font-semibold text-gray-900">Status</th>
-                        <th className="text-center py-3 px-4 font-semibold text-gray-900">Reschedule</th>
-                        <th className="text-center py-3 px-4 font-semibold text-gray-900">Delete</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(() => {
-                        // Filter and sort actual bookings
-                        const filteredBookings = [...bookings]
-                          .filter(booking => statusFilter === 'all' || booking.status === statusFilter)
-                          .sort((a, b) => new Date(a.class_date) - new Date(b.class_date));
+                {/* Table */}
+                <div style={{ overflowX: 'auto' }}>
+                  <div style={{ minWidth: '540px' }}>
 
-                        // Calculate unbooked credits
-                        const totalAllocated = parseInt(editForm.classesAllocated) || 0;
-                        const totalBooked = bookings.length;
-                        const unbookedCount = Math.max(0, totalAllocated - totalBooked);
+                    {/* Header */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '130px 110px 120px 90px 1fr', padding: '9px 16px', backgroundColor: ALT, borderBottom: `1px solid ${RULE}` }}>
+                      {['Course', 'Date', 'Time', 'Status', ''].map((h, i) => (
+                        <span key={i} style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED }}>{h}</span>
+                      ))}
+                    </div>
 
-                        // Create placeholder rows for unbooked credits
-                        const unbookedRows = Array.from({ length: unbookedCount }, (_, i) => ({
-                          id: `unbooked-${i}`,
-                          isPlaceholder: true
-                        }));
+                    {/* Actual booking rows */}
+                    {filteredBookings.map((booking, i) => {
+                      const classDate = new Date(booking.class_date);
+                      classDate.setHours(0, 0, 0, 0);
+                      const isPast = classDate < today;
+                      const displayStatus = (isPast && booking.status === 'booked') ? 'attended' : booking.status;
+                      const courseName = parseCourseName(booking.course_identifier, booking.class_type);
+                      const timeStr = booking.start_time && booking.end_time ? `${booking.start_time} – ${booking.end_time}` : booking.start_time || '—';
+                      const dateStr = new Date(booking.class_date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+                      const isDeleting = deletingBookingId === booking.id;
+                      const style = BOOKING_STYLE[displayStatus] || BOOKING_STYLE.attended;
 
-                        // Combine actual bookings and unbooked placeholders
-                        const allRows = [...filteredBookings, ...unbookedRows];
+                      return (
+                        <div key={booking.id} style={{ borderBottom: `1px solid ${RULE}` }}>
+                          <div style={{
+                            display: 'grid', gridTemplateColumns: '130px 110px 120px 90px 1fr',
+                            padding: '11px 16px', alignItems: 'center',
+                            backgroundColor: displayStatus === 'booked' ? TC_LIGHT : '#FFFFFF',
+                          }}>
+                            <span style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 700, color: TC_DARK }}>{courseName}</span>
+                            <div style={{ fontSize: '13px', fontWeight: displayStatus === 'booked' ? 700 : 400 }}>{dateStr}</div>
+                            <span style={{ fontSize: '12px', color: MUTED }}>{timeStr}</span>
+                            <span style={{
+                              fontSize: '9px', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase',
+                              padding: '3px 8px', display: 'inline-block',
+                              backgroundColor: style.bg, color: style.text,
+                            }}>{displayStatus}</span>
+                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                              <button
+                                onClick={() => handleOpenMakeupModal(booking)}
+                                style={{ padding: '4px 10px', border: `1px solid ${RULE}`, background: 'none', cursor: 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: INK }}
+                              >Reschedule</button>
+                              <button
+                                onClick={() => setDeleteConfirmId(booking.id)}
+                                style={{ padding: '4px 10px', border: '1px solid #F0C0C0', background: 'none', cursor: 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: '#C03030' }}
+                              >Delete</button>
+                            </div>
+                          </div>
 
-                        return allRows.map((booking, index) => {
-                          // Render unbooked placeholder row
-                          if (booking.isPlaceholder) {
-                            return (
-                              <tr key={booking.id} className="border-b border-gray-100 bg-yellow-50">
-                                <td className="py-3 px-4">
-                                  <span className="font-mono text-sm text-gray-500 bg-gray-200 px-2 py-1 rounded">
-                                    -
-                                  </span>
-                                </td>
-                                <td className="py-3 px-4 text-gray-400">
-                                  -
-                                </td>
-                                <td className="py-3 px-4 text-gray-400">
-                                  -
-                                </td>
-                                <td className="py-3 px-4">
-                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                                    unbooked
-                                  </span>
-                                </td>
-                                <td className="py-3 px-4 text-center">
-                                  <button
-                                    onClick={() => handleOpenMakeupModal(booking)}
-                                    className="px-3 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors"
-                                  >
-                                    <span>Reschedule</span>
-                                  </button>
-                                </td>
-                                <td className="py-3 px-4 text-center">
-                                  <button
-                                    disabled
-                                    className="px-3 py-1 text-xs bg-gray-300 text-gray-500 rounded cursor-not-allowed"
-                                  >
-                                    <span>Delete</span>
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          }
-
-                          // Render actual booking row
-                          const date = new Date(booking.class_date);
-                          const dayOfWeek = date.toLocaleDateString('en-US', { weekday: 'long' });
-                          const courseName = parseCourseName(booking.course_identifier, booking.class_type);
-                          const time = `${booking.start_time || '7:00pm'} - ${booking.end_time || '9:30pm'}`;
-
-                          // Check if class is in the past
-                          const today = new Date();
-                          today.setHours(0, 0, 0, 0);
-                          const classDate = new Date(booking.class_date);
-                          classDate.setHours(0, 0, 0, 0);
-                          const isPast = classDate < today;
-
-                          // Display "attended" for past classes that are marked as "booked"
-                          const displayStatus = (isPast && booking.status === 'booked') ? 'attended' : booking.status;
-
-                          return (
-                            <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                              <td className="py-3 px-4">
-                                <span className="font-mono text-sm text-gray-900 bg-gray-100 px-2 py-1 rounded">
-                                  {courseName}
-                                </span>
-                              </td>
-                              <td className="py-3 px-4 text-gray-600">
-                                {dayOfWeek}
-                              </td>
-                              <td className="py-3 px-4 text-gray-600">
-                                {date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                              </td>
-                              <td className="py-3 px-4">
-                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                  displayStatus === 'completed' ? 'bg-green-100 text-green-800' :
-                                  displayStatus === 'attended' ? 'bg-green-100 text-green-800' :
-                                  displayStatus === 'booked' ? 'bg-blue-100 text-blue-800' :
-                                  'bg-gray-100 text-gray-800'
-                                }`}>
-                                  {displayStatus}
-                                </span>
-                              </td>
-                              <td className="py-3 px-4 text-center">
+                          {/* Inline delete confirm */}
+                          {deleteConfirmId === booking.id && (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', backgroundColor: '#FFF5F5', borderTop: '1px solid #F0C0C0' }}>
+                              <span style={{ fontSize: '12px', color: '#C03030' }}>Delete this booking? This cannot be undone.</span>
+                              <div style={{ display: 'flex', gap: '6px' }}>
                                 <button
-                                  onClick={() => handleOpenMakeupModal(booking)}
-                                  className={`px-3 py-1 text-xs rounded transition-colors ${
-                                    booking.booking_type === 'makeup'
-                                      ? 'bg-purple-500 text-white hover:bg-purple-600'
-                                      : 'bg-orange-500 text-white hover:bg-orange-600'
-                                  }`}
-                                >
-                                  <span>Reschedule</span>
-                                </button>
-                              </td>
-                              <td className="py-3 px-4 text-center">
+                                  onClick={() => setDeleteConfirmId(null)}
+                                  style={{ padding: '5px 12px', border: `1px solid ${RULE}`, background: 'none', cursor: 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: MUTED }}
+                                >Cancel</button>
                                 <button
                                   onClick={() => handleDeleteBooking(booking.id)}
-                                  disabled={deletingBookingId === booking.id}
-                                  className="px-3 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                  <span>{deletingBookingId === booking.id ? 'Deleting...' : 'Delete'}</span>
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        });
-                      })()}
-                    </tbody>
-                  </table>
+                                  disabled={isDeleting}
+                                  style={{ padding: '5px 12px', border: 'none', backgroundColor: '#C03030', cursor: isDeleting ? 'not-allowed' : 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: '#FFF', opacity: isDeleting ? 0.7 : 1 }}
+                                >{isDeleting ? 'Deleting…' : 'Confirm Delete'}</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {/* Unbooked credit placeholder rows */}
+                    {statusFilter === 'all' && Array.from({ length: unbookedCount }).map((_, i) => {
+                      const placeholderBooking = { id: `unbooked-${i}`, isPlaceholder: true };
+                      return (
+                        <div key={`unbooked-${i}`} style={{ borderBottom: `1px solid ${RULE}` }}>
+                          <div style={{
+                            display: 'grid', gridTemplateColumns: '130px 110px 120px 90px 1fr',
+                            padding: '11px 16px', alignItems: 'center',
+                            backgroundColor: '#FFFBEA',
+                          }}>
+                            <span style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 700, color: MUTED }}>—</span>
+                            <div style={{ fontSize: '13px', color: MUTED }}>—</div>
+                            <span style={{ fontSize: '12px', color: MUTED }}>—</span>
+                            <span style={{
+                              fontSize: '9px', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase',
+                              padding: '3px 8px', display: 'inline-block',
+                              backgroundColor: '#FFF7E6', color: '#9E6200',
+                            }}>unbooked</span>
+                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                              <button
+                                onClick={() => handleOpenMakeupModal(placeholderBooking)}
+                                style={{ padding: '4px 10px', border: `1px solid ${TC}`, background: 'none', cursor: 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: TC }}
+                              >Book</button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Empty state */}
+                    {filteredBookings.length === 0 && unbookedCount === 0 && (
+                      <div style={{ padding: '40px 0', textAlign: 'center', color: MUTED, fontSize: '13px' }}>No bookings found.</div>
+                    )}
+                  </div>
                 </div>
-              )}
+              </div>
+            )}
+
+            {/* ── FEES TAB ── */}
+            {section === 'fees' && (
+              <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
+
+                {/* Summary stats */}
+                <div style={{ display: 'flex', gap: '1px', backgroundColor: RULE, borderBottom: `1px solid ${RULE}` }}>
+                  {[
+                    { label: 'Total Paid',    value: `$${totalFeePaid.toFixed(2)}`    },
+                    { label: 'Outstanding',   value: `$${totalFeePending.toFixed(2)}` },
+                  ].map((s, i) => (
+                    <div key={i} style={{ flex: 1, padding: '16px 20px', backgroundColor: '#FFFFFF' }}>
+                      <div style={{ fontSize: '22px', fontWeight: 700 }}>{s.value}</div>
+                      <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '3px' }}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Table */}
+                <div style={{ overflowX: 'auto' }}>
+                  <div style={{ minWidth: '560px' }}>
+
+                    {/* Header */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 100px 80px 200px', padding: '9px 16px', backgroundColor: ALT, borderBottom: `1px solid ${RULE}` }}>
+                      {['Description', 'Amount', 'Date', 'Status', ''].map((h, i) => (
+                        <span key={i} style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED }}>{h}</span>
+                      ))}
+                    </div>
+
+                    {fees.length === 0 ? (
+                      <div style={{ padding: '40px 0', textAlign: 'center', color: MUTED, fontSize: '13px' }}>No fees found.</div>
+                    ) : fees.map((fee, i) => {
+                      const feeStyle = FEE_STYLE[fee.payment_status] || { bg: ALT, text: MUTED };
+                      const isUpdating = updatingFeeId === fee.id;
+                      const isDeleting = deletingFeeId === fee.id;
+                      const desc = fee.notes || fee.fee_type || '—';
+                      return (
+                        <div key={fee.id} style={{ borderBottom: i < fees.length - 1 ? `1px solid ${RULE}` : 'none' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 100px 80px 200px', padding: '12px 16px', alignItems: 'center' }}>
+                            <span style={{ fontSize: '13px' }}>{desc}</span>
+                            <span style={{ fontSize: '13px', fontWeight: 700 }}>${parseFloat(fee.amount || 0).toFixed(2)}</span>
+                            <span style={{ fontSize: '12px', color: MUTED }}>{formatDate(fee.fee_date || fee.created_at)}</span>
+                            <span style={{
+                              fontSize: '9px', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase',
+                              padding: '3px 8px', display: 'inline-block',
+                              backgroundColor: feeStyle.bg, color: feeStyle.text,
+                            }}>{fee.payment_status}</span>
+                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                              {fee.payment_status === 'pending' && (
+                                <button
+                                  onClick={() => updateFeeStatus(fee.id, 'paid')}
+                                  disabled={isUpdating}
+                                  style={{ padding: '4px 10px', border: `1px solid ${TC}`, background: 'none', cursor: isUpdating ? 'not-allowed' : 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: TC, opacity: isUpdating ? 0.7 : 1 }}
+                                >{isUpdating ? '…' : 'Mark Paid'}</button>
+                              )}
+                              {fee.payment_status === 'pending' && (
+                                <button
+                                  onClick={() => updateFeeStatus(fee.id, 'waived')}
+                                  disabled={isUpdating}
+                                  style={{ padding: '4px 10px', border: `1px solid ${RULE}`, background: 'none', cursor: isUpdating ? 'not-allowed' : 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: MUTED, opacity: isUpdating ? 0.7 : 1 }}
+                                >Waive</button>
+                              )}
+                              <button
+                                onClick={() => setFeeDeleteConfirmId(fee.id)}
+                                style={{ padding: '4px 10px', border: '1px solid #F0C0C0', background: 'none', cursor: 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: '#C03030' }}
+                              >Delete</button>
+                            </div>
+                          </div>
+
+                          {/* Inline fee delete confirm */}
+                          {feeDeleteConfirmId === fee.id && (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', backgroundColor: '#FFF5F5', borderTop: '1px solid #F0C0C0' }}>
+                              <span style={{ fontSize: '12px', color: '#C03030' }}>Delete this fee record? This cannot be undone.</span>
+                              <div style={{ display: 'flex', gap: '6px' }}>
+                                <button
+                                  onClick={() => setFeeDeleteConfirmId(null)}
+                                  style={{ padding: '5px 12px', border: `1px solid ${RULE}`, background: 'none', cursor: 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: MUTED }}
+                                >Cancel</button>
+                                <button
+                                  onClick={() => handleDeleteFee(fee.id)}
+                                  disabled={isDeleting}
+                                  style={{ padding: '5px 12px', border: 'none', backgroundColor: '#C03030', cursor: isDeleting ? 'not-allowed' : 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: '#FFF', opacity: isDeleting ? 0.7 : 1 }}
+                                >{isDeleting ? 'Deleting…' : 'Confirm Delete'}</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+          </div>
+        </div>
+      </main>
+
+      {/* ── EDIT STUDENT MODAL ── */}
+      {showEditModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+          <div style={{ backgroundColor: '#FFFFFF', padding: '32px', width: '480px', maxWidth: '90vw', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '20px' }}>Edit Student</div>
+
+            {[
+              { label: 'First Name',          key: 'firstName',          type: 'text'   },
+              { label: 'Last Name',           key: 'lastName',           type: 'text'   },
+              { label: 'Email',               key: 'email',              type: 'email'  },
+              { label: 'Courses Purchased',   key: 'coursePurchaseCount', type: 'number' },
+              { label: 'Classes Allocated',   key: 'classesAllocated',   type: 'number' },
+            ].map(f => (
+              <div key={f.key} style={{ marginBottom: '16px' }}>
+                <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '6px' }}>{f.label}</label>
+                <input
+                  type={f.type}
+                  value={editForm[f.key]}
+                  onChange={e => setEditForm(form => ({ ...form, [f.key]: e.target.value }))}
+                  style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '14px', boxSizing: 'border-box', fontFamily: 'Atak, sans-serif', outline: 'none' }}
+                />
+              </div>
+            ))}
+
+            {/* Profile picture */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '6px' }}>Profile Picture</label>
+              <input type="file" accept="image/*" onChange={handleProfilePictureUpload} disabled={uploading} id="profile-picture-upload-modal" style={{ display: 'none' }} />
+              <label htmlFor="profile-picture-upload-modal" style={{ display: 'inline-block', padding: '8px 14px', border: `1px solid ${RULE}`, fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', cursor: uploading ? 'not-allowed' : 'pointer', color: MUTED }}>
+                {uploading ? 'Uploading…' : 'Upload Image'}
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+              <button onClick={() => setShowEditModal(false)} style={{ flex: 1, padding: '12px', border: `1px solid ${RULE}`, backgroundColor: 'transparent', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={saveChanges} disabled={saving} style={{ flex: 1, padding: '12px', backgroundColor: INK, color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+                {saving ? 'Saving…' : 'Save Changes'}
+              </button>
             </div>
           </div>
         </div>
+      )}
 
-        {/* Fees Card - Full Width */}
-        {fees.length > 0 && (
-          <div className="mt-6">
-            <div className="bg-white border border-gray-200 rounded-xl p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-gray-900">Reschedule Fees</h2>
-                <div className="flex items-center gap-4">
-                  <div className="text-sm">
-                    <span className="text-gray-600">Total Pending:</span>
-                    <span className="ml-2 font-bold text-red-600">
-                      ${fees.filter(f => f.payment_status === 'pending').reduce((sum, f) => sum + parseFloat(f.amount), 0).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="text-sm">
-                    <span className="text-gray-600">Total Paid:</span>
-                    <span className="ml-2 font-bold text-green-600">
-                      ${fees.filter(f => f.payment_status === 'paid').reduce((sum, f) => sum + parseFloat(f.amount), 0).toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-              </div>
+      {/* ── PAUSE COURSE MODAL ── */}
+      {showPauseModal && enrollment && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+          <div style={{ backgroundColor: '#FFFFFF', padding: '32px', width: '440px', maxWidth: '90vw' }}>
+            <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '6px' }}>Pause Course</div>
+            <div style={{ fontSize: '12px', color: MUTED, marginBottom: '20px' }}>
+              Pausing {studentName}'s enrollment in {enrollment.course_identifier || enrollment.course_title}
+            </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Fee Date</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Type</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Amount</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Status</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Notes</th>
-                      <th className="text-right py-3 px-4 font-semibold text-gray-900">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {fees.map((fee) => (
-                      <tr key={fee.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                        <td className="py-3 px-4 text-gray-600 text-sm">
-                          {formatDate(fee.fee_date)}
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 capitalize">
-                            {fee.fee_type}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 font-semibold text-gray-900">
-                          ${parseFloat(fee.amount).toFixed(2)}
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${
-                            fee.payment_status === 'paid' ? 'bg-green-100 text-green-800' :
-                            fee.payment_status === 'waived' ? 'bg-gray-100 text-gray-800' :
-                            'bg-red-100 text-red-800'
-                          }`}>
-                            {fee.payment_status}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-gray-600 text-sm max-w-xs truncate">
-                          {fee.notes || '-'}
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          {fee.payment_status === 'pending' && (
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                onClick={() => updateFeeStatus(fee.id, 'paid')}
-                                disabled={updatingFeeId === fee.id}
-                                className="inline-flex items-center gap-1 px-3 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 transition-colors disabled:opacity-50"
-                              >
-                                <span className="material-symbols-outlined text-sm">check_circle</span>
-                                <span>Mark Paid</span>
-                              </button>
-                              <button
-                                onClick={() => updateFeeStatus(fee.id, 'waived')}
-                                disabled={updatingFeeId === fee.id}
-                                className="inline-flex items-center gap-1 px-3 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors disabled:opacity-50"
-                              >
-                                <span className="material-symbols-outlined text-sm">cancel</span>
-                                <span>Waive</span>
-                              </button>
-                            </div>
-                          )}
-                          {fee.payment_status === 'paid' && fee.payment_date && (
-                            <span className="text-xs text-gray-500">
-                              Paid {formatDate(fee.payment_date)}
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            <div style={{ backgroundColor: TC_LIGHT, border: `1px solid ${TC}`, padding: '10px 14px', marginBottom: '16px', fontSize: '12px', color: TC_DARK }}>
+              Total weeks: {enrollment.number_of_weeks}
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '6px' }}>
+                Weeks Completed *
+              </label>
+              <input
+                type="number" min="0" max={(enrollment.number_of_weeks || 6) - 1}
+                value={pauseForm.weeksCompleted}
+                onChange={e => setPauseForm(f => ({ ...f, weeksCompleted: e.target.value }))}
+                style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '14px', boxSizing: 'border-box', fontFamily: 'Atak, sans-serif' }}
+              />
+              <div style={{ fontSize: '11px', color: MUTED, marginTop: '4px' }}>
+                Remaining weeks: {(enrollment.number_of_weeks || 6) - (parseInt(pauseForm.weeksCompleted) || 0)}
               </div>
+            </div>
+
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '6px' }}>Reason (optional)</label>
+              <textarea
+                rows={3} placeholder="e.g., Travel, medical leave…"
+                value={pauseForm.reason}
+                onChange={e => setPauseForm(f => ({ ...f, reason: e.target.value }))}
+                style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '14px', boxSizing: 'border-box', fontFamily: 'Atak, sans-serif', resize: 'vertical' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => { setShowPauseModal(false); setPauseForm({ weeksCompleted: 0, reason: '' }); }}
+                disabled={pausing}
+                style={{ flex: 1, padding: '12px', border: `1px solid ${RULE}`, backgroundColor: 'transparent', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
+              >Cancel</button>
+              <button
+                onClick={handlePauseCourse}
+                disabled={pausing}
+                style={{ flex: 1, padding: '12px', backgroundColor: TC, color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: pausing ? 'not-allowed' : 'pointer', opacity: pausing ? 0.7 : 1 }}
+              >{pausing ? 'Pausing…' : 'Confirm Pause'}</button>
             </div>
           </div>
-        )}
-      </main>
+        </div>
+      )}
 
-      {/* Makeup Class Modal */}
+      {/* ── RESCHEDULE / BOOK CLASS MODAL ── */}
       {showMakeupModal && selectedBookingForMakeup && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 overflow-y-auto pointer-events-none">
-          <div className="relative isolate pointer-events-auto z-[60] bg-white border border-gray-200 shadow-lg w-full max-w-5xl my-8 rounded-xl">
-            <div className="relative z-10 p-6 border-b border-gray-200">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="text-2xl font-bold uppercase text-gray-900">
-                    {selectedBookingForMakeup.isPlaceholder ? 'Book Class' : 'Reschedule Class'}
-                  </h3>
-                  {!selectedBookingForMakeup.isPlaceholder && (
-                    <p className="text-sm text-gray-600 mt-1">
-                      {selectedBookingForMakeup.class_type} - {formatDate(selectedBookingForMakeup.class_date)} at {selectedBookingForMakeup.start_time}
-                    </p>
-                  )}
-                  {selectedBookingForMakeup.isPlaceholder && (
-                    <p className="text-sm text-gray-600 mt-1">
-                      Using flexible credit
-                    </p>
-                  )}
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+          <div style={{ backgroundColor: '#FFFFFF', width: '100%', maxWidth: '820px', maxHeight: '90vh', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+
+            {/* Header */}
+            <div style={{ padding: '20px 24px', borderBottom: `1px solid ${RULE}`, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexShrink: 0 }}>
+              <div>
+                <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '4px' }}>
+                  {selectedBookingForMakeup.isPlaceholder ? 'Book Class' : 'Reschedule Class'}
                 </div>
-                <button
-                  className="p-2 hover:bg-gray-100 rounded"
-                  type="button"
-                  onClick={resetMakeupModalState}
-                >
-                  <span className="material-symbols-outlined">close</span>
-                </button>
+                <div style={{ fontSize: '12px', color: MUTED }}>
+                  {selectedBookingForMakeup.isPlaceholder
+                    ? 'Using flexible credit'
+                    : `${selectedBookingForMakeup.class_type} · ${formatDate(selectedBookingForMakeup.class_date)} · ${selectedBookingForMakeup.start_time}`}
+                </div>
               </div>
+              <button onClick={resetMakeupModalState} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '20px', color: MUTED, padding: '0 4px', lineHeight: 1 }}>✕</button>
             </div>
 
-            <div className="relative z-10 p-6">
-              <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 mb-4">
-                <p className="text-xs text-gray-700">
-                  {selectedBookingForMakeup.isPlaceholder
-                    ? 'Select an available date below to book a class using a flexible credit.'
-                    : 'Select an available date below to see classes you can reschedule to. The current booking will be canceled and replaced with the new class.'}
-                </p>
+            {/* Info banner */}
+            <div style={{ margin: '16px 24px 0', padding: '10px 14px', backgroundColor: TC_LIGHT, border: `1px solid ${TC}`, fontSize: '12px', color: TC_DARK }}>
+              {selectedBookingForMakeup.isPlaceholder
+                ? 'Select an available date below to book a class using a flexible credit.'
+                : 'Select an available date below, then choose the class to reschedule to. The current booking will be replaced.'}
+            </div>
+
+            {/* Body: 2-col */}
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '24px', padding: '20px 24px 24px' }}>
+
+              {/* Calendar */}
+              <div>
+                <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '10px' }}>Select Date</div>
+                <CalendarWidget
+                  month={makeupCurrentMonth}
+                  onMonthChange={setMakeupCurrentMonth}
+                  selectedDate={makeupSelectedDate}
+                  onDateSelect={d => { setMakeupSelectedDate(d); setRescheduleConfirmId(null); }}
+                  availSet={getAvailSet()}
+                />
               </div>
 
-              <div className="relative z-10 grid md:grid-cols-2 gap-6 items-start">
-                {/* Calendar Section */}
-                <div className="min-w-0 relative z-0 overflow-hidden">
-                  <ClassCalendar
-                    currentMonth={makeupCurrentMonth}
-                    onMonthChange={setMakeupCurrentMonth}
-                    onDateSelect={(date) => setMakeupSelectedDate(date)}
-                    selectedDate={makeupSelectedDate}
-                    getClassesForDate={(date) => {
-                      const classesOnDate = getMakeupClassesForDate(date);
-                      return classesOnDate.map(c => ({
-                        ...c,
-                        class_type: c.classType,
-                        fullCourseIdentifier: c.classType
-                      }));
-                    }}
-                    highlightedDates={[]}
-                    classTypeConfig={{
-                      'all': { bgLight: 'bg-purple-500/20' },
-                      'wheelthrowing-beginner': { bgLight: 'bg-purple-500/20' },
-                      'wheelthrowing-intermediate': { bgLight: 'bg-purple-500/20' },
-                      'handbuilding': { bgLight: 'bg-purple-500/20' },
-                      'kids': { bgLight: 'bg-purple-500/20' }
-                    }}
-                    getClassCategory={getClassCategory}
-                    classTypeFilter="all"
-                    isAdminView={true}
-                    isEnrolled={() => false}
-                  />
+              {/* Class list */}
+              <div>
+                <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '10px' }}>
+                  {makeupSelectedDate
+                    ? `Available on ${makeupSelectedDate.toLocaleDateString('en-SG', { weekday: 'short', day: 'numeric', month: 'short' })}`
+                    : 'Available Classes'}
                 </div>
 
-                {/* Class List Section */}
-                <div className="min-w-0 relative z-10">
-                  <p className="text-sm font-bold text-gray-700 mb-3 uppercase">
-                    Available Classes on {formatDate(makeupSelectedDate)}
-                  </p>
-                  <div className="relative z-20 space-y-3 max-h-[400px] overflow-y-auto pr-2">
-                    {getMakeupClassesForDate(makeupSelectedDate).length === 0 ? (
-                      <p className="text-gray-500 text-center py-8">
-                        No available classes on this date. Please select another date.
-                      </p>
-                    ) : (
-                      getMakeupClassesForDate(makeupSelectedDate).map((classItem) => {
-                        const classDate = new Date(classItem.classDate);
-                        const spotsLeft = 10 - classItem.currentEnrollment;
-
-                        // Check if this is a glazing class (Week 6.6)
-                        const isGlazingClass = classItem.classType?.includes('6.6');
-
+                {(() => {
+                  const classes = getMakeupClassesForDate(makeupSelectedDate);
+                  if (classes.length === 0) {
+                    return <div style={{ padding: '40px 0', textAlign: 'center', color: MUTED, fontSize: '13px' }}>No available classes on this date.</div>;
+                  }
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {classes.map(c => {
+                        const isGlazing = c.classType?.includes('6.6');
+                        const spotsLeft = 10 - c.currentEnrollment;
+                        const isConfirming = rescheduleConfirmId === c.id;
+                        const isReschedulingThis = rescheduling && reschedulingClassId === c.id;
                         return (
-                          <div
-                            key={classItem.id}
-                            onClick={() => {
-                              if (!rescheduling) handleRescheduleToMakeup(classItem.id);
-                            }}
-                            className={`p-4 border rounded flex flex-col gap-2 cursor-pointer ${
-                              isGlazingClass
-                                ? 'bg-amber-50 border-amber-900'
-                                : 'bg-gray-50 border-gray-200'
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <p className={`font-bold text-sm ${
-                                    isGlazingClass ? 'text-amber-900' : 'text-gray-900'
-                                  }`}>{classItem.classType}</p>
-                                  {isGlazingClass && (
-                                    <span className="text-xs bg-amber-100 text-amber-900 px-2 py-0.5 rounded">
-                                      Glazing
-                                    </span>
-                                  )}
+                          <div key={c.id} style={{ border: `1px solid ${isGlazing ? '#D4A800' : RULE}`, backgroundColor: isGlazing ? '#FFFBEA' : '#FFF' }}>
+                            <div style={{ padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px' }}>
+                                  <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', backgroundColor: ALT, color: INK }}>{getTypeLabel(c.classType)}</span>
+                                  <span style={{ fontSize: '12px', fontFamily: 'monospace', fontWeight: 700, color: TC_DARK }}>{c.classType}</span>
+                                  {isGlazing && <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', padding: '2px 7px', backgroundColor: '#D4A800', color: '#FFF' }}>Glazing</span>}
                                 </div>
-                                <p className={`text-xs ${
-                                  isGlazingClass ? 'text-amber-800' : 'text-gray-600'
-                                }`}>
-                                  {classItem.startTime} - {classItem.endTime}
-                                </p>
-                                <p className={`text-xs ${
-                                  isGlazingClass ? 'text-amber-800' : 'text-gray-600'
-                                }`}>
-                                  with {classItem.instructor}
-                                </p>
-                                <p className={`text-xs mt-1 ${
-                                  isGlazingClass ? 'text-amber-700' : 'text-gray-500'
-                                }`}>
-                                  {spotsLeft} {spotsLeft === 1 ? 'spot' : 'spots'} available
-                                </p>
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: '13px', fontWeight: 700 }}>{c.startTime}{c.endTime ? ` – ${c.endTime}` : ''}</span>
+                                  {c.instructor && <span style={{ fontSize: '11px', color: MUTED }}>· {c.instructor}</span>}
+                                  <span style={{ fontSize: '11px', color: MUTED }}>· {spotsLeft} spot{spotsLeft !== 1 ? 's' : ''} left</span>
+                                </div>
                               </div>
                               <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleRescheduleToMakeup(classItem.id);
-                                }}
+                                onClick={() => setRescheduleConfirmId(c.id)}
                                 disabled={rescheduling}
-                                className={`relative z-20 shrink-0 flex min-w-[70px] cursor-pointer items-center justify-center h-8 px-3 text-white text-xs font-medium rounded disabled:opacity-50 disabled:cursor-not-allowed ${
-                                  isGlazingClass
-                                    ? 'bg-amber-700 hover:bg-amber-800'
-                                    : 'bg-purple-500 hover:bg-purple-600'
-                                }`}
-                              >
-                                {rescheduling && reschedulingClassId === classItem.id ? (
-                                  <span className="material-symbols-outlined text-sm animate-spin">refresh</span>
-                                ) : (
-                                  <span className="truncate">Select</span>
-                                )}
-                              </button>
+                                style={{
+                                  padding: '8px 16px',
+                                  backgroundColor: isConfirming ? ALT : isGlazing ? '#D4A800' : TC,
+                                  color: isConfirming ? MUTED : '#FFF',
+                                  border: 'none', cursor: rescheduling ? 'not-allowed' : 'pointer',
+                                  fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                                  opacity: rescheduling ? 0.7 : 1,
+                                }}
+                              >Confirm</button>
                             </div>
+
+                            {/* Inline reschedule confirm */}
+                            {isConfirming && (
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', backgroundColor: TC_LIGHT, borderTop: `1px solid ${TC}` }}>
+                                <span style={{ fontSize: '12px', color: TC_DARK }}>
+                                  {selectedBookingForMakeup.isPlaceholder
+                                    ? 'Book this class using the flexible credit?'
+                                    : 'This will replace the current booking. Continue?'}
+                                </span>
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                  <button
+                                    onClick={() => setRescheduleConfirmId(null)}
+                                    style={{ padding: '5px 12px', border: `1px solid ${RULE}`, background: 'none', cursor: 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: MUTED }}
+                                  >Cancel</button>
+                                  <button
+                                    onClick={() => handleRescheduleToMakeup(c.id)}
+                                    disabled={isReschedulingThis}
+                                    style={{ padding: '5px 12px', border: 'none', backgroundColor: TC, cursor: isReschedulingThis ? 'not-allowed' : 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: '#FFF', opacity: isReschedulingThis ? 0.7 : 1 }}
+                                  >{isReschedulingThis ? 'Saving…' : (selectedBookingForMakeup.isPlaceholder ? 'Yes, Book' : 'Yes, Reschedule')}</button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         );
-                      })
-                    )}
-                  </div>
-                </div>
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
-            <div className="relative z-20 p-6 bg-gray-50 border-t border-gray-200 flex justify-between">
-              {/* Convert to Credit button - only show for actual bookings */}
+            {/* Footer */}
+            <div style={{ padding: '16px 24px', borderTop: `1px solid ${RULE}`, display: 'flex', justifyContent: 'space-between', gap: '8px', flexShrink: 0 }}>
               {!selectedBookingForMakeup.isPlaceholder && (
                 <button
                   onClick={handleConvertToCredit}
                   disabled={deletingBookingId === selectedBookingForMakeup.id}
-                  className="flex min-w-[84px] max-w-[480px] cursor-pointer items-center justify-center overflow-hidden h-10 px-4 bg-yellow-500 text-white text-sm font-bold rounded hover:bg-yellow-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ padding: '10px 20px', backgroundColor: '#9E6200', color: '#FFF', border: 'none', cursor: 'pointer', fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', opacity: deletingBookingId === selectedBookingForMakeup.id ? 0.7 : 1 }}
                 >
-                  <span>{deletingBookingId === selectedBookingForMakeup.id ? 'Converting...' : 'Convert to Credit'}</span>
+                  {deletingBookingId === selectedBookingForMakeup.id ? 'Converting…' : 'Convert to Credit'}
                 </button>
               )}
-
               <button
-                className="flex min-w-[84px] max-w-[480px] cursor-pointer items-center justify-center overflow-hidden h-10 px-4 bg-gray-300 text-gray-700 text-sm font-bold rounded hover:bg-gray-400"
-                type="button"
                 onClick={resetMakeupModalState}
-              >
-                <span>Cancel</span>
-              </button>
+                style={{ padding: '10px 20px', border: `1px solid ${RULE}`, backgroundColor: 'transparent', cursor: 'pointer', fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: MUTED, marginLeft: 'auto' }}
+              >Cancel</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Pause Course Modal */}
-      {showPauseModal && enrollment && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-md w-full p-6">
-            <h3 className="text-xl font-bold text-gray-900 mb-4">Pause Course</h3>
-
-            <div className="mb-6">
-              <p className="text-sm text-gray-600 mb-4">
-                Pausing <strong>{student.first_name} {student.last_name}</strong>'s enrollment in <strong>{enrollment.course_title}</strong>
-              </p>
-
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-                <div className="text-sm text-blue-900">
-                  <div className="font-medium mb-1">Course: {enrollment.course_identifier}</div>
-                  <div>Total weeks: {enrollment.number_of_weeks}</div>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Weeks Completed<span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    max={enrollment.number_of_weeks - 1}
-                    value={pauseForm.weeksCompleted}
-                    onChange={(e) => setPauseForm({ ...pauseForm, weeksCompleted: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
-                    placeholder="e.g., 3"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Remaining weeks: {enrollment.number_of_weeks - (parseInt(pauseForm.weeksCompleted) || 0)}
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Reason (optional)
-                  </label>
-                  <textarea
-                    value={pauseForm.reason}
-                    onChange={(e) => setPauseForm({ ...pauseForm, reason: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
-                    rows="3"
-                    placeholder="e.g., Travel, medical leave, etc."
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setShowPauseModal(false);
-                  setPauseForm({ weeksCompleted: 0, reason: '' });
-                }}
-                disabled={pausing}
-                className="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handlePauseCourse}
-                disabled={pausing}
-                className="flex-1 px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {pausing ? (
-                  <>
-                    <span className="material-symbols-outlined text-sm animate-spin">refresh</span>
-                    <span>Pausing...</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="material-symbols-outlined text-sm">pause_circle</span>
-                    <span>Pause Course</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <Footer />
     </div>
   );
 }

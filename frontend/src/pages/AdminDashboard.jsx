@@ -1,10 +1,103 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import Navigation from '../components/Navigation';
-import Footer from '../components/Footer';
-import PeriodFilter from '../components/PeriodFilter';
 import api from '../utils/api';
+
+const TC       = '#C4622D';
+const TC_LIGHT = '#F9EDE6';
+const TC_DARK  = '#9E4A1E';
+const INK      = '#282828';
+const MUTED    = '#888888';
+const RULE     = 'rgba(40,40,40,0.09)';
+const ALT      = '#F5F3F0';
+
+const NAV = [
+  { id: 'dashboard',   label: 'Dashboard', href: '/admin' },
+  { id: 'classes',     label: 'Classes',   href: '/admin/classes' },
+  { id: 'students',    label: 'Students',  href: '/admin/students' },
+  { id: 'memberships', label: 'Members',   href: '/admin/memberships' },
+];
+
+const MODULES = [
+  { label: 'Students',  icon: 'group',          href: '/admin/students',    desc: 'Allocations & accounts' },
+  { label: 'Classes',   icon: 'event',           href: '/admin/classes',     desc: 'Schedule & bookings' },
+  { label: 'Members',   icon: 'card_membership', href: '/admin/memberships', desc: 'Studio memberships' },
+  { label: 'Gallery',   icon: 'photo_library',   href: '/admin/gallery',     desc: 'Student pottery works' },
+  { label: 'Courses',   icon: 'school',          href: '/admin/courses',     desc: 'Course templates' },
+  { label: 'Reference', icon: 'inventory_2',     href: '/admin/reference',   desc: 'Clay types & glazes' },
+];
+
+const ALERTS = [
+  { type: 'membership', text: 'Diana Lim — 6 Month expires Mar 5' },
+  { type: 'membership', text: 'Kenny Toh — 12 Month expires Mar 12' },
+  { type: 'class',      text: 'WT Sat Mar 7 — 1 spot remaining' },
+  { type: 'class',      text: 'HB Wed Mar 4 — now full' },
+  { type: 'student',    text: 'Chloe Lim — upcoming enrollment Mar 1' },
+];
+
+const RECENT = [
+  { action: 'New booking',    who: 'Sarah Tan',   detail: 'WT Feb 28, 2pm',    when: '2h ago' },
+  { action: 'Membership',     who: 'Priya Nair',  detail: '1 Month started',   when: '1d ago' },
+  { action: 'Gallery upload', who: 'Mei Lin',     detail: 'Handbuilding vase', when: '1d ago' },
+  { action: 'Cancelled',      who: 'Marcus Wong', detail: 'HB Feb 25',         when: '2d ago' },
+  { action: 'New student',    who: 'Ryan Ong',    detail: 'HB course started', when: '3d ago' },
+];
+
+function AdminNav({ active, onLogout }) {
+  return (
+    <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: '#FFFFFF', borderBottom: `1px solid ${RULE}` }}>
+      <div style={{ maxWidth: '1140px', margin: '0 auto', padding: '0 24px', height: '52px', display: 'flex', alignItems: 'center', gap: '24px' }}>
+        <img
+          src="https://ves.sg/cdn/shop/files/logo_04a04687-57f4-4141-b0bc-ec30b527fd73.png?v=1686045719&width=600"
+          alt="VES"
+          style={{ height: '22px', width: 'auto', flexShrink: 0 }}
+        />
+        <div style={{ width: '1px', height: '18px', backgroundColor: RULE, flexShrink: 0 }} />
+        <nav style={{ display: 'flex', flex: 1 }}>
+          {NAV.map(link => (
+            <a
+              key={link.id}
+              href={link.href}
+              style={{
+                padding: '0 14px',
+                height: '52px',
+                display: 'flex',
+                alignItems: 'center',
+                fontSize: '11px',
+                fontWeight: 700,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                color: active === link.id ? TC : MUTED,
+                textDecoration: 'none',
+                borderBottom: `2px solid ${active === link.id ? TC : 'transparent'}`,
+              }}
+            >
+              {link.label}
+            </a>
+          ))}
+        </nav>
+        <span style={{
+          fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
+          padding: '5px 10px', backgroundColor: INK, color: '#FFF', flexShrink: 0,
+        }}>
+          Admin
+        </span>
+        <button
+          onClick={onLogout}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+            color: MUTED, background: 'none', border: `1px solid ${RULE}`,
+            padding: '5px 10px', cursor: 'pointer', flexShrink: 0,
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>logout</span>
+          Sign Out
+        </button>
+      </div>
+    </header>
+  );
+}
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -12,45 +105,30 @@ export default function AdminDashboard() {
 
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [hoveredCard, setHoveredCard] = useState(null);
-  const [activePeriod, setActivePeriod] = useState({ startDate: null, endDate: null, type: 'all' });
+  const [hoveredModule, setHoveredModule] = useState(null);
 
   useEffect(() => {
     loadStats();
-  }, [activePeriod]);
+  }, []);
 
   const loadStats = async () => {
     try {
       setLoading(true);
-
-      // Build query params with period filter
-      const params = {};
-      if (activePeriod.startDate && activePeriod.endDate) {
-        params.startDate = activePeriod.startDate;
-        params.endDate = activePeriod.endDate;
-      }
-
-      // Load dashboard stats and reference data
       const [dashboardRes, clayTypesRes, glazesRes] = await Promise.all([
-        api.get('/admin/dashboard/stats', { params }),
+        api.get('/admin/dashboard/stats'),
         api.get('/reference/clay-types'),
-        api.get('/reference/glazes')
+        api.get('/reference/glazes'),
       ]);
-
       setStats({
         ...dashboardRes.data,
         clayTypes: clayTypesRes.data.clayTypes?.length || 0,
-        glazes: glazesRes.data.glazes?.length || 0
+        glazes: glazesRes.data.glazes?.length || 0,
       });
     } catch (error) {
       console.error('Failed to load stats:', error);
     } finally {
       setLoading(false);
     }
-  };
-
-  const handlePeriodChange = (period) => {
-    setActivePeriod(period);
   };
 
   const adminCards = [
@@ -63,8 +141,8 @@ export default function AdminDashboard() {
       statLabel: 'Active Students',
       statDetails: [
         { label: 'New students', value: stats?.students?.newThisMonth },
-        { label: 'Returning students', value: stats?.students?.returning }
-      ]
+        { label: 'Returning students', value: stats?.students?.returning },
+      ],
     },
     {
       title: 'Course Schedule',
@@ -75,8 +153,8 @@ export default function AdminDashboard() {
       statLabel: 'Scheduled Classes',
       statDetails: [
         { label: 'Students enrolled', value: stats?.classes?.enrolled },
-        { label: 'Available spots', value: stats?.classes?.availableSpots }
-      ]
+        { label: 'Available spots', value: stats?.classes?.availableSpots },
+      ],
     },
     {
       title: 'Paused Students',
@@ -84,7 +162,7 @@ export default function AdminDashboard() {
       icon: 'pause_circle',
       path: '/admin/paused-students',
       stat: stats?.students?.paused || 0,
-      statLabel: 'Paused Enrollments'
+      statLabel: 'Paused Enrollments',
     },
     {
       title: 'Members',
@@ -95,8 +173,8 @@ export default function AdminDashboard() {
       statLabel: 'Active Members',
       statDetails: [
         { label: 'Expiring soon', value: stats?.memberships?.expiringSoon },
-        { label: 'Renewed this month', value: stats?.memberships?.renewedThisMonth }
-      ]
+        { label: 'Renewed this month', value: stats?.memberships?.renewedThisMonth },
+      ],
     },
     {
       title: 'Gallery',
@@ -107,8 +185,8 @@ export default function AdminDashboard() {
       statLabel: 'Gallery Pieces',
       statDetails: [
         { label: 'Added this month', value: stats?.gallery?.addedThisMonth },
-        { label: 'Awaiting approval', value: stats?.gallery?.awaitingApproval }
-      ]
+        { label: 'Awaiting approval', value: stats?.gallery?.awaitingApproval },
+      ],
     },
     {
       title: 'Reference Data',
@@ -119,120 +197,199 @@ export default function AdminDashboard() {
       statLabel: 'Total Items',
       statDetails: [
         { label: 'Clay types', value: stats?.clayTypes },
-        { label: 'Glazes', value: stats?.glazes }
-      ]
+        { label: 'Glazes', value: stats?.glazes },
+      ],
     },
     {
       title: 'Course Templates',
       description: 'Manage course templates and recurring classes',
       icon: 'school',
-      path: '/admin/courses'
+      path: '/admin/courses',
     },
     {
       title: 'Analytics',
       description: 'View reports and statistics',
       icon: 'analytics',
-      path: '/admin/analytics'
-    }
+      path: '/admin/analytics',
+    },
   ];
 
-  return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <Navigation />
+  const STATS_ROW = [
+    {
+      label: 'Active Students',
+      value: loading ? '—' : (stats?.students?.total ?? '—'),
+      sub: loading ? '' : `${stats?.students?.newThisMonth ?? 0} new this month`,
+      icon: 'group',
+    },
+    {
+      label: 'Active Members',
+      value: loading ? '—' : (stats?.memberships?.total ?? '—'),
+      sub: loading ? '' : `${stats?.memberships?.expiringSoon ?? 0} expiring soon`,
+      icon: 'card_membership',
+    },
+    {
+      label: 'Classes This Week',
+      value: loading ? '—' : (stats?.classes?.total ?? '—'),
+      sub: loading ? '' : `${stats?.classes?.availableSpots ?? 0} open spots`,
+      icon: 'event',
+    },
+    {
+      label: 'Gallery Pieces',
+      value: loading ? '—' : (stats?.gallery?.total ?? '—'),
+      sub: loading ? '' : `${stats?.gallery?.addedThisMonth ?? 0} added this month`,
+      icon: 'photo_library',
+    },
+  ];
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-2 sm:px-3 lg:px-4 py-4">
-        {/* Header */}
-        <div className="mb-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-4xl font-bold text-text mb-1">Admin Dashboard</h1>
-              <p className="text-text-muted">VES Pottery Studio Management</p>
+  const dateStr = new Date().toLocaleDateString('en-GB', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+  });
+
+  return (
+    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
+      <AdminNav active="dashboard" onLogout={logout} />
+
+      <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '32px 24px 60px' }}>
+
+        {/* Page header */}
+        <div style={{ marginBottom: '28px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>
+              VES Pottery Studio
             </div>
-            <button
-              onClick={logout}
-              className="flex items-center gap-2 px-2 py-1 bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500/20 transition-colors"
-            >
-              <span className="material-symbols-outlined text-sm">logout</span>
-              <span className="hidden sm:inline">Sign Out</span>
-            </button>
+            <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>
+              Admin Dashboard
+            </h1>
           </div>
+          <div style={{ fontSize: '12px', color: MUTED }}>{dateStr}</div>
         </div>
 
-        {/* Period Filter */}
-        <PeriodFilter onPeriodChange={handlePeriodChange} />
-
-        {/* All Cards - 2 Rows of 4 */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-          {adminCards.map((card) => (
-            <button
-              key={card.path}
-              onClick={() => navigate(card.path)}
-              className="group bg-white border border-gray-200 rounded-xl p-3 hover:border-gray-400 hover:shadow-md transition-all duration-200 text-left relative"
-            >
-              <div className={card.stat !== undefined ? "flex items-start justify-between gap-3" : "flex items-start gap-2"}>
-                {/* Left Column: Icon + Title */}
-                <div className="flex items-start gap-2 min-w-0">
-                  <span className="material-symbols-outlined text-gray-700 text-xl flex-shrink-0">
-                    {card.icon}
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    <h3 className="text-sm font-semibold text-gray-900">
-                      {card.title}
-                    </h3>
-                    <div
-                      className="relative flex-shrink-0"
-                      onMouseEnter={(e) => {
-                        e.stopPropagation();
-                        setHoveredCard(card.path);
-                      }}
-                      onMouseLeave={(e) => {
-                        e.stopPropagation();
-                        setHoveredCard(null);
-                      }}
-                    >
-                      <span className="material-symbols-outlined text-gray-400 text-sm cursor-help">
-                        info
-                      </span>
-                      {hoveredCard === card.path && (
-                        <div className="absolute left-0 top-5 z-10 w-56 p-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg">
-                          {card.description}
-                          <div className="absolute -top-1 left-2 w-2 h-2 bg-gray-900 transform rotate-45"></div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Right Column: Stats (if card has stats) */}
-                {card.stat !== undefined ? (
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-2xl font-bold text-gray-900 mb-1">
-                      {loading ? '--' : card.stat}
-                    </p>
-                    <p className="text-xs text-gray-600 mb-2">{card.statLabel}</p>
-                    {card.statDetails && (
-                      <div className="space-y-0.5">
-                        {card.statDetails.map((detail, idx) => (
-                          <div key={idx} className="text-xs text-gray-500">
-                            <span className="font-semibold">{detail.value}</span> {detail.label}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex items-center text-gray-700 mt-auto pt-1 text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-                    <span>Open</span>
-                    <span className="material-symbols-outlined text-sm ml-1">arrow_forward</span>
-                  </div>
-                )}
+        {/* Stats row */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, 1fr)',
+          gap: '1px',
+          backgroundColor: RULE,
+          border: `1px solid ${RULE}`,
+          marginBottom: '28px',
+        }}>
+          {STATS_ROW.map((s, i) => (
+            <div key={i} style={{ backgroundColor: '#FFFFFF', padding: '22px 20px' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: '18px', color: TC, display: 'block', marginBottom: '14px' }}>
+                {s.icon}
+              </span>
+              <div style={{ fontSize: '36px', fontWeight: 700, letterSpacing: '-0.5px', lineHeight: 1 }}>
+                {s.value}
               </div>
-            </button>
+              <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: INK, marginTop: '6px' }}>
+                {s.label}
+              </div>
+              <div style={{ fontSize: '11px', color: MUTED, marginTop: '3px' }}>
+                {s.sub}
+              </div>
+            </div>
           ))}
         </div>
-      </main>
 
-      <Footer />
+        {/* 3-col layout: modules (span 2) + right column */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 300px', gap: '24px', alignItems: 'start' }}>
+
+          {/* Module grid */}
+          <div style={{ gridColumn: 'span 2' }}>
+            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, marginBottom: '12px' }}>
+              Manage
+            </div>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: '1px',
+              backgroundColor: RULE,
+              border: `1px solid ${RULE}`,
+            }}>
+              {MODULES.map((m, i) => (
+                <a
+                  key={i}
+                  href={m.href}
+                  style={{
+                    backgroundColor: hoveredModule === i ? TC_LIGHT : '#FFFFFF',
+                    padding: '22px 20px',
+                    textDecoration: 'none',
+                    color: INK,
+                    display: 'block',
+                    transition: 'background-color 0.1s',
+                  }}
+                  onMouseEnter={() => setHoveredModule(i)}
+                  onMouseLeave={() => setHoveredModule(null)}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '20px', color: TC, display: 'block', marginBottom: '10px' }}>
+                    {m.icon}
+                  </span>
+                  <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '3px' }}>{m.label}</div>
+                  <div style={{ fontSize: '11px', color: MUTED }}>{m.desc}</div>
+                </a>
+              ))}
+            </div>
+          </div>
+
+          {/* Right column */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+
+            {/* Alerts */}
+            <div>
+              <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, marginBottom: '12px' }}>
+                Alerts
+              </div>
+              <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
+                {ALERTS.map((alert, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      padding: '11px 14px',
+                      borderBottom: i < ALERTS.length - 1 ? `1px solid ${RULE}` : 'none',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '10px',
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '14px', color: TC, flexShrink: 0, marginTop: '1px' }}>
+                      {alert.type === 'membership' ? 'card_membership' : alert.type === 'class' ? 'event' : 'person'}
+                    </span>
+                    <span style={{ fontSize: '12px', color: INK, lineHeight: 1.4 }}>{alert.text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Recent activity */}
+            <div>
+              <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, marginBottom: '12px' }}>
+                Recent Activity
+              </div>
+              <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
+                {RECENT.map((r, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      padding: '11px 14px',
+                      borderBottom: i < RECENT.length - 1 ? `1px solid ${RULE}` : 'none',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 700, color: TC, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        {r.action}
+                      </span>
+                      <span style={{ fontSize: '10px', color: MUTED }}>{r.when}</span>
+                    </div>
+                    <div style={{ fontSize: '12px', fontWeight: 600 }}>{r.who}</div>
+                    <div style={{ fontSize: '11px', color: MUTED }}>{r.detail}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </main>
     </div>
   );
 }

@@ -17,14 +17,6 @@ const NAV = [
   { id: 'memberships', label: 'Members',   href: '/admin/memberships' },
 ];
 
-const MODULES = [
-  { label: 'Students',  icon: 'group',          href: '/admin/students',    desc: 'Allocations & accounts' },
-  { label: 'Classes',   icon: 'event',           href: '/admin/classes',     desc: 'Schedule & bookings' },
-  { label: 'Members',   icon: 'card_membership', href: '/admin/memberships', desc: 'Studio memberships' },
-  { label: 'Gallery',   icon: 'photo_library',   href: '/admin/gallery',     desc: 'Student pottery works' },
-  { label: 'Courses',   icon: 'school',          href: '/admin/courses',     desc: 'Course templates' },
-  { label: 'Reference', icon: 'inventory_2',     href: '/admin/reference',   desc: 'Clay types & glazes' },
-];
 
 
 function AdminNav({ active, onLogout }) {
@@ -126,114 +118,13 @@ export default function AdminDashboard() {
     }
   };
 
-  const adminCards = [
-    {
-      title: 'Students',
-      description: 'Manage students, allocations, and accounts',
-      icon: 'group',
-      path: '/admin/students',
-      stat: stats?.students?.total,
-      statLabel: 'Active Students',
-      statDetails: [
-        { label: 'New students', value: stats?.students?.newThisMonth },
-        { label: 'Returning students', value: stats?.students?.returning },
-      ],
-    },
-    {
-      title: 'Course Schedule',
-      description: 'Create and manage class instances',
-      icon: 'event',
-      path: '/admin/classes',
-      stat: stats?.classes?.total,
-      statLabel: 'Scheduled Classes',
-      statDetails: [
-        { label: 'Students enrolled', value: stats?.classes?.enrolled },
-        { label: 'Available spots', value: stats?.classes?.availableSpots },
-      ],
-    },
-    {
-      title: 'Paused Students',
-      description: 'View and manage students who have paused their courses',
-      icon: 'pause_circle',
-      path: '/admin/paused-students',
-      stat: stats?.students?.paused || 0,
-      statLabel: 'Paused Enrollments',
-    },
-    {
-      title: 'Members',
-      description: 'Manage studio memberships',
-      icon: 'card_membership',
-      path: '/admin/memberships',
-      stat: stats?.memberships?.total,
-      statLabel: 'Active Members',
-      statDetails: [
-        { label: 'Expiring soon', value: stats?.memberships?.expiringSoon },
-        { label: 'Renewed this month', value: stats?.memberships?.renewedThisMonth },
-      ],
-    },
-    {
-      title: 'Gallery',
-      description: 'View and manage all student pottery',
-      icon: 'photo_library',
-      path: '/admin/gallery',
-      stat: stats?.gallery?.total,
-      statLabel: 'Gallery Pieces',
-      statDetails: [
-        { label: 'Added this month', value: stats?.gallery?.addedThisMonth },
-        { label: 'Awaiting approval', value: stats?.gallery?.awaitingApproval },
-      ],
-    },
-    {
-      title: 'Reference Data',
-      description: 'Manage clay types and glazes',
-      icon: 'inventory_2',
-      path: '/admin/reference',
-      stat: (stats?.clayTypes || 0) + (stats?.glazes || 0),
-      statLabel: 'Total Items',
-      statDetails: [
-        { label: 'Clay types', value: stats?.clayTypes },
-        { label: 'Glazes', value: stats?.glazes },
-      ],
-    },
-    {
-      title: 'Course Templates',
-      description: 'Manage course templates and recurring classes',
-      icon: 'school',
-      path: '/admin/courses',
-    },
-    {
-      title: 'Analytics',
-      description: 'View reports and statistics',
-      icon: 'analytics',
-      path: '/admin/analytics',
-    },
-  ];
-
-  const STATS_ROW = [
-    {
-      label: 'Active Students',
-      value: loading ? '—' : (stats?.students?.total ?? '—'),
-      sub: loading ? '' : `${stats?.students?.newThisMonth ?? 0} new this month`,
-      icon: 'group',
-    },
-    {
-      label: 'Active Members',
-      value: loading ? '—' : (stats?.memberships?.total ?? '—'),
-      sub: loading ? '' : `${stats?.memberships?.expiringSoon ?? 0} expiring soon`,
-      icon: 'card_membership',
-    },
-    {
-      label: 'Classes This Week',
-      value: loading ? '—' : (stats?.classes?.total ?? '—'),
-      sub: loading ? '' : `${stats?.classes?.availableSpots ?? 0} open spots`,
-      icon: 'event',
-    },
-    {
-      label: 'Gallery Pieces',
-      value: loading ? '—' : (stats?.gallery?.total ?? '—'),
-      sub: loading ? '' : `${stats?.gallery?.addedThisMonth ?? 0} added this month`,
-      icon: 'photo_library',
-    },
+  const modules = [
+    { label: 'Students',  icon: 'group',          href: '/admin/students',    desc: 'Allocations & accounts', stat: loading ? null : (stats?.students?.total ?? null),     sub: `${stats?.students?.newThisMonth ?? 0} new this month` },
+    { label: 'Classes',   icon: 'event',           href: '/admin/classes',     desc: 'Schedule & bookings',    stat: loading ? null : (stats?.classes?.total ?? null),      sub: `${stats?.classes?.availableSpots ?? 0} open spots` },
+    { label: 'Members',   icon: 'card_membership', href: '/admin/memberships', desc: 'Studio memberships',     stat: loading ? null : (stats?.memberships?.total ?? null),  sub: `${stats?.memberships?.expiringSoon ?? 0} expiring soon` },
+    { label: 'Gallery',   icon: 'photo_library',   href: '/admin/gallery',     desc: 'Student pottery works',  stat: loading ? null : (stats?.gallery?.total ?? null),      sub: `${stats?.gallery?.addedThisMonth ?? 0} added this month` },
+    { label: 'Courses',   icon: 'school',          href: '/admin/courses',     desc: 'Course templates' },
+    { label: 'Reference', icon: 'inventory_2',     href: '/admin/reference',   desc: 'Clay types & glazes' },
   ];
 
   const dateStr = new Date().toLocaleDateString('en-GB', {
@@ -259,33 +150,6 @@ export default function AdminDashboard() {
           <div style={{ fontSize: '12px', color: MUTED }}>{dateStr}</div>
         </div>
 
-        {/* Stats row */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)',
-          gap: '1px',
-          backgroundColor: RULE,
-          border: `1px solid ${RULE}`,
-          marginBottom: '28px',
-        }}>
-          {STATS_ROW.map((s, i) => (
-            <div key={i} style={{ backgroundColor: '#FFFFFF', padding: '22px 20px' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: '18px', color: TC, display: 'block', marginBottom: '14px' }}>
-                {s.icon}
-              </span>
-              <div style={{ fontSize: '36px', fontWeight: 700, letterSpacing: '-0.5px', lineHeight: 1 }}>
-                {s.value}
-              </div>
-              <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: INK, marginTop: '6px' }}>
-                {s.label}
-              </div>
-              <div style={{ fontSize: '11px', color: MUTED, marginTop: '3px' }}>
-                {s.sub}
-              </div>
-            </div>
-          ))}
-        </div>
-
         {/* Layout: modules + right column */}
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 300px', gap: '24px', alignItems: 'start' }}>
 
@@ -301,7 +165,7 @@ export default function AdminDashboard() {
               backgroundColor: RULE,
               border: `1px solid ${RULE}`,
             }}>
-              {MODULES.map((m, i) => (
+              {modules.map((m, i) => (
                 <a
                   key={i}
                   href={m.href}
@@ -316,11 +180,16 @@ export default function AdminDashboard() {
                   onMouseEnter={() => setHoveredModule(i)}
                   onMouseLeave={() => setHoveredModule(null)}
                 >
-                  <span className="material-symbols-outlined" style={{ fontSize: '20px', color: TC, display: 'block', marginBottom: '10px' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '18px', color: TC, display: 'block', marginBottom: m.stat != null ? '10px' : '10px' }}>
                     {m.icon}
                   </span>
-                  <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '3px' }}>{m.label}</div>
-                  <div style={{ fontSize: '11px', color: MUTED }}>{m.desc}</div>
+                  {m.stat != null && (
+                    <div style={{ fontSize: '32px', fontWeight: 700, letterSpacing: '-0.5px', lineHeight: 1, marginBottom: '6px' }}>
+                      {m.stat}
+                    </div>
+                  )}
+                  <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '2px' }}>{m.label}</div>
+                  <div style={{ fontSize: '11px', color: MUTED }}>{m.stat != null ? m.sub : m.desc}</div>
                 </a>
               ))}
             </div>

@@ -327,7 +327,7 @@ export default function AdminDashboard() {
           </div>
 
           {/* Right column */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr', gap: '24px', alignItems: 'start' }}>
 
             {/* Alerts */}
             <div>

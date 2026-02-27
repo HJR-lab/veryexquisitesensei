@@ -4826,6 +4826,139 @@ app.get('/api/admin/dashboard/stats', authenticateToken, async (req, res) => {
   }
 });
 
+// Dashboard alerts + recent activity
+app.get('/api/admin/dashboard/activity', authenticateToken, async (req, res) => {
+  try {
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const fourteenDaysFromNow = new Date(now);
+    fourteenDaysFromNow.setDate(now.getDate() + 14);
+    const sevenDaysFromNow = new Date(now);
+    sevenDaysFromNow.setDate(now.getDate() + 7);
+    const sevenDaysStr = sevenDaysFromNow.toISOString().split('T')[0];
+
+    const [alertMembershipsRes, recentBookingsRes, recentMembershipsRes, upcomingClassesRes] = await Promise.all([
+      // Memberships expiring within 14 days
+      supabaseDb.supabase
+        .from('memberships')
+        .select('id, membership_type, end_date, customer:customers!memberships_customer_id_fkey(first_name, last_name)')
+        .eq('status', 'active')
+        .lte('end_date', fourteenDaysFromNow.toISOString().split('T')[0])
+        .gte('end_date', today)
+        .order('end_date', { ascending: true })
+        .limit(6),
+
+      // Recent bookings + cancellations
+      supabaseDb.supabase
+        .from('bookings')
+        .select('id, status, created_at, student:customers!bookings_student_id_fkey(first_name, last_name), class_instance:class_instances!bookings_class_instance_id_fkey(class_date, class_type, start_time)')
+        .in('status', ['booked', 'cancelled'])
+        .order('created_at', { ascending: false })
+        .limit(10),
+
+      // Recent memberships created
+      supabaseDb.supabase
+        .from('memberships')
+        .select('id, membership_type, created_at, customer:customers!memberships_customer_id_fkey(first_name, last_name)')
+        .order('created_at', { ascending: false })
+        .limit(5),
+
+      // Upcoming classes this week (for near-full alerts)
+      supabaseDb.supabase
+        .from('class_instances')
+        .select('id, class_date, class_type, start_time, max_capacity')
+        .gte('class_date', today)
+        .lte('class_date', sevenDaysStr)
+        .order('class_date', { ascending: true })
+        .limit(30),
+    ]);
+
+    // ── Alerts ──────────────────────────────────────────────────────────────
+    const alerts = [];
+
+    // Membership expiry alerts
+    (alertMembershipsRes.data || []).forEach(m => {
+      const endDate = new Date(m.end_date + 'T12:00:00');
+      const daysLeft = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
+      const name = m.customer ? `${m.customer.first_name} ${m.customer.last_name}`.trim() : 'Unknown';
+      const dateStr = endDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+      alerts.push({ type: 'membership', text: `${name} — ${m.membership_type} expires ${dateStr}` });
+    });
+
+    // Near-full class alerts
+    const upcomingClasses = upcomingClassesRes.data || [];
+    if (upcomingClasses.length > 0) {
+      const classIds = upcomingClasses.map(c => c.id);
+      const { data: classBookings } = await supabaseDb.supabase
+        .from('bookings')
+        .select('class_instance_id')
+        .in('class_instance_id', classIds)
+        .in('status', ['booked', 'attended']);
+
+      const bookingCounts = {};
+      (classBookings || []).forEach(b => {
+        bookingCounts[b.class_instance_id] = (bookingCounts[b.class_instance_id] || 0) + 1;
+      });
+
+      upcomingClasses.forEach(c => {
+        const booked = bookingCounts[c.id] || 0;
+        const capacity = c.max_capacity || 8;
+        const spotsLeft = capacity - booked;
+        if (spotsLeft <= 2 && booked > 0) {
+          const dateStr = new Date(c.class_date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+          const shortType = (c.class_type || '').substring(0, 8);
+          if (spotsLeft === 0) {
+            alerts.push({ type: 'class', text: `${shortType} ${dateStr} — now full` });
+          } else {
+            alerts.push({ type: 'class', text: `${shortType} ${dateStr} — ${spotsLeft} spot${spotsLeft !== 1 ? 's' : ''} remaining` });
+          }
+        }
+      });
+    }
+
+    // ── Recent Activity ──────────────────────────────────────────────────────
+    function timeAgo(dateStr) {
+      const diffMs = now - new Date(dateStr);
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+      if (diffMins < 60) return `${diffMins}m ago`;
+      if (diffHours < 24) return `${diffHours}h ago`;
+      return `${diffDays}d ago`;
+    }
+
+    const activity = [];
+
+    // Bookings/cancellations
+    (recentBookingsRes.data || []).forEach(b => {
+      const name = b.student ? `${b.student.first_name} ${b.student.last_name}`.trim() : 'Unknown';
+      const ci = b.class_instance;
+      let detail = '';
+      if (ci) {
+        const dateStr = new Date(ci.class_date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+        const typeShort = (ci.class_type || '').startsWith('WT') ? 'WT' : (ci.class_type || '').startsWith('HB') ? 'HB' : (ci.class_type || '').substring(0, 6);
+        detail = `${typeShort} ${dateStr}${ci.start_time ? `, ${ci.start_time}` : ''}`;
+      }
+      activity.push({ action: b.status === 'cancelled' ? 'Cancelled' : 'New booking', who: name, detail, when: timeAgo(b.created_at), createdAt: b.created_at });
+    });
+
+    // New memberships
+    (recentMembershipsRes.data || []).forEach(m => {
+      const name = m.customer ? `${m.customer.first_name} ${m.customer.last_name}`.trim() : 'Unknown';
+      activity.push({ action: 'Membership', who: name, detail: `${m.membership_type} started`, when: timeAgo(m.created_at), createdAt: m.created_at });
+    });
+
+    // Sort by date, take top 8, strip createdAt
+    activity.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const topActivity = activity.slice(0, 8).map(({ createdAt, ...rest }) => rest);
+
+    res.json({ alerts: alerts.slice(0, 8), activity: topActivity });
+  } catch (error) {
+    console.error('Error fetching dashboard activity:', error);
+    res.status(500).json({ error: 'Failed to fetch dashboard activity' });
+  }
+});
+
 // Get student bookings (accepts email or numeric ID)
 app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, async (req, res) => {
   try {

@@ -27,21 +27,6 @@ const MODULES = [
   { label: 'Reference', icon: 'inventory_2',     href: '/admin/reference',   desc: 'Clay types & glazes' },
 ];
 
-const ALERTS = [
-  { type: 'membership', text: 'Diana Lim — 6 Month expires Mar 5' },
-  { type: 'membership', text: 'Kenny Toh — 12 Month expires Mar 12' },
-  { type: 'class',      text: 'WT Sat Mar 7 — 1 spot remaining' },
-  { type: 'class',      text: 'HB Wed Mar 4 — now full' },
-  { type: 'student',    text: 'Chloe Lim — upcoming enrollment Mar 1' },
-];
-
-const RECENT = [
-  { action: 'New booking',    who: 'Sarah Tan',   detail: 'WT Feb 28, 2pm',    when: '2h ago' },
-  { action: 'Membership',     who: 'Priya Nair',  detail: '1 Month started',   when: '1d ago' },
-  { action: 'Gallery upload', who: 'Mei Lin',     detail: 'Handbuilding vase', when: '1d ago' },
-  { action: 'Cancelled',      who: 'Marcus Wong', detail: 'HB Feb 25',         when: '2d ago' },
-  { action: 'New student',    who: 'Ryan Ong',    detail: 'HB course started', when: '3d ago' },
-];
 
 function AdminNav({ active, onLogout }) {
   return (
@@ -106,6 +91,8 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [hoveredModule, setHoveredModule] = useState(null);
+  const [alerts, setAlerts] = useState([]);
+  const [activity, setActivity] = useState([]);
 
   useEffect(() => {
     loadStats();
@@ -114,16 +101,19 @@ export default function AdminDashboard() {
   const loadStats = async () => {
     try {
       setLoading(true);
-      const [dashboardRes, clayTypesRes, glazesRes] = await Promise.all([
+      const [dashboardRes, clayTypesRes, glazesRes, activityRes] = await Promise.all([
         api.get('/admin/dashboard/stats'),
         api.get('/reference/clay-types'),
         api.get('/reference/glazes'),
+        api.get('/admin/dashboard/activity'),
       ]);
       setStats({
         ...dashboardRes.data,
         clayTypes: clayTypesRes.data.clayTypes?.length || 0,
         glazes: glazesRes.data.glazes?.length || 0,
       });
+      setAlerts(activityRes.data.alerts || []);
+      setActivity(activityRes.data.activity || []);
     } catch (error) {
       console.error('Failed to load stats:', error);
     } finally {
@@ -340,12 +330,14 @@ export default function AdminDashboard() {
                 Alerts
               </div>
               <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
-                {ALERTS.map((alert, i) => (
+                {alerts.length === 0 ? (
+                  <div style={{ padding: '14px', fontSize: '12px', color: MUTED }}>No alerts</div>
+                ) : alerts.map((alert, i) => (
                   <div
                     key={i}
                     style={{
                       padding: '11px 14px',
-                      borderBottom: i < ALERTS.length - 1 ? `1px solid ${RULE}` : 'none',
+                      borderBottom: i < alerts.length - 1 ? `1px solid ${RULE}` : 'none',
                       display: 'flex',
                       alignItems: 'flex-start',
                       gap: '10px',
@@ -366,12 +358,14 @@ export default function AdminDashboard() {
                 Recent Activity
               </div>
               <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
-                {RECENT.map((r, i) => (
+                {activity.length === 0 ? (
+                  <div style={{ padding: '14px', fontSize: '12px', color: MUTED }}>No recent activity</div>
+                ) : activity.map((r, i) => (
                   <div
                     key={i}
                     style={{
                       padding: '11px 14px',
-                      borderBottom: i < RECENT.length - 1 ? `1px solid ${RULE}` : 'none',
+                      borderBottom: i < activity.length - 1 ? `1px solid ${RULE}` : 'none',
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>

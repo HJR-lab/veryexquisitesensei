@@ -119,8 +119,8 @@ export default function AdminDashboard() {
   };
 
   const modules = [
-    { label: 'Students',  icon: 'group',          href: '/admin/students',    desc: 'Allocations & accounts', stat: loading ? null : (stats?.students?.total ?? null),     sub: `${stats?.students?.newThisMonth ?? 0} new this month` },
     { label: 'Classes',   icon: 'event',           href: '/admin/classes',     desc: 'Schedule & bookings',    stat: loading ? null : (stats?.classes?.total ?? null),      sub: `${stats?.classes?.availableSpots ?? 0} open spots` },
+    { label: 'Students',  icon: 'group',          href: '/admin/students',    desc: 'Allocations & accounts', stat: loading ? null : (stats?.students?.total ?? null),     sub: `${stats?.students?.newThisMonth ?? 0} new this month` },
     { label: 'Members',   icon: 'card_membership', href: '/admin/memberships', desc: 'Studio memberships',     stat: loading ? null : (stats?.memberships?.total ?? null),  sub: `${stats?.memberships?.expiringSoon ?? 0} expiring soon` },
     { label: 'Gallery',   icon: 'photo_library',   href: '/admin/gallery',     desc: 'Student pottery works',  stat: loading ? null : (stats?.gallery?.total ?? null),      sub: `${stats?.gallery?.addedThisMonth ?? 0} added this month` },
     { label: 'Courses',   icon: 'school',          href: '/admin/courses',     desc: 'Course templates' },

@@ -4950,11 +4950,11 @@ app.get('/api/admin/dashboard/activity', authenticateToken, async (req, res) => 
       activity.push({ action: 'Membership', who: name, detail: `${m.membership_type} started`, when: timeAgo(m.created_at), createdAt: m.created_at });
     });
 
-    // Sort by date, take top 8, strip createdAt
+    // Sort by date, take top 5, strip createdAt
     activity.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    const topActivity = activity.slice(0, 8).map(({ createdAt, ...rest }) => rest);
+    const topActivity = activity.slice(0, 5).map(({ createdAt, ...rest }) => rest);
 
-    res.json({ alerts: alerts.slice(0, 8), activity: topActivity });
+    res.json({ alerts: alerts.slice(0, 5), activity: topActivity });
   } catch (error) {
     console.error('Error fetching dashboard activity:', error);
     res.status(500).json({ error: 'Failed to fetch dashboard activity' });

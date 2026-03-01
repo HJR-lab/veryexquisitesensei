@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
+import AdminNav from '../components/AdminNav';
 
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
@@ -11,75 +12,9 @@ const MUTED    = '#888888';
 const RULE     = 'rgba(40,40,40,0.09)';
 const ALT      = '#F5F3F0';
 
-const NAV = [
-  { id: 'classes',     label: 'Classes',   href: '/admin/classes' },
-  { id: 'students',    label: 'Students',  href: '/admin/students' },
-  { id: 'memberships', label: 'Members',   href: '/admin/memberships' },
-];
-
-
-
-function AdminNav({ active, onLogout }) {
-  return (
-    <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: '#FFFFFF', borderBottom: `1px solid ${RULE}` }}>
-      <div style={{ maxWidth: '1140px', margin: '0 auto', padding: '0 24px', height: '52px', display: 'flex', alignItems: 'center', gap: '24px' }}>
-        <a href="/admin" style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-          <img
-            src="https://ves.sg/cdn/shop/files/logo_04a04687-57f4-4141-b0bc-ec30b527fd73.png?v=1686045719&width=600"
-            alt="VES"
-            style={{ height: '22px', width: 'auto' }}
-          />
-        </a>
-        <div style={{ width: '1px', height: '18px', backgroundColor: RULE, flexShrink: 0 }} />
-        <nav style={{ display: 'flex', flex: 1 }}>
-          {NAV.map(link => (
-            <a
-              key={link.id}
-              href={link.href}
-              style={{
-                padding: '0 14px',
-                height: '52px',
-                display: 'flex',
-                alignItems: 'center',
-                fontSize: '11px',
-                fontWeight: 700,
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-                color: active === link.id ? TC : MUTED,
-                textDecoration: 'none',
-                borderBottom: `2px solid ${active === link.id ? TC : 'transparent'}`,
-              }}
-            >
-              {link.label}
-            </a>
-          ))}
-        </nav>
-        <span style={{
-          fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
-          padding: '5px 10px', backgroundColor: INK, color: '#FFF', flexShrink: 0,
-        }}>
-          Admin
-        </span>
-        <button
-          onClick={onLogout}
-          style={{
-            display: 'flex', alignItems: 'center', gap: '6px',
-            fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-            color: MUTED, background: 'none', border: `1px solid ${RULE}`,
-            padding: '5px 10px', cursor: 'pointer', flexShrink: 0,
-          }}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>logout</span>
-          Sign Out
-        </button>
-      </div>
-    </header>
-  );
-}
-
 export default function AdminDashboard() {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
 
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -133,7 +68,7 @@ export default function AdminDashboard() {
 
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <AdminNav active="dashboard" onLogout={logout} />
+      <AdminNav active="dashboard" onSyncComplete={loadStats} />
 
       <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '32px 24px 60px' }}>
 

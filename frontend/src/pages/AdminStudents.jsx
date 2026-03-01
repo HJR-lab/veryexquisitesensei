@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
+import AdminNav from '../components/AdminNav';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const TC       = '#C4622D';
@@ -11,69 +12,6 @@ const INK      = '#282828';
 const MUTED    = '#888888';
 const RULE     = 'rgba(40,40,40,0.09)';
 const ALT      = '#F5F3F0';
-
-// ─── Admin nav links ──────────────────────────────────────────────────────────
-const NAV = [
-  { id: 'classes',     label: 'Classes',   href: '/admin/classes' },
-  { id: 'students',    label: 'Students',  href: '/admin/students' },
-  { id: 'memberships', label: 'Members',   href: '/admin/memberships' },
-];
-
-function AdminNav({ active, onSync, syncing, syncMessage }) {
-  return (
-    <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: '#FFFFFF', borderBottom: `1px solid ${RULE}` }}>
-      <div style={{ maxWidth: '1140px', margin: '0 auto', padding: '0 24px', height: '52px', display: 'flex', alignItems: 'center', gap: '24px' }}>
-        <a href="/admin" style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-          <img
-            src="https://ves.sg/cdn/shop/files/logo_04a04687-57f4-4141-b0bc-ec30b527fd73.png?v=1686045719&width=600"
-            alt="VES"
-            style={{ height: '22px', width: 'auto' }}
-          />
-        </a>
-        <div style={{ width: '1px', height: '18px', backgroundColor: RULE, flexShrink: 0 }} />
-        <nav style={{ display: 'flex', flex: 1 }}>
-          {NAV.map(link => (
-            <a
-              key={link.id}
-              href={link.href}
-              style={{
-                padding: '0 14px',
-                height: '52px',
-                display: 'flex',
-                alignItems: 'center',
-                fontSize: '11px',
-                fontWeight: 700,
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-                color: active === link.id ? TC : MUTED,
-                textDecoration: 'none',
-                borderBottom: `2px solid ${active === link.id ? TC : 'transparent'}`,
-              }}
-            >
-              {link.label}
-            </a>
-          ))}
-        </nav>
-        {syncMessage && (
-          <span style={{ fontSize: '11px', fontWeight: 600, color: syncMessage.type === 'ok' ? '#1E6B1E' : '#C0392B', flexShrink: 0 }}>
-            {syncMessage.text}
-          </span>
-        )}
-        <button
-          onClick={onSync}
-          disabled={syncing}
-          style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 10px', backgroundColor: 'transparent', border: `1px solid ${RULE}`, color: syncing ? MUTED : INK, fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: syncing ? 'default' : 'pointer', flexShrink: 0 }}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>sync</span>
-          {syncing ? 'Syncing…' : 'Sync'}
-        </button>
-        <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', backgroundColor: INK, color: '#FFF', flexShrink: 0 }}>
-          Admin
-        </span>
-      </div>
-    </header>
-  );
-}
 
 // ─── Allocation progress bar ──────────────────────────────────────────────────
 function AllocBar({ label, used, total, color }) {
@@ -122,8 +60,6 @@ export default function AdminStudents() {
   const { logout } = useAuth();
 
   const [loading,     setLoading]     = useState(false);
-  const [syncing,     setSyncing]     = useState(false);
-  const [syncMessage, setSyncMessage] = useState(null); // { type: 'ok'|'err', text }
 
   // Stats
   const [stats, setStats] = useState({
@@ -149,7 +85,7 @@ export default function AdminStudents() {
 
   // HB sorting / filter
   const [hbSortBy,       setHbSortBy]       = useState('name');
-  const [hideCompleted,  setHideCompleted]  = useState(false);
+  const [showCompleted,  setShowCompleted]  = useState(false);
 
   // HB inline editing
   const [editingCredits,      setEditingCredits]      = useState(null);
@@ -186,24 +122,6 @@ export default function AdminStudents() {
       console.error('[AdminStudents] Failed to load stats:', error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const syncFromShopify = async () => {
-    try {
-      setSyncing(true);
-      setSyncMessage(null);
-      await api.post('/admin/sync-shopify-customers');
-      const ordersResponse = await api.post('/admin/sync-shopify-orders');
-      await api.post('/admin/backfill-hb-credits');
-      await loadStats();
-      const n = ordersResponse.data.enrollmentsCreated || 0;
-      setSyncMessage({ type: 'ok', text: n > 0 ? `Synced — ${n} new enrollment${n !== 1 ? 's' : ''}` : 'Synced — no new enrollments' });
-    } catch (error) {
-      setSyncMessage({ type: 'err', text: 'Sync failed' });
-    } finally {
-      setSyncing(false);
-      setTimeout(() => setSyncMessage(null), 5000);
     }
   };
 
@@ -401,7 +319,7 @@ export default function AdminStudents() {
 
   const getSortedHbStudents = () => {
     let filtered = [...hbStudentsList];
-    if (hideCompleted) filtered = filtered.filter(s => s.creditsRemaining > 0 || s.creditsAllocated === 0);
+    if (!showCompleted) filtered = filtered.filter(s => s.creditsRemaining > 0 || s.creditsAllocated === 0);
     switch (hbSortBy) {
       case 'name':     return filtered.sort((a, b) => a.name.localeCompare(b.name));
       case 'credits':  return filtered.sort((a, b) => { const d = (b.creditsRemaining||0)-(a.creditsRemaining||0); return d !== 0 ? d : (b.creditsAllocated||0)-(a.creditsAllocated||0); });
@@ -503,7 +421,7 @@ export default function AdminStudents() {
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <AdminNav active="students" onSync={syncFromShopify} syncing={syncing} syncMessage={syncMessage} />
+      <AdminNav active="students" onSyncComplete={loadStats} />
 
       <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '32px 24px 60px' }}>
 
@@ -599,8 +517,8 @@ export default function AdminStudents() {
         {tab === 'hb' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '10px 16px', backgroundColor: '#FFFDF9', border: `1px solid ${RULE}`, borderTop: 'none' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 700, color: MUTED, cursor: 'pointer' }}>
-              <input type="checkbox" checked={hideCompleted} onChange={e => setHideCompleted(e.target.checked)} />
-              Hide Completed
+              <input type="checkbox" checked={showCompleted} onChange={e => setShowCompleted(e.target.checked)} />
+              Show Completed
             </label>
             <span style={{ fontSize: '9px', color: RULE }}>|</span>
             <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED }}>HB Sort</span>

@@ -1,13 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
-import Navigation from '../components/Navigation';
-import Footer from '../components/Footer';
+import AdminNav from '../components/AdminNav';
 import axios from 'axios';
 
 export default function AdminGallery() {
   const navigate = useNavigate();
-  const { logout } = useAuth();
 
   const [pieces, setPieces] = useState([]);
   const [students, setStudents] = useState([]);
@@ -108,7 +105,7 @@ export default function AdminGallery() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <Navigation />
+      <AdminNav active="gallery" />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
@@ -131,13 +128,6 @@ export default function AdminGallery() {
                 {filteredPieces.length !== pieces.length && ' (filtered)'}
               </p>
             </div>
-            <button
-              onClick={logout}
-              className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500/20 transition-colors"
-            >
-              <span className="material-symbols-outlined text-sm">logout</span>
-              <span className="hidden sm:inline">Sign Out</span>
-            </button>
           </div>
         </div>
 
@@ -408,7 +398,6 @@ export default function AdminGallery() {
         </div>
       )}
 
-      <Footer />
     </div>
   );
 }

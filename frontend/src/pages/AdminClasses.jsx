@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
+import AdminNav from '../components/AdminNav';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const TC       = '#C4622D';
@@ -11,61 +12,6 @@ const INK      = '#282828';
 const MUTED    = '#888888';
 const RULE     = 'rgba(40,40,40,0.09)';
 const ALT      = '#F5F3F0';
-
-// ─── Nav ──────────────────────────────────────────────────────────────────────
-const NAV_LINKS = [
-  { id: 'classes',     label: 'Classes',     href: '/admin/classes' },
-  { id: 'students',    label: 'Students',    href: '/admin/students' },
-  { id: 'memberships', label: 'Members',     href: '/admin/memberships' },
-];
-
-function AdminNav({ active, onSync, syncing, syncMessage }) {
-  return (
-    <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: '#FFFFFF', borderBottom: `1px solid ${RULE}` }}>
-      <div style={{ maxWidth: '1140px', margin: '0 auto', padding: '0 24px', height: '52px', display: 'flex', alignItems: 'center', gap: '24px', overflowX: 'auto' }}>
-        <a href="/admin" style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-          <img
-            src="https://ves.sg/cdn/shop/files/logo_04a04687-57f4-4141-b0bc-ec30b527fd73.png?v=1686045719&width=600"
-            alt="VES"
-            style={{ height: '22px', width: 'auto' }}
-          />
-        </a>
-        <div style={{ width: '1px', height: '18px', backgroundColor: RULE, flexShrink: 0 }} />
-        <nav style={{ display: 'flex', flex: 1 }}>
-          {NAV_LINKS.map(link => (
-            <a
-              key={link.id}
-              href={link.href}
-              style={{
-                padding: '0 14px', height: '52px', display: 'flex', alignItems: 'center',
-                fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
-                color: active === link.id ? TC : MUTED,
-                textDecoration: 'none', whiteSpace: 'nowrap',
-                borderBottom: `2px solid ${active === link.id ? TC : 'transparent'}`,
-              }}
-            >
-              {link.label}
-            </a>
-          ))}
-        </nav>
-        {syncMessage && (
-          <span style={{ fontSize: '11px', fontWeight: 600, color: syncMessage.type === 'ok' ? '#1E6B1E' : '#C0392B', flexShrink: 0 }}>
-            {syncMessage.text}
-          </span>
-        )}
-        <button
-          onClick={onSync}
-          disabled={syncing}
-          style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 10px', backgroundColor: 'transparent', border: `1px solid ${RULE}`, color: syncing ? MUTED : INK, fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: syncing ? 'default' : 'pointer', flexShrink: 0 }}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>sync</span>
-          {syncing ? 'Syncing…' : 'Sync'}
-        </button>
-        <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', backgroundColor: INK, color: '#FFF', flexShrink: 0 }}>Admin</span>
-      </div>
-    </header>
-  );
-}
 
 // ─── Mobile breakpoint hook ───────────────────────────────────────────────────
 function useIsMobile(bp = 768) {
@@ -136,7 +82,7 @@ const selectSt = { ...inputSt };
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function AdminClasses() {
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  useAuth();
   const isMobile = useIsMobile();
 
   // ── API / data state ────────────────────────────────────────────────────────
@@ -191,9 +137,6 @@ export default function AdminClasses() {
   // ── Add single class modal (test page design) ─────────────────────────────────
   const [showAddSingleClass, setShowAddSingleClass] = useState(false);
 
-  // ── Sync state ───────────────────────────────────────────────────────────────
-  const [syncing, setSyncing]         = useState(false);
-  const [syncMessage, setSyncMessage] = useState(null); // { type: 'ok'|'err', text }
 
   // ── Cal months ───────────────────────────────────────────────────────────────
   const CAL_MONTHS = getCalMonths();
@@ -210,26 +153,6 @@ export default function AdminClasses() {
       console.error('Failed to load courses:', error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleSync = async () => {
-    try {
-      setSyncing(true);
-      setSyncMessage(null);
-      await api.post('/admin/sync-shopify-customers');
-      const { data } = await api.post('/admin/sync-shopify-orders');
-      const msg = data.enrollmentsCreated > 0
-        ? `Synced — ${data.enrollmentsCreated} new enrollment${data.enrollmentsCreated !== 1 ? 's' : ''}`
-        : 'Synced — no new enrollments';
-      setSyncMessage({ type: 'ok', text: msg });
-      await loadCourses();
-    } catch (err) {
-      setSyncMessage({ type: 'err', text: 'Sync failed' });
-      console.error('Sync error:', err);
-    } finally {
-      setSyncing(false);
-      setTimeout(() => setSyncMessage(null), 5000);
     }
   };
 
@@ -348,7 +271,6 @@ export default function AdminClasses() {
 
     return wtCourses.map((course, idx) => {
       const sampleClass = course.classes?.[0];
-      const totalEnrolled = course.classes?.reduce((sum, cls) => sum + (cls.bookingCount || 0), 0) || 0;
       const maxCap = sampleClass?.max_capacity || 10;
       const allDates = course.classes?.map(cls => cls.class_date).sort() || [];
       const today = new Date();
@@ -367,7 +289,7 @@ export default function AdminClasses() {
         timeLabel: sampleClass?.start_time || '',
         weeks: course.classes?.length || 0,
         capacity: maxCap,
-        enrolled: Math.round(totalEnrolled / (course.classes?.length || 1)),
+        enrolled: course.totalEnrollment || 0,
         minPax: 4,
         status: 'confirmed',
         color,
@@ -393,9 +315,8 @@ export default function AdminClasses() {
 
     return hbCourses.map((course, idx) => {
       const sampleClass = course.classes?.[0];
-      const totalEnrolled = course.classes?.reduce((sum, cls) => sum + (cls.bookingCount || 0), 0) || 0;
       const maxCap = sampleClass?.max_capacity || 10;
-      const enrolled = Math.round(totalEnrolled / (course.classes?.length || 1));
+      const enrolled = course.totalEnrollment || 0;
       const dayOfWeek = sampleClass ? new Date(sampleClass.class_date).getDay() : 0;
       return {
         id: course.identifier,
@@ -1080,7 +1001,7 @@ export default function AdminClasses() {
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <AdminNav active="classes" onSync={handleSync} syncing={syncing} syncMessage={syncMessage} />
+      <AdminNav active="classes" onSyncComplete={loadCourses} />
 
       <main style={{ maxWidth: '1140px', margin: '0 auto', padding: isMobile ? '20px 16px 60px' : '32px 24px 60px' }}>
 

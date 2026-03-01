@@ -7506,6 +7506,55 @@ app.post('/api/admin/sync-shopify-orders', authenticateToken, async (req, res) =
 
               processedCount++;
             }
+          } else if (productTitle.toLowerCase().includes('clay club')) {
+            // ── Clay Club membership sync ──────────────────────────────────
+            const { findCustomerByEmail, createMembership } = require('./utils/supabaseDb');
+            const memberCustomer = await findCustomerByEmail(customer.email);
+            if (!memberCustomer) {
+              console.log(`⚠️  Clay Club order for unknown customer: ${customer.email}`);
+            } else {
+              // Parse duration from variant or title
+              const combined = (productTitle + ' ' + variantTitle).toLowerCase();
+              let months = 6; // default
+              if (combined.includes('12 month')) months = 12;
+              else if (combined.includes('1 month')) months = 1;
+              else if (combined.includes('3 month')) months = 3;
+              else if (combined.includes('6 month')) months = 6;
+
+              const membershipType = `Clay Club ${months} Month${months !== 1 ? 's' : ''}`;
+              const startDate = new Date(orderNode.createdAt);
+              const endDate = new Date(startDate);
+              endDate.setMonth(endDate.getMonth() + months);
+
+              // Check if membership already exists for this customer + start date
+              const { data: existing } = await supabase
+                .from('memberships')
+                .select('id')
+                .eq('customer_id', memberCustomer.id)
+                .eq('start_date', startDate.toISOString().split('T')[0])
+                .maybeSingle();
+
+              if (existing) {
+                console.log(`⏭️  Membership already exists for ${customer.email} (${membershipType})`);
+                skippedCount++;
+              } else {
+                // Check if end_date has passed → expired
+                const now = new Date();
+                const status = endDate < now ? 'expired' : 'active';
+
+                await createMembership({
+                  customerId: memberCustomer.id,
+                  membershipType,
+                  startDate,
+                  endDate,
+                  status,
+                  perks: {}
+                });
+                console.log(`🎫 Created ${status} membership for ${customer.email}: ${membershipType} (${startDate.toISOString().split('T')[0]} → ${endDate.toISOString().split('T')[0]})`);
+                enrollmentsCreated++;
+              }
+            }
+            processedCount++;
           }
         }
       }

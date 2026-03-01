@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
+import AdminNav from '../components/AdminNav';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const TC       = '#C4622D';
@@ -21,56 +22,6 @@ function useIsMobile(bp = 768) {
     return () => window.removeEventListener('resize', fn);
   }, [bp]);
   return mobile;
-}
-
-// ─── Nav ──────────────────────────────────────────────────────────────────────
-const NAV_LINKS = [
-  { id: 'classes',     label: 'Classes',   href: '/admin/classes' },
-  { id: 'students',    label: 'Students',  href: '/admin/students' },
-  { id: 'memberships', label: 'Members',   href: '/admin/memberships' },
-];
-
-function AdminNav({ active }) {
-  return (
-    <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: '#FFFFFF', borderBottom: `1px solid ${RULE}` }}>
-      <div style={{ maxWidth: '1140px', margin: '0 auto', padding: '0 24px', height: '52px', display: 'flex', alignItems: 'center', gap: '24px' }}>
-        <a href="/admin" style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-          <img
-            src="https://ves.sg/cdn/shop/files/logo_04a04687-57f4-4141-b0bc-ec30b527fd73.png?v=1686045719&width=600"
-            alt="VES"
-            style={{ height: '22px', width: 'auto' }}
-          />
-        </a>
-        <div style={{ width: '1px', height: '18px', backgroundColor: RULE, flexShrink: 0 }} />
-        <nav style={{ display: 'flex', flex: 1 }}>
-          {NAV_LINKS.map(link => (
-            <a
-              key={link.id}
-              href={link.href}
-              style={{
-                padding: '0 14px',
-                height: '52px',
-                display: 'flex',
-                alignItems: 'center',
-                fontSize: '11px',
-                fontWeight: 700,
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-                color: active === link.id ? TC : MUTED,
-                textDecoration: 'none',
-                borderBottom: `2px solid ${active === link.id ? TC : 'transparent'}`,
-              }}
-            >
-              {link.label}
-            </a>
-          ))}
-        </nav>
-        <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', backgroundColor: INK, color: '#FFF', flexShrink: 0 }}>
-          Admin
-        </span>
-      </div>
-    </header>
-  );
 }
 
 // ─── Status / type helpers ────────────────────────────────────────────────────
@@ -292,7 +243,7 @@ export default function AdminMemberships() {
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <AdminNav active="memberships" />
+      <AdminNav active="memberships" onSyncComplete={loadData} />
 
       <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '32px 24px 60px' }}>
 

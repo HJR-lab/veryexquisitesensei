@@ -495,6 +495,14 @@ export default function ClassScheduleNew() {
         await classesAPI.bookHBSchedule(hbEnrollment.id, classItem.id, courseWeeks);
         alert(`Successfully booked ${courseWeeks}-week Handbuilding schedule!`);
       } else {
+        const cat = getClassCategory(classItem.classType);
+        // HB-only students cannot book WT classes
+        const hasWTEnrollment = dashboardData?.enrollments?.some(e => e.courseType && !e.courseType.toLowerCase().includes('handbuilding'));
+        if (cat !== 'handbuilding' && !hasWTEnrollment && hbEnrollment) {
+          alert('Your enrollment is for Handbuilding classes only. Please book a Handbuilding class.');
+          setBookingLoading(false);
+          return;
+        }
         // Check if student has credits for a makeup / single class
         const remaining = (studentData?.classes_allocated || 0) -
           (myBookings?.filter(b => b.status === 'booked' || b.status === 'attended').length || 0);
@@ -503,7 +511,6 @@ export default function ClassScheduleNew() {
           alert(response.message || 'Class booked successfully!');
         } else {
           // No credits — redirect to purchase
-          const cat = getClassCategory(classItem.classType);
           const url = cat === 'handbuilding'
             ? 'https://ves.sg/products/handbuilding-pottery-course'
             : 'https://ves.sg/products/wheelthrowing-pottery-course';

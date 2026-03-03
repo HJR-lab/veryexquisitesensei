@@ -1087,20 +1087,19 @@ export default function AdminStudentDetail() {
                       </div>
                     </div>
 
-                    {/* Status + dates */}
+                    {/* Status + dates — only show if dates are available */}
+                    {(formatDate(enrollment.start_date) || formatDate(enrollment.end_date)) && (
                     <div style={{ paddingTop: '16px', borderTop: `1px solid ${RULE}`, display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                       {[
-                        enrollment.status,
-                        enrollment.number_of_weeks ? `${enrollment.number_of_weeks} Weeks` : null,
                         formatDate(enrollment.start_date),
-                        formatDate(enrollment.end_date),
+                        formatDate(enrollment.end_date) ? `→ ${formatDate(enrollment.end_date)}` : null,
                       ].filter(Boolean).map((v, i) => (
-                        <span key={i} style={{ fontSize: '12px', color: MUTED, textTransform: 'capitalize' }}>
-                          {i > 0 && <span style={{ marginRight: '8px', opacity: 0.4 }}>·</span>}
+                        <span key={i} style={{ fontSize: '12px', color: MUTED }}>
                           {v}
                         </span>
                       ))}
                     </div>
+                    )}
 
                     {/* Package progress */}
                     {enrollment.package_total_courses > 1 && (
@@ -1134,34 +1133,7 @@ export default function AdminStudentDetail() {
                   </div>
                 )}
 
-                {/* ── Course History ── */}
-                {enrollment?.completed_history?.length > 0 && (
-                  <div style={{ marginTop: '24px', borderTop: `1px solid ${RULE}`, paddingTop: '20px' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '12px' }}>
-                      Course History ({enrollment.completed_history.length} completed)
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {enrollment.completed_history.map(h => (
-                        <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', backgroundColor: '#FAFAFA', border: `1px solid ${RULE}` }}>
-                          <div>
-                            <div style={{ fontSize: '12px', fontWeight: 600 }}>{h.course_title}</div>
-                            {h.course_variant_title && (
-                              <div style={{ fontSize: '11px', color: MUTED, marginTop: '2px' }}>{h.course_variant_title}</div>
-                            )}
-                          </div>
-                          <div style={{ textAlign: 'right' }}>
-                            <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', backgroundColor: '#E8F5E9', color: '#2E7D32', textTransform: 'uppercase' }}>
-                              Completed
-                            </span>
-                            {h.course_start_date && (
-                              <div style={{ fontSize: '10px', color: MUTED, marginTop: '3px' }}>{formatDate(h.course_start_date)}</div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                {/* Course history removed — shown in student history tab instead */}
               </div>
             )}
 

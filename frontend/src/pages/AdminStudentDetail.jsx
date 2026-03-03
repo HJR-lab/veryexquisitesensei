@@ -138,6 +138,7 @@ export default function AdminStudentDetail() {
     lastName: '',
     email: '',
     customerType: 'student',
+    role: 'student',
     coursePurchaseCount: 0,
     classesAllocated: 0,
   });
@@ -168,6 +169,10 @@ export default function AdminStudentDetail() {
   // ── Fees table ────────────────────────────────────────────────────────────
   const [feeDeleteConfirmId, setFeeDeleteConfirmId] = useState(null);
   const [deletingFeeId, setDeletingFeeId]           = useState(null);
+
+  // ── Teaching data (instructors) ──────────────────────────────────────────
+  const [teachingData, setTeachingData] = useState(null);
+  const [expandedClassId, setExpandedClassId] = useState(null);
 
   // ── UI tabs ───────────────────────────────────────────────────────────────
   const [section, setSection] = useState('enrollment');
@@ -292,6 +297,7 @@ export default function AdminStudentDetail() {
         lastName:           studentData.last_name          || '',
         email:              studentData.email              || '',
         customerType:       studentData.customer_type      || 'student',
+        role:               studentData.role               || 'student',
         coursePurchaseCount: studentData.course_purchase_count || 0,
         classesAllocated:   studentData.classes_allocated  || 0,
       });
@@ -309,6 +315,17 @@ export default function AdminStudentDetail() {
         }
         const { data: feesData } = await api.get(`/admin/students/${studentData.id}/fees`);
         setFees(feesData.fees || []);
+
+        // Fetch teaching data if instructor — uses same source as /admin/classes
+        if (studentData.role === 'instructor') {
+          try {
+            const { data: teaching } = await api.get(`/admin/instructors/${studentData.id}/teaching`);
+            setTeachingData(teaching);
+            setSection('teaching');
+          } catch {
+            setTeachingData(null);
+          }
+        }
       }
     } catch (error) {
       console.error('Failed to load student data:', error);
@@ -335,6 +352,10 @@ export default function AdminStudentDetail() {
         course_purchase_count: parseInt(editForm.coursePurchaseCount),
         classes_allocated:     parseInt(editForm.classesAllocated),
       });
+      // Update community role separately
+      if (student?.id) {
+        await api.put(`/admin/customers/${student.id}/role`, { role: editForm.role });
+      }
       setSaveMessage({ type: 'ok', text: 'Saved' });
       setIsEditing(false);
       setTimeout(() => setSaveMessage(null), 3000);
@@ -590,17 +611,40 @@ export default function AdminStudentDetail() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const attendedCount = bookings.filter(b => {
+  // Group bookings by course base identifier to identify completed courses
+  const getBaseId = (b) => {
+    const ci = b.course_identifier && b.course_identifier !== 'N/A' ? b.course_identifier : null;
+    const id = ci || b.class_type || '';
+    const dot = id.lastIndexOf('.');
+    return dot > 0 ? id.substring(0, dot) : id;
+  };
+  const courseGroups = {};
+  bookings.forEach(b => {
+    const base = getBaseId(b);
+    if (!courseGroups[base]) courseGroups[base] = [];
+    courseGroups[base].push(b);
+  });
+  const isCompletedCourse = (group) => {
+    return group.every(b => {
+      const d = new Date(b.class_date); d.setHours(0,0,0,0);
+      return (b.status === 'attended' || b.status === 'completed') && d < today;
+    });
+  };
+  const [showCompletedCourses, setShowCompletedCourses] = useState(false);
+  const activeBookings = bookings.filter(b => !isCompletedCourse(courseGroups[getBaseId(b)] || []));
+  const completedCourseCount = Object.values(courseGroups).filter(g => isCompletedCourse(g)).length;
+
+  const attendedCount = activeBookings.filter(b => {
     const classDate = new Date(b.class_date);
     classDate.setHours(0, 0, 0, 0);
     return b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && classDate < today);
   }).length;
 
   const totalAllocated = parseInt(editForm.classesAllocated) || 0;
-  const totalBooked    = bookings.length;
+  const totalBooked    = activeBookings.length;
   const unbookedCount  = Math.max(0, totalAllocated - totalBooked);
 
-  const filteredBookings = [...bookings]
+  const filteredBookings = [...(showCompletedCourses ? bookings : activeBookings)]
     .filter(b => statusFilter === 'all' || b.status === statusFilter)
     .sort((a, b) => new Date(a.class_date) - new Date(b.class_date));
 
@@ -615,6 +659,9 @@ export default function AdminStudentDetail() {
   const studentInitial = studentName ? studentName[0] : '?';
 
   // ─── Loading / not found ──────────────────────────────────────────────────
+  const isInstructor = student?.role === 'instructor';
+  const isAlsoStudent = isInstructor && (student?.customer_type || '').toLowerCase().includes('student');
+
   if (loading) {
     return (
       <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
@@ -640,13 +687,17 @@ export default function AdminStudentDetail() {
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <AdminNav active="students" />
+      <AdminNav active={isInstructor ? "instructors" : "students"} />
 
       <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '24px 24px 80px' }}>
 
         {/* Breadcrumb */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
-          <a href="/admin/students" style={{ fontSize: '12px', color: TC, textDecoration: 'none', fontWeight: 700 }}>← Students</a>
+          {student.role === 'instructor' ? (
+            <a href="/admin/instructors" style={{ fontSize: '12px', color: TC, textDecoration: 'none', fontWeight: 700 }}>← Instructors</a>
+          ) : (
+            <a href="/admin/students" style={{ fontSize: '12px', color: TC, textDecoration: 'none', fontWeight: 700 }}>← Students</a>
+          )}
           <span style={{ fontSize: '12px', color: MUTED }}>/</span>
           <span style={{ fontSize: '12px', color: MUTED }}>{studentName}</span>
         </div>
@@ -726,6 +777,15 @@ export default function AdminStudentDetail() {
                         <option value="admin">Admin</option>
                       </select>
                     </div>
+                    <div>
+                      <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '4px' }}>Community Role</div>
+                      <select value={editForm.role} onChange={e => setEditForm(f => ({ ...f, role: e.target.value }))}
+                        style={{ width: '100%', padding: '7px 9px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none', backgroundColor: '#FFF' }}>
+                        <option value="student">Student</option>
+                        <option value="member">Member</option>
+                        <option value="instructor">Instructor</option>
+                      </select>
+                    </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                       <div>
                         <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '4px' }}>Courses Purchased</div>
@@ -749,9 +809,21 @@ export default function AdminStudentDetail() {
                     {[
                       { label: 'Email',            value: student.email },
                       { label: 'Customer Type',    value: student.customer_type || 'student' },
+                      { label: 'Community Role',   value: student.role || 'student' },
                       { label: 'Shopify ID',       value: student.shopify_customer_id || 'N/A' },
-                      { label: 'Courses Purchased', value: student.course_purchase_count ?? 'N/A' },
-                      { label: 'Classes Allocated', value: student.classes_allocated ?? 'N/A' },
+                      ...(isInstructor ? (() => {
+                        const courses = teachingData?.courses || [];
+                        const totalClasses = courses.reduce((sum, c) => sum + (c.classes?.length || 0), 0);
+                        const totalStudents = courses.reduce((sum, c) => sum + (c.totalEnrollment || 0), 0);
+                        return [
+                          { label: 'Courses',          value: courses.length },
+                          { label: 'Total Classes',    value: totalClasses },
+                          { label: 'Total Students',   value: totalStudents },
+                        ];
+                      })() : [
+                        { label: 'Courses Purchased', value: student.course_purchase_count ?? 'N/A' },
+                        { label: 'Classes Allocated', value: student.classes_allocated ?? 'N/A' },
+                      ]),
                       { label: 'Created',          value: formatDate(student.created_at) },
                     ].map(f => (
                       <div key={f.label}>
@@ -791,7 +863,7 @@ export default function AdminStudentDetail() {
                   Edit
                 </button>
               )}
-              {enrollment && enrollment.status === 'active' && (
+              {(!isInstructor || isAlsoStudent) && enrollment && enrollment.status === 'active' && (
                 <button
                   onClick={() => setShowPauseModal(true)}
                   style={{ flex: 1, padding: '11px', backgroundColor: 'transparent', color: INK, border: `1px solid ${RULE}`, fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
@@ -799,7 +871,7 @@ export default function AdminStudentDetail() {
                   Pause Course
                 </button>
               )}
-              {enrollment && enrollment.status === 'paused' && (
+              {(!isInstructor || isAlsoStudent) && enrollment && enrollment.status === 'paused' && (
                 <button
                   onClick={handleResumeCourse}
                   disabled={resuming}
@@ -808,12 +880,22 @@ export default function AdminStudentDetail() {
                   {resuming ? 'Resuming…' : 'Resume Course'}
                 </button>
               )}
-              <button
-                onClick={handleImpersonate}
-                style={{ flex: 1, padding: '11px', backgroundColor: 'transparent', color: MUTED, border: `1px solid ${RULE}`, fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
-              >
-                View as Student
-              </button>
+              {isInstructor && (
+                <button
+                  onClick={handleImpersonate}
+                  style={{ flex: 1, padding: '11px', backgroundColor: TC_LIGHT, color: TC_DARK, border: `1px solid ${TC}`, fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
+                >
+                  View as Instructor
+                </button>
+              )}
+              {(!isInstructor || isAlsoStudent) && (
+                <button
+                  onClick={handleImpersonate}
+                  style={{ flex: 1, padding: '11px', backgroundColor: 'transparent', color: MUTED, border: `1px solid ${RULE}`, fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
+                >
+                  View as Student
+                </button>
+              )}
             </div>
 
           </div>
@@ -824,9 +906,12 @@ export default function AdminStudentDetail() {
             {/* Section tabs */}
             <div style={{ display: 'flex', backgroundColor: '#FFFFFF', border: `1px solid ${RULE}`, borderBottom: 'none' }}>
               {[
-                { id: 'enrollment', label: 'Enrollment' },
-                { id: 'bookings',   label: `Bookings (${bookings.length + unbookedCount})` },
-                { id: 'fees',       label: `Fees (${fees.length})` },
+                ...(isInstructor ? [{ id: 'teaching', label: `Teaching (${teachingData?.courses?.length || 0})` }] : []),
+                ...(!isInstructor || isAlsoStudent ? [
+                  { id: 'enrollment', label: 'Enrollment' },
+                  { id: 'bookings',   label: `Bookings (${activeBookings.length + unbookedCount})` },
+                  { id: 'fees',       label: `Fees (${fees.length})` },
+                ] : []),
               ].map(t => (
                 <button key={t.id} onClick={() => setSection(t.id)} style={{
                   padding: '13px 20px', border: 'none', background: 'transparent', cursor: 'pointer',
@@ -838,11 +923,130 @@ export default function AdminStudentDetail() {
               ))}
             </div>
 
+            {/* ── TEACHING TAB ── */}
+            {section === 'teaching' && isInstructor && (
+              <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
+
+                {(!teachingData?.courses?.length) ? (
+                  <div style={{ padding: '40px 0', textAlign: 'center', color: MUTED, fontSize: '13px' }}>No courses assigned to this instructor.</div>
+                ) : (() => {
+                  const now = new Date(); now.setHours(0,0,0,0);
+                  const activeCourses = teachingData.courses.filter(c => (c.classes || []).some(cls => new Date(cls.class_date) >= now));
+                  const completedCourses = teachingData.courses.filter(c => !(c.classes || []).some(cls => new Date(cls.class_date) >= now));
+                  const renderCourse = (course, { isCompleted } = {}) => {
+                      const classes = course.classes || [];
+                      const sampleClass = classes[0];
+                      const typePrefix = (sampleClass?.class_type || '').match(/^(WT|HB|KD|CL)/)?.[1];
+                      const typeLabel = typePrefix === 'WT' ? 'Wheelthrowing' : typePrefix === 'HB' ? 'Handbuilding' : typePrefix === 'KD' ? 'Kids' : '';
+                      const today = now;
+                      const futureClasses = classes.filter(c => new Date(c.class_date) >= today);
+                      const pastClasses = classes.filter(c => new Date(c.class_date) < today);
+                      const isExpanded = expandedClassId === course.identifier;
+                      const nextClass = futureClasses[0];
+                      const nextDateStr = nextClass ? new Date(nextClass.class_date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : null;
+                      const enrolled = course.totalEnrollment || 0;
+                      const cap = sampleClass?.max_capacity || 10;
+                      const progress = classes.length > 0 ? (pastClasses.length / classes.length) * 100 : 0;
+
+                      return (
+                        <div key={course.identifier} style={{ margin: '0 20px 12px', border: `1px solid ${isCompleted ? RULE : TC}`, backgroundColor: '#FFF', opacity: isCompleted ? 0.45 : 1 }}>
+                          {/* Course card header */}
+                          <div
+                            onClick={() => setExpandedClassId(isExpanded ? null : course.identifier)}
+                            style={{ padding: '16px 18px', cursor: 'pointer' }}
+                          >
+                            {/* Top: badge + identifier + expand */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                              <span style={{ fontSize: '10px', fontWeight: 700, padding: '3px 8px', backgroundColor: isCompleted ? ALT : TC_LIGHT, color: isCompleted ? MUTED : TC_DARK }}>{typePrefix || '??'}</span>
+                              <span style={{ fontSize: '14px', fontWeight: 700, color: isCompleted ? MUTED : INK }}>{course.identifier}</span>
+                              {!isCompleted && nextDateStr && (
+                                <span style={{ fontSize: '11px', color: TC_DARK, fontWeight: 600, marginLeft: '4px' }}>Next: {nextDateStr}</span>
+                              )}
+                              <span style={{ fontSize: '12px', color: MUTED, marginLeft: 'auto' }}>{isExpanded ? '▾' : '▸'}</span>
+                            </div>
+
+                            {/* Progress bar */}
+                            <div style={{ height: '4px', backgroundColor: ALT, marginBottom: '10px' }}>
+                              <div style={{ height: '100%', width: `${progress}%`, backgroundColor: isCompleted ? MUTED : TC }} />
+                            </div>
+
+                            {/* Stats row */}
+                            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                              <div>
+                                <div style={{ fontSize: '18px', fontWeight: 700, color: isCompleted ? MUTED : INK }}>{enrolled}<span style={{ fontSize: '13px', color: MUTED, fontWeight: 400 }}>/{cap}</span></div>
+                                <div style={{ fontSize: '9px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Students</div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: '18px', fontWeight: 700, color: isCompleted ? MUTED : INK }}>{pastClasses.length}<span style={{ fontSize: '13px', color: MUTED, fontWeight: 400 }}>/{classes.length}</span></div>
+                                <div style={{ fontSize: '9px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Classes Done</div>
+                              </div>
+                              <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+                                <div style={{ fontSize: '12px', color: MUTED }}>{typeLabel}</div>
+                                <div style={{ fontSize: '12px', color: MUTED }}>{sampleClass?.start_time || ''}{sampleClass?.end_time ? ` – ${sampleClass.end_time}` : ''}</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Expanded: class schedule */}
+                          {isExpanded && (
+                            <div style={{ borderTop: `1px solid ${RULE}` }}>
+                              {classes.map((cls, i) => {
+                                const classDate = new Date(cls.class_date);
+                                const isPast = classDate < today;
+                                const isNext = !isPast && futureClasses[0]?.id === cls.id;
+                                const dateStr = classDate.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+                                const booked = cls.bookingCount || 0;
+                                const clsCap = cls.max_capacity || 10;
+                                return (
+                                  <div key={cls.id} style={{
+                                    display: 'flex', alignItems: 'center', gap: '10px',
+                                    padding: '9px 18px', borderBottom: i < classes.length - 1 ? `1px solid ${RULE}` : 'none',
+                                    backgroundColor: isNext ? TC_LIGHT : isPast ? '#FAFAFA' : '#FFF',
+                                    opacity: isPast ? 0.5 : 1,
+                                  }}>
+                                    <span style={{ fontSize: '11px', fontWeight: 700, color: MUTED, width: '28px' }}>W{i + 1}</span>
+                                    <span style={{ fontSize: '12px', fontWeight: isNext ? 700 : 500, color: isNext ? TC_DARK : INK, minWidth: '100px' }}>{dateStr}</span>
+                                    <span style={{ fontSize: '11px', color: MUTED }}>{cls.start_time || ''}</span>
+                                    <span style={{ fontSize: '12px', fontWeight: 600, marginLeft: 'auto' }}>{booked}<span style={{ fontWeight: 400, color: MUTED }}>/{clsCap}</span></span>
+                                    {isNext && <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 6px', backgroundColor: TC, color: '#FFF', letterSpacing: '0.05em' }}>NEXT</span>}
+                                    {isPast && <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 6px', backgroundColor: ALT, color: MUTED, letterSpacing: '0.05em' }}>DONE</span>}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                  };
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      {activeCourses.length > 0 && (
+                        <div>
+                          <div style={{ padding: '14px 20px 8px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED }}>
+                            Active ({activeCourses.length})
+                          </div>
+                          {activeCourses.map(c => renderCourse(c))}
+                        </div>
+                      )}
+                      {completedCourses.length > 0 && (
+                        <div>
+                          <div style={{ padding: '14px 20px 8px', borderTop: activeCourses.length > 0 ? `2px solid ${RULE}` : 'none', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED }}>
+                            Completed ({completedCourses.length})
+                          </div>
+                          {completedCourses.map(c => renderCourse(c, { isCompleted: true }))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
             {/* ── ENROLLMENT TAB ── */}
             {section === 'enrollment' && (
               <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF', padding: '24px' }}>
-                {!enrollment ? (
-                  <div style={{ padding: '40px 0', textAlign: 'center', color: MUTED, fontSize: '13px' }}>No enrollment found for this student.</div>
+                {!enrollment || enrollment.no_active ? (
+                  <div style={{ padding: '20px 0', textAlign: 'center', color: MUTED, fontSize: '13px' }}>No active enrollment.</div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                     {/* Single enrollment card */}
@@ -862,7 +1066,7 @@ export default function AdminStudentDetail() {
                         </div>
                         <div style={{ textAlign: 'right' }}>
                           <div style={{ fontSize: '22px', fontWeight: 700 }}>
-                            {attendedCount}<span style={{ fontSize: '14px', color: MUTED, fontWeight: 400 }}>/{totalAllocated || enrollment.number_of_weeks || 6}</span>
+                            {attendedCount}<span style={{ fontSize: '14px', color: MUTED, fontWeight: 400 }}>/{totalBooked}</span>
                           </div>
                           <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Attended</div>
                         </div>
@@ -871,7 +1075,7 @@ export default function AdminStudentDetail() {
                       <div style={{ height: '6px', backgroundColor: ALT, position: 'relative', marginBottom: '8px' }}>
                         <div style={{
                           position: 'absolute', left: 0, top: 0, height: '100%',
-                          width: `${Math.min(100, (attendedCount / (totalAllocated || enrollment.number_of_weeks || 6)) * 100)}%`,
+                          width: `${Math.min(100, totalBooked > 0 ? (attendedCount / totalBooked) * 100 : 0)}%`,
                           backgroundColor: TC,
                         }} />
                       </div>
@@ -929,6 +1133,35 @@ export default function AdminStudentDetail() {
                     )}
                   </div>
                 )}
+
+                {/* ── Course History ── */}
+                {enrollment?.completed_history?.length > 0 && (
+                  <div style={{ marginTop: '24px', borderTop: `1px solid ${RULE}`, paddingTop: '20px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '12px' }}>
+                      Course History ({enrollment.completed_history.length} completed)
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {enrollment.completed_history.map(h => (
+                        <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', backgroundColor: '#FAFAFA', border: `1px solid ${RULE}` }}>
+                          <div>
+                            <div style={{ fontSize: '12px', fontWeight: 600 }}>{h.course_title}</div>
+                            {h.course_variant_title && (
+                              <div style={{ fontSize: '11px', color: MUTED, marginTop: '2px' }}>{h.course_variant_title}</div>
+                            )}
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', backgroundColor: '#E8F5E9', color: '#2E7D32', textTransform: 'uppercase' }}>
+                              Completed
+                            </span>
+                            {h.course_start_date && (
+                              <div style={{ fontSize: '10px', color: MUTED, marginTop: '3px' }}>{formatDate(h.course_start_date)}</div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -947,6 +1180,20 @@ export default function AdminStudentDetail() {
                       color: statusFilter === f ? TC_DARK : MUTED, cursor: 'pointer',
                     }}>{f}</button>
                   ))}
+                  {completedCourseCount > 0 && (
+                    <button
+                      onClick={() => setShowCompletedCourses(!showCompletedCourses)}
+                      style={{
+                        marginLeft: 'auto', padding: '4px 10px',
+                        border: `1px solid ${showCompletedCourses ? '#5A2D82' : RULE}`,
+                        backgroundColor: showCompletedCourses ? 'rgba(90,45,130,0.06)' : 'transparent',
+                        fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em',
+                        color: showCompletedCourses ? '#5A2D82' : MUTED, cursor: 'pointer',
+                      }}
+                    >
+                      {showCompletedCourses ? 'Hide' : 'Show'} {completedCourseCount} completed course{completedCourseCount !== 1 ? 's' : ''}
+                    </button>
+                  )}
                 </div>
 
                 {/* Table */}

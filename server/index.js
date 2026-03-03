@@ -5165,12 +5165,16 @@ app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, async (req
       .order('class_instances(class_date)', { ascending: false });
 
     // Filter to only include bookings from active or paused enrollments
+    const todayStr = new Date().toISOString().split('T')[0];
     const bookings = (allBookings || []).filter(booking => {
-      // Include bookings without an enrollment (legacy data/standalone bookings)
-      if (!booking.course_enrollment) return true;
-      // Only include bookings from active or paused enrollments
-      // Do NOT include completed enrollments
-      return ['active', 'paused'].includes(booking.course_enrollment.status);
+      // Exclude completed enrollments
+      if (booking.course_enrollment && !['active', 'paused'].includes(booking.course_enrollment.status)) return false;
+      // For bookings without enrollment: exclude if class is attended/completed AND in the past
+      if (!booking.course_enrollment) {
+        const classDate = booking.class_instances?.class_date?.split('T')[0];
+        if (classDate && classDate < todayStr && (booking.status === 'attended' || booking.status === 'completed')) return false;
+      }
+      return true;
     });
 
     if (error) throw error;
@@ -9041,16 +9045,23 @@ app.get('/api/instructor/dashboard', authenticateToken, async (req, res) => {
         (enrollments || []).forEach(e => { enrollmentMap[e.id] = e; });
       }
 
-      // Get total course purchase counts for all students in upcoming classes
+      // Get order counts and enrollment counts for all students in upcoming classes
       const allStudentIds = [...new Set((bookings || []).filter(b => b.customers).map(b => b.customers.id))];
-      let purchaseCountMap = {};
+      let orderCountMap = {};
+      let enrollmentCountMap = {};
       if (allStudentIds.length > 0) {
         const { data: allEnrollments } = await supabaseDb.supabase
           .from('course_enrollments')
-          .select('student_id')
+          .select('student_id, shopify_order_id')
           .in('student_id', allStudentIds);
+        const ordersByStudent = {};
         (allEnrollments || []).forEach(e => {
-          purchaseCountMap[e.student_id] = (purchaseCountMap[e.student_id] || 0) + 1;
+          enrollmentCountMap[e.student_id] = (enrollmentCountMap[e.student_id] || 0) + 1;
+          if (!ordersByStudent[e.student_id]) ordersByStudent[e.student_id] = new Set();
+          if (e.shopify_order_id) ordersByStudent[e.student_id].add(e.shopify_order_id);
+        });
+        Object.entries(ordersByStudent).forEach(([sid, orders]) => {
+          orderCountMap[sid] = orders.size;
         });
       }
 
@@ -9069,7 +9080,8 @@ app.get('/api/instructor/dashboard', authenticateToken, async (req, res) => {
             courseIdentifier: enr.course_identifier || null,
             classesAttended: enr.weeks_completed || enr.class_credits_used || 0,
             totalClasses: enr.number_of_weeks || enr.class_credits_allocated || 6,
-            coursePurchaseCount: purchaseCountMap[b.customers.id] || 0,
+            orderCount: orderCountMap[b.customers.id] || 0,
+            enrollmentCount: enrollmentCountMap[b.customers.id] || 0,
           });
         }
       });

@@ -640,9 +640,9 @@ export default function AdminStudentDetail() {
     return b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && classDate < today);
   }).length;
 
-  const totalAllocated = parseInt(editForm.classesAllocated) || 0;
   const totalBooked    = activeBookings.length;
-  const unbookedCount  = Math.max(0, totalAllocated - totalBooked);
+  const totalAllocated = totalBooked; // Use active bookings as the source of truth
+  const unbookedCount  = 0; // No unbooked placeholders — bookings list IS the truth
 
   const filteredBookings = [...(showCompletedCourses ? bookings : activeBookings)]
     .filter(b => statusFilter === 'all' || b.status === statusFilter)

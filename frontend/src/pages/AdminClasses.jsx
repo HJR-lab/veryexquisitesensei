@@ -120,7 +120,7 @@ export default function AdminClasses() {
   // ── Edit class modal ─────────────────────────────────────────────────────────
   const [showEditClassModal, setShowEditClassModal] = useState(false);
   const [editingClass, setEditingClass]             = useState(null);
-  const [editClassData, setEditClassData] = useState({ classDate: '', startTime: '', endTime: '', instructor: '', maxCapacity: 12 });
+  const [editClassData, setEditClassData] = useState({ classDate: '', startTime: '', endTime: '', instructor: '', maxCapacity: 12, classTitle: '', classDescription: '' });
   const [updatingClass, setUpdatingClass] = useState(false);
 
   // ── Create course modal ───────────────────────────────────────────────────────
@@ -216,6 +216,17 @@ export default function AdminClasses() {
     return 'other';
   };
 
+  // ── Default display title (matches student-facing logic) ───────────────────────
+  const getDefaultClassTitle = (classType) => {
+    if (!classType) return 'Class';
+    if (classType.includes('6.6') || classType.includes('7.7')) return 'Glazing';
+    const cat = getClassCategory(classType);
+    if (cat === 'wheelthrowing-beginner') return 'Wheelthrowing Beginners/Ext';
+    if (cat === 'handbuilding') return 'Handbuilding';
+    if (cat === 'kids') return 'Kids';
+    return classType;
+  };
+
   // ── Week number from class type ────────────────────────────────────────────────
   const getWeekNumberFromClassType = (classType) => {
     const match = classType?.match(/Week (\d)/);
@@ -258,10 +269,15 @@ export default function AdminClasses() {
 
   // ── Derive WT courses (for pipeline cards) ────────────────────────────────────
   const getWTCourses = () => {
+    const today = new Date();
+    today.setHours(0,0,0,0);
     const wtCourses = courses.filter(c => {
       if (!c.classes || c.classes.length === 0) return false;
       if (getClassCategory(c.classes[0]?.class_type) === 'handbuilding') return false;
       if (cohortFilter !== 'all' && !cohortFilter.split(',').includes(getCourseStartMonth(c))) return false;
+      // Hide courses where ALL classes are in the past (fully completed)
+      const hasFutureClass = c.classes.some(cls => new Date(cls.class_date) >= today);
+      if (!hasFutureClass) return false;
       return true;
     });
 
@@ -536,6 +552,8 @@ export default function AdminClasses() {
       endTime: classInstance.end_time,
       instructor: classInstance.instructor,
       maxCapacity: classInstance.max_capacity || 12,
+      classTitle: classInstance.class_title || getDefaultClassTitle(classInstance.class_type),
+      classDescription: classInstance.class_description || '',
     });
     setShowEditClassModal(true);
   };
@@ -553,12 +571,14 @@ export default function AdminClasses() {
         endTime: editClassData.endTime,
         instructor: editClassData.instructor,
         maxCapacity: editClassData.maxCapacity,
+        classTitle: editClassData.classTitle,
+        classDescription: editClassData.classDescription,
       });
       await loadCourses();
       alert('Class updated successfully!');
       setShowEditClassModal(false);
       setEditingClass(null);
-      setEditClassData({ classDate: '', startTime: '', endTime: '', instructor: '', maxCapacity: 12 });
+      setEditClassData({ classDate: '', startTime: '', endTime: '', instructor: '', maxCapacity: 12, classTitle: '', classDescription: '' });
     } catch (error) {
       console.error('Failed to update class:', error);
       alert(error.response?.data?.error || 'Failed to update class. Please try again.');
@@ -638,6 +658,15 @@ export default function AdminClasses() {
 
   // Classes for selected day panel
   const dayClasses = selectedDate ? getClassesForDate(selectedDate) : [];
+
+  // Auto-load students for all classes when a day is selected
+  useEffect(() => {
+    dayClasses.forEach(cls => {
+      if (!classMembers[cls.id] && !loadingMembers[cls.id]) {
+        loadClassMembers(cls);
+      }
+    });
+  }, [selectedDate]);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Render helpers
@@ -889,18 +918,130 @@ export default function AdminClasses() {
   }
 
   // ── Day detail: student table (for a given class instance from API) ────────────
+  // Update booking type (enrolled/makeup) with optional course identifier
+  const handleUpdateBookingType = async (bookingId, classInstanceId, newType, originalCourseIdentifier) => {
+    try {
+      await api.put(`/admin/bookings/${bookingId}/type`, { bookingType: newType, originalCourseIdentifier: originalCourseIdentifier || null });
+      // Refresh members for this class
+      setClassMembers(prev => ({ ...prev, [classInstanceId]: null }));
+      const { data } = await api.get(`/admin/classes/${classInstanceId}/members`);
+      setClassMembers(prev => ({ ...prev, [classInstanceId]: data.members || [] }));
+      setAbsentMembers(prev => ({ ...prev, [classInstanceId]: data.absentMembers || [] }));
+    } catch (error) {
+      console.error('Failed to update booking type:', error);
+    }
+  };
+
+  // State for editing makeup course identifier
+  const [editingMakeupId, setEditingMakeupId] = useState(null);
+  const [makeupCourseInput, setMakeupCourseInput] = useState('');
+
   function renderDayDetailMemberTable(classInstance) {
     const members = classMembers[classInstance.id] || [];
     const regular = members.filter(m => !m.isMakeup);
     const makeup  = members.filter(m => m.isMakeup);
     const absent  = absentMembers[classInstance.id] || [];
 
+    const renderMemberRow = (m, j, isMakeup) => {
+      const bgColor = isMakeup ? '#FAF8FF' : '#FFFFFF';
+      const hoverBg = isMakeup ? '#F3EEFF' : TC_LIGHT;
+      const nameColor = isMakeup ? '#5A2D82' : TC_DARK;
+      return (
+        <div
+          key={m.bookingId || j}
+          style={{ display: 'grid', gridTemplateColumns: '1fr auto 60px', padding: '9px 12px', borderTop: `1px solid ${RULE}`, backgroundColor: bgColor, alignItems: 'center' }}
+          onMouseEnter={e => e.currentTarget.style.backgroundColor = hoverBg}
+          onMouseLeave={e => e.currentTarget.style.backgroundColor = bgColor}
+        >
+          <span
+            onClick={() => navigate(`/admin/students/${encodeURIComponent(m.email)}`)}
+            style={{ fontSize: '12px', fontWeight: 600, cursor: 'pointer', color: nameColor, textDecoration: 'underline' }}
+          >
+            {m.firstName} {m.lastName}
+            {m.returningCount > 1 && <span style={{ fontSize: '10px', color: MUTED, fontWeight: 400, marginLeft: '4px' }}>({m.returningCount}x)</span>}
+          </span>
+          <div style={{ minWidth: '100px' }}>
+            <select
+              value={isMakeup ? 'makeup' : 'enrolled'}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === 'makeup') {
+                  setEditingMakeupId(m.bookingId);
+                  setMakeupCourseInput(m.originalClassIdentifier || '');
+                } else {
+                  setEditingMakeupId(null);
+                  handleUpdateBookingType(m.bookingId, classInstance.id, 'enrolled', null);
+                }
+              }}
+              style={{ fontSize: '10px', padding: '2px 4px', border: `1px solid ${RULE}`, backgroundColor: isMakeup ? 'rgba(90,45,130,0.06)' : '#FFF', color: isMakeup ? '#5A2D82' : INK, cursor: 'pointer', fontWeight: 600 }}
+            >
+              <option value="enrolled">Enrolled</option>
+              <option value="makeup">Makeup</option>
+            </select>
+            {isMakeup && editingMakeupId === m.bookingId ? (
+              <div style={{ display: 'flex', gap: '3px', marginTop: '3px' }}>
+                <input
+                  type="text"
+                  value={makeupCourseInput}
+                  onChange={(e) => setMakeupCourseInput(e.target.value)}
+                  placeholder="e.g. WT2301AM_JL6"
+                  style={{ fontSize: '9px', padding: '2px 4px', border: `1px solid ${RULE}`, width: '110px' }}
+                  autoFocus
+                  onKeyDown={(e) => { if (e.key === 'Enter') { handleUpdateBookingType(m.bookingId, classInstance.id, 'makeup', makeupCourseInput); setEditingMakeupId(null); } }}
+                />
+                <button
+                  onClick={() => { handleUpdateBookingType(m.bookingId, classInstance.id, 'makeup', makeupCourseInput); setEditingMakeupId(null); }}
+                  style={{ fontSize: '9px', padding: '2px 6px', border: 'none', backgroundColor: TC, color: '#FFF', cursor: 'pointer', fontWeight: 700 }}
+                >
+                  ✓
+                </button>
+              </div>
+            ) : isMakeup && m.originalClassIdentifier ? (
+              <div
+                onClick={() => { setEditingMakeupId(m.bookingId); setMakeupCourseInput(m.originalClassIdentifier || ''); }}
+                style={{ fontSize: '9px', color: '#8B6AAE', marginTop: '2px', cursor: 'pointer' }}
+                title="Click to edit"
+              >
+                from {m.originalClassIdentifier}
+              </div>
+            ) : isMakeup ? (
+              <div
+                onClick={() => { setEditingMakeupId(m.bookingId); setMakeupCourseInput(''); }}
+                style={{ fontSize: '9px', color: '#8B6AAE', marginTop: '2px', cursor: 'pointer', fontStyle: 'italic' }}
+              >
+                + add source
+              </div>
+            ) : null}
+          </div>
+          <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }}>
+            <button
+              onClick={() => {
+                setReschedulingBooking({ bookingId: m.bookingId, studentName: `${m.firstName} ${m.lastName}`, studentId: m.studentId, classInstance, weekNumber: getWeekNumberFromClassType(classInstance.class_type) });
+                setRescheduleData({ newClassInstanceId: null, reason: '', isGlazing: classInstance.class_type?.toLowerCase().includes('glazing') });
+                loadAvailableClassesForReschedule(classInstance, m.studentId);
+                setShowRescheduleModal(true);
+              }}
+              style={{ fontSize: '9px', padding: '3px 6px', border: `1px solid ${RULE}`, backgroundColor: '#FFF', color: INK, cursor: 'pointer', fontWeight: 700 }}
+            >
+              Reschedule
+            </button>
+            <button
+              onClick={() => handleRemoveStudent(m.bookingId, classInstance.id, `${m.firstName} ${m.lastName}`)}
+              style={{ fontSize: '9px', padding: '3px 6px', border: 'none', backgroundColor: '#FDECEA', color: '#D93025', cursor: 'pointer', fontWeight: 700 }}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      );
+    };
+
     return (
       <div style={{ border: `1px solid ${RULE}`, marginTop: '4px' }}>
         {/* Header */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 60px', backgroundColor: ALT, padding: '6px 12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 60px', backgroundColor: ALT, padding: '6px 12px' }}>
           <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED }}>Student</span>
-          <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED }}>Type</span>
+          <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, minWidth: '80px', textAlign: 'center' }}>Type</span>
           <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, textAlign: 'right' }}>Actions</span>
         </div>
 
@@ -908,88 +1049,23 @@ export default function AdminClasses() {
           <div style={{ padding: '12px', textAlign: 'center', color: MUTED, fontSize: '12px' }}>Loading...</div>
         )}
 
-        {regular.map((m, j) => (
-          <div
-            key={m.bookingId || j}
-            style={{ display: 'grid', gridTemplateColumns: '1fr 80px 60px', padding: '9px 12px', borderTop: `1px solid ${RULE}`, backgroundColor: '#FFFFFF', alignItems: 'center' }}
-            onMouseEnter={e => e.currentTarget.style.backgroundColor = TC_LIGHT}
-            onMouseLeave={e => e.currentTarget.style.backgroundColor = '#FFFFFF'}
-          >
-            <span
-              onClick={() => navigate(`/admin/students/${encodeURIComponent(m.email)}`)}
-              style={{ fontSize: '12px', fontWeight: 600, cursor: 'pointer', color: TC_DARK, textDecoration: 'underline' }}
-            >
-              {m.firstName} {m.lastName}
-              {m.returningCount > 1 && <span style={{ fontSize: '10px', color: MUTED, fontWeight: 400, marginLeft: '4px' }}>({m.returningCount}x)</span>}
-            </span>
-            <span style={{ fontSize: '10px', color: MUTED }}>Enrolled</span>
-            <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => {
-                  setReschedulingBooking({ bookingId: m.bookingId, studentName: `${m.firstName} ${m.lastName}`, studentId: m.studentId, classInstance, weekNumber: getWeekNumberFromClassType(classInstance.class_type) });
-                  setRescheduleData({ newClassInstanceId: null, reason: '', isGlazing: classInstance.class_type?.toLowerCase().includes('glazing') });
-                  loadAvailableClassesForReschedule(classInstance, m.studentId);
-                  setShowRescheduleModal(true);
-                }}
-                style={{ fontSize: '9px', padding: '3px 6px', border: `1px solid ${RULE}`, backgroundColor: '#FFF', color: INK, cursor: 'pointer', fontWeight: 700 }}
-              >
-                Reschedule
-              </button>
-              <button
-                onClick={() => handleRemoveStudent(m.bookingId, classInstance.id, `${m.firstName} ${m.lastName}`)}
-                style={{ fontSize: '9px', padding: '3px 6px', border: 'none', backgroundColor: '#FDECEA', color: '#D93025', cursor: 'pointer', fontWeight: 700 }}
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        ))}
-
-        {makeup.map((m, j) => (
-          <div
-            key={`mu-${m.bookingId || j}`}
-            style={{ display: 'grid', gridTemplateColumns: '1fr 80px 60px', padding: '9px 12px', borderTop: `1px solid ${RULE}`, backgroundColor: '#FAF8FF', alignItems: 'center' }}
-          >
-            <span
-              onClick={() => navigate(`/admin/students/${encodeURIComponent(m.email)}`)}
-              style={{ fontSize: '12px', fontWeight: 600, cursor: 'pointer', color: '#5A2D82', textDecoration: 'underline' }}
-            >
-              {m.firstName} {m.lastName}
-            </span>
-            <span style={{ fontSize: '10px', color: '#5A2D82' }}>Makeup</span>
-            <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => handleRemoveStudent(m.bookingId, classInstance.id, `${m.firstName} ${m.lastName}`)}
-                style={{ fontSize: '9px', padding: '3px 6px', border: 'none', backgroundColor: '#FDECEA', color: '#D93025', cursor: 'pointer', fontWeight: 700 }}
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        ))}
+        {regular.map((m, j) => renderMemberRow(m, j, false))}
+        {makeup.map((m, j) => renderMemberRow(m, j, true))}
 
         {absent.map((m, j) => (
           <div
             key={`ab-${m.bookingId || j}`}
-            style={{ display: 'grid', gridTemplateColumns: '1fr 80px 60px', padding: '9px 12px', borderTop: `1px solid ${RULE}`, backgroundColor: '#FFFBF0', alignItems: 'center' }}
+            style={{ display: 'grid', gridTemplateColumns: '1fr auto 60px', padding: '9px 12px', borderTop: `1px solid ${RULE}`, backgroundColor: '#FFFBF0', alignItems: 'center' }}
           >
             <span style={{ fontSize: '12px', fontWeight: 600, color: '#9E6200' }}>{m.firstName} {m.lastName}</span>
-            <span style={{ fontSize: '10px', color: '#9E6200' }}>{m.status === 'rescheduled' ? 'Rescheduled' : 'Absent'}</span>
+            <span style={{ fontSize: '10px', color: '#9E6200', minWidth: '80px', textAlign: 'center' }}>{m.status === 'rescheduled' ? 'Rescheduled' : 'Absent'}</span>
             <div />
           </div>
         ))}
 
         {!loadingMembers[classInstance.id] && members.length === 0 && (
-          <div
-            style={{ padding: '9px 12px', borderTop: `1px solid ${RULE}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-          >
+          <div style={{ padding: '9px 12px', borderTop: `1px solid ${RULE}` }}>
             <span style={{ fontSize: '12px', color: MUTED }}>No students enrolled</span>
-            <button
-              onClick={() => toggleClassMembers(classInstance)}
-              style={{ fontSize: '9px', padding: '4px 8px', border: `1px solid ${RULE}`, backgroundColor: '#FFF', color: MUTED, cursor: 'pointer' }}
-            >
-              Load
-            </button>
           </div>
         )}
       </div>
@@ -1221,20 +1297,12 @@ export default function AdminClasses() {
                             </div>
                           </div>
 
-                          {/* Load members button if not loaded */}
-                          {!classMembers[classInstance.id] && (
-                            <div style={{ padding: '0 14px 12px' }}>
-                              <button
-                                onClick={() => toggleClassMembers(classInstance)}
-                                style={{ fontSize: '10px', color: TC, border: `1px solid rgba(196,98,45,0.3)`, backgroundColor: TC_LIGHT, padding: '5px 10px', cursor: 'pointer', fontWeight: 700 }}
-                              >
-                                Load students ↓
-                              </button>
-                            </div>
-                          )}
-
                           {/* Member table */}
-                          {classMembers[classInstance.id] && renderDayDetailMemberTable(classInstance)}
+                          {loadingMembers[classInstance.id] ? (
+                            <div style={{ padding: '12px 14px', fontSize: '11px', color: MUTED }}>Loading students…</div>
+                          ) : classMembers[classInstance.id] ? (
+                            renderDayDetailMemberTable(classInstance)
+                          ) : null}
                         </div>
                       );
                     })}
@@ -1490,6 +1558,14 @@ export default function AdminClasses() {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '20px' }}>
+              <div>
+                <label style={labelSt}>Class Title</label>
+                <input type="text" value={editClassData.classTitle} onChange={e => setEditClassData({ ...editClassData, classTitle: e.target.value })} placeholder="e.g., Glazing, Trimming" style={inputSt} />
+              </div>
+              <div>
+                <label style={labelSt}>Class Details</label>
+                <input type="text" value={editClassData.classDescription} onChange={e => setEditClassData({ ...editClassData, classDescription: e.target.value })} placeholder="e.g., Bring your own tools, glazing session" style={inputSt} maxLength={120} />
+              </div>
               <div>
                 <label style={labelSt}>Class Date *</label>
                 <input type="date" value={editClassData.classDate} onChange={e => setEditClassData({ ...editClassData, classDate: e.target.value })} style={inputSt} />

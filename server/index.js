@@ -102,7 +102,7 @@ app.post('/api/auth/login', async (req, res) => {
       console.log('📊 Querying database for customer...');
       const { data: customer, error: customerError } = await supabaseDb.supabase
         .from('customers')
-        .select('id, email, first_name, last_name, password_hash, shopify_customer_id')
+        .select('id, email, first_name, last_name, password_hash, shopify_customer_id, role')
         .eq('email', email.toLowerCase())
         .single();
 
@@ -161,6 +161,7 @@ app.post('/api/auth/login', async (req, res) => {
           email: customer.email,
           firstName: customer.first_name,
           lastName: customer.last_name,
+          role: customer.role || 'student',
           isAdmin: false
         },
         token
@@ -310,6 +311,7 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
         coursePurchaseCount: customer.course_purchase_count || 0,
         classesAllocated: customer.classes_allocated || 0,
         classesUsed: customer.classes_used || 0,
+        role: customer.role || 'student',
         isAdmin: req.user.isAdmin || false,
         impersonatedBy: req.user.impersonatedBy,
         originalAdminToken: req.user.originalAdminToken
@@ -1645,6 +1647,8 @@ app.get('/api/classes/my-bookings', authenticateToken, async (req, res) => {
         startTime: booking.class_instance.start_time,
         endTime: booking.class_instance.end_time,
         classType: booking.class_instance.class_type,
+        classTitle: booking.class_instance.class_title,
+        classDescription: booking.class_instance.class_description,
         instructor: booking.class_instance.instructor,
         room: booking.class_instance.room
       }
@@ -1718,7 +1722,27 @@ app.get('/api/classes/my-history', authenticateToken, async (req, res) => {
     enrollments.forEach(enrollment => {
       const courseBookings = bookings.filter(b => b.course_enrollment_id === enrollment.id);
 
-      if (courseBookings.length === 0) return; // Skip enrollments with no bookings
+      // If no bookings exist but enrollment is completed, show it from enrollment data
+      if (courseBookings.length === 0) {
+        if (enrollment.status === 'completed') {
+          courseHistory.push({
+            id: `${enrollment.id}-enrollment`,
+            type: 'course',
+            courseIdentifier: enrollment.course_identifier || enrollment.id.toString(),
+            courseTitle: enrollment.course_title || 'Wheelthrowing Course',
+            courseType: enrollment.course_type || '',
+            numberOfWeeks: enrollment.number_of_weeks || enrollment.class_credits_allocated || 6,
+            startDate: enrollment.course_start_date,
+            endDate: enrollment.course_end_date || enrollment.course_expiry_date,
+            instructor: enrollment.instructor || 'VES Instructor',
+            status: 'completed',
+            scheduleDescription: enrollment.schedule_description || '',
+            classesAttended: enrollment.class_credits_used || enrollment.number_of_weeks || 6,
+            classes: []
+          });
+        }
+        return;
+      }
 
       // If enrollment has a course_identifier set, use that and group all bookings together
       if (enrollment.course_identifier) {
@@ -1901,10 +1925,14 @@ app.get('/api/classes/my-history', authenticateToken, async (req, res) => {
       return new Date(dateB) - new Date(dateA);
     });
 
+    // Count attended classes including completed enrollments without bookings
+    const completedWithoutBookings = courseHistory.filter(c => c.status === 'completed' && c.classes.length === 0);
+    const extraAttended = completedWithoutBookings.reduce((sum, c) => sum + (c.classesAttended || 0), 0);
+
     const response = {
       history: courseHistory,
-      totalClasses: bookings.length,
-      attendedClasses: bookings.filter(b => b.attended).length
+      totalClasses: bookings.length + extraAttended,
+      attendedClasses: bookings.filter(b => b.attended).length + extraAttended
     };
 
     console.log('📤 Returning history:', JSON.stringify(response, null, 2));
@@ -2654,26 +2682,45 @@ app.post('/api/classes/reschedule', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'You are already enrolled in this class' });
     }
 
-    // For non-glazing classes, create a reschedule fee
+    // For non-glazing classes, check if reschedule is within same cohort (no fee) or different cohort ($40 fee)
     let rescheduleFee = 0;
     if (!isOldClassGlazing) {
-      rescheduleFee = 40; // $40 reschedule fee for non-glazing classes
+      // Determine if the new class is within the same cohort period
+      let isSameCohort = false;
+      if (currentBooking.course_enrollment_id) {
+        const { data: enroll } = await supabaseDb.supabase
+          .from('course_enrollments')
+          .select('course_start_date, course_end_date')
+          .eq('id', currentBooking.course_enrollment_id)
+          .single();
 
-      // Create reschedule fee record
-      const { error: feeError } = await supabaseDb.supabase
-        .from('reschedule_fees')
-        .insert({
-          student_id: dbCustomerId,
-          booking_id: currentBooking.id,
-          fee_type: 'reschedule',
-          amount: rescheduleFee,
-          payment_status: 'pending',
-          notes: `Reschedule fee for ${oldClass.class_type} on ${new Date(oldClass.class_date).toLocaleDateString()}`
-        });
+        if (enroll?.course_start_date && enroll?.course_end_date) {
+          const cohortStart = new Date(enroll.course_start_date);
+          const cohortEnd = new Date(enroll.course_end_date);
+          const newClassDate = new Date(newClass.class_date);
+          isSameCohort = newClassDate >= cohortStart && newClassDate <= cohortEnd;
+        }
+      }
 
-      if (feeError) {
-        console.error('Error creating reschedule fee:', feeError);
-        // Continue with reschedule but log the error
+      if (!isSameCohort) {
+        rescheduleFee = 40; // $40 reschedule fee only for rescheduling outside your cohort
+
+        // Create reschedule fee record
+        const { error: feeError } = await supabaseDb.supabase
+          .from('reschedule_fees')
+          .insert({
+            student_id: dbCustomerId,
+            booking_id: currentBooking.id,
+            fee_type: 'reschedule',
+            amount: rescheduleFee,
+            payment_status: 'pending',
+            notes: `Reschedule fee for ${oldClass.class_type} on ${new Date(oldClass.class_date).toLocaleDateString()} (rescheduled outside cohort)`
+          });
+
+        if (feeError) {
+          console.error('Error creating reschedule fee:', feeError);
+          // Continue with reschedule but log the error
+        }
       }
     }
 
@@ -2736,7 +2783,9 @@ app.post('/api/classes/reschedule', authenticateToken, async (req, res) => {
         ? 'Class rescheduled successfully (recovered from a previous failed attempt).'
         : isOldClassGlazing
         ? 'Glazing class rescheduled successfully (no fee)!'
-        : `Class rescheduled successfully! A $${rescheduleFee} reschedule fee has been added to your account.`
+        : rescheduleFee > 0
+        ? `Class rescheduled successfully! A $${rescheduleFee} reschedule fee has been added (rescheduled outside your cohort).`
+        : 'Class rescheduled successfully (no fee — same cohort).'
     });
 
   } catch (error) {
@@ -4540,13 +4589,12 @@ app.get('/api/admin/students/:id/enrollment', authenticateToken, async (req, res
   try {
     const studentId = parseInt(req.params.id);
 
-    // Get all active/paused enrollments for the student
+    // Get all enrollments for the student (including completed for history)
     const { data: enrollments, error } = await supabaseDb.supabase
       .from('course_enrollments')
       .select('*')
       .eq('student_id', studentId)
-      .in('status', ['active', 'paused'])
-      .order('created_at', { ascending: false });
+      .order('course_start_date', { ascending: false });
 
     if (error) {
       throw error;
@@ -4556,9 +4604,13 @@ app.get('/api/admin/students/:id/enrollment', authenticateToken, async (req, res
       return res.json(null);
     }
 
-    // Separate individual courses from package courses
-    const individualCourses = enrollments.filter(e => !e.package_total_courses || e.package_total_courses === null);
-    const packageCourses = enrollments.filter(e => e.package_total_courses && e.package_total_courses > 0);
+    // Split into active/paused vs completed
+    const activeEnrollments = enrollments.filter(e => e.status === 'active' || e.status === 'paused');
+    const completedEnrollments = enrollments.filter(e => e.status === 'completed');
+
+    // Separate individual courses from package courses (among active)
+    const individualCourses = activeEnrollments.filter(e => !e.package_total_courses || e.package_total_courses === null);
+    const packageCourses = activeEnrollments.filter(e => e.package_total_courses && e.package_total_courses > 0);
 
     // If we have both individual and package courses, return individual as current
     let currentEnrollment;
@@ -4566,8 +4618,10 @@ app.get('/api/admin/students/:id/enrollment', authenticateToken, async (req, res
       currentEnrollment = individualCourses[0]; // Most recent individual course
     } else if (packageCourses.length > 0) {
       currentEnrollment = packageCourses[0]; // Most recent package if no individual
+    } else if (activeEnrollments.length > 0) {
+      currentEnrollment = activeEnrollments[0]; // Fallback to most recent active
     } else {
-      currentEnrollment = enrollments[0]; // Fallback to most recent
+      currentEnrollment = null;
     }
 
     // If course_identifier is missing, derive it from the student's bookings for this enrollment
@@ -4617,7 +4671,16 @@ app.get('/api/admin/students/:id/enrollment', authenticateToken, async (req, res
       };
     }
 
-    res.json(currentEnrollment);
+    // Return current enrollment with completed history attached
+    if (currentEnrollment) {
+      currentEnrollment.completed_history = completedEnrollments;
+      res.json(currentEnrollment);
+    } else if (completedEnrollments.length > 0) {
+      // No active enrollment but has history — return null current with history
+      res.json({ no_active: true, completed_history: completedEnrollments });
+    } else {
+      res.json(null);
+    }
   } catch (error) {
     console.error('Error fetching enrollment:', error);
     res.status(500).json({ error: 'Failed to fetch enrollment' });
@@ -5276,7 +5339,7 @@ app.get('/api/admin/classes', authenticateToken, async (req, res) => {
     const todayStr = new Date().toISOString().split('T')[0];
     const { data: allClassInstances, error: classesError } = await supabaseDb.supabase
       .from('class_instances')
-      .select('id, class_type, class_date, start_time, end_time, instructor, room, max_capacity, current_enrollment')
+      .select('id, class_type, class_date, start_time, end_time, instructor, room, max_capacity, current_enrollment, class_title, class_description')
       .gte('class_date', '2026-01-01')
       .order('class_date', { ascending: true });
 
@@ -5398,6 +5461,7 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, async (req, re
         student_id,
         status,
         attended,
+        booking_type,
         original_class_instance_id,
         course_enrollment_id,
         customers (
@@ -5475,6 +5539,15 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, async (req, re
       });
     }
 
+    // Get current class identifier to distinguish same-course reschedules from true makeups
+    const { data: currentClassInfo } = await supabaseDb.supabase
+      .from('class_instances')
+      .select('class_type')
+      .eq('id', classId)
+      .single();
+    const getBase = (id) => { const i = (id || '').lastIndexOf('.'); return i > 0 ? id.substring(0, i) : id; };
+    const currentCourseBase = currentClassInfo ? getBase(currentClassInfo.class_type) : '';
+
     // Separate active members from absent members
     const activeMembers = [];
     const absentMembers = [];
@@ -5493,10 +5566,22 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, async (req, re
         courseEnrollmentId: booking.course_enrollment_id,
       };
 
-      // Check if this is a makeup student (rescheduled TO this class)
-      if (booking.original_class_instance_id) {
+      // Determine if this is a makeup student
+      // booking_type is the authoritative field (admin can toggle it)
+      if (booking.booking_type === 'makeup') {
         member.isMakeup = true;
-        member.originalClassIdentifier = originalClassIdentifiers[booking.original_class_instance_id] || 'N/A';
+        if (booking.original_class_instance_id) {
+          const fullId = originalClassIdentifiers[booking.original_class_instance_id] || '';
+          member.originalClassIdentifier = getBase(fullId) || null;
+        }
+      } else if (booking.original_class_instance_id && booking.booking_type !== 'regular') {
+        // Fallback: if no explicit type set, check if rescheduled from a different course
+        const originalIdentifier = originalClassIdentifiers[booking.original_class_instance_id] || '';
+        const originalBase = getBase(originalIdentifier);
+        if (originalBase !== currentCourseBase) {
+          member.isMakeup = true;
+          member.originalClassIdentifier = originalBase;
+        }
       }
 
       // Active members: status is 'booked', 'attended', or 'completed'
@@ -5608,25 +5693,123 @@ app.post('/api/admin/classes/:classId/add-student', authenticateToken, async (re
       return res.status(400).json({ error: 'Class is full' });
     }
 
-    // Create booking
-    const { data: newBooking, error: createError } = await supabaseDb.supabase
-      .from('bookings')
-      .insert({
-        student_id: studentId,
-        class_instance_id: classId,
-        status: 'booked',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-      .select()
+    // Get class details to find the course and all its weeks
+    const { data: thisClass } = await supabaseDb.supabase
+      .from('class_instances')
+      .select('id, class_type, class_date, start_time, end_time, instructor, max_capacity')
+      .eq('id', classId)
       .single();
 
-    if (createError) {
-      console.error('Error creating booking:', createError);
-      return res.status(500).json({ error: 'Failed to create booking' });
+    // Extract base course identifier (e.g. "WT2802AM_DL6" from "WT2802AM_DL6.2")
+    const fullId = thisClass?.class_type || '';
+    const lastDot = fullId.lastIndexOf('.');
+    const baseCourseId = lastDot > 0 ? fullId.substring(0, lastDot) : fullId;
+
+    // Check if student already has a course_enrollment for this course
+    const { data: existingEnrollment } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('id')
+      .eq('student_id', studentId)
+      .eq('course_identifier', baseCourseId)
+      .eq('status', 'active')
+      .maybeSingle();
+
+    let enrollmentId = existingEnrollment?.id || null;
+
+    // If no enrollment exists, create one (marked as manual) so sync won't overwrite
+    if (!enrollmentId) {
+      // Copy details from an existing enrollment in the same course, or build from class data
+      const { data: refEnrollment } = await supabaseDb.supabase
+        .from('course_enrollments')
+        .select('course_title, course_variant_title, course_type, schedule_pattern, number_of_weeks, course_start_date, course_end_date, class_time, instructor')
+        .eq('course_identifier', baseCourseId)
+        .limit(1)
+        .maybeSingle();
+
+      const now = new Date().toISOString();
+      const { data: newEnrollment, error: enrollError } = await supabaseDb.supabase
+        .from('course_enrollments')
+        .insert({
+          student_id: studentId,
+          shopify_order_id: 'MANUAL',
+          shopify_line_item_id: `MANUAL-${Date.now()}`,
+          course_title: refEnrollment?.course_title || 'Manual Enrollment',
+          course_variant_title: refEnrollment?.course_variant_title || '',
+          course_type: refEnrollment?.course_type || 'Wheelthrowing Beginner',
+          schedule_pattern: refEnrollment?.schedule_pattern || '',
+          number_of_weeks: refEnrollment?.number_of_weeks || 6,
+          course_start_date: refEnrollment?.course_start_date || thisClass?.class_date,
+          course_end_date: refEnrollment?.course_end_date || null,
+          class_time: refEnrollment?.class_time || thisClass?.start_time,
+          instructor: refEnrollment?.instructor || thisClass?.instructor,
+          status: 'active',
+          course_identifier: baseCourseId,
+          bookings_created_at: now,
+          created_at: now,
+          updated_at: now,
+        })
+        .select('id')
+        .single();
+
+      if (enrollError) {
+        console.error('Error creating enrollment:', enrollError);
+        // Continue anyway — booking without enrollment is still useful
+      } else {
+        enrollmentId = newEnrollment.id;
+        console.log(`✅ Created manual course_enrollment ${enrollmentId} for student ${studentId} in ${baseCourseId}`);
+      }
     }
 
-    res.json({ message: 'Student added successfully', booking: newBooking });
+    // Find all class instances for this course and create bookings for unbooked weeks
+    const { data: courseClasses } = await supabaseDb.supabase
+      .from('class_instances')
+      .select('id, class_type, class_date')
+      .like('class_type', `${baseCourseId}.%`)
+      .order('class_date', { ascending: true });
+
+    const classIds = (courseClasses || []).map(c => c.id);
+
+    // Get existing bookings for this student in this course
+    const { data: existingBookings } = await supabaseDb.supabase
+      .from('bookings')
+      .select('class_instance_id')
+      .eq('student_id', studentId)
+      .in('class_instance_id', classIds.length > 0 ? classIds : [0])
+      .in('status', ['booked', 'attended', 'completed']);
+
+    const alreadyBookedIds = new Set((existingBookings || []).map(b => b.class_instance_id));
+
+    // Create bookings for all unbooked weeks
+    const newBookings = [];
+    for (const cls of (courseClasses || [])) {
+      if (alreadyBookedIds.has(cls.id)) continue;
+      const { data: booking, error: bookErr } = await supabaseDb.supabase
+        .from('bookings')
+        .insert({
+          student_id: studentId,
+          class_instance_id: cls.id,
+          status: 'booked',
+          course_enrollment_id: enrollmentId,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+      if (!bookErr && booking) newBookings.push(booking);
+    }
+
+    // Also link the enrollment to any pre-existing bookings that had null course_enrollment_id
+    if (enrollmentId && alreadyBookedIds.size > 0) {
+      await supabaseDb.supabase
+        .from('bookings')
+        .update({ course_enrollment_id: enrollmentId, updated_at: new Date().toISOString() })
+        .eq('student_id', studentId)
+        .in('class_instance_id', [...alreadyBookedIds])
+        .is('course_enrollment_id', null);
+    }
+
+    console.log(`✅ Added student ${studentId} to ${baseCourseId}: ${newBookings.length} new bookings, ${alreadyBookedIds.size} existing`);
+    res.json({ message: `Student added to all ${newBookings.length + alreadyBookedIds.size} weeks of ${baseCourseId}`, bookings: newBookings });
   } catch (error) {
     console.error('Error adding student to class:', error);
     res.status(500).json({ error: 'Failed to add student to class' });
@@ -5728,6 +5911,54 @@ app.patch('/api/admin/bookings/:bookingId/makeup', authenticateToken, async (req
   }
 });
 
+// Set booking type (enrolled/makeup) explicitly, with optional original course identifier
+app.put('/api/admin/bookings/:bookingId/type', authenticateToken, async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const { bookingType, originalCourseIdentifier } = req.body; // 'enrolled' or 'makeup'
+
+    const dbType = bookingType === 'makeup' ? 'makeup' : 'regular';
+
+    // If makeup with a course identifier, look up the class_instance_id for that identifier
+    let originalClassInstanceId = null;
+    if (dbType === 'makeup' && originalCourseIdentifier) {
+      const { data: matchingClass } = await supabaseDb.supabase
+        .from('class_instances')
+        .select('id')
+        .like('class_type', `${originalCourseIdentifier}%`)
+        .limit(1);
+      if (matchingClass && matchingClass.length > 0) {
+        originalClassInstanceId = matchingClass[0].id;
+      }
+    }
+
+    const updateData = {
+      booking_type: dbType,
+      updated_at: new Date().toISOString()
+    };
+    if (dbType === 'regular') {
+      updateData.original_class_instance_id = null;
+    } else if (originalClassInstanceId) {
+      updateData.original_class_instance_id = originalClassInstanceId;
+    }
+
+    const { error } = await supabaseDb.supabase
+      .from('bookings')
+      .update(updateData)
+      .eq('id', bookingId);
+
+    if (error) {
+      console.error('Error updating booking type:', error);
+      return res.status(500).json({ error: 'Failed to update booking type' });
+    }
+
+    res.json({ message: `Booking set to ${bookingType}`, bookingType: dbType });
+  } catch (error) {
+    console.error('Error updating booking type:', error);
+    res.status(500).json({ error: 'Failed to update booking type' });
+  }
+});
+
 // Create a booking for a student (admin only)
 app.post('/api/admin/bookings', authenticateToken, async (req, res) => {
   try {
@@ -5809,7 +6040,7 @@ app.post('/api/admin/bookings', authenticateToken, async (req, res) => {
 app.patch('/api/admin/classes/:classId', authenticateToken, async (req, res) => {
   try {
     const { classId } = req.params;
-    const { classDate, startTime, endTime, instructor, maxCapacity } = req.body;
+    const { classDate, startTime, endTime, instructor, maxCapacity, classTitle, classDescription } = req.body;
 
     // Get the current class instance
     const { data: classInstance, error: fetchError } = await supabaseDb.supabase
@@ -5832,6 +6063,8 @@ app.patch('/api/admin/classes/:classId', authenticateToken, async (req, res) => 
     if (endTime) updates.end_time = endTime;
     if (instructor) updates.instructor = instructor;
     if (maxCapacity !== undefined) updates.max_capacity = maxCapacity;
+    if (classTitle !== undefined) updates.class_title = classTitle;
+    if (classDescription !== undefined) updates.class_description = classDescription;
 
     // WARNING: If date/time changes, the class_type identifier will be out of sync
     // The identifier format is: WT[DDMM][TIME]_[INSTRUCTOR][WEEKS].[WEEK#]
@@ -6031,7 +6264,10 @@ app.get('/api/admin/customers', authenticateToken, async (req, res) => {
       dbId: customer.id,
       email: customer.email,
       firstName: customer.first_name,
-      lastName: customer.last_name
+      lastName: customer.last_name,
+      role: customer.role || 'student',
+      bio: customer.bio || null,
+      profile_image: customer.profile_image || null,
     }));
 
     res.json({ customers: formattedCustomers });
@@ -6280,6 +6516,24 @@ app.patch('/api/admin/fees/:feeId/payment', authenticateToken, async (req, res) 
   } catch (error) {
     console.error('Error updating fee payment:', error);
     res.status(500).json({ error: 'Failed to update fee payment' });
+  }
+});
+
+app.delete('/api/admin/fees/:feeId', authenticateToken, async (req, res) => {
+  try {
+    const { feeId } = req.params;
+
+    const { error } = await supabaseDb.supabase
+      .from('reschedule_fees')
+      .delete()
+      .eq('id', feeId);
+
+    if (error) throw error;
+
+    res.json({ message: 'Fee deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting fee:', error);
+    res.status(500).json({ error: 'Failed to delete fee' });
   }
 });
 
@@ -7529,29 +7783,77 @@ app.post('/api/admin/sync-shopify-orders', authenticateToken, async (req, res) =
               // Check if membership already exists for this customer + start date
               const { data: existing } = await supabase
                 .from('memberships')
-                .select('id')
+                .select('id, end_date, membership_type, status')
                 .eq('customer_id', memberCustomer.id)
                 .eq('start_date', startDate.toISOString().split('T')[0])
                 .maybeSingle();
 
               if (existing) {
-                console.log(`⏭️  Membership already exists for ${customer.email} (${membershipType})`);
+                // Update end_date, type, and status if they differ
+                const expectedEnd = endDate.toISOString().split('T')[0];
+                const now = new Date();
+                const expectedStatus = endDate < now ? 'expired' : 'active';
+                const needsUpdate = existing.end_date !== expectedEnd || existing.membership_type !== membershipType || existing.status !== expectedStatus;
+
+                if (needsUpdate) {
+                  await supabase
+                    .from('memberships')
+                    .update({
+                      end_date: expectedEnd,
+                      membership_type: membershipType,
+                      status: expectedStatus,
+                      updated_at: new Date().toISOString()
+                    })
+                    .eq('id', existing.id);
+                  console.log(`🔄 Updated membership for ${customer.email}: end_date=${expectedEnd}, type=${membershipType}, status=${expectedStatus}`);
+                } else {
+                  console.log(`⏭️  Membership already exists for ${customer.email} (${membershipType})`);
+                }
                 skippedCount++;
               } else {
-                // Check if end_date has passed → expired
-                const now = new Date();
-                const status = endDate < now ? 'expired' : 'active';
+                // Check if there's an active membership to extend
+                const { data: activeMembership } = await supabase
+                  .from('memberships')
+                  .select('id, end_date, membership_type')
+                  .eq('customer_id', memberCustomer.id)
+                  .eq('status', 'active')
+                  .order('end_date', { ascending: false })
+                  .limit(1)
+                  .maybeSingle();
 
-                await createMembership({
-                  customerId: memberCustomer.id,
-                  membershipType,
-                  startDate,
-                  endDate,
-                  status,
-                  perks: {}
-                });
-                console.log(`🎫 Created ${status} membership for ${customer.email}: ${membershipType} (${startDate.toISOString().split('T')[0]} → ${endDate.toISOString().split('T')[0]})`);
-                enrollmentsCreated++;
+                if (activeMembership) {
+                  // Extend the existing active membership's end_date
+                  const currentEnd = new Date(activeMembership.end_date);
+                  const newEnd = new Date(currentEnd);
+                  newEnd.setMonth(newEnd.getMonth() + months);
+
+                  await supabase
+                    .from('memberships')
+                    .update({
+                      end_date: newEnd.toISOString().split('T')[0],
+                      membership_type: membershipType,
+                      updated_at: new Date().toISOString()
+                    })
+                    .eq('id', activeMembership.id);
+
+                  console.log(`🎫 Extended membership for ${customer.email}: ${currentEnd.toISOString().split('T')[0]} → ${newEnd.toISOString().split('T')[0]} (+${months} months)`);
+                  enrollmentsCreated++;
+                } else {
+                  // No active membership — create new
+                  const now = new Date();
+                  const status = endDate < now ? 'expired' : 'active';
+
+                  await createMembership({
+                    customerId: memberCustomer.id,
+                    membershipType,
+                    startDate,
+                    endDate,
+                    status,
+                    perks: {}
+                  });
+                  console.log(`🎫 Created ${status} membership for ${customer.email}: ${membershipType} (${startDate.toISOString().split('T')[0]} → ${endDate.toISOString().split('T')[0]})`);
+                  enrollmentsCreated++;
+                }
               }
             }
             processedCount++;
@@ -7566,6 +7868,34 @@ app.post('/api/admin/sync-shopify-orders', authenticateToken, async (req, res) =
     }
 
     console.log(`✅ Processed ${processedCount} course purchases, created ${enrollmentsCreated} enrollments`);
+
+    // Update membership expiry statuses
+    let membershipsExpired = 0;
+    try {
+      const now = new Date().toISOString().split('T')[0];
+      const { data: expiredMemberships, error: expError } = await supabase
+        .from('memberships')
+        .select('id, customer_id, membership_type, end_date')
+        .eq('status', 'active')
+        .lt('end_date', now);
+
+      if (!expError && expiredMemberships && expiredMemberships.length > 0) {
+        const expiredIds = expiredMemberships.map(m => m.id);
+        const { error: updateExpError } = await supabase
+          .from('memberships')
+          .update({ status: 'expired', updated_at: new Date().toISOString() })
+          .in('id', expiredIds);
+
+        if (!updateExpError) {
+          membershipsExpired = expiredIds.length;
+          console.log(`🎫 Expired ${membershipsExpired} membership(s): ${expiredMemberships.map(m => m.membership_type).join(', ')}`);
+        } else {
+          console.error('⚠️  Failed to expire memberships:', updateExpError);
+        }
+      }
+    } catch (error) {
+      console.error('⚠️  Error checking membership expiry:', error);
+    }
 
     // Update last sync timestamp
     try {
@@ -7591,10 +7921,11 @@ app.post('/api/admin/sync-shopify-orders', authenticateToken, async (req, res) =
 
     res.json({
       success: true,
-      message: `Processed ${processedCount} course purchases, created ${enrollmentsCreated} new enrollments, ${skippedCount} already existed`,
+      message: `Processed ${processedCount} course purchases, created ${enrollmentsCreated} new enrollments, ${skippedCount} already existed, ${membershipsExpired} memberships expired`,
       processedCount,
       enrollmentsCreated,
-      skippedCount
+      skippedCount,
+      membershipsExpired
     });
 
   } catch (error) {
@@ -8176,9 +8507,11 @@ app.get('/health', (req, res) => {
 
 app.use(express.static('public'));
 
-app.get('*', (req, res) => {
+app.get('*', (req, res, next) => {
   if (!req.path.startsWith('/api')) {
     res.sendFile('index.html', { root: 'public' });
+  } else {
+    next();
   }
 });
 
@@ -8243,6 +8576,738 @@ app.delete('/api/debug/carolyn/joyce-lim-bookings', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ── Events (public: upcoming/active only) ────────────────────────────────────
+app.get('/api/events/upcoming', async (req, res) => {
+  try {
+    const { data, error } = await supabaseDb.supabase
+      .from('events')
+      .select('id, title, event_type, status, date, end_date, start_time, end_time, location, description, link')
+      .in('status', ['upcoming', 'active'])
+      .order('date', { ascending: true });
+    if (error) throw error;
+    res.json({ events: data || [] });
+  } catch (error) {
+    console.error('Error fetching upcoming events:', error);
+    res.status(500).json({ error: 'Failed to fetch events' });
+  }
+});
+
+// ── Admin Events ─────────────────────────────────────────────────────────────
+app.get('/api/admin/events', authenticateToken, async (req, res) => {
+  try {
+    const { data, error } = await supabaseDb.supabase
+      .from('events')
+      .select('*')
+      .order('date', { ascending: true, nullsFirst: false });
+    if (error) throw error;
+    res.json({ events: data || [] });
+  } catch (error) {
+    console.error('Error fetching events:', error);
+    res.status(500).json({ error: 'Failed to fetch events' });
+  }
+});
+
+app.post('/api/admin/events', authenticateToken, async (req, res) => {
+  try {
+    const { title, event_type, status, date, end_date, start_time, end_time, location, description, link, notes, checklist } = req.body;
+    if (!title) return res.status(400).json({ error: 'Title is required' });
+    const { data, error } = await supabaseDb.supabase
+      .from('events')
+      .insert({ title, event_type, status: status || 'draft', date, end_date, start_time, end_time, location, description, link, notes, checklist })
+      .select()
+      .single();
+    if (error) throw error;
+    res.json({ event: data });
+  } catch (error) {
+    console.error('Error creating event:', error);
+    res.status(500).json({ error: 'Failed to create event' });
+  }
+});
+
+app.put('/api/admin/events/:id', authenticateToken, async (req, res) => {
+  try {
+    const { title, event_type, status, date, end_date, start_time, end_time, location, description, link, notes, checklist } = req.body;
+    const { data, error } = await supabaseDb.supabase
+      .from('events')
+      .update({ title, event_type, status, date, end_date, start_time, end_time, location, description, link, notes, checklist, updated_at: new Date().toISOString() })
+      .eq('id', req.params.id)
+      .select()
+      .single();
+    if (error) throw error;
+    res.json({ event: data });
+  } catch (error) {
+    console.error('Error updating event:', error);
+    res.status(500).json({ error: 'Failed to update event' });
+  }
+});
+
+app.delete('/api/admin/events/:id', authenticateToken, async (req, res) => {
+  try {
+    const { error } = await supabaseDb.supabase
+      .from('events')
+      .delete()
+      .eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting event:', error);
+    res.status(500).json({ error: 'Failed to delete event' });
+  }
+});
+
+// ── Admin Settings (studio policy) ──────────────────────────────────────────
+app.get('/api/settings/studio-policy', async (req, res) => {
+  try {
+    const { data, error } = await supabaseDb.supabase
+      .from('admin_settings')
+      .select('setting_value')
+      .eq('setting_key', 'studio_policy')
+      .single();
+
+    if (error && error.code !== 'PGRST116') throw error;
+    res.json({ sections: data ? JSON.parse(data.setting_value) : null });
+  } catch (error) {
+    console.error('Error fetching studio policy:', error);
+    res.status(500).json({ error: 'Failed to fetch studio policy' });
+  }
+});
+
+app.get('/api/admin/settings/studio-policy', authenticateToken, async (req, res) => {
+  try {
+    const { data, error } = await supabaseDb.supabase
+      .from('admin_settings')
+      .select('*')
+      .eq('setting_key', 'studio_policy')
+      .single();
+
+    if (error && error.code !== 'PGRST116') throw error;
+    res.json({ sections: data ? JSON.parse(data.setting_value) : null });
+  } catch (error) {
+    console.error('Error fetching studio policy:', error);
+    res.status(500).json({ error: 'Failed to fetch studio policy' });
+  }
+});
+
+app.put('/api/admin/settings/studio-policy', authenticateToken, async (req, res) => {
+  try {
+    const { sections } = req.body;
+    if (!Array.isArray(sections)) {
+      return res.status(400).json({ error: 'sections must be an array' });
+    }
+
+    const value = JSON.stringify(sections);
+    const now = new Date().toISOString();
+
+    // Upsert: try update first, then insert if not found
+    const { data: existing } = await supabaseDb.supabase
+      .from('admin_settings')
+      .select('id')
+      .eq('setting_key', 'studio_policy')
+      .single();
+
+    if (existing) {
+      const { error } = await supabaseDb.supabase
+        .from('admin_settings')
+        .update({ setting_value: value, updated_at: now })
+        .eq('setting_key', 'studio_policy');
+      if (error) throw error;
+    } else {
+      const { error } = await supabaseDb.supabase
+        .from('admin_settings')
+        .insert({ setting_key: 'studio_policy', setting_value: value, description: 'Studio policy sections shown to students', updated_at: now });
+      if (error) throw error;
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error saving studio policy:', error);
+    res.status(500).json({ error: 'Failed to save studio policy' });
+  }
+});
+
+// ============================================
+// INSTRUCTOR PROFILE & COMMUNITY ENDPOINTS
+// ============================================
+
+// GET /api/community - Public community directory with role filters
+app.get('/api/community', async (req, res) => {
+  try {
+    const { role } = req.query;
+
+    // Get all customers who are instructors OR have public pottery pieces
+    let query = supabaseDb.supabase
+      .from('customers')
+      .select('id, first_name, last_name, role, bio, profile_image');
+
+    if (role && role !== 'all') {
+      query = query.eq('role', role);
+    }
+
+    const { data: customers, error } = await query;
+    if (error) throw error;
+
+    // Get public piece counts per customer
+    const { data: pieceCounts, error: pieceError } = await supabaseDb.supabase
+      .from('pottery_pieces')
+      .select('customer_id')
+      .eq('is_public', true);
+
+    const pieceCountMap = {};
+    if (pieceCounts) {
+      pieceCounts.forEach(p => {
+        pieceCountMap[p.customer_id] = (pieceCountMap[p.customer_id] || 0) + 1;
+      });
+    }
+
+    // Get portfolio counts for instructors
+    const { data: portfolioCounts, error: portfolioError } = await supabaseDb.supabase
+      .from('instructor_portfolio')
+      .select('customer_id');
+
+    const portfolioCountMap = {};
+    if (portfolioCounts) {
+      portfolioCounts.forEach(p => {
+        portfolioCountMap[p.customer_id] = (portfolioCountMap[p.customer_id] || 0) + 1;
+      });
+    }
+
+    // Filter: show instructors always, others only if they have public pieces
+    const members = customers
+      .filter(c => c.role === 'instructor' || pieceCountMap[c.id] > 0)
+      .map(c => ({
+        id: c.id,
+        name: `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'VES Student',
+        role: c.role || 'student',
+        bio: c.bio,
+        profile_image: c.profile_image,
+        piece_count: pieceCountMap[c.id] || 0,
+        portfolio_count: portfolioCountMap[c.id] || 0,
+      }));
+
+    res.json({ members });
+  } catch (error) {
+    console.error('Error fetching community:', error);
+    res.status(500).json({ error: 'Failed to fetch community' });
+  }
+});
+
+// GET /api/instructors/:id/portfolio - Public instructor profile with portfolio
+app.get('/api/instructors/:id/portfolio', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get instructor profile
+    const { data: instructor, error: instError } = await supabaseDb.supabase
+      .from('customers')
+      .select('id, first_name, last_name, role, bio, profile_image')
+      .eq('id', id)
+      .single();
+
+    if (instError) throw instError;
+
+    // Get portfolio items
+    const { data: portfolio, error: portError } = await supabaseDb.supabase
+      .from('instructor_portfolio')
+      .select('*')
+      .eq('customer_id', id)
+      .order('sort_order', { ascending: true });
+
+    if (portError) throw portError;
+
+    // Get public pottery pieces
+    const { data: pieces, error: pieceError } = await supabaseDb.supabase
+      .from('pottery_pieces')
+      .select('id, title, images, clay_type, notes, date_completed')
+      .eq('customer_id', id)
+      .eq('is_public', true)
+      .order('date_completed', { ascending: false });
+
+    res.json({
+      instructor: {
+        id: instructor.id,
+        name: `${instructor.first_name || ''} ${instructor.last_name || ''}`.trim(),
+        role: instructor.role || 'student',
+        bio: instructor.bio,
+        profile_image: instructor.profile_image,
+      },
+      portfolio: portfolio || [],
+      pieces: pieces || [],
+    });
+  } catch (error) {
+    console.error('Error fetching instructor portfolio:', error);
+    res.status(500).json({ error: 'Failed to fetch instructor portfolio' });
+  }
+});
+
+// PUT /api/instructors/profile - Instructor updates own profile
+app.put('/api/instructors/profile', authenticateToken, async (req, res) => {
+  try {
+    const { dbCustomerId } = req.user;
+    const { bio } = req.body;
+
+    const { error } = await supabaseDb.supabase
+      .from('customers')
+      .update({ bio })
+      .eq('id', dbCustomerId);
+
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating instructor profile:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+// POST /api/instructors/profile/image - Upload profile image
+app.post('/api/instructors/profile/image', authenticateToken, upload.single('image'), async (req, res) => {
+  try {
+    const { dbCustomerId } = req.user;
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image file provided' });
+    }
+
+    const result = await uploadImageToSupabase(
+      req.file.buffer, req.file.originalname, req.file.mimetype, `profile-${dbCustomerId}`
+    );
+
+    const { error } = await supabaseDb.supabase
+      .from('customers')
+      .update({ profile_image: result.url })
+      .eq('id', dbCustomerId);
+
+    if (error) throw error;
+    res.json({ url: result.url });
+  } catch (error) {
+    console.error('Error uploading profile image:', error);
+    res.status(500).json({ error: 'Failed to upload profile image' });
+  }
+});
+
+// POST /api/instructors/portfolio - Add portfolio item (image or video URL)
+app.post('/api/instructors/portfolio', authenticateToken, upload.single('image'), async (req, res) => {
+  try {
+    const { dbCustomerId } = req.user;
+    const { title, description, media_type, video_url } = req.body;
+
+    let media_url = video_url || null;
+    let media_path = null;
+
+    if (media_type === 'image' && req.file) {
+      const result = await uploadImageToSupabase(
+        req.file.buffer, req.file.originalname, req.file.mimetype, `portfolio-${dbCustomerId}`
+      );
+      media_url = result.url;
+      media_path = result.path;
+    }
+
+    if (!media_url) {
+      return res.status(400).json({ error: 'No image file or video URL provided' });
+    }
+
+    // Get next sort order
+    const { data: existing } = await supabaseDb.supabase
+      .from('instructor_portfolio')
+      .select('sort_order')
+      .eq('customer_id', dbCustomerId)
+      .order('sort_order', { ascending: false })
+      .limit(1);
+
+    const nextOrder = (existing?.[0]?.sort_order || 0) + 1;
+
+    const { data, error } = await supabaseDb.supabase
+      .from('instructor_portfolio')
+      .insert({
+        customer_id: dbCustomerId,
+        title: title || null,
+        description: description || null,
+        media_type: media_type || 'image',
+        media_url,
+        media_path,
+        sort_order: nextOrder,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json(data);
+  } catch (error) {
+    console.error('Error adding portfolio item:', error);
+    res.status(500).json({ error: 'Failed to add portfolio item' });
+  }
+});
+
+// DELETE /api/instructors/portfolio/:id - Remove portfolio item
+app.delete('/api/instructors/portfolio/:id', authenticateToken, async (req, res) => {
+  try {
+    const { dbCustomerId } = req.user;
+    const { id } = req.params;
+
+    // Verify ownership
+    const { data: item, error: fetchError } = await supabaseDb.supabase
+      .from('instructor_portfolio')
+      .select('*')
+      .eq('id', id)
+      .eq('customer_id', dbCustomerId)
+      .single();
+
+    if (fetchError || !item) {
+      return res.status(404).json({ error: 'Portfolio item not found' });
+    }
+
+    // Delete from storage if it's an uploaded image
+    if (item.media_path) {
+      try {
+        await deleteImageFromSupabase(item.media_path);
+      } catch (e) {
+        console.warn('Failed to delete portfolio image from storage:', e.message);
+      }
+    }
+
+    const { error } = await supabaseDb.supabase
+      .from('instructor_portfolio')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting portfolio item:', error);
+    res.status(500).json({ error: 'Failed to delete portfolio item' });
+  }
+});
+
+// GET /api/instructor/dashboard - Instructor's own dashboard data
+app.get('/api/instructor/dashboard', authenticateToken, async (req, res) => {
+  try {
+    const { dbCustomerId } = req.user;
+
+    // Get instructor profile
+    const { data: instructor, error: instrError } = await supabaseDb.supabase
+      .from('customers')
+      .select('id, first_name, last_name, email, bio, profile_image, role')
+      .eq('id', dbCustomerId)
+      .single();
+
+    if (instrError || !instructor || instructor.role !== 'instructor') {
+      return res.status(403).json({ error: 'Instructor access required' });
+    }
+
+    const instructorName = `${instructor.first_name} ${instructor.last_name}`;
+    const today = new Date().toISOString().split('T')[0];
+
+    // Get upcoming classes taught by this instructor
+    const { data: upcomingClasses } = await supabaseDb.supabase
+      .from('class_instances')
+      .select('*')
+      .eq('instructor', instructorName)
+      .gte('class_date', today)
+      .order('class_date', { ascending: true })
+      .limit(20);
+
+    // Get recent classes (past 4 weeks)
+    const fourWeeksAgo = new Date();
+    fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28);
+    const { data: recentClasses } = await supabaseDb.supabase
+      .from('class_instances')
+      .select('*')
+      .eq('instructor', instructorName)
+      .lt('class_date', today)
+      .gte('class_date', fourWeeksAgo.toISOString().split('T')[0])
+      .order('class_date', { ascending: false })
+      .limit(20);
+
+    // Get bookings for upcoming classes with student info, booking type, enrollment
+    const upcomingIds = (upcomingClasses || []).map(c => c.id);
+    let studentsByClass = {};
+    if (upcomingIds.length > 0) {
+      const { data: bookings } = await supabaseDb.supabase
+        .from('bookings')
+        .select('id, class_instance_id, student_id, status, booking_type, is_makeup_class, attended, course_enrollment_id, customers:student_id(id, first_name, last_name, email, profile_image)')
+        .in('class_instance_id', upcomingIds)
+        .in('status', ['booked', 'completed', 'forfeited']);
+
+      // Collect enrollment IDs for course info lookup
+      const enrollmentIds = [...new Set((bookings || []).filter(b => b.course_enrollment_id).map(b => b.course_enrollment_id))];
+      let enrollmentMap = {};
+      if (enrollmentIds.length > 0) {
+        const { data: enrollments } = await supabaseDb.supabase
+          .from('course_enrollments')
+          .select('id, course_identifier, course_type, class_credits_used, class_credits_allocated, number_of_weeks, weeks_completed')
+          .in('id', enrollmentIds);
+        (enrollments || []).forEach(e => { enrollmentMap[e.id] = e; });
+      }
+
+      // Get total course purchase counts for all students in upcoming classes
+      const allStudentIds = [...new Set((bookings || []).filter(b => b.customers).map(b => b.customers.id))];
+      let purchaseCountMap = {};
+      if (allStudentIds.length > 0) {
+        const { data: allEnrollments } = await supabaseDb.supabase
+          .from('course_enrollments')
+          .select('student_id')
+          .in('student_id', allStudentIds);
+        (allEnrollments || []).forEach(e => {
+          purchaseCountMap[e.student_id] = (purchaseCountMap[e.student_id] || 0) + 1;
+        });
+      }
+
+      (bookings || []).forEach(b => {
+        if (!studentsByClass[b.class_instance_id]) {
+          studentsByClass[b.class_instance_id] = [];
+        }
+        if (b.customers) {
+          const enr = enrollmentMap[b.course_enrollment_id] || {};
+          studentsByClass[b.class_instance_id].push({
+            ...b.customers,
+            bookingId: b.id,
+            bookingStatus: b.status,
+            bookingType: b.is_makeup_class ? 'makeup' : 'enrolled',
+            attended: b.attended,
+            courseIdentifier: enr.course_identifier || null,
+            classesAttended: enr.weeks_completed || enr.class_credits_used || 0,
+            totalClasses: enr.number_of_weeks || enr.class_credits_allocated || 6,
+            coursePurchaseCount: purchaseCountMap[b.customers.id] || 0,
+          });
+        }
+      });
+    }
+
+    // Also get bookings for recent classes to show attendance counts
+    const recentIds = (recentClasses || []).map(c => c.id);
+    let recentStudentsByClass = {};
+    if (recentIds.length > 0) {
+      const { data: recentBookings } = await supabaseDb.supabase
+        .from('bookings')
+        .select('id, class_instance_id, student_id, status, booking_type, is_makeup_class, attended, course_enrollment_id, customers:student_id(id, first_name, last_name)')
+        .in('class_instance_id', recentIds)
+        .in('status', ['booked', 'attended', 'completed', 'forfeited']);
+
+      (recentBookings || []).forEach(b => {
+        if (!recentStudentsByClass[b.class_instance_id]) {
+          recentStudentsByClass[b.class_instance_id] = [];
+        }
+        if (b.customers) {
+          recentStudentsByClass[b.class_instance_id].push({
+            ...b.customers,
+            bookingId: b.id,
+            bookingStatus: b.status,
+            bookingType: b.is_makeup_class ? 'makeup' : 'enrolled',
+            attended: b.attended,
+          });
+        }
+      });
+    }
+
+    // Get portfolio
+    const { data: portfolio } = await supabaseDb.supabase
+      .from('instructor_portfolio')
+      .select('*')
+      .eq('instructor_id', dbCustomerId)
+      .order('created_at', { ascending: false });
+
+    res.json({
+      instructor: {
+        name: instructorName,
+        firstName: instructor.first_name,
+        bio: instructor.bio,
+        profileImage: instructor.profile_image
+      },
+      upcomingClasses: upcomingClasses || [],
+      recentClasses: recentClasses || [],
+      studentsByClass,
+      recentStudentsByClass,
+      portfolio: portfolio || []
+    });
+  } catch (error) {
+    console.error('Error fetching instructor dashboard:', error);
+    res.status(500).json({ error: 'Failed to fetch instructor dashboard' });
+  }
+});
+
+// POST /api/admin/instructors - Create a new instructor
+app.post('/api/admin/instructors', authenticateToken, async (req, res) => {
+  try {
+    const { first_name, last_name, email, bio } = req.body;
+
+    if (!first_name || !email) {
+      return res.status(400).json({ error: 'First name and email are required' });
+    }
+
+    // Check if customer already exists
+    const { data: existing } = await supabaseDb.supabase
+      .from('customers')
+      .select('id')
+      .eq('email', email.toLowerCase().trim())
+      .single();
+
+    if (existing) {
+      // Update existing customer to instructor role
+      const { error } = await supabaseDb.supabase
+        .from('customers')
+        .update({ role: 'instructor', bio: bio || null, first_name, last_name: last_name || null })
+        .eq('id', existing.id);
+      if (error) throw error;
+      return res.json({ success: true, id: existing.id, updated: true });
+    }
+
+    // Create new customer with instructor role
+    const { data, error } = await supabaseDb.supabase
+      .from('customers')
+      .insert({
+        first_name,
+        last_name: last_name || null,
+        email: email.toLowerCase().trim(),
+        role: 'instructor',
+        bio: bio || null,
+        customer_type: 'student',
+        shopify_customer_id: `instructor_${Date.now()}`,
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json({ success: true, id: data.id, created: true });
+  } catch (error) {
+    console.error('Error creating instructor:', error);
+    res.status(500).json({ error: 'Failed to create instructor' });
+  }
+});
+
+// GET /api/admin/instructors/:id/teaching - Teaching data filtered from /api/admin/classes
+// Reuses the exact same data source (class_instances + bookings) filtered by instructor name
+app.get('/api/admin/instructors/:id/teaching', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { data: instructor, error: instrErr } = await supabaseDb.supabase
+      .from('customers')
+      .select('id, first_name, last_name')
+      .eq('id', id)
+      .single();
+
+    if (instrErr || !instructor) {
+      return res.status(404).json({ error: 'Instructor not found' });
+    }
+
+    const instructorName = `${instructor.first_name} ${instructor.last_name}`;
+
+    // Use the EXACT same query as /api/admin/classes
+    const { data: allClassInstances, error: classesError } = await supabaseDb.supabase
+      .from('class_instances')
+      .select('id, class_type, class_date, start_time, end_time, instructor, room, max_capacity, current_enrollment, class_title, class_description, status')
+      .gte('class_date', '2026-01-01')
+      .order('class_date', { ascending: true });
+
+    if (classesError) throw classesError;
+
+    // Filter to this instructor's classes
+    const instructorClasses = allClassInstances.filter(c => c.instructor === instructorName);
+
+    // Group by base identifier (same logic as /api/admin/classes)
+    const courseMap = new Map();
+    instructorClasses.forEach(cls => {
+      const fullIdentifier = cls.class_type;
+      const lastDotIndex = fullIdentifier.lastIndexOf('.');
+      const baseIdentifier = lastDotIndex > 0 ? fullIdentifier.substring(0, lastDotIndex) : fullIdentifier;
+      if (!courseMap.has(baseIdentifier)) {
+        courseMap.set(baseIdentifier, []);
+      }
+      courseMap.get(baseIdentifier).push({
+        ...cls,
+        courseIdentifier: fullIdentifier,
+        baseCourseIdentifier: baseIdentifier,
+      });
+    });
+
+    // Fetch bookings (same pagination approach as /api/admin/classes)
+    let allBookings = [];
+    let page = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+    while (hasMore) {
+      const { data, error } = await supabaseDb.supabase
+        .from('bookings')
+        .select('class_instance_id, student_id, status')
+        .in('status', ['booked', 'attended', 'completed'])
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+      if (error) throw error;
+      allBookings = allBookings.concat(data);
+      hasMore = data.length === pageSize;
+      page++;
+    }
+
+    const bookingCountsByClass = {};
+    allBookings.forEach(b => {
+      bookingCountsByClass[b.class_instance_id] = (bookingCountsByClass[b.class_instance_id] || 0) + 1;
+    });
+
+    // Build courses with booking counts + unique students (same as /api/admin/classes)
+    const courses = Array.from(courseMap.entries()).map(([identifier, classes]) => {
+      classes.sort((a, b) => new Date(a.class_date) - new Date(b.class_date));
+      const uniqueStudents = new Set();
+      classes.forEach(cls => {
+        cls.bookingCount = bookingCountsByClass[cls.id] || 0;
+        allBookings
+          .filter(b => b.class_instance_id === cls.id)
+          .forEach(b => uniqueStudents.add(b.student_id));
+      });
+      return { identifier, totalEnrollment: uniqueStudents.size, classes };
+    });
+
+    res.json({ courses });
+  } catch (error) {
+    console.error('Error fetching instructor teaching data:', error);
+    res.status(500).json({ error: 'Failed to fetch teaching data' });
+  }
+});
+
+// POST /api/admin/instructors/:id/profile-image - Admin uploads profile image for instructor
+app.post('/api/admin/instructors/:id/profile-image', authenticateToken, upload.single('image'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!req.file) return res.status(400).json({ error: 'No image file provided' });
+
+    const result = await uploadImageToSupabase(
+      req.file.buffer, req.file.originalname, req.file.mimetype, `profile-${id}`
+    );
+
+    const { error } = await supabaseDb.supabase
+      .from('customers')
+      .update({ profile_image: result.url })
+      .eq('id', id);
+
+    if (error) throw error;
+    res.json({ url: result.url });
+  } catch (error) {
+    console.error('Error uploading instructor profile image:', error);
+    res.status(500).json({ error: 'Failed to upload profile image' });
+  }
+});
+
+// PUT /api/admin/customers/:id/role - Admin sets user role
+app.put('/api/admin/customers/:id/role', authenticateToken, async (req, res) => {
+  try {
+    const { role } = req.body;
+    const { id } = req.params;
+
+    if (!['student', 'member', 'instructor'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role. Must be student, member, or instructor.' });
+    }
+
+    const { error } = await supabaseDb.supabase
+      .from('customers')
+      .update({ role })
+      .eq('id', id);
+
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating customer role:', error);
+    res.status(500).json({ error: 'Failed to update customer role' });
   }
 });
 

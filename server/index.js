@@ -5164,17 +5164,40 @@ app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, async (req
       .in('status', ['booked', 'completed', 'attended'])
       .order('class_instances(class_date)', { ascending: false });
 
-    // Filter to only include bookings from active or paused enrollments
+    // Group bookings by course, then exclude fully-completed courses
     const todayStr = new Date().toISOString().split('T')[0];
-    const bookings = (allBookings || []).filter(booking => {
-      // Exclude completed enrollments
-      if (booking.course_enrollment && !['active', 'paused'].includes(booking.course_enrollment.status)) return false;
-      // For bookings without enrollment: exclude if class is attended/completed AND in the past
-      if (!booking.course_enrollment) {
-        const classDate = booking.class_instances?.class_date?.split('T')[0];
-        if (classDate && classDate < todayStr && (booking.status === 'attended' || booking.status === 'completed')) return false;
-      }
+
+    // First, exclude bookings from explicitly completed/cancelled enrollments
+    const nonCompletedBookings = (allBookings || []).filter(booking => {
+      if (booking.course_enrollment && ['completed', 'cancelled'].includes(booking.course_enrollment.status)) return false;
       return true;
+    });
+
+    // Group remaining by base course identifier to find courses where ALL dates are past
+    const getBase = (classType) => {
+      if (!classType) return 'unknown';
+      const dot = classType.lastIndexOf('.');
+      return dot > 0 ? classType.substring(0, dot) : classType;
+    };
+    const groups = {};
+    nonCompletedBookings.forEach(b => {
+      const base = getBase(b.class_instances?.class_type);
+      if (!groups[base]) groups[base] = [];
+      groups[base].push(b);
+    });
+    // A course group is fully done if every booking's class_date is past
+    const completedGroups = new Set();
+    Object.entries(groups).forEach(([base, group]) => {
+      const allPast = group.every(b => {
+        const d = b.class_instances?.class_date?.split('T')[0];
+        return d && d < todayStr;
+      });
+      if (allPast) completedGroups.add(base);
+    });
+
+    const bookings = nonCompletedBookings.filter(b => {
+      const base = getBase(b.class_instances?.class_type);
+      return !completedGroups.has(base);
     });
 
     if (error) throw error;

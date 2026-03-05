@@ -3885,7 +3885,7 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
     // Get all active/paused enrollments to include status and weeks remaining
     const { data: allEnrollments } = await supabaseDb.supabase
       .from('course_enrollments')
-      .select('id, student_id, status, weeks_remaining, number_of_weeks, course_variant_title, course_title, schedule_pattern, class_time, course_start_date, course_end_date, course_type, created_at')
+      .select('id, student_id, status, weeks_remaining, number_of_weeks, course_variant_title, course_title, schedule_pattern, class_time, course_start_date, course_end_date, course_type, created_at, package_total_courses')
       .in('status', ['active', 'paused']);
 
     const enrollmentMap = {};
@@ -4263,6 +4263,7 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
           weeksRemaining: classesRemaining,
           classesAttended: endedClassesInCurrentCourse,
           classesAllocated: currentCourseAllocated,
+          packageTotalCourses: enrollment?.package_total_courses || null,
           hasUpcomingCourse: upcomingCourses.length > 0, // Flag to indicate student has upcoming courses
           cohortSize: getCohortSize(s.id)
         };
@@ -4377,6 +4378,7 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
           weeksRemaining: classesRemaining,
           classesAllocated,
           classesAttended,
+          packageTotalCourses: enrollment?.package_total_courses || null,
           cohortSize: getCohortSize(s.id)
         };
       })
@@ -5624,7 +5626,7 @@ app.put('/api/admin/students/:email', authenticateToken, async (req, res) => {
   try {
     const { email } = req.params;
     const decodedEmail = decodeURIComponent(email);
-    const { first_name, last_name, email: newEmail, customer_type, course_purchase_count, classes_allocated, phone } = req.body;
+    const { first_name, last_name, email: newEmail, customer_type, course_purchase_count, classes_allocated, phone, wheel_preference } = req.body;
 
     const updateData = {
       updated_at: new Date().toISOString()
@@ -5639,6 +5641,7 @@ app.put('/api/admin/students/:email', authenticateToken, async (req, res) => {
     if (course_purchase_count !== undefined) updateData.course_purchase_count = course_purchase_count;
     if (classes_allocated !== undefined)   updateData.classes_allocated = classes_allocated;
     if (phone !== undefined)               updateData.phone = phone;
+    if (wheel_preference !== undefined)    updateData.wheel_preference = wheel_preference;
 
     // If name changed, try to set name_locked flag to prevent sync overwrite
     if (nameChanged) updateData.name_locked = true;
@@ -6323,6 +6326,35 @@ app.put('/api/admin/bookings/:bookingId/type', authenticateToken, async (req, re
   } catch (error) {
     console.error('Error updating booking type:', error);
     res.status(500).json({ error: 'Failed to update booking type' });
+  }
+});
+
+// Toggle booking attended status (admin only)
+app.put('/api/admin/bookings/:bookingId/attended', authenticateToken, async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const { status } = req.body; // 'attended' or 'booked'
+
+    const updateData = {
+      status: status,
+      attended: status === 'attended' ? true : null,
+      updated_at: new Date().toISOString()
+    };
+
+    const { error } = await supabaseDb.supabase
+      .from('bookings')
+      .update(updateData)
+      .eq('id', bookingId);
+
+    if (error) {
+      console.error('Error updating attended status:', error);
+      return res.status(500).json({ error: 'Failed to update attended status' });
+    }
+
+    res.json({ message: `Booking marked as ${status}`, status });
+  } catch (error) {
+    console.error('Error updating attended status:', error);
+    res.status(500).json({ error: 'Failed to update attended status' });
   }
 });
 

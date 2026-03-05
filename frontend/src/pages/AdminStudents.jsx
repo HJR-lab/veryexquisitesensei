@@ -373,6 +373,7 @@ export default function AdminStudents() {
         _recentDate: s.enrollmentCreatedAt || s.coursePurchaseDate || null,
         _membership: membership || null,
         _statusKey: s.enrollmentStatus === 'upcoming' ? 'upcoming' : 'active',
+        _packageTotalCourses: s.packageTotalCourses || null,
       };
     });
 
@@ -480,6 +481,8 @@ export default function AdminStudents() {
   const getPackageKey = (s) => {
     const isWT = s._cardType === 'hb' ? false : (s._wtTotal != null);
     const isHB = s._cardType === 'hb';
+    // For WT: check package_total_courses first (3-course package = pkg-wt18)
+    if (isWT && s._packageTotalCourses === 3) return 'pkg-wt18';
     const total = isWT ? (s._wtTotal || 6) : (s._hbTotal || 0);
     if (isWT && total <= 6) return 'pkg-wt6';
     if (isWT && total <= 10) return 'pkg-wt10';

@@ -464,9 +464,9 @@ export default function Dashboard() {
                 const isActive = statusLabel === 'active';
                 return (
                   <div key={enrollment.id || i} style={{ padding: '14px', border: `1px solid ${RULE}`, backgroundColor: ALT, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED }}>
-                        {typeLabel}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                      <div style={{ fontSize: '12px', fontWeight: 700, color: INK, lineHeight: '1.3' }}>
+                        {enrollment.course_title || typeLabel}
                       </div>
                       <span style={{
                         fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
@@ -495,6 +495,11 @@ export default function Dashboard() {
                         </div>
                       </div>
                     </div>
+                    {studentData?.wheel_preference && enrollment.package_total_courses === 3 && typeLabel.startsWith('Wheelthrowing') && (
+                      <div style={{ fontSize: '11px', color: TC_DARK, fontWeight: 600 }}>
+                        Wheel #{studentData.wheel_preference}
+                      </div>
+                    )}
                   </div>
                 );
               })}

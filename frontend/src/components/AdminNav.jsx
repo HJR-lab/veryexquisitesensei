@@ -38,15 +38,9 @@ export default function AdminNav({ active, onSyncComplete }) {
 
   return (
     <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: '#FFFFFF', borderBottom: `1px solid ${RULE}` }}>
-      <div style={{ maxWidth: '1140px', margin: '0 auto', padding: '0 24px', height: '52px', display: 'flex', alignItems: 'center', gap: '24px', overflowX: 'auto' }}>
-        <a href="/admin" style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-          <img
-            src="https://ves.sg/cdn/shop/files/logo_04a04687-57f4-4141-b0bc-ec30b527fd73.png?v=1686045719&width=600"
-            alt="VES"
-            style={{ height: '22px', width: 'auto' }}
-          />
-        </a>
-        <nav style={{ display: 'flex', flex: 1 }}>
+      <div style={{ maxWidth: '1140px', margin: '0 auto', padding: '0 24px', height: '52px', display: 'flex', alignItems: 'center', overflowX: 'auto' }}>
+        {/* Left: nav links */}
+        <nav style={{ display: 'flex', flex: 1, gap: '0px' }}>
           {NAV_LINKS.map(link => (
             <a
               key={link.id}
@@ -63,12 +57,21 @@ export default function AdminNav({ active, onSyncComplete }) {
             </a>
           ))}
         </nav>
-        {syncMessage && (
-          <span style={{ fontSize: '11px', fontWeight: 600, color: syncMessage.type === 'ok' ? '#1E6B1E' : '#C0392B', flexShrink: 0 }}>
-            {syncMessage.text}
-          </span>
-        )}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+        {/* Center: logo */}
+        <a href="/admin" style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+          <img
+            src="https://ves.sg/cdn/shop/files/logo_04a04687-57f4-4141-b0bc-ec30b527fd73.png?v=1686045719&width=600"
+            alt="VES"
+            style={{ height: '22px', width: 'auto' }}
+          />
+        </a>
+        {/* Right: sync + admin badge */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, justifyContent: 'flex-end' }}>
+          {syncMessage && (
+            <span style={{ fontSize: '11px', fontWeight: 600, color: syncMessage.type === 'ok' ? '#1E6B1E' : '#C0392B', flexShrink: 0 }}>
+              {syncMessage.text}
+            </span>
+          )}
           <button
             onClick={handleSync}
             disabled={syncing}

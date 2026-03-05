@@ -418,6 +418,17 @@ export default function AdminStudentDetail() {
     }
   };
 
+  const handleToggleAttended = async (bookingId, currentStatus) => {
+    try {
+      const newStatus = currentStatus === 'attended' ? 'booked' : 'attended';
+      await api.put(`/admin/bookings/${bookingId}/attended`, { status: newStatus });
+      await loadStudentData();
+    } catch (error) {
+      console.error('Failed to toggle attended:', error);
+      alert('Failed to update attended status');
+    }
+  };
+
   const handleOpenMakeupModal = async (booking) => {
     console.log('Opening reschedule modal for booking:', booking);
     setRescheduling(false);
@@ -643,8 +654,9 @@ export default function AdminStudentDetail() {
   }).length;
 
   const totalBooked    = activeBookings.length;
-  const totalAllocated = totalBooked; // Use active bookings as the source of truth
-  const unbookedCount  = 0; // No unbooked placeholders — bookings list IS the truth
+  const enrollmentAllocated = enrollment?.number_of_weeks || 0;
+  const totalAllocated = Math.max(totalBooked, enrollmentAllocated);
+  const unbookedCount  = Math.max(0, totalAllocated - totalBooked);
 
   const filteredBookings = [...(showCompletedCourses ? bookings : activeBookings)]
     .filter(b => statusFilter === 'all' || b.status === statusFilter)
@@ -700,7 +712,7 @@ export default function AdminStudentDetail() {
           ) : student.role === 'instructor' ? (
             <a href="/admin/instructors" style={{ fontSize: '12px', color: TC, textDecoration: 'none', fontWeight: 700 }}>← Instructors</a>
           ) : (
-            <a href="/admin/students" style={{ fontSize: '12px', color: TC, textDecoration: 'none', fontWeight: 700 }}>← Students</a>
+            <a href="/admin/students" style={{ fontSize: '12px', color: TC, textDecoration: 'none', fontWeight: 700 }}>← Users</a>
           )}
           <span style={{ fontSize: '12px', color: MUTED }}>/</span>
           <span style={{ fontSize: '12px', color: MUTED }}>{studentName}</span>
@@ -1149,7 +1161,7 @@ export default function AdminStudentDetail() {
                         </div>
                         <div style={{ textAlign: 'right' }}>
                           <div style={{ fontSize: '22px', fontWeight: 700 }}>
-                            {attendedCount}<span style={{ fontSize: '14px', color: MUTED, fontWeight: 400 }}>/{totalBooked}</span>
+                            {attendedCount}<span style={{ fontSize: '14px', color: MUTED, fontWeight: 400 }}>/{totalAllocated}</span>
                           </div>
                           <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Attended</div>
                         </div>
@@ -1158,7 +1170,7 @@ export default function AdminStudentDetail() {
                       <div style={{ height: '6px', backgroundColor: ALT, position: 'relative', marginBottom: '8px' }}>
                         <div style={{
                           position: 'absolute', left: 0, top: 0, height: '100%',
-                          width: `${Math.min(100, totalBooked > 0 ? (attendedCount / totalBooked) * 100 : 0)}%`,
+                          width: `${Math.min(100, totalAllocated > 0 ? (attendedCount / totalAllocated) * 100 : 0)}%`,
                           backgroundColor: TC,
                         }} />
                       </div>
@@ -1182,6 +1194,31 @@ export default function AdminStudentDetail() {
                         </span>
                       ))}
                     </div>
+                    )}
+
+                    {/* Wheel preference — only for WT 6wk x3 packages */}
+                    {enrollment.package_total_courses === 3 && ((enrollment.course_type || '').toUpperCase().startsWith('WT') || (enrollment.course_title || '').toLowerCase().includes('wheelthrowing')) && (
+                      <div style={{ marginTop: '16px', padding: '14px 16px', backgroundColor: '#FFF8F0', border: `1px solid ${TC_LIGHT}`, borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: TC_DARK }}>Preferred Wheel</span>
+                        <select
+                          value={student?.wheel_preference || ''}
+                          onChange={async (e) => {
+                            const val = e.target.value ? parseInt(e.target.value) : null;
+                            try {
+                              await api.put(`/admin/students/${encodeURIComponent(student.email)}`, { wheel_preference: val });
+                              setStudent(prev => ({ ...prev, wheel_preference: val }));
+                            } catch (err) {
+                              console.error('Failed to save wheel preference:', err);
+                            }
+                          }}
+                          style={{ padding: '4px 8px', fontSize: '13px', fontWeight: 700, border: `1px solid ${RULE}`, borderRadius: '4px', backgroundColor: '#FFF', color: INK, cursor: 'pointer' }}
+                        >
+                          <option value="">—</option>
+                          {[1,2,3,4,5,6,7,8,9,10].map(n => (
+                            <option key={n} value={n}>Wheel {n}</option>
+                          ))}
+                        </select>
+                      </div>
                     )}
 
                     {/* Package progress */}
@@ -1284,10 +1321,14 @@ export default function AdminStudentDetail() {
                             <span style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 700, color: TC_DARK }}>{courseName}</span>
                             <div style={{ fontSize: '13px', fontWeight: displayStatus === 'booked' ? 700 : 400 }}>{dateStr}</div>
                             <span style={{ fontSize: '12px', color: MUTED }}>{timeStr}</span>
-                            <span style={{
+                            <span
+                              onClick={isPast && (displayStatus === 'attended' || displayStatus === 'booked') ? () => handleToggleAttended(booking.id, displayStatus) : undefined}
+                              title={isPast && (displayStatus === 'attended' || displayStatus === 'booked') ? `Click to mark as ${displayStatus === 'attended' ? 'not attended' : 'attended'}` : ''}
+                              style={{
                               fontSize: '9px', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase',
                               padding: '3px 8px', display: 'inline-block',
                               backgroundColor: style.bg, color: style.text,
+                              cursor: isPast && (displayStatus === 'attended' || displayStatus === 'booked') ? 'pointer' : 'default',
                             }}>{displayStatus}</span>
                             <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
                               <button

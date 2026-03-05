@@ -9614,6 +9614,7 @@ app.get('/api/instructor/dashboard', authenticateToken, async (req, res) => {
       // Get course_purchase_count from customers table (admin-editable source of truth)
       const allStudentIds = [...new Set((bookings || []).filter(b => b.customers).map(b => b.customers.id))];
       let orderCountMap = {};
+      let wheelPrefMap = {};
       if (allStudentIds.length > 0) {
         const { data: customerCounts } = await supabaseDb.supabase
           .from('customers')
@@ -9621,10 +9622,6 @@ app.get('/api/instructor/dashboard', authenticateToken, async (req, res) => {
           .in('id', allStudentIds);
         (customerCounts || []).forEach(c => {
           orderCountMap[c.id] = c.course_purchase_count || 0;
-        });
-        // Build wheel preference map
-        const wheelPrefMap = {};
-        (customerCounts || []).forEach(c => {
           if (c.wheel_preference) wheelPrefMap[c.id] = c.wheel_preference;
         });
       }

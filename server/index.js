@@ -2770,6 +2770,21 @@ app.post('/api/classes/reschedule', authenticateToken, async (req, res) => {
       await supabaseDb.updateClassEnrollment(parseInt(oldClassId), -1);
     }
 
+    // Determine booking type: if rescheduling back to own course, mark as regular (not makeup)
+    const getBaseId = (id) => { const i = (id || '').lastIndexOf('.'); return i > 0 ? id.substring(0, i) : id; };
+    const newClassBase = getBaseId(newClass.class_type);
+    let resolvedBookingType = 'makeup';
+    if (currentBooking.course_enrollment_id) {
+      const { data: enrollment } = await supabaseDb.supabase
+        .from('course_enrollments')
+        .select('course_identifier')
+        .eq('id', currentBooking.course_enrollment_id)
+        .single();
+      if (enrollment && getBaseId(enrollment.course_identifier) === newClassBase) {
+        resolvedBookingType = 'regular';
+      }
+    }
+
     let newBooking;
 
     if (targetBookingAnyStatus && ['cancelled', 'rescheduled'].includes(targetBookingAnyStatus.status)) {
@@ -2778,7 +2793,7 @@ app.post('/api/classes/reschedule', authenticateToken, async (req, res) => {
         .from('bookings')
         .update({
           status: 'booked',
-          booking_type: 'makeup',
+          booking_type: resolvedBookingType,
           course_enrollment_id: currentBooking.course_enrollment_id || null,
           is_glazing_reschedule: isOldClassGlazing,
           original_class_instance_id: parseInt(oldClassId),
@@ -2793,12 +2808,12 @@ app.post('/api/classes/reschedule', authenticateToken, async (req, res) => {
       if (reactivateError) throw reactivateError;
       newBooking = reactivatedBooking;
     } else {
-      // Create new make-up booking
+      // Create new booking (regular if same course, makeup if different)
       newBooking = await supabaseDb.createBooking({
         studentId: dbCustomerId,
         classInstanceId: parseInt(newClassId),
         status: 'booked',
-        bookingType: 'makeup',
+        bookingType: resolvedBookingType,
         courseEnrollmentId: currentBooking.course_enrollment_id, // Keep same course enrollment ID
         isGlazingReschedule: isOldClassGlazing,
         originalClassInstanceId: parseInt(oldClassId),
@@ -3589,6 +3604,38 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
       return match ? match[1] : classType;
     };
 
+    // Build a variant title from booking/class data when enrollment is missing it
+    // e.g. "SATURDAYS • 28 Feb –4 Apr • 1:00pm-3:30pm"
+    const buildVariantTitleFromBookings = (studentId, courseIdentifier) => {
+      if (!courseIdentifier) return null;
+      const baseCourse = courseIdentifier.split('.')[0];
+      const studentBookings = allBookingsWithClasses.filter(b => {
+        if (b.student_id !== studentId) return false;
+        const ci = b.class_instances;
+        return ci && ci.class_type && ci.class_type.startsWith(baseCourse);
+      });
+      if (studentBookings.length === 0) return null;
+
+      studentBookings.sort((a, b) => new Date(a.class_instances.class_date) - new Date(b.class_instances.class_date));
+
+      const firstClass = studentBookings[0].class_instances;
+      const lastClass = studentBookings[studentBookings.length - 1].class_instances;
+      const firstDate = new Date(firstClass.class_date);
+      const lastDate = new Date(lastClass.class_date);
+
+      const days = ['SUNDAYS', 'MONDAYS', 'TUESDAYS', 'WEDNESDAYS', 'THURSDAYS', 'FRIDAYS', 'SATURDAYS'];
+      const dayName = days[firstDate.getUTCDay()];
+
+      const fmtDate = (d) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+      const dateRange = `${fmtDate(firstDate)} –${fmtDate(lastDate)}`;
+
+      const time = firstClass.start_time && firstClass.end_time
+        ? `${firstClass.start_time}-${firstClass.end_time}`
+        : firstClass.start_time || '';
+
+      return `${dayName} • ${dateRange} • ${time}`;
+    };
+
     // Group bookings by student, then by enrollment
     const studentEnrollmentBookings = {};
     allBookingsForCourseGrouping?.forEach(booking => {
@@ -3838,7 +3885,7 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
     // Get all active/paused enrollments to include status and weeks remaining
     const { data: allEnrollments } = await supabaseDb.supabase
       .from('course_enrollments')
-      .select('id, student_id, status, weeks_remaining, number_of_weeks, course_variant_title, course_title, schedule_pattern, class_time, course_start_date, course_end_date, course_type')
+      .select('id, student_id, status, weeks_remaining, number_of_weeks, course_variant_title, course_title, schedule_pattern, class_time, course_start_date, course_end_date, course_type, created_at')
       .in('status', ['active', 'paused']);
 
     const enrollmentMap = {};
@@ -4208,9 +4255,10 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
           name: `${s.first_name || ''} ${s.last_name || ''}`.trim() || 'Unknown',
           email: s.email,
           courseIdentifier: displayCourse?.courseIdentifier || null, // Show only current course
-          variantTitle: enrollment?.course_variant_title || null,
+          variantTitle: enrollment?.course_variant_title || buildVariantTitleFromBookings(s.id, displayCourse?.courseIdentifier) || null,
           coursePurchaseCount: courses.length || 0,
           coursePurchaseDate: s.course_purchase_date,
+          enrollmentCreatedAt: enrollment?.created_at || s.course_purchase_date || null,
           enrollmentStatus: enrollment?.status || 'active',
           weeksRemaining: classesRemaining,
           classesAttended: endedClassesInCurrentCourse,
@@ -4321,9 +4369,11 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
           name: `${s.first_name || ''} ${s.last_name || ''}`.trim() || 'Unknown',
           email: s.email,
           courseIdentifier: upcomingCourses[0]?.courseIdentifier || null,
-          variantTitle: enrollment?.course_variant_title || null,
+          variantTitle: enrollment?.course_variant_title || buildVariantTitleFromBookings(s.id, upcomingCourses[0]?.courseIdentifier) || null,
           startDate: upcomingCourses[0]?.classDate || null,
           coursePurchaseCount: s.course_purchase_count || 0,
+          coursePurchaseDate: s.course_purchase_date,
+          enrollmentCreatedAt: enrollment?.created_at || s.course_purchase_date || null,
           weeksRemaining: classesRemaining,
           classesAllocated,
           classesAttended,
@@ -4441,6 +4491,78 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
 
     console.log(`🎨 HB Students: ${hbStudentsList.length} (${hbStudentsList.filter(s => s.scheduleStatus === 'unbooked').length} unbooked, ${hbStudentsList.filter(s => s.scheduleStatus === 'scheduled').length} scheduled)`);
 
+    // ── Membership data for unified Users page ──────────────────────────────
+    const { data: allMemberships } = await supabaseDb.supabase
+      .from('memberships')
+      .select(`
+        id, customer_id, membership_type, status, start_date, end_date, perks,
+        customers!memberships_customer_id_fkey (
+          id, email, first_name, last_name, customer_type
+        )
+      `);
+
+    // Build set of emails already in student lists (active, upcoming, hb, paused)
+    const studentEmails = new Set([
+      ...activeStudentsList.map(s => s.email),
+      ...upcomingEnrollmentsList.map(s => s.email),
+      ...hbStudentsList.map(s => s.email),
+      ...pausedStudentsList.map(s => s.email),
+    ]);
+
+    const membersList = [];
+    const membershipByEmail = {}; // email -> membership data (for attaching to dual-role students)
+
+    if (allMemberships) {
+      for (const m of allMemberships) {
+        if (!m.customers) continue;
+        const email = m.customers.email;
+        const name = `${m.customers.first_name || ''} ${m.customers.last_name || ''}`.trim() || 'Unknown';
+        const daysLeft = Math.ceil((new Date(m.end_date) - new Date()) / (1000 * 60 * 60 * 24));
+        const totalDays = Math.ceil((new Date(m.end_date) - new Date(m.start_date)) / (1000 * 60 * 60 * 24));
+        let derivedStatus = m.status;
+        if (m.status !== 'cancelled') {
+          if (daysLeft < 0) derivedStatus = 'expired';
+          else if (daysLeft <= 30) derivedStatus = 'expiring';
+          else derivedStatus = 'active';
+        }
+
+        const membershipData = {
+          membershipId: m.id,
+          membershipType: m.membership_type,
+          membershipStatus: derivedStatus,
+          startDate: m.start_date,
+          endDate: m.end_date,
+          daysRemaining: Math.max(0, daysLeft),
+          totalDays,
+          perks: m.perks,
+        };
+
+        // Store by email for cross-referencing with students
+        membershipByEmail[email] = membershipData;
+
+        // If this person is NOT already in the student lists, add to members-only list
+        if (!studentEmails.has(email)) {
+          membersList.push({
+            name,
+            email,
+            customerType: m.customers.customer_type || 'member',
+            ...membershipData,
+          });
+        }
+      }
+    }
+
+    // Sort members: active first, then by expiry date
+    membersList.sort((a, b) => {
+      const order = { active: 0, expiring: 1, expired: 2, cancelled: 3 };
+      const sa = order[a.membershipStatus] ?? 4;
+      const sb = order[b.membershipStatus] ?? 4;
+      if (sa !== sb) return sa - sb;
+      return (a.daysRemaining || 0) - (b.daysRemaining || 0);
+    });
+
+    console.log(`🎫 Members: ${membersList.length} members-only, ${Object.keys(membershipByEmail).length} total memberships`);
+
     res.json({
       stats: {
         totalStudents,
@@ -4459,6 +4581,8 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
       returningStudentsList,
       upcomingEnrollmentsList,
       hbStudentsList,
+      membersList,
+      membershipByEmail,
       message: 'Student statistics calculated successfully'
     });
 
@@ -5205,18 +5329,38 @@ app.get('/api/admin/dashboard/activity', authenticateToken, async (req, res) => 
       activity.push({ action, who, detail, when, createdAt });
     }
 
-    // Bookings/cancellations — deduplicate by student+class
+    // Bookings/cancellations — group batch bookings (e.g. 6-week WT enrollment creates 6 at once)
+    const bookingGroups = {};
     (recentBookingsRes.data || []).forEach(b => {
       const name = b.student ? `${b.student.first_name} ${b.student.last_name}`.trim() : 'Unknown';
+      const action = b.status === 'cancelled' ? 'Cancelled' : 'Booked';
       const ci = b.class_instance;
-      let detail = '';
-      if (ci) {
-        const rawDate = (ci.class_date || '').split('T')[0];
-        const dateStr = rawDate ? new Date(rawDate + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : '';
-        const typeShort = (ci.class_type || '').startsWith('WT') ? 'WT' : (ci.class_type || '').startsWith('HB') ? 'HB' : (ci.class_type || '').substring(0, 6);
-        detail = `${typeShort} ${dateStr}${ci.start_time ? `, ${ci.start_time}` : ''}`;
+      const typeShort = ci ? ((ci.class_type || '').startsWith('WT') ? 'WT' : (ci.class_type || '').startsWith('HB') ? 'HB' : (ci.class_type || '').substring(0, 6)) : '';
+      // Group by student + action + class type + created_at (within 60s = batch)
+      const createdMin = Math.floor(new Date(b.created_at).getTime() / 60000);
+      const groupKey = `${action}|${name}|${typeShort}|${createdMin}`;
+      if (!bookingGroups[groupKey]) {
+        bookingGroups[groupKey] = { action, name, typeShort, createdAt: b.created_at, count: 0, firstDate: null };
       }
-      addActivity(b.status === 'cancelled' ? 'Cancelled' : 'Booked', name, detail, timeAgo(b.created_at), b.created_at);
+      bookingGroups[groupKey].count++;
+      if (ci && ci.class_date) {
+        const d = (ci.class_date || '').split('T')[0];
+        if (!bookingGroups[groupKey].firstDate || d < bookingGroups[groupKey].firstDate) {
+          bookingGroups[groupKey].firstDate = d;
+        }
+      }
+    });
+    Object.values(bookingGroups).forEach(g => {
+      let detail = '';
+      if (g.count > 1) {
+        detail = `${g.typeShort} — ${g.count} classes`;
+      } else if (g.firstDate) {
+        const dateStr = new Date(g.firstDate + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+        detail = `${g.typeShort} ${dateStr}`;
+      } else {
+        detail = g.typeShort;
+      }
+      addActivity(g.action, g.name, detail, timeAgo(g.createdAt), g.createdAt);
     });
 
     // New enrollments
@@ -5487,6 +5631,7 @@ app.put('/api/admin/students/:email', authenticateToken, async (req, res) => {
     };
 
     // Only update fields if they're provided in the request
+    const nameChanged = first_name !== undefined || last_name !== undefined;
     if (first_name !== undefined)          updateData.first_name = first_name;
     if (last_name !== undefined)           updateData.last_name = last_name;
     if (newEmail !== undefined)            updateData.email = newEmail;
@@ -5495,12 +5640,26 @@ app.put('/api/admin/students/:email', authenticateToken, async (req, res) => {
     if (classes_allocated !== undefined)   updateData.classes_allocated = classes_allocated;
     if (phone !== undefined)               updateData.phone = phone;
 
-    const { data, error } = await supabaseDb.supabase
+    // If name changed, try to set name_locked flag to prevent sync overwrite
+    if (nameChanged) updateData.name_locked = true;
+
+    let { data, error } = await supabaseDb.supabase
       .from('customers')
       .update(updateData)
       .eq('email', decodedEmail)
       .select()
       .single();
+
+    // If name_locked column doesn't exist yet, retry without it
+    if (error && nameChanged && error.message?.includes('name_locked')) {
+      delete updateData.name_locked;
+      ({ data, error } = await supabaseDb.supabase
+        .from('customers')
+        .update(updateData)
+        .eq('email', decodedEmail)
+        .select()
+        .single());
+    }
 
     if (error) throw error;
 
@@ -5729,6 +5888,17 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, async (req, re
     const getBase = (id) => { const i = (id || '').lastIndexOf('.'); return i > 0 ? id.substring(0, i) : id; };
     const currentCourseBase = currentClassInfo ? getBase(currentClassInfo.class_type) : '';
 
+    // Fetch enrollment course identifiers for bookings that have enrollment IDs
+    const enrollmentIds = [...new Set(allBookings.filter(b => b.course_enrollment_id).map(b => b.course_enrollment_id))];
+    const enrollmentCourseMap = {};
+    if (enrollmentIds.length > 0) {
+      const { data: enrollments } = await supabaseDb.supabase
+        .from('course_enrollments')
+        .select('id, course_identifier')
+        .in('id', enrollmentIds);
+      (enrollments || []).forEach(e => { enrollmentCourseMap[e.id] = e.course_identifier; });
+    }
+
     // Separate active members from absent members
     const activeMembers = [];
     const absentMembers = [];
@@ -5748,14 +5918,19 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, async (req, re
       };
 
       // Determine if this is a makeup student
-      // booking_type is the authoritative field (admin can toggle it)
-      if (booking.booking_type === 'makeup') {
+      // If the student's enrollment is for the SAME course as this class, they're enrolled (not makeup)
+      // even if they rescheduled away and back
+      const enrollmentCourse = booking.course_enrollment_id ? enrollmentCourseMap[booking.course_enrollment_id] : null;
+      const enrollmentBase = enrollmentCourse ? getBase(enrollmentCourse) : null;
+      const isOwnCourse = enrollmentBase && enrollmentBase === currentCourseBase;
+
+      if (!isOwnCourse && booking.booking_type === 'makeup') {
         member.isMakeup = true;
         if (booking.original_class_instance_id) {
           const fullId = originalClassIdentifiers[booking.original_class_instance_id] || '';
           member.originalClassIdentifier = getBase(fullId) || null;
         }
-      } else if (booking.original_class_instance_id && booking.booking_type !== 'regular') {
+      } else if (!isOwnCourse && booking.original_class_instance_id && booking.booking_type !== 'regular') {
         // Fallback: if no explicit type set, check if rescheduled from a different course
         const originalIdentifier = originalClassIdentifiers[booking.original_class_instance_id] || '';
         const originalBase = getBase(originalIdentifier);
@@ -5769,13 +5944,24 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, async (req, re
       if (booking.status === 'booked' || booking.status === 'attended' || booking.status === 'completed') {
         activeMembers.push(member);
       }
-      // Absent members: rescheduled, cancelled (manual absence), or marked as not attended
-      else if (booking.status === 'rescheduled' || booking.status === 'cancelled' || booking.attended === false) {
+      // Absent members: rescheduled or marked as not attended
+      // Skip cancelled bookings from students not enrolled in this course (e.g. cancelled makeups)
+      else if (booking.status === 'rescheduled' || booking.attended === false) {
         // If rescheduled, add the new class info
         if (booking.status === 'rescheduled' && rescheduledToMap[booking.student_id]) {
           member.rescheduledTo = rescheduledToMap[booking.student_id];
         }
         absentMembers.push(member);
+      }
+      else if (booking.status === 'cancelled') {
+        // Only show cancelled bookings if the student has other active bookings in this course
+        const hasActiveBookingInCourse = allBookings.some(
+          b => b.student_id === booking.student_id && b.id !== booking.id &&
+               (b.status === 'booked' || b.status === 'attended' || b.status === 'completed')
+        );
+        if (hasActiveBookingInCourse) {
+          absentMembers.push(member);
+        }
       }
     });
 

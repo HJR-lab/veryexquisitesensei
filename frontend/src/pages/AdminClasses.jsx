@@ -942,17 +942,18 @@ export default function AdminClasses() {
     const makeup  = members.filter(m => m.isMakeup);
     const absent  = absentMembers[classInstance.id] || [];
 
-    const renderMemberRow = (m, j, isMakeup) => {
+    const renderMemberRow = (m, j, isMakeup, rowNum) => {
       const bgColor = isMakeup ? '#FAF8FF' : '#FFFFFF';
       const hoverBg = isMakeup ? '#F3EEFF' : TC_LIGHT;
       const nameColor = isMakeup ? '#5A2D82' : TC_DARK;
       return (
         <div
           key={m.bookingId || j}
-          style={{ display: 'grid', gridTemplateColumns: '1fr auto 60px', padding: '9px 12px', borderTop: `1px solid ${RULE}`, backgroundColor: bgColor, alignItems: 'center' }}
+          style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto 60px', padding: '9px 12px', borderTop: `1px solid ${RULE}`, backgroundColor: bgColor, alignItems: 'center' }}
           onMouseEnter={e => e.currentTarget.style.backgroundColor = hoverBg}
           onMouseLeave={e => e.currentTarget.style.backgroundColor = bgColor}
         >
+          <span style={{ fontSize: '10px', color: MUTED, fontWeight: 600 }}>{rowNum}.</span>
           <span
             onClick={() => navigate(`/admin/students/${encodeURIComponent(m.email)}`)}
             style={{ fontSize: '12px', fontWeight: 600, cursor: 'pointer', color: nameColor, textDecoration: 'underline' }}
@@ -1039,7 +1040,8 @@ export default function AdminClasses() {
     return (
       <div style={{ border: `1px solid ${RULE}`, marginTop: '4px' }}>
         {/* Header */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 60px', backgroundColor: ALT, padding: '6px 12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto 60px', backgroundColor: ALT, padding: '6px 12px' }}>
+          <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED }}>#</span>
           <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED }}>Student</span>
           <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, minWidth: '80px', textAlign: 'center' }}>Type</span>
           <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, textAlign: 'right' }}>Actions</span>
@@ -1049,14 +1051,15 @@ export default function AdminClasses() {
           <div style={{ padding: '12px', textAlign: 'center', color: MUTED, fontSize: '12px' }}>Loading...</div>
         )}
 
-        {regular.map((m, j) => renderMemberRow(m, j, false))}
-        {makeup.map((m, j) => renderMemberRow(m, j, true))}
+        {regular.map((m, j) => renderMemberRow(m, j, false, j + 1))}
+        {makeup.map((m, j) => renderMemberRow(m, j, true, regular.length + j + 1))}
 
         {absent.map((m, j) => (
           <div
             key={`ab-${m.bookingId || j}`}
-            style={{ display: 'grid', gridTemplateColumns: '1fr auto 60px', padding: '9px 12px', borderTop: `1px solid ${RULE}`, backgroundColor: '#FFFBF0', alignItems: 'center' }}
+            style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto 60px', padding: '9px 12px', borderTop: `1px solid ${RULE}`, backgroundColor: '#FFFBF0', alignItems: 'center' }}
           >
+            <span />
             <span style={{ fontSize: '12px', fontWeight: 600, color: '#9E6200' }}>{m.firstName} {m.lastName}</span>
             <span style={{ fontSize: '10px', color: '#9E6200', minWidth: '80px', textAlign: 'center' }}>{m.status === 'rescheduled' ? 'Rescheduled' : 'Absent'}</span>
             <div />

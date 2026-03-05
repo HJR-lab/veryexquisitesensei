@@ -251,11 +251,7 @@ function App() {
           />
           <Route
             path="/admin/memberships"
-            element={
-              <AdminRoute>
-                <AdminMemberships />
-              </AdminRoute>
-            }
+            element={<Navigate to="/admin/students" replace />}
           />
           <Route
             path="/admin/policy"

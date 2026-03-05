@@ -12,6 +12,8 @@ const INK      = '#282828';
 const MUTED    = '#888888';
 const RULE     = 'rgba(40,40,40,0.09)';
 const ALT      = '#F5F3F0';
+const MEMBER_BG = '#F3F0FF';
+const MEMBER_COLOR = '#7C3AED';
 
 // ─── Allocation progress bar ──────────────────────────────────────────────────
 function AllocBar({ label, used, total, color }) {
@@ -37,6 +39,9 @@ function StatusBadge({ status }) {
     paused:    { label: 'Paused',    bg: '#FFF8E1', color: '#F57F17' },
     completed: { label: 'Done',      bg: ALT,       color: MUTED },
     hb:        { label: 'HB',        bg: '#FFF3E0', color: '#E65100' },
+    member:    { label: 'Member',    bg: MEMBER_BG, color: MEMBER_COLOR },
+    expiring:  { label: 'Expiring',  bg: '#FFF7E6', color: '#9E6200' },
+    expired:   { label: 'Expired',   bg: ALT,       color: MUTED },
   };
   const cfg = map[status] || map.active;
   return (
@@ -53,6 +58,19 @@ function StatusBadge({ status }) {
       {cfg.label}
     </span>
   );
+}
+
+// ─── Membership display helpers ───────────────────────────────────────────────
+function getDisplayType(rawType) {
+  if (!rawType) return '—';
+  const match = rawType.match(/(\d+)\s*month/i);
+  if (match) return `${match[1]} Month`;
+  return rawType;
+}
+
+function fmtDate(dateStr) {
+  if (!dateStr) return '—';
+  return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
 export default function AdminStudents() {
@@ -79,6 +97,10 @@ export default function AdminStudents() {
   const [upcomingEnrollmentsList,setUpcomingEnrollmentsList]= useState([]);
   const [hbStudentsList,         setHbStudentsList]         = useState([]);
 
+  // Members data
+  const [membersList,        setMembersList]        = useState([]);
+  const [membershipByEmail,  setMembershipByEmail]  = useState({});
+
   // WT sorting / filter
   const [sortBy,         setSortBy]         = useState('earliest');
   const [selectedCohort, setSelectedCohort] = useState('all');
@@ -94,14 +116,16 @@ export default function AdminStudents() {
 
   // HB bulk selection
   const [resyncingHB,   setResyncingHB]   = useState(false);
-  const [markingDone,   setMarkingDone]   = useState(null);  // kept for compat
+  const [markingDone,   setMarkingDone]   = useState(null);
   const [selectedHB,    setSelectedHB]    = useState(new Set());
   const [bulkProcessing,setBulkProcessing]= useState(false);
 
   // UI: active tab, search, sort within unified view
-  const [tab,    setTab]    = useState('all');   // 'all' | 'wt-now' | 'wt-next' | 'hb' | 'paused'
+  const [tab,    setTab]    = useState('all');   // 'all' | 'students' | 'members' | 'student-member'
   const [search, setSearch] = useState('');
-  const [uiSort, setUiSort] = useState('cohort'); // 'cohort'|'course-asc'|'course-desc'|'name'|'recent'
+  const [uiFilter, setUiFilter] = useState('pkg-wt6'); // 'all'|'pkg-wt6'|'pkg-wt10'|'pkg-wt18'|'pkg-hb4'|'pkg-hb8'|'members'
+  const [uiSort, setUiSort] = useState('cohort'); // 'cohort'|'name'|'recent'|'expiry'|'plan'
+                                                   // member sorts: 'expiry'|'plan'|'name'|'recent'
 
   useEffect(() => { loadStats(); }, []);
 
@@ -118,6 +142,8 @@ export default function AdminStudents() {
       setReturningStudentsList(data.returningStudentsList || []);
       setUpcomingEnrollmentsList(data.upcomingEnrollmentsList || []);
       setHbStudentsList(data.hbStudentsList || []);
+      setMembersList(data.membersList || []);
+      setMembershipByEmail(data.membershipByEmail || {});
     } catch (error) {
       console.error('[AdminStudents] Failed to load stats:', error);
     } finally {
@@ -329,58 +355,93 @@ export default function AdminStudents() {
     }
   };
 
-  // ─── Unified student table helpers ────────────────────────────────────────
-  // Merge all lists into a flat structure for the single unified table
+  // ─── Unified list: students + members together ──────────────────────────────
   const buildUnifiedList = () => {
-    const wtActive = getSortedActiveStudents().map(s => ({
-      ...s,
-      _type: s.enrollmentStatus === 'upcoming' ? 'wt-next' : 'wt-now',
-      _wtUsed: s.classesAttended || 0,
-      _wtTotal: s.classesAllocated || 6,
-      _hbUsed: null, _hbTotal: null,
-      _purchaseCount: s.coursePurchaseCount || 1,
-      _enrollmentId: s.enrollmentId,
-      _variantTitle: s.variantTitle || s.courseIdentifier || '',
-      _lastClassDate: null,
-      _recentDate: s.coursePurchaseDate || null,
-    }));
+    const wtActive = getSortedActiveStudents().map(s => {
+      const membership = membershipByEmail[s.email];
+      return {
+        ...s,
+        _type: membership ? 'student-member' : (s.enrollmentStatus === 'upcoming' ? 'wt-next' : 'wt-now'),
+        _cardType: 'student',
+        _wtUsed: s.classesAttended || 0,
+        _wtTotal: s.classesAllocated || 6,
+        _hbUsed: null, _hbTotal: null,
+        _purchaseCount: s.coursePurchaseCount || 1,
+        _enrollmentId: s.enrollmentId,
+        _variantTitle: s.variantTitle || s.courseIdentifier || '',
+        _lastClassDate: null,
+        _recentDate: s.enrollmentCreatedAt || s.coursePurchaseDate || null,
+        _membership: membership || null,
+        _statusKey: s.enrollmentStatus === 'upcoming' ? 'upcoming' : 'active',
+      };
+    });
 
-    const hbAll = getSortedHbStudents().map(s => ({
-      ...s,
-      _type: 'hb',
+    const hbAll = getSortedHbStudents().map(s => {
+      const membership = membershipByEmail[s.email];
+      return {
+        ...s,
+        _type: membership ? 'student-member' : 'hb',
+        _cardType: 'hb',
+        _wtUsed: null, _wtTotal: null,
+        _hbUsed: s.creditsUsed || 0,
+        _hbTotal: s.creditsAllocated || 0,
+        _purchaseCount: s.purchaseCount || 1,
+        _enrollmentId: s.enrollmentId,
+        _variantTitle: s.variantTitle || s.courseTitle || 'HB',
+        _lastClassDate: null,
+        _recentDate: s.enrollmentCreatedAt || s.createdAt || null,
+        _membership: membership || null,
+        _statusKey: 'hb',
+      };
+    });
+
+    const paused = pausedStudentsList.map(s => {
+      const membership = membershipByEmail[s.email];
+      return {
+        ...s,
+        _type: membership ? 'student-member' : 'paused',
+        _cardType: 'paused',
+        _wtUsed: null, _wtTotal: null,
+        _hbUsed: null, _hbTotal: null,
+        _purchaseCount: s.coursePurchaseCount || 1,
+        _enrollmentId: s.enrollmentId,
+        _variantTitle: s.variantTitle || s.courseIdentifier || '',
+        _lastClassDate: null,
+        _recentDate: s.enrollmentCreatedAt || s.coursePurchaseDate || null,
+        _membership: membership || null,
+        _statusKey: 'paused',
+      };
+    });
+
+    // Members-only (no student enrollment)
+    const membersOnly = membersList.map(m => ({
+      ...m,
+      _type: 'member',
+      _cardType: 'member',
       _wtUsed: null, _wtTotal: null,
-      _hbUsed: s.creditsUsed || 0,
-      _hbTotal: s.creditsAllocated || 0,
-      _purchaseCount: s.purchaseCount || 1,
-      _enrollmentId: s.enrollmentId,
-      _variantTitle: s.variantTitle || s.courseTitle || 'HB',
-      _lastClassDate: null,
-      _recentDate: s.createdAt || null,
-    }));
-
-    const paused = pausedStudentsList.map(s => ({
-      ...s,
-      _type: 'paused',
-      _wtUsed: null, _wtTotal: null,
       _hbUsed: null, _hbTotal: null,
-      _purchaseCount: s.coursePurchaseCount || 1,
-      _enrollmentId: s.enrollmentId,
-      _variantTitle: s.variantTitle || s.courseIdentifier || '',
+      _purchaseCount: 0,
+      _enrollmentId: null,
+      _variantTitle: getDisplayType(m.membershipType),
       _lastClassDate: null,
-      _recentDate: s.coursePurchaseDate || null,
+      _recentDate: m.startDate || null,
+      _membership: m,
+      _statusKey: m.membershipStatus || 'member',
     }));
 
-    return [...wtActive, ...hbAll, ...paused];
+    return [...wtActive, ...hbAll, ...paused, ...membersOnly];
   };
 
   const tabFilter = (student) => {
-    if (tab === 'all')     return true;
-    if (tab === 'wt-now')  return student._type === 'wt-now';
-    if (tab === 'wt-next') return student._type === 'wt-next';
-    if (tab === 'hb')      return student._type === 'hb';
-    if (tab === 'paused')  return student._type === 'paused';
+    if (tab === 'all')            return true;
+    if (tab === 'students')       return student._cardType !== 'member';
+    if (tab === 'members')        return student._type === 'member' || student._type === 'student-member';
+    if (tab === 'student-member') return student._type === 'student-member';
     return true;
   };
+
+  // Sort options differ based on tab
+  const isOnMemberTab = tab === 'members';
 
   const applySort = (list) => {
     switch (uiSort) {
@@ -388,35 +449,103 @@ export default function AdminStudents() {
       case 'course-asc': return [...list].sort((a, b) => (parseCourseStartDate(a.courseIdentifier) || new Date(9e14)) - (parseCourseStartDate(b.courseIdentifier) || new Date(9e14)));
       case 'course-desc':return [...list].sort((a, b) => (parseCourseStartDate(b.courseIdentifier) || new Date(0)) - (parseCourseStartDate(a.courseIdentifier) || new Date(0)));
       case 'recent':     return [...list].sort((a, b) => new Date(b._recentDate || 0) - new Date(a._recentDate || 0));
+      case 'expiry':     return [...list].sort((a, b) => {
+        const statusOrder = { active: 0, expiring: 0, expired: 1, cancelled: 2 };
+        const sa = statusOrder[a._membership?.membershipStatus] ?? 3;
+        const sb = statusOrder[b._membership?.membershipStatus] ?? 3;
+        if (sa !== sb) return sa - sb;
+        return (a._membership?.daysRemaining ?? 9999) - (b._membership?.daysRemaining ?? 9999);
+      });
+      case 'plan':       return [...list].sort((a, b) => (a._membership?.membershipType || '').localeCompare(b._membership?.membershipType || ''));
       case 'cohort':
       default: {
         return [...list].sort((a, b) => {
-          const ca = a.courseIdentifier || 'zzz';
-          const cb = b.courseIdentifier || 'zzz';
+          const ca = a.courseIdentifier || a._variantTitle || 'zzz';
+          const cb = b.courseIdentifier || b._variantTitle || 'zzz';
           return ca !== cb ? ca.localeCompare(cb) : (a.name || '').localeCompare(b.name || '');
         });
       }
     }
   };
 
-  const allStudents  = buildUnifiedList();
+  const allUsers  = buildUnifiedList();
   const tabCounts = {
-    all:      allStudents.length,
-    'wt-now': allStudents.filter(s => s._type === 'wt-now').length,
-    'wt-next':allStudents.filter(s => s._type === 'wt-next').length,
-    hb:       allStudents.filter(s => s._type === 'hb').length,
-    paused:   allStudents.filter(s => s._type === 'paused').length,
+    all:              allUsers.length,
+    students:         allUsers.filter(s => s._cardType !== 'member').length,
+    members:          allUsers.filter(s => s._type === 'member' || s._type === 'student-member').length,
+    'student-member': allUsers.filter(s => s._type === 'student-member').length,
+  };
+
+  // Package type filter helper
+  const getPackageKey = (s) => {
+    const isWT = s._cardType === 'hb' ? false : (s._wtTotal != null);
+    const isHB = s._cardType === 'hb';
+    const total = isWT ? (s._wtTotal || 6) : (s._hbTotal || 0);
+    if (isWT && total <= 6) return 'pkg-wt6';
+    if (isWT && total <= 10) return 'pkg-wt10';
+    if (isWT && total > 10) return 'pkg-wt18';
+    if (isHB && total <= 4) return 'pkg-hb4';
+    if (isHB) return 'pkg-hb8';
+    return 'pkg-other';
   };
 
   const searchLower  = search.toLowerCase();
   const visibleRows  = applySort(
-    allStudents
+    allUsers
       .filter(tabFilter)
+      .filter(s => {
+        if (uiFilter === 'all' || isOnMemberTab) return true;
+        if (uiFilter === 'members') return s._type === 'member' || s._type === 'student-member';
+        return getPackageKey(s) === uiFilter;
+      })
       .filter(s =>
         (s.name  || '').toLowerCase().includes(searchLower) ||
         (s.email || '').toLowerCase().includes(searchLower)
       )
   );
+
+  // Sort options based on current tab
+  const studentFilterOptions = [
+    { key: 'all',        label: 'All courses & memberships' },
+    { key: 'pkg-wt6',   label: 'Wheelthrowing 6 Weeks' },
+    { key: 'pkg-wt10',  label: 'Wheelthrowing 10 Class' },
+    { key: 'pkg-wt18',  label: 'Wheelthrowing 6 Weeks x3' },
+    { key: 'pkg-hb4',   label: 'Handbuilding 4 Weeks' },
+    { key: 'pkg-hb8',   label: 'Handbuilding 8 Weeks' },
+    { key: 'members',   label: 'Memberships' },
+  ];
+
+  const studentSortOptions = [
+    { key: 'cohort',      label: 'Cohort' },
+    { key: 'course-asc',  label: 'Course (earliest)' },
+    { key: 'course-desc', label: 'Course (latest)' },
+    { key: 'name',        label: 'Name' },
+    { key: 'recent',      label: 'Recent signup' },
+  ];
+
+  const memberSortOptions = [
+    { key: 'expiry', label: 'Expiry' },
+    { key: 'plan',   label: 'Plan' },
+    { key: 'name',   label: 'Name' },
+    { key: 'recent', label: 'Recent' },
+  ];
+
+  const currentSortOptions = (isOnMemberTab || uiFilter === 'members') ? memberSortOptions : studentSortOptions;
+
+  // When switching tabs, reset sort if current sort doesn't exist in new tab
+  const handleTabChange = (newTab) => {
+    setTab(newTab);
+    const newIsOnMember = newTab === 'members';
+    if (newIsOnMember) {
+      setUiSort('expiry');
+    } else {
+      const validSorts = studentSortOptions.map(o => o.key);
+      if (!validSorts.includes(uiSort)) {
+        setUiSort('cohort');
+      }
+    }
+    setUiFilter(newIsOnMember ? 'all' : 'pkg-wt6');
+  };
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
@@ -429,23 +558,22 @@ export default function AdminStudents() {
         <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>Admin</div>
-            <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Students</h1>
+            <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Users</h1>
           </div>
         </div>
 
         {/* ── Stats strip (clickable filter) + sort ────────────────────── */}
         <div style={{ border: `1px solid ${RULE}`, marginBottom: '0' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1px', backgroundColor: RULE }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1px', backgroundColor: RULE }}>
             {[
-              { key: 'all',     label: 'Total',       value: tabCounts.all },
-              { key: 'wt-now',  label: 'WT Current',  value: tabCounts['wt-now'] },
-              { key: 'wt-next', label: 'WT Upcoming', value: tabCounts['wt-next'] },
-              { key: 'hb',      label: 'HB Ongoing',  value: tabCounts.hb },
-              { key: 'paused',  label: 'Paused',      value: tabCounts.paused },
+              { key: 'all',            label: 'All Users',        value: tabCounts.all },
+              { key: 'students',       label: 'Students',         value: tabCounts.students },
+              { key: 'members',        label: 'Members',          value: tabCounts.members },
+              { key: 'student-member', label: 'Student & Member', value: tabCounts['student-member'] },
             ].map((s) => (
               <button
                 key={s.key}
-                onClick={() => setTab(s.key)}
+                onClick={() => handleTabChange(s.key)}
                 style={{
                   backgroundColor: tab === s.key ? INK : '#FFFFFF',
                   padding: '16px 20px', border: 'none', cursor: 'pointer', textAlign: 'left',
@@ -462,29 +590,35 @@ export default function AdminStudents() {
             ))}
           </div>
           {/* Sort row */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '8px 16px', borderTop: `1px solid ${RULE}`, backgroundColor: ALT }}>
-            <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginRight: '6px' }}>Sort</span>
-            {[
-              { key: 'cohort',      label: 'Cohort' },
-              { key: 'course-asc',  label: 'Course ↑' },
-              { key: 'course-desc', label: 'Course ↓' },
-              { key: 'name',        label: 'Name' },
-              { key: 'recent',      label: 'Recent' },
-            ].map(s => (
-              <button
-                key={s.key}
-                onClick={() => setUiSort(s.key)}
-                style={{
-                  padding: '4px 10px',
-                  border: `1px solid ${uiSort === s.key ? INK : RULE}`,
-                  backgroundColor: uiSort === s.key ? INK : '#FFFFFF',
-                  color: uiSort === s.key ? '#FFF' : MUTED,
-                  fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', cursor: 'pointer',
-                }}
-              >
-                {s.label}
-              </button>
-            ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', borderTop: `1px solid ${RULE}`, backgroundColor: ALT }}>
+            {!isOnMemberTab && (
+              <>
+                <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED }}>Filter</span>
+                <select
+                  value={uiFilter}
+                  onChange={e => {
+                    setUiFilter(e.target.value);
+                    if (e.target.value === 'members') setUiSort('expiry');
+                    else if (uiSort === 'expiry' || uiSort === 'plan') setUiSort('cohort');
+                  }}
+                  style={{ padding: '4px 8px', border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF', fontSize: '11px', fontWeight: 700, color: INK, cursor: 'pointer', fontFamily: 'inherit', outline: 'none' }}
+                >
+                  {studentFilterOptions.map(s => (
+                    <option key={s.key} value={s.key}>{s.label}</option>
+                  ))}
+                </select>
+              </>
+            )}
+            <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED }}>Sort</span>
+            <select
+              value={uiSort}
+              onChange={e => setUiSort(e.target.value)}
+              style={{ padding: '4px 8px', border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF', fontSize: '11px', fontWeight: 700, color: INK, cursor: 'pointer', fontFamily: 'inherit', outline: 'none' }}
+            >
+              {currentSortOptions.map(s => (
+                <option key={s.key} value={s.key}>{s.label}</option>
+              ))}
+            </select>
           </div>
         </div>
 
@@ -493,13 +627,13 @@ export default function AdminStudents() {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search students…"
+            placeholder="Search users…"
             style={{ width: '100%', padding: '10px 14px', border: 'none', backgroundColor: '#FFFFFF', fontSize: '13px', color: INK, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
           />
         </div>
 
-        {/* ── HB bulk action bar (shown only when in HB tab with selections) */}
-        {tab === 'hb' && selectedHB.size > 0 && (
+        {/* ── HB bulk action bar (shown only when viewing HB students with selections) */}
+        {(tab === 'all' || tab === 'students') && selectedHB.size > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 16px', backgroundColor: TC_LIGHT, border: `1px solid ${RULE}`, borderTop: 'none' }}>
             <span style={{ fontSize: '12px', fontWeight: 700, color: TC_DARK }}>{selectedHB.size} selected</span>
             <button onClick={markSelectedDone} disabled={bulkProcessing} style={{ padding: '5px 12px', backgroundColor: '#2E7D32', color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, cursor: bulkProcessing ? 'not-allowed' : 'pointer', opacity: bulkProcessing ? 0.5 : 1 }}>Mark Done</button>
@@ -513,53 +647,12 @@ export default function AdminStudents() {
           </div>
         )}
 
-        {/* HB hide-completed + sort controls */}
-        {tab === 'hb' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '10px 16px', backgroundColor: '#FFFDF9', border: `1px solid ${RULE}`, borderTop: 'none' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 700, color: MUTED, cursor: 'pointer' }}>
-              <input type="checkbox" checked={showCompleted} onChange={e => setShowCompleted(e.target.checked)} />
-              Show Completed
-            </label>
-            <span style={{ fontSize: '9px', color: RULE }}>|</span>
-            <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED }}>HB Sort</span>
-            {[
-              { key: 'name',     label: 'Name' },
-              { key: 'credits',  label: 'Credits' },
-              { key: 'enrolled', label: 'Recent' },
-              { key: 'variant',  label: 'Type' },
-            ].map(s => (
-              <button
-                key={s.key}
-                onClick={() => setHbSortBy(s.key)}
-                style={{
-                  padding: '4px 8px',
-                  border: `1px solid ${hbSortBy === s.key ? INK : RULE}`,
-                  backgroundColor: hbSortBy === s.key ? INK : 'transparent',
-                  color: hbSortBy === s.key ? '#FFF' : MUTED,
-                  fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', cursor: 'pointer',
-                }}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* ── Student table ─────────────────────────────────────────────── */}
+        {/* ── User table ─────────────────────────────────────────────── */}
         <div style={{ border: `1px solid ${RULE}`, borderTop: 'none', backgroundColor: '#FFFFFF', overflowX: 'auto' }}>
 
           {/* Table header */}
-          <div style={{ display: 'grid', gridTemplateColumns: tab === 'hb' ? '32px 1fr 140px 80px 100px 80px' : '1fr 140px 80px 100px 100px', minWidth: '600px', padding: '10px 16px', backgroundColor: ALT, borderBottom: `1px solid ${RULE}` }}>
-            {tab === 'hb' && (
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                <input
-                  type="checkbox"
-                  checked={selectedHB.size === getSortedHbStudents().length && getSortedHbStudents().length > 0}
-                  onChange={toggleSelectAllHB}
-                />
-              </div>
-            )}
-            {['Student', 'Course / Variant', 'Allocations', 'Status', tab === 'hb' ? 'Actions' : 'Orders'].map((h, i) => (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px 100px 100px', minWidth: '600px', padding: '10px 16px', backgroundColor: ALT, borderBottom: `1px solid ${RULE}` }}>
+            {['User', 'Course / Membership', 'Progress', 'Status'].map((h, i) => (
               <span key={i} style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED }}>{h}</span>
             ))}
           </div>
@@ -571,55 +664,49 @@ export default function AdminStudents() {
 
           {/* Empty */}
           {!loading && visibleRows.length === 0 && (
-            <div style={{ padding: '40px', textAlign: 'center', color: MUTED, fontSize: '13px' }}>No students found</div>
+            <div style={{ padding: '40px', textAlign: 'center', color: MUTED, fontSize: '13px' }}>No users found</div>
           )}
 
           {/* Rows */}
           {!loading && visibleRows.map((student, i) => {
-            const isHB      = student._type === 'hb';
-            const isSelected= isHB && selectedHB.has(student._enrollmentId);
-            const hbAllUsed = isHB && student._hbTotal > 0 && student._hbUsed >= student._hbTotal;
-            const statusKey = student._type === 'wt-now' ? 'active' : student._type === 'wt-next' ? 'upcoming' : student._type === 'hb' ? 'hb' : 'paused';
+            const isMember       = student._cardType === 'member';
+            const isDual         = student._type === 'student-member';
+            const isHB           = student._cardType === 'hb';
+            const isSelected     = isHB && selectedHB.has(student._enrollmentId);
+            const hbAllUsed      = isHB && student._hbTotal > 0 && student._hbUsed >= student._hbTotal;
+            const membership     = student._membership;
 
-            const gridCols = isHB
-              ? '32px 1fr 140px 80px 100px 80px'
-              : '1fr 140px 80px 100px 100px';
+            // Determine status key for badge
+            let statusKey = student._statusKey;
+            if (isMember && membership) statusKey = membership.membershipStatus || 'member';
 
             return (
               <div
                 key={`${student._enrollmentId || student.email}-${i}`}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: gridCols,
+                  gridTemplateColumns: '1fr 180px 100px 100px',
                   minWidth: '600px',
-                  padding: '12px 16px',
+                  padding: isDual ? '14px 16px' : '12px 16px',
                   borderBottom: i < visibleRows.length - 1 ? `1px solid ${RULE}` : 'none',
-                  backgroundColor: isSelected ? TC_LIGHT : hbAllUsed ? '#FAFAFA' : '#FFFFFF',
-                  alignItems: 'center',
+                  backgroundColor: isSelected ? TC_LIGHT : isDual ? '#FAFBFF' : hbAllUsed ? '#FAFAFA' : '#FFFFFF',
+                  alignItems: isDual ? 'start' : 'center',
                   transition: 'background-color 0.1s',
                   cursor: 'pointer',
                   opacity: hbAllUsed ? 0.65 : 1,
+                  borderLeft: isDual ? `3px solid ${MEMBER_COLOR}` : isMember ? `3px solid ${MEMBER_COLOR}` : '3px solid transparent',
                 }}
                 onMouseEnter={e => { if (!isSelected) e.currentTarget.style.backgroundColor = TC_LIGHT; }}
-                onMouseLeave={e => { e.currentTarget.style.backgroundColor = isSelected ? TC_LIGHT : hbAllUsed ? '#FAFAFA' : '#FFFFFF'; }}
+                onMouseLeave={e => { e.currentTarget.style.backgroundColor = isSelected ? TC_LIGHT : isDual ? '#FAFBFF' : hbAllUsed ? '#FAFAFA' : '#FFFFFF'; }}
                 onClick={() => viewStudentDetail(student)}
               >
-                {/* HB checkbox */}
-                {isHB && (
-                  <div onClick={e => toggleHBSelect(student._enrollmentId, e)} style={{ display: 'flex', alignItems: 'center' }}>
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={e => toggleHBSelect(student._enrollmentId, e)}
-                      onClick={e => e.stopPropagation()}
-                    />
-                  </div>
-                )}
-
-                {/* Name + email */}
+                {/* Name + email + type badge */}
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
                     <span style={{ fontSize: '13px', fontWeight: 700 }}>{student.name}</span>
+                    {isDual && (
+                      <span style={{ fontSize: '8px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '1px 5px', backgroundColor: MEMBER_BG, color: MEMBER_COLOR }}>S+M</span>
+                    )}
                     {hbAllUsed && (
                       <span style={{ fontSize: '9px', fontWeight: 700, color: '#2E7D32' }}>&#10003; Done</span>
                     )}
@@ -627,29 +714,67 @@ export default function AdminStudents() {
                   <div style={{ fontSize: '11px', color: MUTED }}>{student.email}</div>
                 </div>
 
-                {/* Course / variant */}
+                {/* Course / Membership info */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                  {student._variantTitle ? (
-                    <span style={{ fontFamily: 'monospace', fontSize: '10px', fontWeight: 700, color: isHB ? '#555' : TC_DARK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {student._variantTitle}
-                    </span>
-                  ) : (
-                    <span style={{ fontSize: '10px', color: MUTED }}>—</span>
+                  {/* Student course info (for students and dual) */}
+                  {!isMember && (
+                    <>
+                      {student._variantTitle ? (
+                        <span style={{ fontFamily: 'monospace', fontSize: '10px', fontWeight: 700, color: isHB ? '#555' : TC_DARK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '170px' }}>
+                          {student._variantTitle}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: '10px', color: MUTED }}>—</span>
+                      )}
+                      {student.courseIdentifier && (
+                        <span style={{ fontFamily: 'monospace', fontSize: '9px', color: MUTED }}>{student.courseIdentifier}</span>
+                      )}
+                    </>
                   )}
-                  {student.courseIdentifier && student.courseIdentifier !== student._variantTitle && (
-                    <span style={{ fontFamily: 'monospace', fontSize: '9px', color: MUTED }}>{student.courseIdentifier}</span>
+                  {/* Membership info (for members and dual) */}
+                  {(isMember || isDual) && membership && (
+                    <div style={{ marginTop: !isMember ? '4px' : 0 }}>
+                      <span style={{ fontSize: '10px', fontWeight: 700, color: MEMBER_COLOR }}>
+                        {getDisplayType(membership.membershipType)}
+                      </span>
+                      <div style={{ fontSize: '12px', fontWeight: 700, color: membership.membershipStatus === 'expired' ? MUTED : INK, marginTop: '2px' }}>
+                        {fmtDate(membership.endDate)}
+                      </div>
+                      <div style={{ fontSize: '11px', fontWeight: 600, color: membership.membershipStatus === 'expiring' ? '#9E6200' : membership.membershipStatus === 'expired' ? MUTED : TC_DARK }}>
+                        {membership.daysRemaining > 0 ? `${membership.daysRemaining} days left` : 'Expired'}
+                      </div>
+                    </div>
                   )}
                 </div>
 
-                {/* Allocations (progress bars) */}
+                {/* Progress */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {/* Student progress bars */}
                   {student._wtTotal != null && (
                     <AllocBar label="WT" used={student._wtUsed} total={student._wtTotal} color={TC} />
                   )}
                   {student._hbTotal != null && (
                     <AllocBar label="HB" used={student._hbUsed} total={student._hbTotal} color={isHB && hbAllUsed ? '#2E7D32' : '#E65100'} />
                   )}
-                  {student._wtTotal == null && student._hbTotal == null && (
+                  {/* Member expiry progress bar */}
+                  {isMember && membership && (
+                    <AllocBar
+                      label="Time"
+                      used={Math.max(0, (membership.totalDays || 0) - (membership.daysRemaining || 0))}
+                      total={membership.totalDays || 1}
+                      color={membership.membershipStatus === 'expiring' ? '#E6A817' : membership.membershipStatus === 'expired' ? MUTED : MEMBER_COLOR}
+                    />
+                  )}
+                  {/* Dual: also show membership progress */}
+                  {isDual && membership && (
+                    <AllocBar
+                      label="Mem"
+                      used={Math.max(0, (membership.totalDays || 0) - (membership.daysRemaining || 0))}
+                      total={membership.totalDays || 1}
+                      color={membership.membershipStatus === 'expiring' ? '#E6A817' : MEMBER_COLOR}
+                    />
+                  )}
+                  {student._wtTotal == null && student._hbTotal == null && !isMember && !isDual && (
                     <span style={{ fontSize: '10px', color: MUTED }}>—</span>
                   )}
 
@@ -678,37 +803,13 @@ export default function AdminStudents() {
                   )}
                 </div>
 
-                {/* Status badge */}
-                <div>
+                {/* Status badge(s) */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
                   <StatusBadge status={statusKey} />
+                  {isDual && membership && (
+                    <StatusBadge status={membership.membershipStatus || 'member'} />
+                  )}
                 </div>
-
-                {/* Actions / purchase count */}
-                {isHB ? (
-                  <div
-                    onClick={e => e.stopPropagation()}
-                    style={{ display: 'flex', gap: '4px', alignItems: 'center' }}
-                  >
-                    {editingCredits === student._enrollmentId ? null : (
-                      <button
-                        onClick={e => { e.stopPropagation(); startEditingCredits(student); }}
-                        style={{ padding: '4px 8px', backgroundColor: TC_LIGHT, border: `1px solid ${RULE}`, color: TC_DARK, fontSize: '10px', fontWeight: 700, cursor: 'pointer' }}
-                      >
-                        Edit
-                      </button>
-                    )}
-                    <button
-                      onClick={e => { e.stopPropagation(); viewStudentDetail(student); }}
-                      style={{ padding: '4px 8px', backgroundColor: INK, border: 'none', color: '#FFF', fontSize: '10px', fontWeight: 700, cursor: 'pointer' }}
-                    >
-                      View
-                    </button>
-                  </div>
-                ) : (
-                  <div style={{ textAlign: 'center' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 700 }}>{student._purchaseCount}</span>
-                  </div>
-                )}
               </div>
             );
           })}
@@ -717,7 +818,7 @@ export default function AdminStudents() {
         {/* ── Footer count ─────────────────────────────────────────────── */}
         {!loading && visibleRows.length > 0 && (
           <div style={{ padding: '14px 0', fontSize: '11px', color: MUTED, textAlign: 'right' }}>
-            {visibleRows.length} student{visibleRows.length !== 1 ? 's' : ''}
+            {visibleRows.length} user{visibleRows.length !== 1 ? 's' : ''}
           </div>
         )}
 

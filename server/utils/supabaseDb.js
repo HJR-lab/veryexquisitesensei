@@ -111,8 +111,10 @@ async function syncCustomer(shopifyCustomer, shopifyCustomerId, classStartDate =
 
     if (existingCustomer) {
       // Update existing customer — preserve manual edits
-      // Detect manual edit: updated_at is after last_synced_at means admin edited it
-      const wasManuallyEdited = existingCustomer.updated_at && existingCustomer.last_synced_at &&
+      // name_locked: permanent flag set when admin manually edits name — survives syncs
+      // Fallback: detect manual edit via updated_at > last_synced_at (one-time protection)
+      const nameLocked = existingCustomer.name_locked === true;
+      const wasManuallyEdited = !nameLocked && existingCustomer.updated_at && existingCustomer.last_synced_at &&
         new Date(existingCustomer.updated_at) > new Date(existingCustomer.last_synced_at);
 
       const updates = {
@@ -120,12 +122,12 @@ async function syncCustomer(shopifyCustomer, shopifyCustomerId, classStartDate =
         last_synced_at: new Date().toISOString()
       };
 
-      if (!wasManuallyEdited) {
-        // No manual edits since last sync — safe to overwrite from Shopify
+      if (!nameLocked && !wasManuallyEdited) {
+        // No manual edits and not locked — safe to overwrite from Shopify
         updates.first_name = shopifyCustomer.firstName;
         updates.last_name = shopifyCustomer.lastName;
       }
-      // else: manual edits detected — preserve name/details
+      // else: name is locked or manually edited — preserve name
 
       // Update course dates if we have them
       if (purchaseDate) {

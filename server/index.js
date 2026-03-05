@@ -9643,7 +9643,7 @@ app.get('/api/instructor/dashboard', authenticateToken, async (req, res) => {
             totalClasses: enr.number_of_weeks || enr.class_credits_allocated || 6,
             orderCount: orderCountMap[b.customers.id] || 0,
             wheelPreference: wheelPrefMap[b.customers.id] || null,
-            isWt3Course: enr.package_total_courses === 3 && (enr.course_type || enr.course_identifier || '').toUpperCase().startsWith('WT'),
+            isWt3Course: enr.package_total_courses === 3 && ((enr.course_identifier || '').toUpperCase().startsWith('WT') || (enr.course_type || '').toLowerCase().includes('wheelthrowing')),
           });
         }
       });

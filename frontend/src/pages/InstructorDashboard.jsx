@@ -224,9 +224,9 @@ export default function InstructorDashboard() {
                                     <span style={{ fontSize: '12px', fontWeight: 600, color: nameColor }}>
                                       {s.first_name} {s.last_name}
                                     </span>
-                                    {s.wheelPreference && (
-                                      <span style={{ fontSize: '9px', fontWeight: 700, padding: '1px 5px', backgroundColor: TC_LIGHT, color: TC_DARK, borderRadius: '3px' }}>
-                                        W{s.wheelPreference}
+                                    {s.isWt3Course && (
+                                      <span style={{ fontSize: '9px', fontWeight: 700, padding: '1px 5px', backgroundColor: TC_LIGHT, color: s.wheelPreference ? TC_DARK : MUTED, borderRadius: '3px' }}>
+                                        {s.wheelPreference ? `W${s.wheelPreference}` : 'W—'}
                                       </span>
                                     )}
                                   </div>

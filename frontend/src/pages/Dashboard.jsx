@@ -495,9 +495,9 @@ export default function Dashboard() {
                         </div>
                       </div>
                     </div>
-                    {studentData?.wheel_preference && enrollment.package_total_courses === 3 && typeLabel.startsWith('Wheelthrowing') && (
-                      <div style={{ fontSize: '11px', color: TC_DARK, fontWeight: 600 }}>
-                        Wheel #{studentData.wheel_preference}
+                    {enrollment.package_total_courses === 3 && typeLabel.startsWith('Wheelthrowing') && (
+                      <div style={{ fontSize: '11px', color: studentData?.wheel_preference ? TC_DARK : MUTED, fontWeight: 600 }}>
+                        Wheel #{studentData?.wheel_preference || '—'}
                       </div>
                     )}
                   </div>

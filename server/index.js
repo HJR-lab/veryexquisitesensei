@@ -9606,7 +9606,7 @@ app.get('/api/instructor/dashboard', authenticateToken, async (req, res) => {
       if (enrollmentIds.length > 0) {
         const { data: enrollments } = await supabaseDb.supabase
           .from('course_enrollments')
-          .select('id, course_identifier, course_type, class_credits_used, class_credits_allocated, number_of_weeks, weeks_completed')
+          .select('id, course_identifier, course_type, class_credits_used, class_credits_allocated, number_of_weeks, weeks_completed, package_total_courses')
           .in('id', enrollmentIds);
         (enrollments || []).forEach(e => { enrollmentMap[e.id] = e; });
       }
@@ -9643,6 +9643,7 @@ app.get('/api/instructor/dashboard', authenticateToken, async (req, res) => {
             totalClasses: enr.number_of_weeks || enr.class_credits_allocated || 6,
             orderCount: orderCountMap[b.customers.id] || 0,
             wheelPreference: wheelPrefMap[b.customers.id] || null,
+            isWt3Course: enr.package_total_courses === 3 && (enr.course_type || enr.course_identifier || '').toUpperCase().startsWith('WT'),
           });
         }
       });

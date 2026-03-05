@@ -110,13 +110,22 @@ async function syncCustomer(shopifyCustomer, shopifyCustomerId, classStartDate =
     const expiryDate = classEndDate ? classEndDate.toISOString().split('T')[0] : null;
 
     if (existingCustomer) {
-      // Update existing customer
+      // Update existing customer — preserve manual edits
+      // Detect manual edit: updated_at is after last_synced_at means admin edited it
+      const wasManuallyEdited = existingCustomer.updated_at && existingCustomer.last_synced_at &&
+        new Date(existingCustomer.updated_at) > new Date(existingCustomer.last_synced_at);
+
       const updates = {
         email: shopifyCustomer.email,
-        first_name: shopifyCustomer.firstName,
-        last_name: shopifyCustomer.lastName,
         last_synced_at: new Date().toISOString()
       };
+
+      if (!wasManuallyEdited) {
+        // No manual edits since last sync — safe to overwrite from Shopify
+        updates.first_name = shopifyCustomer.firstName;
+        updates.last_name = shopifyCustomer.lastName;
+      }
+      // else: manual edits detected — preserve name/details
 
       // Update course dates if we have them
       if (purchaseDate) {
@@ -125,12 +134,27 @@ async function syncCustomer(shopifyCustomer, shopifyCustomerId, classStartDate =
       if (expiryDate) {
         updates.course_expiry_date = expiryDate;
       }
-      // Update course purchase count
+      // Update course purchase count — use max of Shopify count and actual non-cancelled enrollment rows
       if (coursePurchaseCount > 0) {
-        updates.course_purchase_count = coursePurchaseCount;
+        // Count actual enrollments to include manual ones (exclude cancelled)
+        const { data: enrollments } = await supabase
+          .from('course_enrollments')
+          .select('id')
+          .eq('student_id', existingCustomer.id)
+          .neq('status', 'cancelled');
+        const enrollmentCount = (enrollments || []).length;
+        updates.course_purchase_count = Math.max(coursePurchaseCount, enrollmentCount);
       }
 
-      const updated = await updateCustomer(existingCustomer.id, updates);
+      // Use direct update (NOT updateCustomer) to avoid bumping updated_at
+      // This preserves the manual edit detection for next sync
+      const { data: updated, error: updateErr } = await supabase
+        .from('customers')
+        .update(updates)
+        .eq('id', existingCustomer.id)
+        .select()
+        .single();
+      if (updateErr) throw updateErr;
       return updated;
     } else {
       // Create new customer
@@ -1296,6 +1320,114 @@ async function createMultipleBookings(bookingsArray) {
   return data;
 }
 
+/**
+ * Sync customer_type based on active memberships and enrollments
+ * Sets: 'member' (membership only), 'student & member' (both), 'student' (no membership)
+ */
+async function syncCustomerTypeFromMemberships() {
+  const today = new Date().toISOString().split('T')[0];
+  let updated = 0;
+
+  // Get all active memberships (status=active, end_date >= today)
+  const { data: activeMemberships, error: memErr } = await supabase
+    .from('memberships')
+    .select('customer_id')
+    .eq('status', 'active')
+    .gte('end_date', today);
+
+  if (memErr) {
+    console.error('Error fetching active memberships:', memErr);
+    return 0;
+  }
+
+  const memberCustomerIds = [...new Set((activeMemberships || []).map(m => m.customer_id))];
+
+  if (memberCustomerIds.length > 0) {
+    // Check which members also have active course enrollments
+    const { data: activeEnrollments } = await supabase
+      .from('course_enrollments')
+      .select('student_id')
+      .in('student_id', memberCustomerIds)
+      .in('status', ['active', 'pending']);
+
+    const enrolledIds = new Set((activeEnrollments || []).map(e => e.student_id));
+
+    for (const customerId of memberCustomerIds) {
+      const newType = enrolledIds.has(customerId) ? 'student & member' : 'member';
+      // Use direct update to avoid bumping updated_at
+      const { error: upErr } = await supabase
+        .from('customers')
+        .update({ customer_type: newType })
+        .eq('id', customerId)
+        .neq('customer_type', newType);
+      if (!upErr) updated++;
+    }
+  }
+
+  // Reset expired members back to 'student' (those with member/student & member but no active membership)
+  const { data: memberCustomers } = await supabase
+    .from('customers')
+    .select('id')
+    .in('customer_type', ['member', 'student & member']);
+
+  if (memberCustomers && memberCustomers.length > 0) {
+    const expiredIds = (memberCustomers || [])
+      .filter(c => !memberCustomerIds.includes(c.id))
+      .map(c => c.id);
+
+    if (expiredIds.length > 0) {
+      const { error: resetErr } = await supabase
+        .from('customers')
+        .update({ customer_type: 'student' })
+        .in('id', expiredIds);
+      if (!resetErr) updated += expiredIds.length;
+    }
+  }
+
+  console.log(`🏷️  Customer type sync: ${memberCustomerIds.length} active members, ${updated} customers updated`);
+  return updated;
+}
+
+/**
+ * Update customer_type for a single customer after membership CRUD
+ */
+async function updateSingleCustomerType(customerId) {
+  const today = new Date().toISOString().split('T')[0];
+
+  const { data: activeMembership } = await supabase
+    .from('memberships')
+    .select('id')
+    .eq('customer_id', customerId)
+    .eq('status', 'active')
+    .gte('end_date', today)
+    .limit(1)
+    .maybeSingle();
+
+  if (activeMembership) {
+    // Has active membership — check enrollments
+    const { data: activeEnrollment } = await supabase
+      .from('course_enrollments')
+      .select('id')
+      .eq('student_id', customerId)
+      .in('status', ['active', 'pending'])
+      .limit(1)
+      .maybeSingle();
+
+    const newType = activeEnrollment ? 'student & member' : 'member';
+    await supabase
+      .from('customers')
+      .update({ customer_type: newType })
+      .eq('id', customerId);
+  } else {
+    // No active membership — reset to student
+    await supabase
+      .from('customers')
+      .update({ customer_type: 'student' })
+      .eq('id', customerId)
+      .in('customer_type', ['member', 'student & member']);
+  }
+}
+
 module.exports = {
   supabase,
   // Customer functions
@@ -1363,5 +1495,8 @@ module.exports = {
   findCohortEnrollments,
   updateCourseEnrollment,
   createClassInstances,
-  createMultipleBookings
+  createMultipleBookings,
+  // Customer type sync
+  syncCustomerTypeFromMemberships,
+  updateSingleCustomerType
 };

@@ -24,8 +24,13 @@ export default function Login() {
         return;
       }
 
-      await login(email, password);
-      navigate('/gallery');
+      const result = await login(email, password);
+      // Smart redirect: members without active courses → member dashboard
+      if (result?.user?.hasMembership && !result?.user?.hasActiveEnrollments) {
+        navigate('/member');
+      } else {
+        navigate('/gallery');
+      }
     } catch (err) {
       setError(err.response?.data?.error || 'Login failed');
     } finally {

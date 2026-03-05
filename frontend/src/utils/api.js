@@ -71,6 +71,52 @@ export const potteryAPI = {
   },
 };
 
+// Community API
+export const communityAPI = {
+  getMembers: async (role = 'all') => {
+    const { data } = await axios.get(`${API_BASE_URL}/community`, { params: { role } });
+    return data;
+  },
+  getInstructorPortfolio: async (id) => {
+    const { data } = await axios.get(`${API_BASE_URL}/instructors/${id}/portfolio`);
+    return data;
+  },
+  updateProfile: async (profileData) => {
+    const { data } = await api.put('/instructors/profile', profileData);
+    return data;
+  },
+  uploadProfileImage: async (file) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    const { data } = await api.post('/instructors/profile/image', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  },
+  addPortfolioItem: async (formData) => {
+    const { data } = await api.post('/instructors/portfolio', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  },
+  deletePortfolioItem: async (id) => {
+    const { data } = await api.delete(`/instructors/portfolio/${id}`);
+    return data;
+  },
+};
+
+// Instructor API
+export const instructorAPI = {
+  getDashboard: async () => {
+    const { data } = await api.get('/instructor/dashboard');
+    return data;
+  },
+  markAttendance: async (bookingId, attended, notes = '') => {
+    const { data } = await api.post(`/classes/bookings/${bookingId}/mark-attendance`, { attended, notes });
+    return data;
+  },
+};
+
 // Classes API
 export const classesAPI = {
   getMyBookings: async () => {

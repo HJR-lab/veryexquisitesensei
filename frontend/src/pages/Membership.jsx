@@ -16,7 +16,7 @@ const TIERS = [
     id: '1m',
     label: '1 Month',
     price: '$350',
-    perMonth: '$350/mo',
+    perMonth: '$350/month',
     save: null,
     tag: null,
     perks: [
@@ -31,12 +31,13 @@ const TIERS = [
   {
     id: '6m',
     label: '6 Months',
-    price: '$1,260',
+    price: '$1,365',
     original: '$2,100',
-    perMonth: '$195/mo',
+    originalCalc: '6 Months x $350 = $2,100',
+    perMonth: '$210/month',
     perMonthNote: 'incl. firing value',
-    save: 'Save $930',
-    saveBreakdown: '$840 off + $90 firing',
+    save: 'SAVE $825!',
+    saveBreakdown: '$735 off + $90 firing',
     tag: null,
     perks: [
       'Unlimited studio access',
@@ -56,9 +57,10 @@ const TIERS = [
     label: '12 Months',
     price: '$1,995',
     original: '$4,200',
-    perMonth: '$145/mo',
+    originalCalc: '12 Months x $350 = $4,200',
+    perMonth: '$145/month',
     perMonthNote: 'incl. firing value',
-    save: 'Save $2,465',
+    save: 'SAVE $2,465!',
     saveBreakdown: '$2,205 off + $260 firing',
     tag: 'Best Value',
     perks: [
@@ -77,7 +79,7 @@ const TIERS = [
 ];
 
 const HOURS = [
-  { day: 'Monday',    time: '11:00 AM – 8:00 PM' },
+  { day: 'Monday',    time: '11:00 AM – 6:00 PM' },
   { day: 'Tuesday',   time: '10:00 AM – 6:00 PM' },
   { day: 'Wednesday', time: '10:00 AM – 6:00 PM' },
   { day: 'Thursday',  time: '10:00 AM – 6:00 PM' },
@@ -290,17 +292,12 @@ export default function Membership() {
             <div key={tier.id} style={{ border: `1px solid ${TC}`, backgroundColor: TC_LIGHT, padding: '20px', marginBottom: '20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
                 <div>
-                  {tier.original && (
-                    <div style={{ fontSize: '13px', color: MUTED, textDecoration: 'line-through', marginBottom: '2px' }}>{tier.original}</div>
-                  )}
-                  <div style={{ fontSize: '26px', fontWeight: 700 }}>{tier.price}</div>
-                  <div style={{ fontSize: '12px', color: MUTED, marginTop: '2px' }}>
-                    {tier.perMonth}
-                    {tier.perMonthNote && <span style={{ color: TC_DARK }}> · {tier.perMonthNote}</span>}
+                  <div style={{ fontSize: '12px', color: MUTED, marginBottom: '2px' }}>
+                    {tier.original ? <>Pay <span style={{ textDecoration: 'line-through' }}>{tier.original}</span> only {tier.price} for {tier.label.toLowerCase()}</> : <>You pay {tier.price} for {tier.label.toLowerCase()}</>}
                   </div>
-                  {tier.saveBreakdown && (
-                    <div style={{ fontSize: '11px', color: TC_DARK, marginTop: '4px' }}>{tier.saveBreakdown}</div>
-                  )}
+                  <div style={{ fontSize: '26px', fontWeight: 700 }}>
+                    {tier.original && ' '}{tier.perMonth}
+                  </div>
                 </div>
                 {tier.save && (
                   <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '5px 10px', backgroundColor: TC, color: '#FFF' }}>
@@ -405,7 +402,7 @@ export default function Membership() {
             ))}
           </div>
           <div style={{ marginTop: '10px', fontSize: '11px', color: MUTED }}>
-            ~4 min walk from Holland Village MRT
+            ~3 min walk from Holland Village MRT
           </div>
         </div>
 
@@ -414,11 +411,11 @@ export default function Membership() {
           <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '4px' }}>Questions?</div>
           <div style={{ fontSize: '12px', color: MUTED, marginBottom: '14px' }}>We're happy to help you find the right plan.</div>
           <div style={{ display: 'flex', justifyContent: 'center', gap: '24px' }}>
+                        <a href="https://ves.sg/pages/ves-clay-club" target="_blank" rel="noopener noreferrer" style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: TC, textDecoration: 'none', borderBottom: `1px solid ${TC}`, paddingBottom: '1px' }}>
+              FAQs
+            </a>
             <a href="mailto:info@ves.sg" style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: TC, textDecoration: 'none', borderBottom: `1px solid ${TC}`, paddingBottom: '1px' }}>
               Email us
-            </a>
-            <a href="https://ves.sg/pages/ves-clay-club" target="_blank" rel="noopener noreferrer" style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: TC, textDecoration: 'none', borderBottom: `1px solid ${TC}`, paddingBottom: '1px' }}>
-              FAQs
             </a>
           </div>
         </div>

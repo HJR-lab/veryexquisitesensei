@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { potteryAPI } from '../utils/api';
+import { potteryAPI, communityAPI } from '../utils/api';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const TC       = '#C4622D';
@@ -12,6 +12,13 @@ const MUTED    = '#888888';
 const RULE     = 'rgba(40,40,40,0.09)';
 const BG       = '#FAFAF8';
 
+const ROLE_LABELS = { all: 'All', student: 'Students', member: 'Members', instructor: 'Instructors' };
+const ROLE_COLORS = {
+  student: { bg: '#EDF2F7', color: '#4A5568' },
+  member: { bg: '#E6FFFA', color: '#234E52' },
+  instructor: { bg: TC_LIGHT, color: TC_DARK },
+};
+
 export default function PublicGallery() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -20,14 +27,26 @@ export default function PublicGallery() {
   const { login } = useAuth();
   const navigate = useNavigate();
 
+  // Gallery state
   const [pieces, setPieces] = useState([]);
   const [galleryLoading, setGalleryLoading] = useState(true);
   const [galleryError, setGalleryError] = useState(false);
   const [imageErrors, setImageErrors] = useState({});
 
+  // Community state
+  const [communityMembers, setCommunityMembers] = useState([]);
+  const [communityLoading, setCommunityLoading] = useState(true);
+  const [activeFilter, setActiveFilter] = useState('all');
+  const [viewMode, setViewMode] = useState('gallery'); // 'gallery' | 'community'
+
   useEffect(() => {
     loadPublicPieces();
+    loadCommunity();
   }, []);
+
+  useEffect(() => {
+    loadCommunity();
+  }, [activeFilter]);
 
   const loadPublicPieces = async () => {
     try {
@@ -39,6 +58,18 @@ export default function PublicGallery() {
       setGalleryError(true);
     } finally {
       setGalleryLoading(false);
+    }
+  };
+
+  const loadCommunity = async () => {
+    try {
+      setCommunityLoading(true);
+      const data = await communityAPI.getMembers(activeFilter);
+      setCommunityMembers(data.members || []);
+    } catch (err) {
+      console.error('Failed to load community:', err);
+    } finally {
+      setCommunityLoading(false);
     }
   };
 
@@ -72,6 +103,16 @@ export default function PublicGallery() {
     color: INK, outline: 'none',
     fontFamily: 'inherit',
   };
+
+  const tabStyle = (active) => ({
+    fontSize: '11px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
+    padding: '8px 16px',
+    border: 'none',
+    backgroundColor: active ? TC : 'transparent',
+    color: active ? '#FFFFFF' : MUTED,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  });
 
   return (
     <div style={{ fontFamily: "'DM Sans', 'Helvetica Neue', sans-serif", color: INK, backgroundColor: '#FFFFFF', minHeight: '100vh' }}>
@@ -168,93 +209,220 @@ export default function PublicGallery() {
         </div>
       </section>
 
-      {/* ── GALLERY ─────────────────────────────────────────────────────── */}
-      <main style={{ maxWidth: '960px', margin: '0 auto', padding: '40px 24px 80px' }}>
+      {/* ── VIEW TOGGLE ───────────────────────────────────────────────── */}
+      <div style={{
+        maxWidth: '960px', margin: '0 auto', padding: '24px 24px 0',
+        display: 'flex', gap: '0', borderBottom: `1px solid ${RULE}`,
+      }}>
+        {['gallery', 'community'].map(mode => (
+          <button
+            key={mode}
+            onClick={() => setViewMode(mode)}
+            style={{
+              fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
+              padding: '10px 20px',
+              border: 'none', borderBottom: viewMode === mode ? `2px solid ${TC}` : '2px solid transparent',
+              backgroundColor: 'transparent',
+              color: viewMode === mode ? TC : MUTED,
+              cursor: 'pointer', fontFamily: 'inherit',
+            }}
+          >
+            {mode === 'gallery' ? 'Student Gallery' : 'Community'}
+          </button>
+        ))}
+      </div>
 
-        {galleryLoading ? (
-          <div style={{ textAlign: 'center', padding: '48px 0' }}>
-            <div style={{
-              width: '24px', height: '24px', border: `2px solid ${RULE}`, borderTopColor: TC,
-              borderRadius: '50%', margin: '0 auto 12px',
-              animation: 'spin 0.8s linear infinite',
-            }} />
-            <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-            <div style={{ fontSize: '12px', color: MUTED }}>Loading gallery...</div>
-          </div>
-        ) : galleryError ? (
-          <div style={{ textAlign: 'center', padding: '48px 0' }}>
-            <div style={{ fontSize: '12px', color: MUTED }}>
-              Gallery is currently unavailable
+      {/* ── GALLERY VIEW ─────────────────────────────────────────────── */}
+      {viewMode === 'gallery' && (
+        <main style={{ maxWidth: '960px', margin: '0 auto', padding: '24px 24px 80px' }}>
+          {galleryLoading ? (
+            <div style={{ textAlign: 'center', padding: '48px 0' }}>
+              <div style={{
+                width: '24px', height: '24px', border: `2px solid ${RULE}`, borderTopColor: TC,
+                borderRadius: '50%', margin: '0 auto 12px',
+                animation: 'spin 0.8s linear infinite',
+              }} />
+              <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+              <div style={{ fontSize: '12px', color: MUTED }}>Loading gallery...</div>
             </div>
-          </div>
-        ) : pieces.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '48px 0' }}>
-            <div style={{ fontSize: '14px', fontWeight: 600, color: INK, marginBottom: '4px' }}>
-              No pieces shared yet
+          ) : galleryError ? (
+            <div style={{ textAlign: 'center', padding: '48px 0' }}>
+              <div style={{ fontSize: '12px', color: MUTED }}>Gallery is currently unavailable</div>
             </div>
-            <div style={{ fontSize: '12px', color: MUTED }}>
-              Student work will appear here once shared.
+          ) : pieces.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '48px 0' }}>
+              <div style={{ fontSize: '14px', fontWeight: 600, color: INK, marginBottom: '4px' }}>No pieces shared yet</div>
+              <div style={{ fontSize: '12px', color: MUTED }}>Student work will appear here once shared.</div>
             </div>
-          </div>
-        ) : (
-          <>
-            <div style={{
-              fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
-              color: MUTED, marginBottom: '20px',
-            }}>
-              Student Gallery · {pieces.length} piece{pieces.length !== 1 ? 's' : ''}
-            </div>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-              gap: '16px',
-            }}>
-              {pieces.map(piece => (
-                <div key={piece.id} style={{
-                  border: `1px solid ${RULE}`,
-                  backgroundColor: '#FFFFFF',
-                  overflow: 'hidden',
-                }}>
-                  <div style={{
-                    aspectRatio: '1', backgroundColor: BG,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+          ) : (
+            <>
+              <div style={{
+                fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
+                color: MUTED, marginBottom: '20px',
+              }}>
+                {pieces.length} piece{pieces.length !== 1 ? 's' : ''}
+              </div>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+                gap: '16px',
+              }}>
+                {pieces.map(piece => (
+                  <div key={piece.id} style={{
+                    border: `1px solid ${RULE}`,
+                    backgroundColor: '#FFFFFF',
                     overflow: 'hidden',
                   }}>
-                    {piece.images?.[0] && !imageErrors[piece.id] ? (
-                      <img
-                        src={piece.images[0]}
-                        alt={piece.title}
-                        onError={() => handleImageError(piece.id)}
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                      />
-                    ) : (
-                      <div style={{ fontSize: '32px', opacity: 0.2 }}>&#x1FAD9;</div>
-                    )}
-                  </div>
-                  <div style={{ padding: '12px 14px' }}>
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: INK, marginBottom: '3px' }}>
-                      {piece.title}
+                    <div style={{
+                      aspectRatio: '1', backgroundColor: BG,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      overflow: 'hidden',
+                    }}>
+                      {piece.images?.[0] && !imageErrors[piece.id] ? (
+                        <img
+                          src={piece.images[0]}
+                          alt={piece.title}
+                          onError={() => handleImageError(piece.id)}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        />
+                      ) : (
+                        <div style={{ fontSize: '32px', opacity: 0.2 }}>&#x1FAD9;</div>
+                      )}
                     </div>
-                    {piece.artist && (
-                      <div style={{ fontSize: '11px', color: MUTED }}>by {piece.artist}</div>
-                    )}
-                    {piece.clay_type && (
+                    <div style={{ padding: '12px 14px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: INK, marginBottom: '3px' }}>
+                        {piece.title}
+                      </div>
+                      {piece.artist && (
+                        <div style={{ fontSize: '11px', color: MUTED }}>by {piece.artist}</div>
+                      )}
+                      {piece.clay_type && (
+                        <div style={{
+                          display: 'inline-block', marginTop: '6px',
+                          fontSize: '9px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
+                          padding: '2px 7px',
+                          backgroundColor: TC_LIGHT, color: TC_DARK,
+                        }}>
+                          {piece.clay_type}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </main>
+      )}
+
+      {/* ── COMMUNITY VIEW ───────────────────────────────────────────── */}
+      {viewMode === 'community' && (
+        <main style={{ maxWidth: '960px', margin: '0 auto', padding: '24px 24px 80px' }}>
+          {/* Role filter tabs */}
+          <div style={{ display: 'flex', gap: '4px', marginBottom: '24px', flexWrap: 'wrap' }}>
+            {Object.entries(ROLE_LABELS).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setActiveFilter(key)}
+                style={tabStyle(activeFilter === key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {communityLoading ? (
+            <div style={{ textAlign: 'center', padding: '48px 0' }}>
+              <div style={{
+                width: '24px', height: '24px', border: `2px solid ${RULE}`, borderTopColor: TC,
+                borderRadius: '50%', margin: '0 auto 12px',
+                animation: 'spin 0.8s linear infinite',
+              }} />
+              <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+              <div style={{ fontSize: '12px', color: MUTED }}>Loading community...</div>
+            </div>
+          ) : communityMembers.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '48px 0' }}>
+              <div style={{ fontSize: '14px', fontWeight: 600, color: INK, marginBottom: '4px' }}>No members yet</div>
+              <div style={{ fontSize: '12px', color: MUTED }}>Community members will appear here.</div>
+            </div>
+          ) : (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+              gap: '16px',
+            }}>
+              {communityMembers.map(member => (
+                <Link
+                  key={member.id}
+                  to={`/community/${member.id}`}
+                  style={{ textDecoration: 'none', color: 'inherit' }}
+                >
+                  <div style={{
+                    border: `1px solid ${RULE}`,
+                    backgroundColor: '#FFFFFF',
+                    overflow: 'hidden',
+                    transition: 'box-shadow 0.15s',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'}
+                  onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
+                  >
+                    {/* Profile image */}
+                    <div style={{
+                      aspectRatio: '1', backgroundColor: BG,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      overflow: 'hidden',
+                    }}>
+                      {member.profile_image ? (
+                        <img
+                          src={member.profile_image}
+                          alt={member.name}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        />
+                      ) : (
+                        <div style={{
+                          width: '64px', height: '64px', borderRadius: '50%',
+                          backgroundColor: TC_LIGHT, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: '24px', fontWeight: 700, color: TC,
+                        }}>
+                          {member.name?.charAt(0)?.toUpperCase() || '?'}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ padding: '12px 14px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: INK, marginBottom: '4px' }}>
+                        {member.name}
+                      </div>
+
+                      {/* Role badge */}
                       <div style={{
-                        display: 'inline-block', marginTop: '6px',
+                        display: 'inline-block',
                         fontSize: '9px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
                         padding: '2px 7px',
-                        backgroundColor: TC_LIGHT, color: TC_DARK,
+                        backgroundColor: ROLE_COLORS[member.role]?.bg || ROLE_COLORS.student.bg,
+                        color: ROLE_COLORS[member.role]?.color || ROLE_COLORS.student.color,
                       }}>
-                        {piece.clay_type}
+                        {member.role}
                       </div>
-                    )}
+
+                      {/* Stats */}
+                      <div style={{ fontSize: '11px', color: MUTED, marginTop: '6px' }}>
+                        {member.role === 'instructor' && member.portfolio_count > 0
+                          ? `${member.portfolio_count} portfolio item${member.portfolio_count !== 1 ? 's' : ''}`
+                          : member.piece_count > 0
+                            ? `${member.piece_count} piece${member.piece_count !== 1 ? 's' : ''}`
+                            : ''
+                        }
+                      </div>
+                    </div>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
-          </>
-        )}
-      </main>
+          )}
+        </main>
+      )}
 
       {/* ── FOOTER ──────────────────────────────────────────────────────── */}
       <footer style={{

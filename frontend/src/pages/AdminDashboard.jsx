@@ -58,7 +58,10 @@ export default function AdminDashboard() {
     { label: 'Students',  icon: 'group',          href: '/admin/students',    desc: 'Allocations & accounts', stat: loading ? null : (stats?.students?.total ?? null),     sub: `${stats?.students?.newThisMonth ?? 0} new this month` },
     { label: 'Members',   icon: 'card_membership', href: '/admin/memberships', desc: 'Studio memberships',     stat: loading ? null : (stats?.memberships?.total ?? null),  sub: `${stats?.memberships?.expiringSoon ?? 0} expiring soon` },
     { label: 'Gallery',   icon: 'photo_library',   href: '/admin/gallery',     desc: 'Student pottery works',  stat: loading ? null : (stats?.gallery?.total ?? null),      sub: `${stats?.gallery?.addedThisMonth ?? 0} added this month` },
+    { label: 'Instructors', icon: 'person_apron',   href: '/admin/instructors',  desc: 'Profiles & portfolios' },
+    { label: 'Events',    icon: 'celebration',     href: '/admin/events',      desc: 'Sales & collaborations' },
     { label: 'Courses',   icon: 'school',          href: '/admin/courses',     desc: 'Course templates' },
+    { label: 'Policy',    icon: 'gavel',           href: '/admin/policy',      desc: 'Studio rules & terms' },
     { label: 'Reference', icon: 'inventory_2',     href: '/admin/reference',   desc: 'Clay types & glazes' },
   ];
 
@@ -141,23 +144,27 @@ export default function AdminDashboard() {
               <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
                 {alerts.length === 0 ? (
                   <div style={{ padding: '14px', fontSize: '12px', color: MUTED }}>No alerts</div>
-                ) : alerts.map((alert, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      padding: '11px 14px',
-                      borderBottom: i < alerts.length - 1 ? `1px solid ${RULE}` : 'none',
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: '10px',
-                    }}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: '14px', color: TC, flexShrink: 0, marginTop: '1px' }}>
-                      {alert.type === 'membership' ? 'card_membership' : alert.type === 'class' ? 'event' : 'person'}
-                    </span>
-                    <span style={{ fontSize: '12px', color: INK, lineHeight: 1.4 }}>{alert.text}</span>
-                  </div>
-                ))}
+                ) : alerts.map((alert, i) => {
+                  const iconName = alert.icon || (alert.type === 'membership' ? 'card_membership' : alert.type === 'class' ? 'event' : alert.type === 'enrollment' ? 'pause_circle' : alert.type === 'info' ? 'today' : 'info');
+                  const iconColor = alert.type === 'info' ? '#3B82F6' : alert.type === 'class' ? '#D97706' : alert.type === 'enrollment' ? '#8B5CF6' : TC;
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        padding: '11px 14px',
+                        borderBottom: i < alerts.length - 1 ? `1px solid ${RULE}` : 'none',
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '10px',
+                      }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: '14px', color: iconColor, flexShrink: 0, marginTop: '1px' }}>
+                        {iconName}
+                      </span>
+                      <span style={{ fontSize: '12px', color: INK, lineHeight: 1.4 }}>{alert.text}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -169,24 +176,41 @@ export default function AdminDashboard() {
               <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
                 {activity.length === 0 ? (
                   <div style={{ padding: '14px', fontSize: '12px', color: MUTED }}>No recent activity</div>
-                ) : activity.map((r, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      padding: '11px 14px',
-                      borderBottom: i < activity.length - 1 ? `1px solid ${RULE}` : 'none',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
-                      <span style={{ fontSize: '11px', fontWeight: 700, color: TC, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                        {r.action}
+                ) : activity.map((r, i) => {
+                  const actionStyles = {
+                    Booked: { color: '#059669', icon: 'event_available' },
+                    Cancelled: { color: '#DC2626', icon: 'event_busy' },
+                    Enrolled: { color: '#2563EB', icon: 'school' },
+                    Membership: { color: '#7C3AED', icon: 'card_membership' },
+                    Gallery: { color: '#D97706', icon: 'photo_library' },
+                  };
+                  const style = actionStyles[r.action] || { color: TC, icon: 'circle' };
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        padding: '11px 14px',
+                        borderBottom: i < activity.length - 1 ? `1px solid ${RULE}` : 'none',
+                        display: 'flex',
+                        gap: '10px',
+                      }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: '14px', color: style.color, flexShrink: 0, marginTop: '2px' }}>
+                        {style.icon}
                       </span>
-                      <span style={{ fontSize: '10px', color: MUTED }}>{r.when}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                          <span style={{ fontSize: '11px', fontWeight: 700, color: style.color, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            {r.action}
+                          </span>
+                          <span style={{ fontSize: '10px', color: MUTED }}>{r.when}</span>
+                        </div>
+                        <div style={{ fontSize: '12px', fontWeight: 600 }}>{r.who}</div>
+                        <div style={{ fontSize: '11px', color: MUTED }}>{r.detail}</div>
+                      </div>
                     </div>
-                    <div style={{ fontSize: '12px', fontWeight: 600 }}>{r.who}</div>
-                    <div style={{ fontSize: '11px', color: MUTED }}>{r.detail}</div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 

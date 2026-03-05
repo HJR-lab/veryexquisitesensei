@@ -11,6 +11,34 @@ const MUTED    = '#888888';
 const RULE     = 'rgba(40,40,40,0.09)';
 const ALT      = '#F5F3F0';
 
+const BADGE_TIERS = {
+  '1':  { label: 'Bronze',  bg: '#CD7F32', color: '#FFFFFF' },
+  '6':  { label: 'Silver',  bg: '#A0A0A0', color: '#FFFFFF' },
+  '12': { label: 'Gold',    bg: '#D4A017', color: '#FFFFFF' },
+};
+
+function getMemberBadge(membershipType) {
+  if (!membershipType) return null;
+  const match = membershipType.match(/(\d+)\s*month/i);
+  if (!match) return null;
+  return BADGE_TIERS[match[1]] || BADGE_TIERS['1'];
+}
+
+function MemberBadge({ membershipType, style = {} }) {
+  const tier = getMemberBadge(membershipType);
+  if (!tier) return null;
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: '3px',
+      fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+      padding: '2px 7px', backgroundColor: tier.bg, color: tier.color,
+      verticalAlign: 'middle', ...style,
+    }}>
+      {tier.label}
+    </span>
+  );
+}
+
 function FieldRow({ label, value, type = 'text', readOnly = false, onChange }) {
   return (
     <div style={{ marginBottom: '16px' }}>
@@ -67,6 +95,7 @@ export default function Account() {
   const [coursePieces, setCoursePieces] = useState([]);
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [showPiecesModal, setShowPiecesModal] = useState(false);
+  const [membershipData, setMembershipData] = useState(null);
 
   useEffect(() => {
     if (user) {
@@ -80,7 +109,19 @@ export default function Account() {
       });
     }
     loadHistory();
+    loadMembership();
   }, [user]);
+
+  const loadMembership = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      const res = await api.get('/membership/my-membership');
+      setMembershipData(res.data);
+    } catch (error) {
+      console.error('Failed to load membership:', error);
+    }
+  };
 
   const loadHistory = async () => {
     try {
@@ -265,27 +306,52 @@ export default function Account() {
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#FFFFFF', minHeight: '100vh' }}>
 
-      {/* MEMBERSHIP HINT BANNER */}
-      <div style={{ backgroundColor: TC_LIGHT, width: '100%' }}>
-        <div style={{
-          maxWidth: '520px', margin: '0 auto', padding: '9px 20px',
-          display: 'flex', alignItems: 'center', gap: '10px',
-        }}>
-          <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: TC_DARK, flexShrink: 0 }}>
-            Ves &bull; Clay Club Membership
-          </span>
-          <span style={{ fontSize: '11px', color: INK, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            Unlock unlimited studio access now!
-          </span>
-          <a href="/membership" style={{
-            fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
-            color: TC, textDecoration: 'none', whiteSpace: 'nowrap',
-            borderBottom: `1px solid ${TC}`, paddingBottom: '1px', flexShrink: 0,
+      {/* MEMBERSHIP BANNER */}
+      {membershipData?.hasMembership ? (
+        <div style={{ backgroundColor: TC_LIGHT, width: '100%' }}>
+          <div style={{
+            maxWidth: '520px', margin: '0 auto', padding: '9px 20px',
+            display: 'flex', alignItems: 'center', gap: '10px',
           }}>
-            View plans
-          </a>
+            <span style={{
+              fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em',
+              color: '#FFFFFF', backgroundColor: TC_DARK, padding: '2px 6px', flexShrink: 0,
+            }}>
+              Clay Club Member
+            </span>
+            <span style={{ fontSize: '11px', color: INK, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {membershipData.membership.type.replace(/^Clay Club\s*/i, '').replace(/1 Months/i, '1 Month').trim() + ' Member'}
+              {membershipData.membership.daysRemaining > 0
+                ? ` · ${membershipData.membership.daysRemaining} days left`
+                : ' · Expires soon'}
+            </span>
+            <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: TC_DARK, flexShrink: 0 }}>
+              Active
+            </span>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div style={{ backgroundColor: TC_LIGHT, width: '100%' }}>
+          <div style={{
+            maxWidth: '520px', margin: '0 auto', padding: '9px 20px',
+            display: 'flex', alignItems: 'center', gap: '10px',
+          }}>
+            <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: TC_DARK, flexShrink: 0 }}>
+              Ves &bull; Clay Club Membership
+            </span>
+            <span style={{ fontSize: '11px', color: INK, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              Unlock unlimited studio access now!
+            </span>
+            <a href="/membership" style={{
+              fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+              color: TC, textDecoration: 'none', whiteSpace: 'nowrap',
+              borderBottom: `1px solid ${TC}`, paddingBottom: '1px', flexShrink: 0,
+            }}>
+              View plans
+            </a>
+          </div>
+        </div>
+      )}
 
       {/* TOP BAR */}
       <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: '#FFFFFF', borderBottom: `1px solid ${RULE}` }}>
@@ -334,6 +400,9 @@ export default function Account() {
           <div>
             <h1 style={{ fontSize: '22px', fontWeight: 700, letterSpacing: '-0.2px', margin: '0 0 3px' }}>
               {memberDetails.firstName} {memberDetails.lastName}
+              {membershipData?.hasMembership && (
+                <MemberBadge membershipType={membershipData.membership.type} style={{ marginLeft: '8px', position: 'relative', top: '-2px' }} />
+              )}
             </h1>
             {memberSince && (
               <div style={{ fontSize: '12px', color: MUTED }}>Member since {memberSince}</div>
@@ -526,7 +595,7 @@ export default function Account() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '3px' }}>
-                          {course.courseIdentifier || course.courseTitle || course.title}
+                          {course.courseTitle || course.title || course.courseIdentifier}
                         </div>
                         <div style={{ fontSize: '11px', color: MUTED }}>
                           {formatHistoryDate(course.startDate)} – {formatHistoryDate(course.endDate)}

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api, { classesAPI, authAPI } from '../utils/api';
@@ -115,16 +115,20 @@ export default function ClassScheduleNew() {
 
   // ── UI state (new design) ───────────────────────────────────────────────────
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const stripRef = useRef(null);
+  const rescheduleStripRef = useRef(null);
   const [showBookSheet, setShowBookSheet]     = useState(null); // class item to confirm booking
   const [showDetailSheet, setShowDetailSheet] = useState(null); // class item to view details
   const [showFilterSheet, setShowFilterSheet] = useState(false);
   const [filterType, setFilterType]           = useState('all'); // 'all' | 'wheelthrowing' | 'handbuilding'
   const [filterInstructor, setFilterInstructor] = useState('all');
+  // ── Confirmation modal state ────────────────────────────────────────────────
+  const [confirmModal, setConfirmModal] = useState(null); // { title, message, onConfirm }
 
-  // 14-day strip starting from today
+  // 60-day strip starting from today (covers ~2 months)
   const TODAY = new Date();
   TODAY.setHours(0, 0, 0, 0);
-  const strip = Array.from({ length: 14 }, (_, i) => addDays(TODAY, i));
+  const strip = Array.from({ length: 60 }, (_, i) => addDays(TODAY, i));
 
   // ── Instructor list derived from real data ──────────────────────────────────
   const allInstructors = (() => {
@@ -290,6 +294,8 @@ export default function ClassScheduleNew() {
             id: cls.id,
             classDate: cls.class_date,
             classType: cls.class_type,
+            classTitle: cls.class_title,
+            classDescription: cls.class_description,
             startTime: cls.start_time,
             endTime: cls.end_time,
             instructor: cls.instructor,
@@ -350,9 +356,11 @@ export default function ClassScheduleNew() {
     const startTime = booking.class?.startTime || booking.classInstance?.startTime || booking.start_time || '7:00pm';
     const endTime   = booking.class?.endTime   || booking.classInstance?.endTime   || booking.end_time   || '9:30pm';
     const instructor= booking.class?.instructor|| booking.classInstance?.instructor|| booking.instructor;
+    const classTitle = booking.class?.classTitle || booking.classInstance?.classTitle || booking.class_title;
+    const classDescription = booking.class?.classDescription || booking.classInstance?.classDescription || booking.class_description;
     const isGlazingClass = classType?.includes('6.6');
     const weekLabel = (() => { const m = classType?.match(/\.(\d+)$/); return m ? `Wk ${m[1]}` : ''; })();
-    return { classDate, date, classType, courseIdentifier, startTime, endTime, instructor, isGlazingClass, weekLabel };
+    return { classDate, date, classType, classTitle, classDescription, courseIdentifier, startTime, endTime, instructor, isGlazingClass, weekLabel };
   };
 
   // Reschedule helpers (preserved from production)
@@ -374,6 +382,8 @@ export default function ClassScheduleNew() {
           id: cls.id,
           classDate: cls.class_date,
           classType: cls.class_type,
+          classTitle: cls.class_title,
+          classDescription: cls.class_description,
           startTime: cls.start_time,
           endTime: cls.end_time,
           instructor: cls.instructor,
@@ -417,18 +427,25 @@ export default function ClassScheduleNew() {
     return makeupClasses.filter(c => c.classDate?.startsWith(dateStr));
   };
 
-  const handleReschedule = async (newClassId) => {
-    try {
-      await api.post('/classes/reschedule', { oldClassId: selectedClass.id, newClassId });
-      alert('Successfully rescheduled your class!');
-      setShowRescheduleModal(false);
-      setSelectedClass(null);
-      fetchClasses();
-      fetchMyBookings();
-    } catch (error) {
-      console.error('Error rescheduling:', error);
-      alert(error.response?.data?.error || 'Failed to reschedule class');
-    }
+  // ── Reusable confirm-before-action helper ─────────────────────────────────
+  const confirmAction = (title, message, onConfirm) => {
+    setConfirmModal({ title, message, onConfirm });
+  };
+
+  const handleReschedule = (newClassId) => {
+    confirmAction('Confirm Reschedule', 'Are you sure you want to reschedule this class?', async () => {
+      try {
+        await api.post('/classes/reschedule', { oldClassId: selectedClass.id, newClassId });
+        alert('Successfully rescheduled your class!');
+        setShowRescheduleModal(false);
+        setSelectedClass(null);
+        fetchClasses();
+        fetchMyBookings();
+      } catch (error) {
+        console.error('Error rescheduling:', error);
+        alert(error.response?.data?.error || 'Failed to reschedule class');
+      }
+    });
   };
 
   const handlePauseRequest = async () => {
@@ -497,7 +514,11 @@ export default function ClassScheduleNew() {
       } else {
         const cat = getClassCategory(classItem.classType);
         // HB-only students cannot book WT classes
-        const hasWTEnrollment = dashboardData?.enrollments?.some(e => e.courseType && !e.courseType.toLowerCase().includes('handbuilding'));
+        const allEnrollments = [
+          ...(dashboardData?.enrollments?.active || []),
+          ...(dashboardData?.enrollments?.upcoming || []),
+        ];
+        const hasWTEnrollment = allEnrollments.some(e => e.courseType && !e.courseType.toLowerCase().includes('handbuilding'));
         if (cat !== 'handbuilding' && !hasWTEnrollment && hbEnrollment) {
           alert('Your enrollment is for Handbuilding classes only. Please book a Handbuilding class.');
           setBookingLoading(false);
@@ -537,11 +558,19 @@ export default function ClassScheduleNew() {
   const remainingCredits = (studentData?.classes_allocated || 0) -
     (myBookings?.filter(b => b.status === 'booked' || b.status === 'attended').length || 0);
 
+  // ── 10-class package: extra credits beyond the 6 scheduled classes ────────
+  const is10ClassPackage = studentData?.classes_allocated === 10 && !studentData?.course_expiry_date;
+  const extraCreditsTotal = is10ClassPackage ? 4 : 0;
+  const bookedOrAttended = myBookings?.filter(b => b.status === 'booked' || b.status === 'attended').length || 0;
+  const extraCreditsUsed = is10ClassPackage ? Math.max(0, bookedOrAttended - 6) : 0;
+
   // ── Helper: display label for class type ───────────────────────────────────
-  const displayClassType = (classType) => {
+  const displayClassType = (classType, classTitle) => {
+    if (classTitle) return classTitle;
     if (!classType) return 'Class';
+    if (classType.includes('6.6') || classType.includes('7.7')) return 'Glazing';
     const cat = getClassCategory(classType);
-    if (cat === 'wheelthrowing') return 'Wheel Throwing';
+    if (cat === 'wheelthrowing') return 'Wheelthrowing Beginners/Ext';
     if (cat === 'handbuilding')  return 'Handbuilding';
     if (cat === 'kids')          return 'Kids';
     return classType;
@@ -606,10 +635,10 @@ export default function ClassScheduleNew() {
       <main style={{ maxWidth: '520px', margin: '0 auto', padding: '0 0 88px' }}>
 
         {/* ── PAGE TITLE + FILTER BUTTON ────────────────────────────────────── */}
-        <div style={{ padding: '28px 20px 20px', borderBottom: `1px solid ${RULE}`, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <div style={{ padding: '28px 20px 10px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
           <div>
             <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Classes</h1>
-            <div style={{ fontSize: '13px', color: MUTED, marginTop: '4px' }}>Book into available sessions</div>
+            <div style={{ fontSize: '13px', color: MUTED, marginTop: '4px' }}>Manage your classes here</div>
           </div>
           <button
             onClick={() => setShowFilterSheet(true)}
@@ -623,45 +652,85 @@ export default function ClassScheduleNew() {
         </div>
 
         {/* ── PACKAGE PROGRESS ──────────────────────────────────────────── */}
+        {/* ── 10 CLASS PACKAGE CARD ─────────────────────────────────────── */}
+        {is10ClassPackage && (() => {
+          const booked = bookedOrAttended;
+          const total = 10;
+          const creditsRemaining = extraCreditsTotal - extraCreditsUsed;
+          return (
+            <div style={{ padding: '6px 20px 8px' }}>
+              <div style={{ padding: '14px', backgroundColor: '#FFF8F0', border: `1px solid ${RULE}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: TC_DARK, letterSpacing: '0.03em' }}>
+                    10 Class Package · Booked {booked} of {total}
+                  </span>
+                </div>
+                <div style={{ height: '4px', backgroundColor: RULE, borderRadius: '2px', position: 'relative', marginBottom: '6px' }}>
+                  <div style={{ position: 'absolute', left: 0, top: 0, height: '4px', borderRadius: '2px', width: `${Math.round((booked / total) * 100)}%`, backgroundColor: TC }} />
+                </div>
+                <div style={{ fontSize: '11px', color: MUTED }}>
+                  {creditsRemaining} Class Credit{creditsRemaining !== 1 ? 's' : ''} remaining
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         {dashboardData?.packageInfo?.totalCourses > 1 && (() => {
           const pkg = dashboardData.packageInfo;
           const currentCourse = pkg.currentCourse || (pkg.totalCourses - (pkg.coursesRemaining || 0));
           return (
-            <div style={{ padding: '14px 20px', borderBottom: `1px solid ${RULE}`, backgroundColor: '#FFF8F0' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: TC_DARK, letterSpacing: '0.03em' }}>
-                  {pkg.totalCourses}-Course Package · Course {currentCourse} of {pkg.totalCourses}
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
-                {Array.from({ length: pkg.totalCourses }).map((_, i) => (
-                  <div key={i} style={{
-                    flex: 1, height: '4px', borderRadius: '2px',
-                    backgroundColor: i < currentCourse - 1 ? TC
-                      : i < currentCourse ? TC_DARK
-                      : RULE,
-                  }} />
-                ))}
-              </div>
-              {pkg.coursesRemaining > 0 && (
-                <div style={{ fontSize: '11px', color: MUTED }}>
-                  {pkg.coursesRemaining} more course{pkg.coursesRemaining > 1 ? 's' : ''} remaining ({pkg.coursesRemaining * 6} classes)
+            <div style={{ padding: '6px 20px 8px' }}>
+              <div style={{ padding: '14px', backgroundColor: '#FFF8F0', border: `1px solid ${RULE}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: TC_DARK, letterSpacing: '0.03em' }}>
+                    {pkg.totalCourses}-Course Package · Course {currentCourse} of {pkg.totalCourses}
+                  </span>
                 </div>
-              )}
+                <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
+                  {Array.from({ length: pkg.totalCourses }).map((_, i) => (
+                    <div key={i} style={{
+                      flex: 1, height: '4px', borderRadius: '2px',
+                      backgroundColor: i < currentCourse - 1 ? TC
+                        : i < currentCourse ? TC_DARK
+                        : RULE,
+                    }} />
+                  ))}
+                </div>
+                {pkg.coursesRemaining > 0 && (
+                  <div style={{ fontSize: '11px', color: MUTED }}>
+                    {pkg.coursesRemaining} more course{pkg.coursesRemaining > 1 ? 's' : ''} remaining ({pkg.coursesRemaining * 6} classes)
+                  </div>
+                )}
+              </div>
             </div>
           );
         })()}
 
         {/* ── DATE STRIP ────────────────────────────────────────────────────── */}
-        <div style={{ borderBottom: `1px solid ${RULE}` }}>
-          {/* Month label */}
-          <div style={{ padding: '14px 20px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          {/* Month label + nav arrows */}
+          <div style={{ padding: '8px 20px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED }}>
               {MONTH_LABELS[selectedDate.getMonth()]} {selectedDate.getFullYear()}
             </span>
+            <div style={{ display: 'flex', gap: '4px' }}>
+              <button
+                onClick={() => { if (stripRef.current) stripRef.current.scrollBy({ left: -200, behavior: 'smooth' }); }}
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center' }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: MUTED }}>chevron_left</span>
+              </button>
+              <button
+                onClick={() => { if (stripRef.current) stripRef.current.scrollBy({ left: 200, behavior: 'smooth' }); }}
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center' }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: MUTED }}>chevron_right</span>
+              </button>
+            </div>
           </div>
           {/* Scrollable strip */}
-          <div style={{ display: 'flex', overflowX: 'auto', padding: '0 20px 14px', gap: '6px', scrollbarWidth: 'none' }}>
+          <div ref={stripRef} style={{ display: 'flex', overflowX: 'auto', padding: '0 20px 8px', gap: '6px', scrollbarWidth: 'none' }}>
             {strip.map((d, i) => {
               const isSelected = fmtKey(d) === fmtKey(selectedDate);
               const hasClasses = dateHasClasses(d);
@@ -704,17 +773,10 @@ export default function ClassScheduleNew() {
         </div>
 
         {/* ── CLASS LIST FOR SELECTED DATE ──────────────────────────────────── */}
-        <div style={{ padding: '24px 20px 8px' }}>
-          <SectionLabel>
-            {DAY_LABELS[selectedDate.getDay()]}, {selectedDate.getDate()} {MONTH_LABELS[selectedDate.getMonth()]}
-            {classesForSelectedDate.length > 0 && (
-              <span style={{ color: '#CCC', fontWeight: 400, marginLeft: '6px' }}>{classesForSelectedDate.length} sessions</span>
-            )}
-          </SectionLabel>
-
+        <div style={{ padding: '12px 20px 8px' }}>
           {classesForSelectedDate.length === 0 ? (
             <div style={{ padding: '32px 0', textAlign: 'center' }}>
-              <div style={{ fontSize: '13px', color: MUTED }}>No sessions on this day.</div>
+              <div style={{ fontSize: '13px', color: MUTED }}>No classes on this day.</div>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '28px' }}>
@@ -727,7 +789,7 @@ export default function ClassScheduleNew() {
                 const enrolled = isEnrolled(cls.id);
                 const isFull   = !enrolled && cls.isFull;
                 const action   = getCardAction(cls);
-                const typeLabel  = displayClassType(cls.classType);
+                const typeLabel  = displayClassType(cls.classType, cls.classTitle);
                 const levelLabel = displayLevel(cls.classType);
 
                 return (
@@ -735,26 +797,31 @@ export default function ClassScheduleNew() {
                     key={cls.id}
                     onClick={() => setShowDetailSheet(cls)}
                     style={{
-                      padding: '14px',
+                      padding: '12px',
                       border: `1px solid ${enrolled ? TC : RULE}`,
                       backgroundColor: enrolled ? TC_LIGHT : ALT,
                       display: 'flex', alignItems: 'center', gap: '14px',
                       cursor: 'pointer',
                     }}
                   >
-                    {/* Time block */}
-                    <div style={{ flexShrink: 0, width: '64px' }}>
-                      <div style={{ fontSize: '13px', fontWeight: 700 }}>{cls.startTime}</div>
-                      <div style={{ fontSize: '10px', color: MUTED }}>–{cls.endTime}</div>
+                    {/* Date mini-cal */}
+                    <div style={{ width: '36px', flexShrink: 0, textAlign: 'center' }}>
+                      <div style={{ fontSize: '10px', fontWeight: 700, color: enrolled ? TC_DARK : MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1.2 }}>
+                        {DAY_LABELS[selectedDate.getDay()]}
+                      </div>
+                      <div style={{ fontSize: '18px', fontWeight: 700, lineHeight: 1.1 }}>{selectedDate.getDate()}</div>
+                      <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1.2 }}>
+                        {MONTH_LABELS[selectedDate.getMonth()]}
+                      </div>
                     </div>
 
                     {/* Divider */}
-                    <div style={{ width: '1px', height: '36px', backgroundColor: RULE, flexShrink: 0 }} />
+                    <div style={{ width: '1px', height: '42px', backgroundColor: enrolled ? 'rgba(196,98,45,0.2)' : RULE, flexShrink: 0 }} />
 
                     {/* Detail */}
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '2px' }}>{typeLabel}</div>
-                      <div style={{ fontSize: '11px', color: MUTED }}>{levelLabel} · {cls.instructor}</div>
+                      <div style={{ fontSize: '13px', fontWeight: 700 }}>{typeLabel}</div>
+                      <div style={{ fontSize: '11px', color: MUTED }}>{cls.startTime} – {cls.endTime} · {cls.instructor}</div>
                     </div>
 
                     {/* Action */}
@@ -838,7 +905,7 @@ export default function ClassScheduleNew() {
                       <div style={{ width: '1px', height: '42px', backgroundColor: 'rgba(196,98,45,0.2)', flexShrink: 0 }} />
 
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: '13px', fontWeight: 700 }}>{displayClassType(f.classType)}</div>
+                        <div style={{ fontSize: '13px', fontWeight: 700 }}>{displayClassType(f.classType, f.classTitle)}</div>
                         <div style={{ fontSize: '11px', color: MUTED }}>{f.startTime} – {f.endTime} · {f.instructor}</div>
                       </div>
 
@@ -876,6 +943,30 @@ export default function ClassScheduleNew() {
             )}
           </div>
 
+          {/* ── STUDIO POLICY ─────────────────────────────────────────────────── */}
+          <div style={{ marginTop: '32px' }}>
+            <SectionLabel>Studio Policy</SectionLabel>
+          </div>
+          <div
+            onClick={() => navigate('/studio-policy')}
+            style={{
+              padding: '14px 16px',
+              backgroundColor: TC_LIGHT,
+              border: `1px solid ${TC}`,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '20px', color: TC_DARK }}>gavel</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: TC_DARK, letterSpacing: '0.04em' }}>Studio Policy</div>
+              <div style={{ fontSize: '11px', color: MUTED, marginTop: '2px' }}>MUST READ: All studio rules and regulations apply</div>
+            </div>
+            <span className="material-symbols-outlined" style={{ fontSize: '16px', color: TC }}>chevron_right</span>
+          </div>
+
         </div>
       </main>
 
@@ -888,7 +979,10 @@ export default function ClassScheduleNew() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
               <div>
                 <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED, marginBottom: '6px' }}>Class Details</div>
-                <div style={{ fontSize: '22px', fontWeight: 700 }}>{displayClassType(showDetailSheet.classType)}</div>
+                <div style={{ fontSize: '22px', fontWeight: 700 }}>{displayClassType(showDetailSheet.classType, showDetailSheet.classTitle)}</div>
+                {showDetailSheet.classDescription && (
+                  <div style={{ fontSize: '13px', color: MUTED, marginTop: '4px' }}>{showDetailSheet.classDescription}</div>
+                )}
               </div>
               <button onClick={() => setShowDetailSheet(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}>
                 <span className="material-symbols-outlined" style={{ fontSize: '20px', color: MUTED }}>close</span>
@@ -1012,7 +1106,7 @@ export default function ClassScheduleNew() {
             <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED, marginBottom: '12px' }}>
               Confirm Booking
             </div>
-            <div style={{ fontSize: '22px', fontWeight: 700, marginBottom: '4px' }}>{displayClassType(showBookSheet.classType)}</div>
+            <div style={{ fontSize: '22px', fontWeight: 700, marginBottom: '4px' }}>{displayClassType(showBookSheet.classType, showBookSheet.classTitle)}</div>
             <div style={{ fontSize: '14px', color: MUTED, marginBottom: '20px' }}>
               {DAY_LABELS[selectedDate.getDay()]}, {selectedDate.getDate()} {MONTH_LABELS[selectedDate.getMonth()]} · {showBookSheet.startTime} – {showBookSheet.endTime}
             </div>
@@ -1044,8 +1138,8 @@ export default function ClassScheduleNew() {
                 <span className="material-symbols-outlined" style={{ fontSize: '16px', color: MUTED }}>info</span>
                 <span style={{ fontSize: '12px', color: MUTED }}>
                   {remainingCredits > 0
-                    ? `This will use 1 class credit. You have ${remainingCredits} remaining.`
-                    : `You have no credits. You'll be taken to purchase a class.`}
+                    ? `This will use 1 class credit. You currently have ${remainingCredits} remaining.`
+                    : `You have no credits. You will need to purchase a class.`}
                 </span>
               </div>
             )}
@@ -1083,7 +1177,7 @@ export default function ClassScheduleNew() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
               <div>
                 <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED, marginBottom: '6px' }}>Reschedule</div>
-                <div style={{ fontSize: '20px', fontWeight: 700 }}>{displayClassType(selectedClass.classType)}</div>
+                <div style={{ fontSize: '20px', fontWeight: 700 }}>{displayClassType(selectedClass.classType, selectedClass.classTitle)}</div>
                 <div style={{ fontSize: '12px', color: MUTED, marginTop: '2px' }}>{formatDate(new Date(selectedClass.classDate))} · {selectedClass.startTime}</div>
               </div>
               <button onClick={() => { setShowRescheduleModal(false); setSelectedClass(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}>
@@ -1096,8 +1190,22 @@ export default function ClassScheduleNew() {
             </div>
 
             {/* Date strip for reschedule */}
-            <div style={{ display: 'flex', overflowX: 'auto', gap: '6px', paddingBottom: '14px', scrollbarWidth: 'none', marginBottom: '16px' }}>
-              {Array.from({ length: 14 }, (_, i) => addDays(new Date(), i)).map((d, i) => {
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '4px', marginBottom: '6px' }}>
+              <button
+                onClick={() => { if (rescheduleStripRef.current) rescheduleStripRef.current.scrollBy({ left: -200, behavior: 'smooth' }); }}
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center' }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: MUTED }}>chevron_left</span>
+              </button>
+              <button
+                onClick={() => { if (rescheduleStripRef.current) rescheduleStripRef.current.scrollBy({ left: 200, behavior: 'smooth' }); }}
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center' }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: MUTED }}>chevron_right</span>
+              </button>
+            </div>
+            <div ref={rescheduleStripRef} style={{ display: 'flex', overflowX: 'auto', gap: '6px', paddingBottom: '8px', scrollbarWidth: 'none', marginBottom: '16px' }}>
+              {Array.from({ length: 60 }, (_, i) => addDays(new Date(), i)).map((d, i) => {
                 const rescheduleClasses = getRescheduleClassesForDate(d);
                 const hasClasses = rescheduleClasses.length > 0;
                 const isSelected = fmtKey(d) === fmtKey(rescheduleSelectedDate);
@@ -1136,16 +1244,22 @@ export default function ClassScheduleNew() {
                   {cls.map(classItem => (
                     <div
                       key={classItem.id}
-                      style={{ padding: '14px', border: `1px solid ${RULE}`, backgroundColor: ALT, display: 'flex', alignItems: 'center', gap: '14px' }}
+                      style={{ padding: '12px', border: `1px solid ${RULE}`, backgroundColor: ALT, display: 'flex', alignItems: 'center', gap: '14px' }}
                     >
-                      <div style={{ flexShrink: 0, width: '64px' }}>
-                        <div style={{ fontSize: '13px', fontWeight: 700 }}>{classItem.startTime}</div>
-                        <div style={{ fontSize: '10px', color: MUTED }}>–{classItem.endTime}</div>
+                      {/* Date mini-cal */}
+                      <div style={{ width: '36px', flexShrink: 0, textAlign: 'center' }}>
+                        <div style={{ fontSize: '10px', fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1.2 }}>
+                          {DAY_LABELS[rescheduleSelectedDate.getDay()]}
+                        </div>
+                        <div style={{ fontSize: '18px', fontWeight: 700, lineHeight: 1.1 }}>{rescheduleSelectedDate.getDate()}</div>
+                        <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1.2 }}>
+                          {MONTH_LABELS[rescheduleSelectedDate.getMonth()]}
+                        </div>
                       </div>
-                      <div style={{ width: '1px', height: '36px', backgroundColor: RULE, flexShrink: 0 }} />
+                      <div style={{ width: '1px', height: '42px', backgroundColor: RULE, flexShrink: 0 }} />
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '2px' }}>{displayClassType(classItem.classType)}</div>
-                        <div style={{ fontSize: '11px', color: MUTED }}>{classItem.instructor}</div>
+                        <div style={{ fontSize: '13px', fontWeight: 700 }}>{displayClassType(classItem.classType, classItem.classTitle)}</div>
+                        <div style={{ fontSize: '11px', color: MUTED }}>{classItem.startTime} – {classItem.endTime} · {classItem.instructor}</div>
                       </div>
                       <button
                         onClick={() => handleReschedule(classItem.id)}
@@ -1165,7 +1279,7 @@ export default function ClassScheduleNew() {
                 onClick={handlePauseRequest}
                 style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, background: 'none', border: `1px solid ${RULE}`, padding: '8px 14px', cursor: 'pointer' }}
               >
-                Pause Course Instead
+                Pause Course
               </button>
             </div>
           </div>
@@ -1215,6 +1329,31 @@ export default function ClassScheduleNew() {
                 style={{ flex: 2, padding: '13px', border: 'none', backgroundColor: '#F59E0B', color: '#FFF', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
               >
                 Confirm Pause
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── CONFIRM MODAL ──────────────────────────────────────────────────────── */}
+      {confirmModal && (
+        <>
+          <div onClick={() => setConfirmModal(null)} style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 80 }} />
+          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 81, backgroundColor: '#FFFFFF', padding: '28px 24px', maxWidth: '340px', width: '90%', textAlign: 'center' }}>
+            <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '8px' }}>{confirmModal.title}</div>
+            <div style={{ fontSize: '13px', color: MUTED, marginBottom: '24px' }}>{confirmModal.message}</div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={() => setConfirmModal(null)}
+                style={{ flex: 1, padding: '10px', fontSize: '12px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', border: `1px solid ${RULE}`, backgroundColor: 'transparent', color: MUTED, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { setConfirmModal(null); confirmModal.onConfirm(); }}
+                style={{ flex: 1, padding: '10px', fontSize: '12px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', border: 'none', backgroundColor: TC, color: '#FFF', cursor: 'pointer' }}
+              >
+                Confirm
               </button>
             </div>
           </div>

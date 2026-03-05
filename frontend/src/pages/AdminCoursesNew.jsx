@@ -1,47 +1,54 @@
 import { useState, useEffect } from 'react';
 import api from '../utils/api';
+import AdminNav from '../components/AdminNav';
 
-const API_URL = 'http://localhost:3000';
+const TC       = '#C4622D';
+const TC_LIGHT = '#F9EDE6';
+const TC_DARK  = '#9E4A1E';
+const INK      = '#282828';
+const MUTED    = '#888888';
+const RULE     = 'rgba(40,40,40,0.09)';
+const ALT      = '#F5F3F0';
 
-// Using admin design colors
-const ADMIN_PRIMARY = '#D37D63';
+const labelSt = { fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '5px' };
+const inputSt = { width: '100%', padding: '9px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' };
 
 export default function AdminCoursesNew() {
   const [courses, setCourses] = useState([]);
-  const [selectedCourse, setSelectedCourse] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedId, setSelectedId] = useState(null);
   const [formData, setFormData] = useState({
-    classType: '',
-    instructor: '',
-    description: '',
-    maxCapacity: '',
-    classDate: '',
-    startTime: '',
-    endTime: '',
-    room: ''
+    classType: '', instructor: '', description: '',
+    maxCapacity: '', classDate: '', startTime: '', endTime: '', room: '',
   });
+  const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    fetchCourses();
-  }, []);
+  useEffect(() => { fetchCourses(); }, []);
 
   const fetchCourses = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await api.get(`${API_URL}/api/classes/available`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      setCourses(response.data.classes || []);
-      if (response.data.classes?.length > 0) {
-        selectCourse(response.data.classes[0]);
-      }
-    } catch (error) {
-      console.error('Error fetching courses:', error);
+      setLoading(true);
+      const res = await api.get('/classes/available');
+      setCourses(res.data.classes || []);
+    } catch (err) {
+      console.error('Error fetching courses:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
+  // Group by classType prefix (e.g. "WTTUE_JL" → all Tuesday JL classes)
+  const grouped = courses.reduce((acc, c) => {
+    const key = c.classType || 'Unknown';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(c);
+    return acc;
+  }, {});
+
+  const courseTypes = Object.keys(grouped).sort();
+
   const selectCourse = (course) => {
-    setSelectedCourse(course);
+    setSelectedId(course.id);
     setFormData({
       classType: course.classType || '',
       instructor: course.instructor || '',
@@ -50,268 +57,269 @@ export default function AdminCoursesNew() {
       classDate: course.classDate ? course.classDate.split('T')[0] : '',
       startTime: course.startTime || '',
       endTime: course.endTime || '',
-      room: course.room || ''
+      room: course.room || '',
     });
   };
 
-  const handleSave = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      await api.put(`${API_URL}/api/classes/${selectedCourse.id}`, formData, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+  const selected = courses.find(c => c.id === selectedId);
 
-      alert('Course saved successfully!');
+  const handleSave = async () => {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      await api.put(`/classes/${selected.id}`, formData);
       fetchCourses();
-    } catch (error) {
-      console.error('Error saving course:', error);
-      alert('Failed to save course');
+    } catch (err) {
+      console.error('Error saving:', err);
+      alert('Failed to save');
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleDelete = async () => {
-    if (!confirm('Are you sure you want to delete this course? This action cannot be undone.')) return;
-
+    if (!selected || !confirm('Delete this class instance? This cannot be undone.')) return;
     try {
-      const token = localStorage.getItem('token');
-      await api.delete(`${API_URL}/api/classes/${selectedCourse.id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      alert('Course deleted successfully!');
+      await api.delete(`/classes/${selected.id}`);
+      setSelectedId(null);
       fetchCourses();
-      setSelectedCourse(null);
-    } catch (error) {
-      console.error('Error deleting course:', error);
-      alert('Failed to delete course');
+    } catch (err) {
+      console.error('Error deleting:', err);
+      alert('Failed to delete');
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    window.location.href = '/login';
+  const fmtDate = (d) => {
+    if (!d) return '';
+    return new Date(d).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  };
+
+  const getTypeLabel = (classType) => {
+    if (!classType) return 'Class';
+    if (classType.toUpperCase().startsWith('WT')) return 'Wheelthrowing';
+    if (classType.toUpperCase().startsWith('HB')) return 'Handbuilding';
+    if (classType.toUpperCase().startsWith('KD')) return 'Kids';
+    return classType;
   };
 
   return (
-    <div className="flex min-h-screen" style={{ backgroundColor: '#211911', color: '#F8F5F2' }}>
-      {/* Sidebar */}
-      <aside className="w-1/3 max-w-sm flex flex-col p-6" style={{ borderRight: `1px solid #4A4441` }}>
-        <div className="flex items-center gap-3 mb-8">
-          <div className="bg-center bg-no-repeat aspect-square bg-cover rounded-full size-12" style={{
-            backgroundImage: `url('https://via.placeholder.com/48')`
-          }} />
-          <div className="flex flex-col">
-            <h1 className="text-lg font-bold">Clay Studio Admin</h1>
-            <p className="text-gray-400 text-sm">admin@claystudio.com</p>
+    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
+      <AdminNav active="courses" />
+
+      <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '32px 24px 60px' }}>
+        {/* Header */}
+        <div style={{ marginBottom: '24px' }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>Admin</div>
+          <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Courses</h1>
+          <p style={{ fontSize: '12px', color: MUTED, marginTop: '4px' }}>{courseTypes.length} course types &middot; {courses.length} total class instances</p>
+        </div>
+
+        <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-start' }}>
+          {/* Left: Course type list */}
+          <div style={{ width: '320px', flexShrink: 0 }}>
+            {loading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: MUTED }}>Loading...</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                {courseTypes.map(type => {
+                  const instances = grouped[type];
+                  const isSelected = selected?.classType === type;
+                  const futureDates = instances
+                    .filter(c => new Date(c.classDate) >= new Date())
+                    .sort((a, b) => new Date(a.classDate) - new Date(b.classDate));
+                  const sample = instances[0];
+
+                  return (
+                    <div key={type}>
+                      {/* Course type header */}
+                      <div
+                        style={{
+                          padding: '12px 14px',
+                          backgroundColor: isSelected ? TC_LIGHT : '#FFF',
+                          border: `1px solid ${isSelected ? TC : RULE}`,
+                          cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', gap: '10px',
+                        }}
+                        onClick={() => { if (instances.length > 0) selectCourse(instances[0]); }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: '13px', fontWeight: 700, color: INK, marginBottom: '2px' }}>{type}</div>
+                          <div style={{ fontSize: '11px', color: MUTED }}>
+                            {getTypeLabel(type)} &middot; {sample?.instructor || '?'} &middot; {instances.length} classes
+                          </div>
+                        </div>
+                        {futureDates.length > 0 && (
+                          <div style={{ fontSize: '10px', color: TC_DARK, fontWeight: 600, flexShrink: 0 }}>
+                            {futureDates.length} upcoming
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Expanded: show individual class instances */}
+                      {isSelected && instances.length > 1 && (
+                        <div style={{ borderLeft: `2px solid ${TC}`, marginLeft: '14px' }}>
+                          {instances
+                            .sort((a, b) => new Date(a.classDate) - new Date(b.classDate))
+                            .map(inst => (
+                              <div
+                                key={inst.id}
+                                onClick={() => selectCourse(inst)}
+                                style={{
+                                  padding: '8px 14px',
+                                  cursor: 'pointer',
+                                  backgroundColor: selectedId === inst.id ? TC_LIGHT : 'transparent',
+                                  fontSize: '12px',
+                                  color: selectedId === inst.id ? TC_DARK : MUTED,
+                                  fontWeight: selectedId === inst.id ? 600 : 400,
+                                  borderBottom: `1px solid ${RULE}`,
+                                }}
+                              >
+                                {fmtDate(inst.classDate)} &middot; {inst.startTime}–{inst.endTime}
+                                {inst.currentEnrollment > 0 && (
+                                  <span style={{ marginLeft: '8px', fontSize: '10px', color: INK }}>
+                                    {inst.currentEnrollment}/{inst.maxCapacity}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
-        </div>
 
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold">Courses</h2>
-          <button
-            className="flex items-center justify-center gap-2 rounded-lg h-10 px-4 text-white text-sm font-bold leading-normal tracking-[0.015em]"
-            style={{ backgroundColor: ADMIN_PRIMARY }}
-          >
-            <span className="material-symbols-outlined">add</span>
-            <span className="truncate">Add New Course</span>
-          </button>
-        </div>
-
-        <div className="flex-grow space-y-2 overflow-y-auto">
-          {courses.map((course) => (
-            <div
-              key={course.id}
-              onClick={() => selectCourse(course)}
-              className={`p-4 rounded-lg cursor-pointer ${
-                selectedCourse?.id === course.id
-                  ? 'border'
-                  : 'hover:bg-gray-800'
-              }`}
-              style={selectedCourse?.id === course.id ? {
-                backgroundColor: `${ADMIN_PRIMARY}30`,
-                borderColor: ADMIN_PRIMARY
-              } : {}}
-            >
-              <h3 className="font-bold">{course.classType}</h3>
-              <p className="text-sm text-gray-400">{course.instructor}</p>
-            </div>
-          ))}
-        </div>
-
-        <button
-          onClick={handleLogout}
-          className="flex min-w-[84px] items-center justify-center gap-2 mt-auto rounded-lg h-10 px-4 bg-gray-700 text-sm font-bold leading-normal tracking-[0.015em]"
-        >
-          <span className="material-symbols-outlined">logout</span>
-          <span className="truncate">Logout</span>
-        </button>
-      </aside>
-
-      {/* Main Content */}
-      <main className="w-2/3 flex-1 p-8 overflow-y-auto">
-        {selectedCourse ? (
-          <div className="max-w-4xl mx-auto">
-            <div className="mb-8">
-              <p className="text-4xl font-black leading-tight tracking-tight">{selectedCourse.classType}</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* Left Column */}
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium pb-2">Course Name</label>
-                  <input
-                    className="form-input w-full rounded-lg focus:outline-0 focus:ring-2 border h-12 placeholder:text-gray-400 px-4 text-base"
-                    style={{
-                      backgroundColor: '#211911',
-                      borderColor: '#4A4441',
-                      color: '#F8F5F2',
-                      '--tw-ring-color': ADMIN_PRIMARY
-                    }}
-                    placeholder="e.g., Beginner's Pottery"
-                    value={formData.classType}
-                    onChange={(e) => setFormData({...formData, classType: e.target.value})}
-                  />
+          {/* Right: Edit panel */}
+          <div style={{ flex: 1 }}>
+            {selected ? (
+              <div style={{ backgroundColor: '#FFF', border: `1px solid ${RULE}`, padding: '28px' }}>
+                <div style={{ marginBottom: '20px' }}>
+                  <div style={{ fontSize: '18px', fontWeight: 700, marginBottom: '2px' }}>{selected.classType}</div>
+                  <div style={{ fontSize: '12px', color: MUTED }}>{fmtDate(selected.classDate)} &middot; {selected.startTime}–{selected.endTime}</div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium pb-2">Instructor</label>
-                  <input
-                    className="form-input w-full rounded-lg focus:outline-0 focus:ring-2 border h-12 placeholder:text-gray-400 px-4 text-base"
-                    style={{
-                      backgroundColor: '#211911',
-                      borderColor: '#4A4441',
-                      color: '#F8F5F2'
-                    }}
-                    placeholder="e.g., Jane Doe"
-                    value={formData.instructor}
-                    onChange={(e) => setFormData({...formData, instructor: e.target.value})}
-                  />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+                  <div>
+                    <label style={labelSt}>Course Type</label>
+                    <input
+                      value={formData.classType}
+                      onChange={e => setFormData({ ...formData, classType: e.target.value })}
+                      style={inputSt}
+                      placeholder="e.g. WTTUE_JL"
+                    />
+                  </div>
+                  <div>
+                    <label style={labelSt}>Instructor</label>
+                    <input
+                      value={formData.instructor}
+                      onChange={e => setFormData({ ...formData, instructor: e.target.value })}
+                      style={inputSt}
+                      placeholder="e.g. JL"
+                    />
+                  </div>
+                  <div>
+                    <label style={labelSt}>Room</label>
+                    <input
+                      value={formData.room}
+                      onChange={e => setFormData({ ...formData, room: e.target.value })}
+                      style={inputSt}
+                      placeholder="e.g. Main Studio"
+                    />
+                  </div>
+                  <div>
+                    <label style={labelSt}>Capacity</label>
+                    <input
+                      type="number"
+                      value={formData.maxCapacity}
+                      onChange={e => setFormData({ ...formData, maxCapacity: e.target.value })}
+                      style={inputSt}
+                      placeholder="12"
+                    />
+                  </div>
+                  <div>
+                    <label style={labelSt}>Date</label>
+                    <input
+                      type="date"
+                      value={formData.classDate}
+                      onChange={e => setFormData({ ...formData, classDate: e.target.value })}
+                      style={inputSt}
+                    />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <div>
+                      <label style={labelSt}>Start</label>
+                      <input
+                        value={formData.startTime}
+                        onChange={e => setFormData({ ...formData, startTime: e.target.value })}
+                        style={inputSt}
+                        placeholder="10:00am"
+                      />
+                    </div>
+                    <div>
+                      <label style={labelSt}>End</label>
+                      <input
+                        value={formData.endTime}
+                        onChange={e => setFormData({ ...formData, endTime: e.target.value })}
+                        style={inputSt}
+                        placeholder="12:00pm"
+                      />
+                    </div>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium pb-2">Course Description</label>
+                <div style={{ marginBottom: '20px' }}>
+                  <label style={labelSt}>Description</label>
                   <textarea
-                    className="form-textarea w-full rounded-lg focus:outline-0 focus:ring-2 border placeholder:text-gray-400 p-4 text-base"
-                    style={{
-                      backgroundColor: '#211911',
-                      borderColor: '#4A4441',
-                      color: '#F8F5F2'
-                    }}
-                    placeholder="Describe the course..."
-                    rows="5"
                     value={formData.description}
-                    onChange={(e) => setFormData({...formData, description: e.target.value})}
+                    onChange={e => setFormData({ ...formData, description: e.target.value })}
+                    rows={4}
+                    style={{ ...inputSt, resize: 'vertical' }}
+                    placeholder="Course description..."
                   />
+                </div>
+
+                {/* Stats row */}
+                <div style={{ display: 'flex', gap: '16px', padding: '14px 0', borderTop: `1px solid ${RULE}`, borderBottom: `1px solid ${RULE}`, marginBottom: '20px' }}>
+                  {[
+                    { label: 'Enrolled', value: selected.currentEnrollment || 0 },
+                    { label: 'Capacity', value: selected.maxCapacity || 0 },
+                    { label: 'Available', value: selected.spotsAvailable ?? (selected.maxCapacity - (selected.currentEnrollment || 0)) },
+                    { label: 'Waitlist', value: selected.waitlistCount || 0 },
+                  ].map(s => (
+                    <div key={s.label} style={{ textAlign: 'center', flex: 1 }}>
+                      <div style={{ fontSize: '20px', fontWeight: 700, color: INK }}>{s.value}</div>
+                      <div style={{ fontSize: '10px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: MUTED }}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Actions */}
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={handleDelete}
+                    style={{ padding: '10px 16px', border: '1px solid #C62828', background: 'none', color: '#C62828', fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', cursor: 'pointer' }}
+                  >
+                    Delete
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    style={{ padding: '10px 20px', backgroundColor: TC, color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', cursor: 'pointer', opacity: saving ? 0.6 : 1 }}
+                  >
+                    {saving ? 'Saving...' : 'Save Changes'}
+                  </button>
                 </div>
               </div>
-
-              {/* Right Column */}
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium pb-2">Room</label>
-                  <input
-                    className="form-input w-full rounded-lg focus:outline-0 focus:ring-2 border h-12 placeholder:text-gray-400 px-4 text-base"
-                    style={{
-                      backgroundColor: '#211911',
-                      borderColor: '#4A4441',
-                      color: '#F8F5F2'
-                    }}
-                    placeholder="e.g., Studio A"
-                    value={formData.room}
-                    onChange={(e) => setFormData({...formData, room: e.target.value})}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium pb-2">Capacity</label>
-                  <input
-                    className="form-input w-full rounded-lg focus:outline-0 focus:ring-2 border h-12 placeholder:text-gray-400 px-4 text-base"
-                    style={{
-                      backgroundColor: '#211911',
-                      borderColor: '#4A4441',
-                      color: '#F8F5F2'
-                    }}
-                    placeholder="e.g., 15"
-                    type="number"
-                    value={formData.maxCapacity}
-                    onChange={(e) => setFormData({...formData, maxCapacity: e.target.value})}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium pb-2">Date</label>
-                  <input
-                    className="form-input w-full rounded-lg focus:outline-0 focus:ring-2 border h-12 placeholder:text-gray-400 px-4 text-base"
-                    style={{
-                      backgroundColor: '#211911',
-                      borderColor: '#4A4441',
-                      color: '#F8F5F2',
-                      colorScheme: 'dark'
-                    }}
-                    type="date"
-                    value={formData.classDate}
-                    onChange={(e) => setFormData({...formData, classDate: e.target.value})}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium pb-2">Start Time</label>
-                    <input
-                      className="form-input w-full rounded-lg focus:outline-0 focus:ring-2 border h-12 placeholder:text-gray-400 px-4 text-base"
-                      style={{
-                        backgroundColor: '#211911',
-                        borderColor: '#4A4441',
-                        color: '#F8F5F2',
-                        colorScheme: 'dark'
-                      }}
-                      type="time"
-                      value={formData.startTime}
-                      onChange={(e) => setFormData({...formData, startTime: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium pb-2">End Time</label>
-                    <input
-                      className="form-input w-full rounded-lg focus:outline-0 focus:ring-2 border h-12 placeholder:text-gray-400 px-4 text-base"
-                      style={{
-                        backgroundColor: '#211911',
-                        borderColor: '#4A4441',
-                        color: '#F8F5F2',
-                        colorScheme: 'dark'
-                      }}
-                      type="time"
-                      value={formData.endTime}
-                      onChange={(e) => setFormData({...formData, endTime: e.target.value})}
-                    />
-                  </div>
-                </div>
+            ) : (
+              <div style={{ padding: '80px 40px', textAlign: 'center', color: MUTED, backgroundColor: '#FFF', border: `1px solid ${RULE}` }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '40px', color: RULE, marginBottom: '12px', display: 'block' }}>school</span>
+                <div style={{ fontSize: '14px' }}>Select a course to edit</div>
               </div>
-            </div>
-
-            <div className="mt-12 flex justify-end gap-4">
-              <button
-                onClick={handleDelete}
-                className="flex items-center justify-center rounded-lg h-12 px-6 text-sm font-bold text-red-500 border border-red-500 hover:bg-red-900/20"
-              >
-                <span className="truncate">Delete Course</span>
-              </button>
-              <button
-                onClick={handleSave}
-                className="flex items-center justify-center rounded-lg h-12 px-8 text-white text-sm font-bold"
-                style={{ backgroundColor: ADMIN_PRIMARY }}
-              >
-                <span className="truncate">Save Changes</span>
-              </button>
-            </div>
+            )}
           </div>
-        ) : (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-gray-400">Select a course to edit</p>
-          </div>
-        )}
+        </div>
       </main>
     </div>
   );

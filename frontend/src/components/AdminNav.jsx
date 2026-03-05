@@ -24,7 +24,10 @@ export default function AdminNav({ active, onSyncComplete }) {
       const ordersResponse = await api.post('/admin/sync-shopify-orders');
       await api.post('/admin/backfill-hb-credits');
       const n = ordersResponse.data.enrollmentsCreated || 0;
-      setSyncMessage({ type: 'ok', text: n > 0 ? `Synced — ${n} new enrollment${n !== 1 ? 's' : ''}` : 'Synced — no new enrollments' });
+      const expired = ordersResponse.data.membershipsExpired || 0;
+      let text = n > 0 ? `Synced — ${n} new enrollment${n !== 1 ? 's' : ''}` : 'Synced — no new enrollments';
+      if (expired > 0) text += `, ${expired} membership${expired !== 1 ? 's' : ''} expired`;
+      setSyncMessage({ type: 'ok', text });
       if (onSyncComplete) onSyncComplete();
     } catch (error) {
       setSyncMessage({ type: 'err', text: 'Sync failed' });

@@ -540,19 +540,38 @@ async function createClassesAndBookings(cohortEnrollments, classStatus = 'active
  */
 async function addStudentToExistingCohort(newEnrollment, existingEnrollment) {
   try {
-    // Find all class instances for this cohort by looking up bookings from existing enrollment
+    // Find all class instances for this cohort by looking up class instances directly
+    // (not from peer bookings, which can be incomplete due to race conditions)
     const { supabase } = require('./supabaseDb');
 
-    const { data: existingBookings } = await supabase
+    // First get one booking to find the course identifier pattern
+    const { data: sampleBooking } = await supabase
       .from('bookings')
-      .select('class_instance_id')
-      .eq('course_enrollment_id', existingEnrollment.id);
+      .select('class_instance_id, class_instances!bookings_class_instance_id_fkey(class_type)')
+      .eq('course_enrollment_id', existingEnrollment.id)
+      .limit(1)
+      .single();
 
-    if (!existingBookings || existingBookings.length === 0) {
+    if (!sampleBooking) {
       throw new Error('No existing bookings found for confirmed cohort');
     }
 
-    const classInstanceIds = existingBookings.map(b => b.class_instance_id);
+    // Extract base course identifier (e.g. WT0503NT_JL6 from WT0503NT_JL6.1)
+    const classType = sampleBooking.class_instances?.class_type || '';
+    const baseCourseId = classType.replace(/\.\d+$/, '');
+
+    // Get ALL class instances matching this course (ensures we get .6 even if peer is missing it)
+    const { data: allClassInstances } = await supabase
+      .from('class_instances')
+      .select('id')
+      .ilike('class_type', `${baseCourseId}.%`)
+      .order('class_date', { ascending: true });
+
+    if (!allClassInstances || allClassInstances.length === 0) {
+      throw new Error('No class instances found for course ' + baseCourseId);
+    }
+
+    const classInstanceIds = allClassInstances.map(ci => ci.id);
 
     // Create bookings for the new student
     const addNow = new Date().toISOString();

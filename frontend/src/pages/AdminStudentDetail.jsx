@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import AdminNav from '../components/AdminNav';
@@ -118,6 +118,8 @@ function CalendarWidget({ month, onMonthChange, selectedDate, onDateSelect, avai
 export default function AdminStudentDetail() {
   const navigate = useNavigate();
   const { email } = useParams();
+  const location = useLocation();
+  const cameFromMemberships = location.state?.from === 'memberships' || document.referrer.includes('/admin/memberships');
   const { user, logout } = useAuth();
   const isMobile = useIsMobile();
 
@@ -693,7 +695,9 @@ export default function AdminStudentDetail() {
 
         {/* Breadcrumb */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
-          {student.role === 'instructor' ? (
+          {cameFromMemberships ? (
+            <a href="/admin/memberships" style={{ fontSize: '12px', color: TC, textDecoration: 'none', fontWeight: 700 }}>← Members</a>
+          ) : student.role === 'instructor' ? (
             <a href="/admin/instructors" style={{ fontSize: '12px', color: TC, textDecoration: 'none', fontWeight: 700 }}>← Instructors</a>
           ) : (
             <a href="/admin/students" style={{ fontSize: '12px', color: TC, textDecoration: 'none', fontWeight: 700 }}>← Students</a>
@@ -726,16 +730,31 @@ export default function AdminStudentDetail() {
                 </div>
 
                 {/* Membership badge */}
-                {student.membership_type && (
-                  <div style={{ backgroundColor: TC_LIGHT, border: `1px solid ${TC}`, padding: '10px 12px', flexShrink: 0, maxWidth: '160px' }}>
-                    <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>★ Membership</div>
-                    <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '2px' }}>{student.membership_type}</div>
-                    <div style={{ fontSize: '10px', color: MUTED, marginBottom: '8px' }}>
-                      {student.membership_start ? new Date(student.membership_start).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : ''}{student.membership_end ? ` — ${new Date(student.membership_end).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}` : ''}
+                {student.membership && (() => {
+                  const m = student.membership;
+                  const monthMatch = (m.type || '').match(/(\d+)/);
+                  const months = monthMatch ? parseInt(monthMatch[1]) : 3;
+                  const tier = months >= 12 ? 'Gold' : months >= 6 ? 'Silver' : 'Bronze';
+                  const tierColors = { Bronze: '#CD7F32', Silver: '#A0A0A0', Gold: '#D4A017' };
+                  return (
+                    <div style={{ backgroundColor: TC_LIGHT, border: `1px solid ${TC}`, padding: '10px 12px', flexShrink: 0, maxWidth: '160px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                        <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: TC }}>★ Clay Club</span>
+                        <span style={{ fontSize: '8px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '1px 5px', backgroundColor: tierColors[tier], color: '#FFF' }}>{tier}</span>
+                      </div>
+                      <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '2px' }}>{m.type?.replace(/^Clay Club\s*/i, '') || m.type}</div>
+                      <div style={{ fontSize: '10px', color: MUTED, marginBottom: '8px' }}>
+                        {m.startDate ? new Date(m.startDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}
+                        {m.endDate ? ` — ${new Date(m.endDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}
+                      </div>
+                      <span style={{
+                        fontSize: '9px', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', padding: '2px 7px',
+                        backgroundColor: m.status === 'active' ? TC : MUTED,
+                        color: '#FFF',
+                      }}>{m.status}</span>
                     </div>
-                    <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', padding: '2px 7px', backgroundColor: TC, color: '#FFF' }}>active</span>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
 
               {/* Details fields */}
@@ -891,12 +910,76 @@ export default function AdminStudentDetail() {
               {(!isInstructor || isAlsoStudent) && (
                 <button
                   onClick={handleImpersonate}
-                  style={{ flex: 1, padding: '11px', backgroundColor: 'transparent', color: MUTED, border: `1px solid ${RULE}`, fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
+                  style={{ flex: 1, padding: '11px', backgroundColor: student.membership ? TC_LIGHT : 'transparent', color: student.membership ? TC_DARK : MUTED, border: `1px solid ${student.membership ? TC : RULE}`, fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
                 >
-                  View as Student
+                  View as User
                 </button>
               )}
             </div>
+
+            {/* ── Membership Details Card ── */}
+            {student.membership && (() => {
+              const m = student.membership;
+              const daysLeft = Math.ceil((new Date(m.endDate) - new Date()) / (1000 * 60 * 60 * 24));
+              const totalDays = Math.ceil((new Date(m.endDate) - new Date(m.startDate)) / (1000 * 60 * 60 * 24));
+              const pct = totalDays > 0 ? Math.min(100, Math.max(0, Math.round(((totalDays - Math.max(daysLeft, 0)) / totalDays) * 100))) : 100;
+              const DEFAULT_PERKS = {
+                1:  ['Unlimited studio access', 'Free dedicated storage', 'Free shelving space', 'All studio glazes included'],
+                3:  ['Unlimited studio access', 'Free dedicated storage', 'Free shelving space', 'All studio glazes included'],
+                6:  ['Unlimited studio access', 'Free dedicated storage', 'Free shelving space', 'All studio glazes included', 'Studio-assisted clay reclaim', 'FREE 1x Firing (worth $90)', '10% off clay, tools, firing & courses'],
+                12: ['Unlimited studio access', 'Free dedicated storage', 'Free shelving space', 'All studio glazes included', 'Studio-assisted clay reclaim', 'FREE 2x $130 Firing Basket (worth $260)', '10% off clay, tools, firing & courses'],
+              };
+              const monthMatch2 = (m.type || '').match(/(\d+)/);
+              const planMonths = monthMatch2 ? parseInt(monthMatch2[1]) : 3;
+              const perks = DEFAULT_PERKS[planMonths] || DEFAULT_PERKS[3];
+              const isActive = m.status === 'active' && daysLeft > 0;
+              const isExpiring = isActive && daysLeft <= 30;
+
+              return (
+                <div style={{ backgroundColor: '#FFFFFF', border: `1px solid ${isExpiring ? '#E6A817' : RULE}`, padding: '16px' }}>
+                  <div style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: MUTED, marginBottom: '12px' }}>Membership Details</div>
+
+                  {/* Progress */}
+                  <div style={{ marginBottom: '14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: MUTED, marginBottom: '5px' }}>
+                      <span>{daysLeft > 0 ? `${daysLeft} days remaining` : m.status === 'cancelled' ? 'Cancelled' : 'Expired'}</span>
+                      <span>{pct}%</span>
+                    </div>
+                    <div style={{ height: '3px', backgroundColor: 'rgba(40,40,40,0.08)', position: 'relative' }}>
+                      <div style={{
+                        position: 'absolute', left: 0, top: 0, height: '3px',
+                        width: `${!isActive ? 100 : pct}%`,
+                        backgroundColor: !isActive ? MUTED : isExpiring ? '#E6A817' : TC,
+                      }} />
+                    </div>
+                  </div>
+
+                  {/* Dates */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '14px' }}>
+                    <div>
+                      <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '2px' }}>Start</div>
+                      <div style={{ fontSize: '12px', fontWeight: 600 }}>{new Date(m.startDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '2px' }}>Expires</div>
+                      <div style={{ fontSize: '12px', fontWeight: isExpiring ? 700 : 600, color: isExpiring ? '#9E6200' : INK }}>{new Date(m.endDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                    </div>
+                  </div>
+
+                  {/* Perks */}
+                  {perks.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px' }}>Perks</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                        {perks.map((p, i) => (
+                          <span key={i} style={{ fontSize: '10px', padding: '3px 8px', backgroundColor: ALT, color: MUTED }}>{p}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
           </div>
 
@@ -1088,11 +1171,11 @@ export default function AdminStudentDetail() {
                     </div>
 
                     {/* Status + dates — only show if dates are available */}
-                    {(formatDate(enrollment.start_date) || formatDate(enrollment.end_date)) && (
+                    {(enrollment.start_date || enrollment.end_date) && (
                     <div style={{ paddingTop: '16px', borderTop: `1px solid ${RULE}`, display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                       {[
-                        formatDate(enrollment.start_date),
-                        formatDate(enrollment.end_date) ? `→ ${formatDate(enrollment.end_date)}` : null,
+                        enrollment.start_date ? formatDate(enrollment.start_date) : null,
+                        enrollment.end_date ? `→ ${formatDate(enrollment.end_date)}` : null,
                       ].filter(Boolean).map((v, i) => (
                         <span key={i} style={{ fontSize: '12px', color: MUTED }}>
                           {v}

@@ -20,10 +20,18 @@ import AdminGallery from './pages/AdminGallery';
 import AdminReference from './pages/AdminReference';
 import AdminClasses from './pages/AdminClasses';
 import AdminPausedStudents from './pages/AdminPausedStudents';
+import AdminStudioPolicy from './pages/AdminStudioPolicy';
+import AdminEvents from './pages/AdminEvents';
+import AdminInstructors from './pages/AdminInstructors';
 import UploadPiece from './pages/UploadPiece';
 import PublicGallery from './pages/PublicGallery';
 import Dashboard from './pages/Dashboard';
+import MemberDashboard from './pages/MemberDashboard';
+import InstructorDashboard from './pages/InstructorDashboard';
 import Membership from './pages/Membership';
+import StudioPolicy from './pages/StudioPolicy';
+import InstructorProfile from './pages/InstructorProfile';
+import InstructorPortfolio from './pages/InstructorPortfolio';
 import TestDash from './test-pages/TestDash';
 import TestClasses from './test-pages/TestClasses';
 import TestGallery from './test-pages/TestGallery';
@@ -116,7 +124,14 @@ function HomeRoute() {
     );
   }
 
-  return user ? <Dashboard /> : <PublicGallery />;
+  if (!user) return <PublicGallery />;
+  if (user.role === 'instructor') return <InstructorDashboard />;
+  return <Dashboard />;
+}
+
+function DashboardRoute() {
+  const { user } = useAuth();
+  return user?.role === 'instructor' ? <InstructorDashboard /> : <Dashboard />;
 }
 
 function App() {
@@ -243,6 +258,30 @@ function App() {
             }
           />
           <Route
+            path="/admin/policy"
+            element={
+              <AdminRoute>
+                <AdminStudioPolicy />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/admin/instructors"
+            element={
+              <AdminRoute>
+                <AdminInstructors />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/admin/events"
+            element={
+              <AdminRoute>
+                <AdminEvents />
+              </AdminRoute>
+            }
+          />
+          <Route
             path="/admin/gallery"
             element={
               <AdminRoute>
@@ -285,7 +324,7 @@ function App() {
           <Route path="/" element={<HomeRoute />} />
           <Route path="/dashboard" element={
             <PrivateRoute>
-              <Dashboard />
+              <DashboardRoute />
             </PrivateRoute>
           } />
           <Route path="/my-gallery" element={
@@ -298,7 +337,19 @@ function App() {
               <ClassScheduleNew />
             </PrivateRoute>
           } />
+          <Route path="/member" element={
+            <PrivateRoute>
+              <MemberDashboard />
+            </PrivateRoute>
+          } />
           <Route path="/membership" element={<Membership />} />
+          <Route path="/studio-policy" element={<StudioPolicy />} />
+          <Route path="/community/:id" element={<InstructorProfile />} />
+          <Route path="/my-portfolio" element={
+            <PrivateRoute>
+              <InstructorPortfolio />
+            </PrivateRoute>
+          } />
           <Route path="/contact" element={<Contact />} />
           <Route path="/account" element={
             <PrivateRoute>

@@ -4,37 +4,55 @@ import { useAuth } from '../hooks/useAuth';
 import api, { authAPI } from '../utils/api';
 import { potteryAPI } from '../utils/api';
 import { getCourseTypeInfo } from '../utils/courseTypes';
+import {
+  TC, TC_LIGHT, TC_DARK, INK, MUTED, RULE, ALT,
+  SectionLabel, Divider, TopBar, BottomTabBar, ScrollBody, PageShell,
+  ClassRow, getClassLabel,
+} from '../components/SharedUI';
 
-// ─── Design tokens ────────────────────────────────────────────────────────────
-const TC       = '#C4622D';
-const TC_LIGHT = '#F9EDE6';
-const TC_DARK  = '#9E4A1E';
-const INK      = '#282828';
-const MUTED    = '#888888';
-const RULE     = 'rgba(40,40,40,0.09)';
-const ALT      = '#F5F3F0';
+// ─── Membership badge ────────────────────────────────────────────────────────
+const BADGE_TIERS = {
+  '1':  { label: 'Bronze',  bg: '#CD7F32', color: '#FFFFFF' },
+  '6':  { label: 'Silver',  bg: '#A0A0A0', color: '#FFFFFF' },
+  '12': { label: 'Gold',    bg: '#D4A017', color: '#FFFFFF' },
+};
 
-// ─── Tiny reusable components ─────────────────────────────────────────────────
-function SectionLabel({ children, action, actionHref, actionLabel }) {
+function getMemberBadge(membershipType) {
+  if (!membershipType) return null;
+  const match = membershipType.match(/(\d+)\s*month/i);
+  if (!match) return null;
+  return BADGE_TIERS[match[1]] || BADGE_TIERS['1'];
+}
+
+function MemberBadge({ membershipType, style = {} }) {
+  const tier = getMemberBadge(membershipType);
+  if (!tier) return null;
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-      <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED }}>
-        {children}
-      </span>
-      {action && (
-        <Link
-          to={actionHref || '#'}
-          style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: TC, textDecoration: 'none' }}
-        >
-          {actionLabel} →
-        </Link>
-      )}
-    </div>
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: '3px',
+      fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+      padding: '2px 7px', backgroundColor: tier.bg, color: tier.color,
+      verticalAlign: 'middle', ...style,
+    }}>
+      {tier.label}
+    </span>
   );
 }
 
-function Divider() {
-  return <div style={{ height: '1px', backgroundColor: RULE, margin: '0 0 28px' }} />;
+const STUDENT_TABS = [
+  { id: 'home',    label: 'Home',    icon: 'home',           href: '/'        },
+  { id: 'classes', label: 'Classes', icon: 'calendar_month', href: '/classes'  },
+  { id: 'gallery', label: 'Gallery', icon: 'photo_library',  href: '/gallery'  },
+  { id: 'account', label: 'Account', icon: 'person',         href: '/account'  },
+];
+
+// Student Dashboard uses "Beginners/Ext" variant
+function getShortCourseLabel(classType) {
+  if (!classType) return '';
+  if (classType.includes('6.6') || classType.includes('7.7')) return 'Glazing';
+  if (classType.startsWith('WT')) return 'Wheelthrowing Beginners/Ext';
+  if (classType.startsWith('HB')) return 'Handbuilding';
+  return classType.split('.')[0];
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -61,6 +79,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [dashboardData, setDashboardData] = useState(null);
   const [showPastClasses, setShowPastClasses] = useState(false);
+  const [upcomingEvents, setUpcomingEvents] = useState([]);
+  const [membershipData, setMembershipData] = useState(null);
 
   useEffect(() => {
     fetchDashboardData();
@@ -69,10 +89,14 @@ export default function Dashboard() {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const [dashboardResponse, potteryData] = await Promise.all([
+      const [dashboardResponse, potteryData, eventsRes, membershipRes] = await Promise.all([
         api.get('/students/me/dashboard'),
-        potteryAPI.getPieces()
+        potteryAPI.getPieces(),
+        api.get('/events/upcoming').catch(() => ({ data: { events: [] } })),
+        api.get('/membership/my-membership').catch(() => ({ data: { hasMembership: false } })),
       ]);
+      setUpcomingEvents(eventsRes.data.events || []);
+      setMembershipData(membershipRes.data);
 
       setDashboardData(dashboardResponse.data);
       setStudentData(dashboardResponse.data.student);
@@ -102,7 +126,7 @@ export default function Dashboard() {
     enrollments.forEach(enrollment => {
       if (enrollment.bookings && Array.isArray(enrollment.bookings)) {
         enrollment.bookings.forEach(booking => {
-          all.push(booking);
+          all.push({ ...booking, _courseTitle: enrollment.course_title });
         });
       }
     });
@@ -148,22 +172,16 @@ export default function Dashboard() {
     };
   };
 
-  // Parse a short course type label from class_type code
-  const getShortCourseLabel = (classType) => {
-    if (!classType) return '';
-    if (classType.startsWith('WT')) return 'Wheelthrowing';
-    if (classType.startsWith('HB')) return 'Handbuilding';
-    return classType.split('.')[0];
-  };
-
   const firstName = studentData?.first_name || user?.firstName || user?.email?.split('@')[0] || 'Student';
 
   // ── Loading state ──────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#FFFFFF', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <span style={{ fontSize: '13px', color: MUTED, letterSpacing: '0.06em' }}>Loading…</span>
-      </div>
+      <PageShell>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
+          <span style={{ fontSize: '13px', color: MUTED, letterSpacing: '0.06em' }}>Loading…</span>
+        </div>
+      </PageShell>
     );
   }
 
@@ -189,15 +207,26 @@ export default function Dashboard() {
       return false;
     }).length;
     const attendedCount = enrollmentBookings.length > 0 ? bookingAttendedCount : (enrollment.class_credits_used || 0);
+    const bookedCount = enrollmentBookings.filter(b => b.status === 'booked').length;
     const remaining = Math.max(totalClasses - attendedCount, 0);
     const pct = totalClasses > 0 ? Math.min(Math.round((attendedCount / totalClasses) * 100), 100) : 0;
 
     // Determine course type label
     const courseTitle = enrollment.course_title || '';
     const classType = enrollment.class_type || '';
+    const weeks = enrollment.number_of_weeks || totalClasses;
+    const is10ClassPkg = totalClasses === 10 && !enrollment.course_expiry_date;
+
     let typeLabel = 'Course';
-    if (classType.startsWith('WT') || courseTitle.toLowerCase().includes('wheel')) typeLabel = 'Wheelthrowing';
-    else if (classType.startsWith('HB') || courseTitle.toLowerCase().includes('handbuild')) typeLabel = 'Handbuilding';
+    if (is10ClassPkg) {
+      typeLabel = 'Wheelthrowing / Handbuilding';
+    } else {
+      const lower = (classType + ' ' + courseTitle).toLowerCase();
+      const isWT = classType.startsWith('WT') || lower.includes('wheel');
+      const isHB = classType.startsWith('HB') || lower.includes('handbuild');
+      if (isWT) typeLabel = 'Wheelthrowing Beginners/Ext';
+      else if (isHB) typeLabel = 'Handbuilding';
+    }
 
     // Status badge
     const { active: activeEnrollments = [], upcoming: upcomingEnrollments = [] } = dashboardData?.enrollments || {};
@@ -206,7 +235,7 @@ export default function Dashboard() {
     else if (upcomingEnrollments.find(e => e.id === enrollment.id)) statusLabel = 'upcoming';
     else if ((dashboardData?.enrollments?.completed || []).find(e => e.id === enrollment.id)) statusLabel = 'completed';
 
-    return { enrollment, totalClasses, attendedCount, remaining, pct, typeLabel, statusLabel };
+    return { enrollment, totalClasses, attendedCount, bookedCount, remaining, pct, typeLabel, statusLabel };
   });
 
   // Greeting course count line: unique types, sum remaining
@@ -218,7 +247,7 @@ export default function Dashboard() {
   const greetingEntries = Object.entries(greetingCounts);
 
   return (
-    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#FFFFFF', minHeight: '100vh' }}>
+    <PageShell>
 
       {/* ── IMPERSONATION BANNER ── */}
       {isImpersonating && (
@@ -235,86 +264,206 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ── MEMBERSHIP HINT ── */}
-      <div style={{ backgroundColor: TC_LIGHT, width: '100%' }}>
-        <div style={{
-          maxWidth: '520px', margin: '0 auto', padding: '9px 20px',
-          display: 'flex', alignItems: 'center', gap: '10px',
-        }}>
-          <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: TC_DARK, flexShrink: 0 }}>
-            Ves • Clay Club Membership
-          </span>
-          <span style={{ fontSize: '11px', color: INK, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            Unlock unlimited studio access now!
-          </span>
-          <Link
-            to="/membership"
-            style={{
-              fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
-              color: TC, textDecoration: 'none', whiteSpace: 'nowrap',
-              borderBottom: `1px solid ${TC}`, paddingBottom: '1px', flexShrink: 0,
-            }}
-          >
-            View plans
-          </Link>
+      {/* ── MEMBERSHIP BANNER ── */}
+      {membershipData?.hasMembership ? (
+        <div style={{ backgroundColor: TC_LIGHT, width: '100%' }}>
+          <div style={{
+            maxWidth: '520px', margin: '0 auto', padding: '9px 20px',
+            display: 'flex', alignItems: 'center', gap: '10px',
+          }}>
+            <span style={{
+              fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em',
+              color: '#FFFFFF', backgroundColor: TC_DARK, padding: '2px 6px', flexShrink: 0,
+            }}>
+              Ves · Clay Club
+            </span>
+            <span style={{ fontSize: '11px', color: INK, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {membershipData.membership.type.replace(/^Clay Club\s*/i, '').replace(/1 Months/i, '1 Month').trim() + ' Member'}
+              {membershipData.membership.daysRemaining > 0
+                ? ` · ${membershipData.membership.daysRemaining} days left`
+                : ' · Expires soon'}
+            </span>
+            <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: TC_DARK, flexShrink: 0 }}>
+              Active
+            </span>
+          </div>
         </div>
-      </div>
-
-      {/* ── TOP BAR ── */}
-      <header style={{
-        position: 'sticky', top: 0, zIndex: 40,
-        backgroundColor: '#FFFFFF',
-        borderBottom: `1px solid ${RULE}`,
-      }}>
-        <div style={{ maxWidth: '520px', margin: '0 auto', padding: '0 20px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <img
-            src="https://ves.sg/cdn/shop/files/logo_04a04687-57f4-4141-b0bc-ec30b527fd73.png?v=1686045719&width=600"
-            alt="VES"
-            style={{ height: '26px', width: 'auto' }}
-          />
+      ) : (
+        <div style={{ backgroundColor: TC_LIGHT, width: '100%' }}>
+          <div style={{
+            maxWidth: '520px', margin: '0 auto', padding: '9px 20px',
+            display: 'flex', alignItems: 'center', gap: '10px',
+          }}>
+            <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: TC_DARK, flexShrink: 0 }}>
+              Ves • Clay Club Membership
+            </span>
+            <span style={{ fontSize: '11px', color: INK, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              Unlock unlimited studio access now!
+            </span>
+            <Link
+              to="/membership"
+              style={{
+                fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+                color: TC, textDecoration: 'none', whiteSpace: 'nowrap',
+                borderBottom: `1px solid ${TC}`, paddingBottom: '1px', flexShrink: 0,
+              }}
+            >
+              View plans
+            </Link>
+          </div>
         </div>
-      </header>
+      )}
 
-      {/* ── SCROLL BODY ── */}
-      <main style={{ maxWidth: '520px', margin: '0 auto', padding: '0 20px 88px' }}>
+      <TopBar />
+
+      <ScrollBody>
 
         {/* ── 1. GREETING ── */}
-        <div style={{ padding: '32px 0 24px', borderBottom: `1px solid ${RULE}`, marginBottom: '28px' }}>
-          <h1 style={{ fontSize: '36px', fontWeight: 700, letterSpacing: '-0.5px', lineHeight: 1.05, margin: '0 0 10px' }}>
-            Hi {firstName}.
-          </h1>
-          {greetingEntries.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px', fontSize: '14px', color: MUTED, marginBottom: '4px' }}>
-              {greetingEntries.map(([label, remaining], i) => (
-                <span key={label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {i > 0 && <span style={{ color: RULE }}>·</span>}
-                  <strong style={{ color: INK }}>{remaining}</strong>&nbsp;{label}
-                </span>
-              ))}
-            </div>
-          )}
-          {nextClass && (
-            <div style={{ fontSize: '13px', color: MUTED }}>
-              Next: <strong style={{ color: INK }}>{nextClass.date}</strong>, {nextClass.time}
-            </div>
-          )}
+        <div style={{ padding: '32px 0 24px', borderBottom: `1px solid ${RULE}`, marginBottom: '28px', display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h1 style={{ fontSize: '36px', fontWeight: 700, letterSpacing: '-0.5px', lineHeight: 1.05, margin: '0 0 10px' }}>
+              Hi {firstName}.{membershipData?.hasMembership && (
+                <MemberBadge membershipType={membershipData.membership.type} style={{ marginLeft: '10px', position: 'relative', top: '-4px' }} />
+              )}
+            </h1>
+            {greetingEntries.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px', fontSize: '14px', color: MUTED, marginBottom: '4px' }}>
+                {greetingEntries.map(([label, remaining], i) => (
+                  <span key={label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {i > 0 && <span style={{ color: RULE }}>·</span>}
+                    <strong style={{ color: INK }}>{remaining}</strong>&nbsp;{label}
+                  </span>
+                ))}
+              </div>
+            )}
+            {nextClass && (
+              <div style={{ fontSize: '13px', color: MUTED }}>
+                Next: <strong style={{ color: INK }}>{nextClass.date}</strong>, {nextClass.time}
+              </div>
+            )}
+          </div>
+          {upcomingEvents.length > 0 && (() => {
+            const evt = upcomingEvents[0];
+            const isOngoing = evt.status === 'active';
+            const evtDate = evt.date ? new Date(evt.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '';
+            return (
+              <div style={{
+                flexShrink: 0, width: '150px',
+                backgroundColor: TC_LIGHT, border: `1px solid ${TC}`,
+                padding: '12px', textAlign: 'center',
+              }}>
+                <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: TC_DARK, marginBottom: '6px' }}>
+                  {isOngoing ? 'Ongoing' : 'Upcoming Event'}
+                </div>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: INK, lineHeight: 1.3, marginBottom: '4px' }}>
+                  {evt.title}
+                </div>
+                {evt.description && (
+                  <div style={{ fontSize: '11px', color: INK, lineHeight: 1.4, marginBottom: '4px' }}>{evt.description}</div>
+                )}
+                {!isOngoing && evtDate && (
+                  <div style={{ fontSize: '12px', color: TC_DARK, fontWeight: 600 }}>{evtDate}</div>
+                )}
+                {evt.link && (
+                  <a
+                    href={evt.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ display: 'inline-block', marginTop: '6px', fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: TC, textDecoration: 'none', borderBottom: `1px solid ${TC}`, paddingBottom: '1px' }}
+                  >
+                    More info →
+                  </a>
+                )}
+              </div>
+            );
+          })()}
         </div>
+
+        {/* ── 1b. MEMBERSHIP CARD ── */}
+        {membershipData?.hasMembership && (() => {
+          const m = membershipData.membership;
+          const monthMatch = (m.type || '').match(/(\d+)/);
+          const months = monthMatch ? parseInt(monthMatch[1]) : 3;
+          const tier = months >= 12 ? 'Gold' : months >= 6 ? 'Silver' : 'Bronze';
+          const tierColors = { Bronze: '#CD7F32', Silver: '#A0A0A0', Gold: '#D4A017' };
+          const daysLeft = m.daysRemaining || 0;
+          const totalDays = m.startDate && m.endDate ? Math.ceil((new Date(m.endDate) - new Date(m.startDate)) / (1000 * 60 * 60 * 24)) : 1;
+          const pctUsed = totalDays > 0 ? Math.min(100, Math.max(0, Math.round(((totalDays - Math.max(daysLeft, 0)) / totalDays) * 100))) : 100;
+          const DEFAULT_PERKS = {
+            1:  ['Unlimited studio access', 'Free dedicated storage', 'Free shelving space', 'All studio glazes included'],
+            3:  ['Unlimited studio access', 'Free dedicated storage', 'Free shelving space', 'All studio glazes included'],
+            6:  ['Unlimited studio access', 'Free dedicated storage', 'Free shelving space', 'All studio glazes included', 'Studio-assisted clay reclaim', 'FREE 1x Firing (worth $90)', '10% off clay, tools, firing & courses'],
+            12: ['Unlimited studio access', 'Free dedicated storage', 'Free shelving space', 'All studio glazes included', 'Studio-assisted clay reclaim', 'FREE 2x $130 Firing Basket (worth $260)', '10% off clay, tools, firing & courses'],
+          };
+          const perks = DEFAULT_PERKS[months] || DEFAULT_PERKS[3];
+
+          return (
+            <section style={{ marginBottom: '28px' }}>
+              <SectionLabel>Membership</SectionLabel>
+              <div style={{ padding: '16px', border: `1px solid ${RULE}`, backgroundColor: ALT }}>
+                {/* Header row */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED }}>
+                      {m.type?.replace(/^Clay Club\s*/i, '') || m.type}
+                    </span>
+                    <span style={{ fontSize: '8px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '2px 6px', backgroundColor: tierColors[tier], color: '#FFF' }}>{tier}</span>
+                  </div>
+                  <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '3px 6px', backgroundColor: TC_LIGHT, color: TC_DARK }}>active</span>
+                </div>
+
+                {/* Dates */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
+                  <div>
+                    <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '2px' }}>Start</div>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: INK }}>{m.startDate ? new Date(m.startDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '2px' }}>End</div>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: daysLeft <= 30 ? '#9E6200' : INK }}>{m.endDate ? new Date(m.endDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</div>
+                  </div>
+                </div>
+
+                {/* Progress */}
+                <div style={{ marginBottom: '14px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: MUTED, marginBottom: '5px' }}>
+                    <span>{daysLeft > 0 ? `${daysLeft} days left` : 'Expired'}</span>
+                    <span>{pctUsed}%</span>
+                  </div>
+                  <div style={{ height: '3px', backgroundColor: 'rgba(40,40,40,0.1)', position: 'relative' }}>
+                    <div style={{ position: 'absolute', left: 0, top: 0, height: '3px', width: `${pctUsed}%`, backgroundColor: daysLeft <= 30 ? '#E6A817' : TC, transition: 'width 0.3s' }} />
+                  </div>
+                </div>
+
+                {/* Perks */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                  {perks.map((p, i) => (
+                    <span key={i} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', padding: '3px 8px', backgroundColor: '#FFFFFF', border: `1px solid ${RULE}`, color: INK }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: '13px', color: TC }}>check_circle</span>
+                      {p}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </section>
+          );
+        })()}
+
+        {enrollmentsWithCounts.length > 0 && <Divider />}
 
         {/* ── 2. MY COURSES ── */}
         {enrollmentsWithCounts.length > 0 && (
           <section style={{ marginBottom: '28px' }}>
             <SectionLabel>My Courses</SectionLabel>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
               {[...enrollmentsWithCounts].sort((a, b) => {
-                // Wheelthrowing always first
-                const aWT = a.typeLabel === 'Wheelthrowing';
-                const bWT = b.typeLabel === 'Wheelthrowing';
+                const aWT = a.typeLabel.startsWith('Wheelthrowing');
+                const bWT = b.typeLabel.startsWith('Wheelthrowing');
                 return aWT === bWT ? 0 : aWT ? -1 : 1;
-              }).map(({ enrollment, totalClasses, attendedCount, pct, typeLabel, statusLabel }, i) => {
+              }).map(({ enrollment, totalClasses, attendedCount, bookedCount, pct, typeLabel, statusLabel }, i) => {
                 const isActive = statusLabel === 'active';
                 return (
                   <div key={enrollment.id || i} style={{ padding: '14px', border: `1px solid ${RULE}`, backgroundColor: ALT, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {/* Top row: type + badge */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED }}>
                         {typeLabel}
@@ -328,13 +477,23 @@ export default function Dashboard() {
                         {statusLabel}
                       </span>
                     </div>
-                    {/* Attended count */}
-                    <div style={{ fontSize: '13px', color: MUTED }}>
-                      Attended: <strong style={{ color: INK }}>{attendedCount}/{totalClasses}</strong>
-                    </div>
-                    {/* Progress track */}
-                    <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.1)', position: 'relative', marginTop: '2px' }}>
-                      <div style={{ position: 'absolute', left: 0, top: 0, height: '2px', width: `${pct}%`, backgroundColor: TC }} />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                      <div>
+                        <div style={{ fontSize: '13px', color: MUTED, marginBottom: '6px' }}>
+                          Booked: <strong style={{ color: INK }}>{bookedCount}/{totalClasses}</strong>
+                        </div>
+                        <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.1)', position: 'relative' }}>
+                          <div style={{ position: 'absolute', left: 0, top: 0, height: '2px', width: `${totalClasses > 0 ? Math.round((bookedCount / totalClasses) * 100) : 0}%`, backgroundColor: TC }} />
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '13px', color: MUTED, marginBottom: '6px' }}>
+                          Attended: <strong style={{ color: INK }}>{attendedCount}/{totalClasses}</strong>
+                        </div>
+                        <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.1)', position: 'relative' }}>
+                          <div style={{ position: 'absolute', left: 0, top: 0, height: '2px', width: `${pct}%`, backgroundColor: TC }} />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );
@@ -371,42 +530,19 @@ export default function Dashboard() {
             <div>
               {upcoming.map((booking, i) => {
                 const ci = booking.class_instances || {};
-                const classDate = new Date(ci.class_date || booking.class_date);
-                const classType = ci.class_type || booking.class_type || '';
-                const dayAbbr = classDate.toLocaleDateString('en-GB', { weekday: 'short' });
-                const dayNum  = classDate.toLocaleDateString('en-GB', { day: 'numeric' });
-                const month   = classDate.toLocaleDateString('en-GB', { month: 'short' });
-                const timeStr = ci.start_time
-                  ? (ci.end_time ? `${ci.start_time} – ${ci.end_time}` : ci.start_time)
-                  : '—';
-
+                const ct = ci.class_type || booking.class_type || '';
+                const isGlazing = ct.includes('6.6') || ct.includes('7.7');
                 return (
-                  <div key={i} style={{
-                    display: 'flex', alignItems: 'center', gap: '14px',
-                    padding: '12px 0',
-                    borderBottom: i < upcoming.length - 1 ? `1px solid ${RULE}` : 'none',
-                  }}>
-                    {/* Date block */}
-                    <div style={{ width: '36px', flexShrink: 0, textAlign: 'center' }}>
-                      <div style={{ fontSize: '10px', fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1.2 }}>{dayAbbr}</div>
-                      <div style={{ fontSize: '20px', fontWeight: 700, lineHeight: 1.1 }}>{dayNum}</div>
-                      <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1.2 }}>{month}</div>
-                    </div>
-                    {/* Thin rule */}
-                    <div style={{ width: '1px', height: '42px', backgroundColor: RULE, flexShrink: 0 }} />
-                    {/* Detail */}
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '2px' }}>{getShortCourseLabel(classType)}</div>
-                      <div style={{ fontSize: '11px', color: MUTED }}>{timeStr}</div>
-                    </div>
-                    {/* Status badge */}
-                    <span style={{
-                      fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-                      padding: '4px 8px', backgroundColor: TC_LIGHT, color: TC_DARK, flexShrink: 0,
-                    }}>
-                      booked
-                    </span>
-                  </div>
+                  <ClassRow
+                    key={i}
+                    dateStr={ci.class_date || booking.class_date}
+                    classType={isGlazing ? ct : (booking._courseTitle || ct)}
+                    startTime={ci.start_time}
+                    endTime={ci.end_time}
+                    subtitle={ci.instructor}
+                    isLast={i === upcoming.length - 1}
+                    badge={{ label: 'booked', bg: TC_LIGHT, color: TC_DARK }}
+                  />
                 );
               })}
             </div>
@@ -429,38 +565,20 @@ export default function Dashboard() {
                 <div style={{ marginTop: '8px' }}>
                   {past.map((booking, i) => {
                     const ci = booking.class_instances || {};
-                    const classDate = new Date(ci.class_date || booking.class_date);
-                    const classType = ci.class_type || booking.class_type || '';
-                    const dayAbbr = classDate.toLocaleDateString('en-GB', { weekday: 'short' });
-                    const dayNum  = classDate.toLocaleDateString('en-GB', { day: 'numeric' });
-                    const month   = classDate.toLocaleDateString('en-GB', { month: 'short' });
-                    const timeStr = ci.start_time
-                      ? (ci.end_time ? `${ci.start_time} – ${ci.end_time}` : ci.start_time)
-                      : '—';
-
+                    const ct = ci.class_type || booking.class_type || '';
+                    const isGlazing = ct.includes('6.6') || ct.includes('7.7');
                     return (
-                      <div key={i} style={{
-                        display: 'flex', alignItems: 'center', gap: '14px',
-                        padding: '10px 0', opacity: 0.6,
-                        borderBottom: i < past.length - 1 ? `1px solid ${RULE}` : 'none',
-                      }}>
-                        <div style={{ width: '36px', flexShrink: 0, textAlign: 'center' }}>
-                          <div style={{ fontSize: '10px', fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1.2 }}>{dayAbbr}</div>
-                          <div style={{ fontSize: '18px', fontWeight: 700, lineHeight: 1.1 }}>{dayNum}</div>
-                          <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1.2 }}>{month}</div>
-                        </div>
-                        <div style={{ width: '1px', height: '38px', backgroundColor: RULE, flexShrink: 0 }} />
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '2px' }}>{getShortCourseLabel(classType)}</div>
-                          <div style={{ fontSize: '11px', color: MUTED }}>{timeStr}</div>
-                        </div>
-                        <span style={{
-                          fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-                          padding: '4px 8px', backgroundColor: '#EBEBEB', color: MUTED, flexShrink: 0,
-                        }}>
-                          attended
-                        </span>
-                      </div>
+                      <ClassRow
+                        key={i}
+                        dateStr={ci.class_date || booking.class_date}
+                        classType={isGlazing ? ct : (booking._courseTitle || ct)}
+                        startTime={ci.start_time}
+                        endTime={ci.end_time}
+                        subtitle={ci.instructor}
+                        dimmed
+                        isLast={i === past.length - 1}
+                        badge={{ label: 'attended', bg: '#EBEBEB', color: MUTED }}
+                      />
                     );
                   })}
                 </div>
@@ -532,64 +650,10 @@ export default function Dashboard() {
 
         <Divider />
 
-      </main>
+      </ScrollBody>
 
-      {/* ── BOTTOM TAB BAR ── */}
-      <nav style={{
-        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50,
-        backgroundColor: '#FFFFFF',
-        borderTop: `1px solid ${RULE}`,
-        display: 'flex',
-        height: '60px',
-        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-      }}>
-        {[
-          { id: 'home',    label: 'Home',    icon: 'home',           href: '/'        },
-          { id: 'classes', label: 'Classes', icon: 'calendar_month', href: '/classes'  },
-          { id: 'gallery', label: 'Gallery', icon: 'photo_library',  href: '/gallery'  },
-          { id: 'account', label: 'Account', icon: 'person',         href: '/account'  },
-        ].map(tab => {
-          const active = tab.id === 'home';
-          return (
-            <Link
-              key={tab.id}
-              to={tab.href}
-              style={{
-                flex: 1, border: 'none', background: 'transparent', cursor: 'pointer',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                gap: '2px', padding: '8px 0', position: 'relative', textDecoration: 'none',
-              }}
-            >
-              {/* Active indicator line */}
-              {active && (
-                <span style={{
-                  position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)',
-                  width: '20px', height: '2px', backgroundColor: TC,
-                }} />
-              )}
-              <span
-                className="material-symbols-outlined"
-                style={{
-                  fontSize: '22px',
-                  color: active ? TC : '#BBBBBB',
-                  fontVariationSettings: active ? "'FILL' 1, 'wght' 500" : "'FILL' 0, 'wght' 400",
-                  transition: 'color 0.15s ease',
-                }}
-              >
-                {tab.icon}
-              </span>
-              <span style={{
-                fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
-                color: active ? TC : '#BBBBBB',
-                transition: 'color 0.15s ease',
-              }}>
-                {tab.label}
-              </span>
-            </Link>
-          );
-        })}
-      </nav>
+      <BottomTabBar tabs={STUDENT_TABS} activeId="home" />
 
-    </div>
+    </PageShell>
   );
 }

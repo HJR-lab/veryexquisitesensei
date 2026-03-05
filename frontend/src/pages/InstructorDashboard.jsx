@@ -220,10 +220,15 @@ export default function InstructorDashboard() {
                                   style={{ display: 'grid', gridTemplateColumns: '1fr 50px 44px 44px 70px', padding: '8px 12px', borderTop: `1px solid ${RULE}`, backgroundColor: rowBg, alignItems: 'center' }}
                                 >
                                   {/* Student name */}
-                                  <div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                     <span style={{ fontSize: '12px', fontWeight: 600, color: nameColor }}>
                                       {s.first_name} {s.last_name}
                                     </span>
+                                    {s.wheelPreference && (
+                                      <span style={{ fontSize: '9px', fontWeight: 700, padding: '1px 5px', backgroundColor: TC_LIGHT, color: TC_DARK, borderRadius: '3px' }}>
+                                        W{s.wheelPreference}
+                                      </span>
+                                    )}
                                   </div>
                                   {/* Type */}
                                   <div>

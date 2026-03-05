@@ -9617,10 +9617,15 @@ app.get('/api/instructor/dashboard', authenticateToken, async (req, res) => {
       if (allStudentIds.length > 0) {
         const { data: customerCounts } = await supabaseDb.supabase
           .from('customers')
-          .select('id, course_purchase_count')
+          .select('id, course_purchase_count, wheel_preference')
           .in('id', allStudentIds);
         (customerCounts || []).forEach(c => {
           orderCountMap[c.id] = c.course_purchase_count || 0;
+        });
+        // Build wheel preference map
+        const wheelPrefMap = {};
+        (customerCounts || []).forEach(c => {
+          if (c.wheel_preference) wheelPrefMap[c.id] = c.wheel_preference;
         });
       }
 
@@ -9640,6 +9645,7 @@ app.get('/api/instructor/dashboard', authenticateToken, async (req, res) => {
             classesAttended: enr.weeks_completed || enr.class_credits_used || 0,
             totalClasses: enr.number_of_weeks || enr.class_credits_allocated || 6,
             orderCount: orderCountMap[b.customers.id] || 0,
+            wheelPreference: wheelPrefMap[b.customers.id] || null,
           });
         }
       });

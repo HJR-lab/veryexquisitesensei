@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
+import ImpersonationBanner from '../components/ImpersonationBanner';
 import axios from 'axios';
 
 const TC       = '#C4622D';
@@ -299,12 +300,15 @@ export default function Account() {
   const bottomNavTabs = [
     { id: 'home',    label: 'Home',    icon: 'home',           href: '/dashboard' },
     { id: 'classes', label: 'Classes', icon: 'calendar_month', href: '/classes' },
+    { id: 'studio',  label: 'Studio',  icon: 'door_open',      href: '/studio-access' },
     { id: 'gallery', label: 'Gallery', icon: 'photo_library',  href: '/gallery' },
     { id: 'account', label: 'Account', icon: 'person',         href: '/account' },
   ];
 
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#FFFFFF', minHeight: '100vh' }}>
+
+      <ImpersonationBanner />
 
       {/* MEMBERSHIP BANNER */}
       {membershipData?.hasMembership ? (

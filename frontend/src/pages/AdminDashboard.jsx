@@ -58,6 +58,7 @@ export default function AdminDashboard() {
     { label: 'Users',     icon: 'group',          href: '/admin/students',    desc: 'Students & members',     stat: loading ? null : ((stats?.students?.total ?? 0) + (stats?.memberships?.total ?? 0)),  sub: `${stats?.memberships?.expiringSoon ?? 0} memberships expiring` },
     { label: 'Gallery',   icon: 'photo_library',   href: '/admin/gallery',     desc: 'Student pottery works',  stat: loading ? null : (stats?.gallery?.total ?? null),      sub: `${stats?.gallery?.addedThisMonth ?? 0} added this month` },
     { label: 'Instructors', icon: 'person_apron',   href: '/admin/instructors',  desc: 'Profiles & portfolios' },
+    { label: 'Studio',    icon: 'door_open',       href: '/admin/studio-access', desc: 'Studio access bookings', stat: loading ? null : (stats?.studioAccess?.confirmed ?? null), sub: `${stats?.studioAccess?.confirmed ?? 0} confirmed · ${stats?.studioAccess?.pending ?? 0} pending` },
     { label: 'Events',    icon: 'celebration',     href: '/admin/events',      desc: 'Sales & collaborations' },
     { label: 'Courses',   icon: 'school',          href: '/admin/courses',     desc: 'Course templates' },
     { label: 'Policy',    icon: 'gavel',           href: '/admin/policy',      desc: 'Studio rules & terms' },
@@ -145,7 +146,7 @@ export default function AdminDashboard() {
                   <div style={{ padding: '14px', fontSize: '12px', color: MUTED }}>No alerts</div>
                 ) : alerts.map((alert, i) => {
                   const iconName = alert.icon || (alert.type === 'membership' ? 'card_membership' : alert.type === 'class' ? 'event' : alert.type === 'enrollment' ? 'pause_circle' : alert.type === 'info' ? 'today' : 'info');
-                  const iconColor = alert.type === 'info' ? '#3B82F6' : alert.type === 'class' ? '#D97706' : alert.type === 'enrollment' ? '#8B5CF6' : TC;
+                  const iconColor = alert.type === 'info' ? '#3B82F6' : alert.type === 'class' ? '#D97706' : alert.type === 'enrollment' ? '#8B5CF6' : alert.type === 'studio_pending' ? '#F57F17' : TC;
                   return (
                     <div
                       key={i}
@@ -182,6 +183,7 @@ export default function AdminDashboard() {
                     Enrolled: { color: '#2563EB', icon: 'school' },
                     Membership: { color: '#7C3AED', icon: 'card_membership' },
                     Gallery: { color: '#D97706', icon: 'photo_library' },
+                    Studio: { color: '#0891B2', icon: 'door_open' },
                   };
                   const style = actionStyles[r.action] || { color: TC, icon: 'circle' };
                   return (

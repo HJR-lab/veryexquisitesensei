@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import api, { classesAPI, authAPI } from '../utils/api';
+import api, { classesAPI } from '../utils/api';
+import ImpersonationBanner from '../components/ImpersonationBanner';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const TC       = '#C4622D';
@@ -48,6 +49,7 @@ function BottomNav() {
   const tabs = [
     { id: 'home',    label: 'Home',    icon: 'home',           href: '/dashboard' },
     { id: 'classes', label: 'Classes', icon: 'calendar_month', href: '/classes' },
+    { id: 'studio',  label: 'Studio',  icon: 'door_open',      href: '/studio-access' },
     { id: 'gallery', label: 'Gallery', icon: 'photo_library',  href: '/gallery' },
     { id: 'account', label: 'Account', icon: 'person',         href: '/account' },
   ];
@@ -80,22 +82,7 @@ function BottomNav() {
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function ClassScheduleNew() {
   const navigate = useNavigate();
-  const { user, updateUser } = useAuth();
-  const isImpersonating = user && user.impersonatedBy;
-
-  const handleReturnToAdmin = async () => {
-    if (user && user.originalAdminToken) {
-      try {
-        localStorage.setItem('token', user.originalAdminToken);
-        const adminData = await authAPI.getMe();
-        updateUser(adminData.user);
-        navigate('/admin/students');
-      } catch (error) {
-        console.error('Error returning to admin:', error);
-        window.location.reload();
-      }
-    }
-  };
+  const { user } = useAuth();
 
   // ── API state (preserved from production) ──────────────────────────────────
   const [classes, setClasses] = useState([]);
@@ -606,20 +593,7 @@ export default function ClassScheduleNew() {
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#FFFFFF', minHeight: '100vh' }}>
 
-      {/* ── IMPERSONATION BANNER ─────────────────────────────────────────── */}
-      {isImpersonating && (
-        <div style={{ backgroundColor: '#EBF5FB', borderBottom: '1px solid #AED6F1', padding: '8px 20px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '11px', color: '#2471A3' }}>
-            Viewing as <strong>{user.firstName} {user.lastName}</strong>
-          </span>
-          <button
-            onClick={handleReturnToAdmin}
-            style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 10px', backgroundColor: '#2471A3', color: '#FFF', border: 'none', cursor: 'pointer' }}
-          >
-            Return to Admin
-          </button>
-        </div>
-      )}
+      <ImpersonationBanner />
 
       {/* ── TOP BAR ─────────────────────────────────────────────────────────── */}
       <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: '#FFFFFF', borderBottom: `1px solid ${RULE}` }}>

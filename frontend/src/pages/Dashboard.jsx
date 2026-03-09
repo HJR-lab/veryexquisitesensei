@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import api, { authAPI } from '../utils/api';
+import api from '../utils/api';
 import { potteryAPI } from '../utils/api';
 import { getCourseTypeInfo } from '../utils/courseTypes';
 import {
@@ -40,10 +40,11 @@ function MemberBadge({ membershipType, style = {} }) {
 }
 
 const STUDENT_TABS = [
-  { id: 'home',    label: 'Home',    icon: 'home',           href: '/'        },
-  { id: 'classes', label: 'Classes', icon: 'calendar_month', href: '/classes'  },
-  { id: 'gallery', label: 'Gallery', icon: 'photo_library',  href: '/gallery'  },
-  { id: 'account', label: 'Account', icon: 'person',         href: '/account'  },
+  { id: 'home',    label: 'Home',    icon: 'home',           href: '/'              },
+  { id: 'classes', label: 'Classes', icon: 'calendar_month', href: '/classes'       },
+  { id: 'studio',  label: 'Studio',  icon: 'door_open',      href: '/studio-access' },
+  { id: 'gallery', label: 'Gallery', icon: 'photo_library',  href: '/gallery'       },
+  { id: 'account', label: 'Account', icon: 'person',         href: '/account'       },
 ];
 
 // Student Dashboard uses "Beginners/Ext" variant
@@ -58,22 +59,7 @@ function getShortCourseLabel(classType) {
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { user, updateUser } = useAuth();
-  const isImpersonating = user && user.impersonatedBy;
-
-  const handleReturnToAdmin = async () => {
-    if (user && user.originalAdminToken) {
-      try {
-        localStorage.setItem('token', user.originalAdminToken);
-        const adminData = await authAPI.getMe();
-        updateUser(adminData.user);
-        navigate('/admin/students');
-      } catch (error) {
-        console.error('Error returning to admin:', error);
-        window.location.reload();
-      }
-    }
-  };
+  const { user } = useAuth();
   const [studentData, setStudentData] = useState(null);
   const [galleryPieces, setGalleryPieces] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -248,21 +234,6 @@ export default function Dashboard() {
 
   return (
     <PageShell>
-
-      {/* ── IMPERSONATION BANNER ── */}
-      {isImpersonating && (
-        <div style={{ backgroundColor: '#EBF5FB', borderBottom: '1px solid #AED6F1', padding: '8px 20px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '11px', color: '#2471A3' }}>
-            Viewing as <strong>{user.firstName} {user.lastName}</strong>
-          </span>
-          <button
-            onClick={handleReturnToAdmin}
-            style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 10px', backgroundColor: '#2471A3', color: '#FFF', border: 'none', cursor: 'pointer' }}
-          >
-            Return to Admin
-          </button>
-        </div>
-      )}
 
       {/* ── MEMBERSHIP BANNER ── */}
       {membershipData?.hasMembership ? (

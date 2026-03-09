@@ -5131,6 +5131,16 @@ app.get('/api/admin/dashboard/stats', authenticateToken, async (req, res) => {
 
     const awaitingApproval = 0; // Gallery doesn't have approval system yet
 
+    // Studio access stats
+    const { data: studioBookings } = await supabaseDb.supabase
+      .from('studio_access_bookings')
+      .select('id, status, booking_date')
+      .neq('status', 'cancelled');
+    const todayStr2 = now.toISOString().split('T')[0];
+    const studioUpcoming = (studioBookings || []).filter(b => b.booking_date >= todayStr2).length;
+    const studioPending = (studioBookings || []).filter(b => b.status === 'pending').length;
+    const studioConfirmed = (studioBookings || []).filter(b => b.status === 'booked' && b.booking_date >= todayStr2).length;
+
     res.json({
       students: {
         total: activeStudentIds.size, // Count students with future bookings (matches Student Management)
@@ -5157,6 +5167,11 @@ app.get('/api/admin/dashboard/stats', authenticateToken, async (req, res) => {
         total: allGalleryPieces.length,
         addedThisMonth: addedThisMonth,
         awaitingApproval: awaitingApproval
+      },
+      studioAccess: {
+        upcoming: studioUpcoming,
+        pending: studioPending,
+        confirmed: studioConfirmed
       }
     });
   } catch (error) {
@@ -5179,7 +5194,7 @@ app.get('/api/admin/dashboard/activity', authenticateToken, async (req, res) => 
     thirtyDaysAgo.setDate(now.getDate() - 30);
     const thirtyDaysAgoStr = thirtyDaysAgo.toISOString();
 
-    const [alertMembershipsRes, recentBookingsRes, recentMembershipsRes, upcomingClassesRes, recentEnrollmentsRes, recentPiecesRes, todayClassesRes] = await Promise.all([
+    const [alertMembershipsRes, recentBookingsRes, recentMembershipsRes, upcomingClassesRes, recentEnrollmentsRes, recentPiecesRes, todayClassesRes, pendingStudioAccessRes, recentStudioAccessRes] = await Promise.all([
       // Memberships expiring within 14 days
       supabaseDb.supabase
         .from('memberships')
@@ -5235,6 +5250,19 @@ app.get('/api/admin/dashboard/activity', authenticateToken, async (req, res) => 
         .from('class_instances')
         .select('id, class_date, class_type, start_time')
         .eq('class_date', today),
+
+      // Pending studio access bookings
+      supabaseDb.supabase
+        .from('studio_access_bookings')
+        .select('id', { count: 'exact' })
+        .eq('status', 'pending'),
+
+      // Recent studio access bookings (for activity feed)
+      supabaseDb.supabase
+        .from('studio_access_bookings')
+        .select('id, booking_date, start_time, hours, amount_sgd, status, created_at, customer:customers(first_name, last_name)')
+        .order('created_at', { ascending: false })
+        .limit(10),
     ]);
 
     // ── Alerts ──────────────────────────────────────────────────────────────
@@ -5305,6 +5333,12 @@ app.get('/api/admin/dashboard/activity', authenticateToken, async (req, res) => 
       const name = e.student ? `${e.student.first_name} ${e.student.last_name}`.trim() : 'Unknown';
       addAlert('enrollment', 'pause_circle', `${name} — ${e.course_name || 'course'} paused`, 2);
     });
+
+    // Pending studio access bookings
+    const pendingStudioAccess = pendingStudioAccessRes?.data || [];
+    if (pendingStudioAccess.length > 0) {
+      addAlert('studio_pending', 'chair', `${pendingStudioAccess.length} studio access booking${pendingStudioAccess.length !== 1 ? 's' : ''} awaiting confirmation`, 1);
+    }
 
     // Sort alerts by priority (lower = more urgent), then deduplicate and limit
     alerts.sort((a, b) => a.priority - b.priority);
@@ -5381,6 +5415,14 @@ app.get('/api/admin/dashboard/activity', authenticateToken, async (req, res) => 
     (recentPiecesRes.data || []).forEach(p => {
       const name = p.student ? `${p.student.first_name} ${p.student.last_name}`.trim() : 'Unknown';
       addActivity('Gallery', name, p.title || 'New piece added', timeAgo(p.created_at), p.created_at);
+    });
+
+    // Studio access bookings
+    (recentStudioAccessRes.data || []).forEach(sa => {
+      const name = sa.customer ? `${sa.customer.first_name} ${sa.customer.last_name}`.trim() : 'Unknown';
+      const dateStr = sa.booking_date ? new Date(sa.booking_date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : '';
+      const statusLabel = sa.status === 'pending' ? ' (pending)' : sa.status === 'cancelled' ? ' (cancelled)' : '';
+      addActivity('Studio', name, `Studio access ${dateStr}${statusLabel}`, timeAgo(sa.created_at), sa.created_at);
     });
 
     // Sort by date, take top 6, strip createdAt
@@ -9882,6 +9924,434 @@ app.put('/api/admin/customers/:id/role', authenticateToken, async (req, res) => 
   } catch (error) {
     console.error('Error updating customer role:', error);
     res.status(500).json({ error: 'Failed to update customer role' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STUDIO ACCESS BOOKING SYSTEM
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const STUDIO_HOURS = {
+  0: { open: '12:00', close: '19:00', label: '12pm – 7pm' },   // Sunday
+  1: { open: '11:00', close: '18:00', label: '11am – 6pm' },   // Monday
+  2: { open: '11:00', close: '18:00', label: '11am – 6pm' },   // Tuesday
+  3: { open: '11:00', close: '18:00', label: '11am – 6pm' },   // Wednesday
+  4: { open: '11:00', close: '18:00', label: '11am – 6pm' },   // Thursday
+  5: { open: '12:00', close: '19:00', label: '12pm – 7pm' },   // Friday
+  6: null,                                                       // Saturday — CLOSED
+};
+const STUDIO_ACCESS_RATE = 20; // $20/hr
+const STUDIO_ACCESS_MIN_HOURS = 2;
+const STUDIO_ACCESS_MAX_PER_DATE = 10;
+
+async function checkStudioAccessEligibility(customerId) {
+  // Check active/paused course enrollment
+  const { data: enrollments } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('id, status')
+    .eq('student_id', customerId)
+    .in('status', ['active', 'paused']);
+  if (enrollments && enrollments.length > 0) {
+    return { eligible: true, reason: 'Active course enrollment' };
+  }
+  // Check active membership
+  const hasMembership = await supabaseDb.hasActiveMembership(customerId);
+  if (hasMembership) {
+    return { eligible: true, reason: 'Active membership' };
+  }
+  // TODO: Check VES voucher holder
+  return { eligible: false, reason: 'No active enrollment or membership. Studio access is available to current students and VES voucher holders.' };
+}
+
+async function getStudioAccessCountForDate(dateStr) {
+  const { data, error } = await supabaseDb.supabase
+    .from('studio_access_bookings')
+    .select('id', { count: 'exact' })
+    .eq('booking_date', dateStr)
+    .neq('status', 'cancelled');
+  if (error) return 0;
+  return data ? data.length : 0;
+}
+
+// ── Student: Check availability ─────────────────────────────────────────────
+app.get('/api/studio-access/availability', authenticateToken, async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) return res.status(400).json({ error: 'Date is required' });
+
+    const d = new Date(date + 'T12:00:00');
+    const dayOfWeek = d.getDay();
+    const hours = STUDIO_HOURS[dayOfWeek];
+
+    if (!hours) {
+      return res.json({ available: false, closed: true, reason: 'Studio is closed on Saturdays' });
+    }
+
+    const bookedCount = await getStudioAccessCountForDate(date);
+    const spotsLeft = Math.max(0, STUDIO_ACCESS_MAX_PER_DATE - bookedCount);
+
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const isSameDay = date === today;
+
+    res.json({
+      available: spotsLeft > 0,
+      closed: false,
+      openTime: hours.open,
+      closeTime: hours.close,
+      hoursLabel: hours.label,
+      bookedCount,
+      spotsLeft,
+      maxCapacity: STUDIO_ACCESS_MAX_PER_DATE,
+      isSameDay,
+      rate: STUDIO_ACCESS_RATE,
+      minHours: STUDIO_ACCESS_MIN_HOURS,
+    });
+  } catch (error) {
+    console.error('Error checking studio access availability:', error);
+    res.status(500).json({ error: 'Failed to check availability' });
+  }
+});
+
+// ── Student: My bookings ────────────────────────────────────────────────────
+app.get('/api/studio-access/my-bookings', authenticateToken, async (req, res) => {
+  try {
+    const customerId = req.user.dbCustomerId;
+    const today = new Date().toISOString().split('T')[0];
+
+    const { data, error } = await supabaseDb.supabase
+      .from('studio_access_bookings')
+      .select('*')
+      .eq('customer_id', customerId)
+      .neq('status', 'cancelled')
+      .gte('booking_date', today)
+      .order('booking_date', { ascending: true })
+      .order('start_time', { ascending: true });
+
+    if (error) throw error;
+
+    // Also fetch recent past bookings (last 30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const { data: pastData } = await supabaseDb.supabase
+      .from('studio_access_bookings')
+      .select('*')
+      .eq('customer_id', customerId)
+      .lt('booking_date', today)
+      .gte('booking_date', thirtyDaysAgo.toISOString().split('T')[0])
+      .order('booking_date', { ascending: false })
+      .limit(10);
+
+    res.json({ upcoming: data || [], past: pastData || [] });
+  } catch (error) {
+    console.error('Error fetching studio access bookings:', error);
+    res.status(500).json({ error: 'Failed to fetch bookings' });
+  }
+});
+
+// ── Student: Book studio access ─────────────────────────────────────────────
+app.post('/api/studio-access/book', authenticateToken, async (req, res) => {
+  try {
+    const customerId = req.user.dbCustomerId;
+    const { date, startTime, notes } = req.body;
+
+    if (!date || !startTime) {
+      return res.status(400).json({ error: 'Date and start time are required' });
+    }
+
+    // Check eligibility
+    const eligibility = await checkStudioAccessEligibility(customerId);
+    if (!eligibility.eligible) {
+      return res.status(403).json({ error: eligibility.reason });
+    }
+
+    // Validate date is not Saturday
+    const d = new Date(date + 'T12:00:00');
+    const dayOfWeek = d.getDay();
+    const hoursConfig = STUDIO_HOURS[dayOfWeek];
+    if (!hoursConfig) {
+      return res.status(400).json({ error: 'Studio is closed on Saturdays' });
+    }
+
+    // Validate start time is within open hours
+    if (startTime < hoursConfig.open || startTime >= hoursConfig.close) {
+      return res.status(400).json({ error: `Studio hours are ${hoursConfig.label}` });
+    }
+
+    // Check capacity
+    const bookedCount = await getStudioAccessCountForDate(date);
+    if (bookedCount >= STUDIO_ACCESS_MAX_PER_DATE) {
+      return res.status(400).json({ error: 'This date is fully booked' });
+    }
+
+    // Determine status: same-day bookings are pending
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const status = date === today ? 'pending' : 'booked';
+
+    // Default: min 2 hours, actual hours settled by admin when marking attended
+    const hours = STUDIO_ACCESS_MIN_HOURS;
+
+    const { data, error } = await supabaseDb.supabase
+      .from('studio_access_bookings')
+      .insert([{
+        customer_id: customerId,
+        booking_date: date,
+        start_time: startTime,
+        end_time: null,
+        hours,
+        amount_sgd: hours * STUDIO_ACCESS_RATE,
+        status,
+        notes: notes || null,
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json({ booking: data, message: status === 'pending' ? 'Booking submitted — awaiting confirmation' : 'Booking confirmed' });
+  } catch (error) {
+    console.error('Error creating studio access booking:', error);
+    res.status(500).json({ error: 'Failed to create booking' });
+  }
+});
+
+// ── Student: Cancel own booking ─────────────────────────────────────────────
+app.put('/api/studio-access/bookings/:id/cancel', authenticateToken, async (req, res) => {
+  try {
+    const customerId = req.user.dbCustomerId;
+    const { id } = req.params;
+
+    // Fetch the booking
+    const { data: booking, error: fetchError } = await supabaseDb.supabase
+      .from('studio_access_bookings')
+      .select('*')
+      .eq('id', id)
+      .eq('customer_id', customerId)
+      .single();
+
+    if (fetchError || !booking) {
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+
+    if (booking.status === 'cancelled') {
+      return res.status(400).json({ error: 'Booking is already cancelled' });
+    }
+
+    if (booking.status === 'attended') {
+      return res.status(400).json({ error: 'Cannot cancel an attended booking' });
+    }
+
+    // Enforce 2-hour cancellation window
+    const bookingStart = new Date(`${booking.booking_date}T${booking.start_time}:00`);
+    const now = new Date();
+    const hoursUntilStart = (bookingStart - now) / (1000 * 60 * 60);
+
+    if (hoursUntilStart < 2) {
+      return res.status(400).json({ error: 'Cancellations must be made at least 2 hours before the start time' });
+    }
+
+    const { data, error } = await supabaseDb.supabase
+      .from('studio_access_bookings')
+      .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json({ booking: data });
+  } catch (error) {
+    console.error('Error cancelling studio access booking:', error);
+    res.status(500).json({ error: 'Failed to cancel booking' });
+  }
+});
+
+// ── Admin: List bookings ────────────────────────────────────────────────────
+app.get('/api/admin/studio-access/bookings', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin only' });
+    const { date, studentId } = req.query;
+
+    let query = supabaseDb.supabase
+      .from('studio_access_bookings')
+      .select('*, customer:customers(id, first_name, last_name, email)')
+      .order('booking_date', { ascending: true })
+      .order('start_time', { ascending: true });
+
+    if (date) query = query.eq('booking_date', date);
+    if (studentId) query = query.eq('customer_id', studentId);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    res.json({ bookings: data || [] });
+  } catch (error) {
+    console.error('Error fetching admin studio access bookings:', error);
+    res.status(500).json({ error: 'Failed to fetch bookings' });
+  }
+});
+
+// ── Admin: Student studio access history ────────────────────────────────────
+app.get('/api/admin/students/:studentId/studio-access', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin only' });
+    const { studentId } = req.params;
+
+    const { data, error } = await supabaseDb.supabase
+      .from('studio_access_bookings')
+      .select('*')
+      .eq('customer_id', studentId)
+      .order('booking_date', { ascending: false })
+      .order('start_time', { ascending: false });
+
+    if (error) throw error;
+
+    const bookings = data || [];
+    const totalSessions = bookings.filter(b => b.status === 'attended').length;
+    const totalHours = bookings.filter(b => b.status === 'attended').reduce((sum, b) => sum + b.hours, 0);
+    const totalSpent = bookings.filter(b => b.status === 'attended').reduce((sum, b) => sum + b.amount_sgd, 0);
+    const pendingCount = bookings.filter(b => b.status === 'pending').length;
+
+    res.json({
+      bookings,
+      summary: { totalSessions, totalHours, totalSpent, pendingCount, totalBookings: bookings.length },
+    });
+  } catch (error) {
+    console.error('Error fetching student studio access:', error);
+    res.status(500).json({ error: 'Failed to fetch studio access history' });
+  }
+});
+
+// ── Admin: Create booking on behalf of student ──────────────────────────────
+app.post('/api/admin/studio-access/bookings', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin only' });
+    const { customerId, date, startTime, hours: reqHours, notes, adminNotes } = req.body;
+
+    if (!customerId || !date || !startTime) {
+      return res.status(400).json({ error: 'Customer ID, date, and start time are required' });
+    }
+
+    const hours = reqHours ? parseInt(reqHours, 10) : STUDIO_ACCESS_MIN_HOURS;
+
+    if (hours < STUDIO_ACCESS_MIN_HOURS) {
+      return res.status(400).json({ error: `Minimum ${STUDIO_ACCESS_MIN_HOURS} hours` });
+    }
+
+    const { data, error } = await supabaseDb.supabase
+      .from('studio_access_bookings')
+      .insert([{
+        customer_id: customerId,
+        booking_date: date,
+        start_time: startTime,
+        end_time: null,
+        hours,
+        amount_sgd: hours * STUDIO_ACCESS_RATE,
+        status: 'booked',
+        notes: notes || null,
+        admin_notes: adminNotes || null,
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json({ booking: data });
+  } catch (error) {
+    console.error('Error creating admin studio access booking:', error);
+    res.status(500).json({ error: 'Failed to create booking' });
+  }
+});
+
+// ── Admin: Confirm pending booking ──────────────────────────────────────────
+app.put('/api/admin/studio-access/bookings/:id/confirm', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin only' });
+
+    const { data, error } = await supabaseDb.supabase
+      .from('studio_access_bookings')
+      .update({ status: 'booked', updated_at: new Date().toISOString() })
+      .eq('id', req.params.id)
+      .eq('status', 'pending')
+      .select()
+      .single();
+
+    if (error) throw error;
+    if (!data) return res.status(404).json({ error: 'Pending booking not found' });
+    res.json({ booking: data });
+  } catch (error) {
+    console.error('Error confirming studio access booking:', error);
+    res.status(500).json({ error: 'Failed to confirm booking' });
+  }
+});
+
+// ── Admin: Mark as attended (settles actual hours + amount) ─────────────────
+app.put('/api/admin/studio-access/bookings/:id/attended', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin only' });
+
+    const { hours } = req.body || {};
+    const actualHours = hours ? parseInt(hours, 10) : null;
+
+    if (actualHours !== null && (actualHours < STUDIO_ACCESS_MIN_HOURS || isNaN(actualHours))) {
+      return res.status(400).json({ error: `Minimum ${STUDIO_ACCESS_MIN_HOURS} hours` });
+    }
+
+    const updateFields = { status: 'attended', updated_at: new Date().toISOString() };
+    if (actualHours) {
+      updateFields.hours = actualHours;
+      updateFields.amount_sgd = actualHours * STUDIO_ACCESS_RATE;
+    }
+
+    const { data, error } = await supabaseDb.supabase
+      .from('studio_access_bookings')
+      .update(updateFields)
+      .eq('id', req.params.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    if (!data) return res.status(404).json({ error: 'Booking not found' });
+    res.json({ booking: data });
+  } catch (error) {
+    console.error('Error marking studio access as attended:', error);
+    res.status(500).json({ error: 'Failed to update booking' });
+  }
+});
+
+// ── Admin: Cancel booking ───────────────────────────────────────────────────
+app.put('/api/admin/studio-access/bookings/:id/cancel', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin only' });
+
+    const { data, error } = await supabaseDb.supabase
+      .from('studio_access_bookings')
+      .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq('id', req.params.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    if (!data) return res.status(404).json({ error: 'Booking not found' });
+    res.json({ booking: data });
+  } catch (error) {
+    console.error('Error cancelling studio access booking:', error);
+    res.status(500).json({ error: 'Failed to cancel booking' });
+  }
+});
+
+// ── Admin: Hard delete booking ──────────────────────────────────────────────
+app.delete('/api/admin/studio-access/bookings/:id', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin only' });
+
+    const { error } = await supabaseDb.supabase
+      .from('studio_access_bookings')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting studio access booking:', error);
+    res.status(500).json({ error: 'Failed to delete booking' });
   }
 });
 

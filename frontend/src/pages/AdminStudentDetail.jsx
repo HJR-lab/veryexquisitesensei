@@ -176,6 +176,10 @@ export default function AdminStudentDetail() {
   const [teachingData, setTeachingData] = useState(null);
   const [expandedClassId, setExpandedClassId] = useState(null);
 
+  // ── Studio Access ────────────────────────────────────────────────────────
+  const [studioBookings, setStudioBookings] = useState([]);
+  const [studioSummary, setStudioSummary] = useState(null);
+
   // ── UI tabs ───────────────────────────────────────────────────────────────
   const [section, setSection] = useState('enrollment');
 
@@ -317,6 +321,13 @@ export default function AdminStudentDetail() {
         }
         const { data: feesData } = await api.get(`/admin/students/${studentData.id}/fees`);
         setFees(feesData.fees || []);
+
+        // Fetch studio access history
+        try {
+          const { data: studioData } = await api.get(`/admin/students/${studentData.id}/studio-access`);
+          setStudioBookings(studioData.bookings || []);
+          setStudioSummary(studioData.summary || null);
+        } catch { setStudioBookings([]); setStudioSummary(null); }
 
         // Fetch teaching data if instructor — uses same source as /admin/classes
         if (studentData.role === 'instructor') {
@@ -1006,6 +1017,7 @@ export default function AdminStudentDetail() {
                   { id: 'enrollment', label: 'Enrollment' },
                   { id: 'bookings',   label: `Bookings (${activeBookings.length + unbookedCount})` },
                   { id: 'fees',       label: `Fees (${fees.length})` },
+                  { id: 'access',     label: `Studio Access (${studioBookings.length})` },
                 ] : []),
               ].map(t => (
                 <button key={t.id} onClick={() => setSection(t.id)} style={{
@@ -1495,6 +1507,84 @@ export default function AdminStudentDetail() {
             )}
 
           </div>
+
+            {/* ── STUDIO ACCESS TAB ── */}
+            {section === 'access' && (
+              <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
+                {/* Summary */}
+                {studioSummary && (
+                  <div style={{ display: 'flex', gap: '24px', padding: '16px 20px', borderBottom: `1px solid ${RULE}`, backgroundColor: '#FAFAFA' }}>
+                    <div>
+                      <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED }}>Sessions</div>
+                      <div style={{ fontSize: '18px', fontWeight: 700 }}>{studioSummary.totalSessions}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED }}>Hours</div>
+                      <div style={{ fontSize: '18px', fontWeight: 700 }}>{studioSummary.totalHours}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED }}>Spent</div>
+                      <div style={{ fontSize: '18px', fontWeight: 700 }}>${studioSummary.totalSpent}</div>
+                    </div>
+                    {studioSummary.pendingCount > 0 && (
+                      <div>
+                        <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#F57F17' }}>Pending</div>
+                        <div style={{ fontSize: '18px', fontWeight: 700, color: '#F57F17' }}>{studioSummary.pendingCount}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {studioBookings.length === 0 ? (
+                  <div style={{ padding: '40px 20px', textAlign: 'center', color: MUTED, fontSize: '13px' }}>
+                    No studio access bookings
+                  </div>
+                ) : (
+                  <>
+                    {/* Table header */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 0.5fr 0.5fr 0.8fr 1.2fr', gap: '8px', padding: '10px 20px', borderBottom: `1px solid ${RULE}`, backgroundColor: '#FAFAFA' }}>
+                      {['Date', 'Time', 'Hours', 'Amount', 'Status', 'Actions'].map(h => (
+                        <span key={h} style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED }}>{h}</span>
+                      ))}
+                    </div>
+                    {studioBookings.map((b, i) => {
+                      const d = new Date(b.booking_date + 'T12:00:00');
+                      const dateStr = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+                      const startH = parseInt(b.start_time.split(':')[0], 10);
+                      const endH = parseInt(b.end_time.split(':')[0], 10);
+                      const fmtTime = (h) => { const s = h >= 12 ? 'pm' : 'am'; return (h > 12 ? h - 12 : h) + s; };
+                      const statusColors = { booked: { bg: '#E8F5E9', c: '#2E7D32' }, pending: { bg: '#FFF8E1', c: '#F57F17' }, attended: { bg: '#E3F2FD', c: '#1565C0' }, cancelled: { bg: '#FAFAFA', c: '#999' } };
+                      const sc = statusColors[b.status] || statusColors.booked;
+                      return (
+                        <div key={b.id} style={{
+                          display: 'grid', gridTemplateColumns: '1.2fr 1fr 0.5fr 0.5fr 0.8fr 1.2fr', gap: '8px',
+                          padding: '12px 20px', borderBottom: i < studioBookings.length - 1 ? `1px solid ${RULE}` : 'none',
+                          alignItems: 'center', opacity: b.status === 'cancelled' ? 0.5 : 1,
+                        }}>
+                          <span style={{ fontSize: '12px' }}>{dateStr}</span>
+                          <span style={{ fontSize: '12px' }}>{fmtTime(startH)} – {fmtTime(endH)}</span>
+                          <span style={{ fontSize: '12px' }}>{b.hours}h</span>
+                          <span style={{ fontSize: '12px' }}>${b.amount_sgd}</span>
+                          <span style={{ display: 'inline-block', fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '2px 8px', backgroundColor: sc.bg, color: sc.c }}>{b.status}</span>
+                          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                            {b.status === 'pending' && (
+                              <button onClick={async () => { await api.put(`/admin/studio-access/bookings/${b.id}/confirm`); loadStudentData(); }} style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 700, border: 'none', cursor: 'pointer', backgroundColor: '#2E7D32', color: '#FFF', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Confirm</button>
+                            )}
+                            {b.status === 'booked' && (
+                              <button onClick={async () => { await api.put(`/admin/studio-access/bookings/${b.id}/attended`); loadStudentData(); }} style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 700, border: 'none', cursor: 'pointer', backgroundColor: '#1565C0', color: '#FFF', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Attended</button>
+                            )}
+                            {b.status !== 'cancelled' && b.status !== 'attended' && (
+                              <button onClick={async () => { await api.put(`/admin/studio-access/bookings/${b.id}/cancel`); loadStudentData(); }} style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 700, border: 'none', cursor: 'pointer', backgroundColor: '#EEE', color: '#C62828', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Cancel</button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+            )}
+
         </div>
       </main>
 

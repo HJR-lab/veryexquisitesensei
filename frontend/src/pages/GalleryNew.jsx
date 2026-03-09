@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
+import ImpersonationBanner from '../components/ImpersonationBanner';
 
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
@@ -286,6 +287,8 @@ export default function GalleryNew() {
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#FFFFFF', minHeight: '100vh' }}>
+
+      <ImpersonationBanner />
 
       {/* TOP BAR */}
       <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: '#FFFFFF', borderBottom: `1px solid ${RULE}` }}>
@@ -841,6 +844,7 @@ function BottomNav() {
   const tabs = [
     { id: 'home',    label: 'Home',    icon: 'home',           href: '/dashboard' },
     { id: 'classes', label: 'Classes', icon: 'calendar_month', href: '/classes' },
+    { id: 'studio',  label: 'Studio',  icon: 'door_open',      href: '/studio-access' },
     { id: 'gallery', label: 'Gallery', icon: 'photo_library',  href: '/gallery' },
     { id: 'account', label: 'Account', icon: 'person',         href: '/account' },
   ];

@@ -44,6 +44,8 @@ import TestAdminClasses from './test-pages/TestAdminClasses';
 import TestAdminMemberships from './test-pages/TestAdminMemberships';
 import Contact from './pages/Contact';
 import Account from './pages/Account';
+import StudioAccess from './pages/StudioAccess';
+import AdminStudioAccess from './pages/AdminStudioAccess';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -270,6 +272,14 @@ function App() {
             }
           />
           <Route
+            path="/admin/studio-access"
+            element={
+              <AdminRoute>
+                <AdminStudioAccess />
+              </AdminRoute>
+            }
+          />
+          <Route
             path="/admin/events"
             element={
               <AdminRoute>
@@ -347,6 +357,11 @@ function App() {
             </PrivateRoute>
           } />
           <Route path="/contact" element={<Contact />} />
+          <Route path="/studio-access" element={
+            <PrivateRoute>
+              <StudioAccess />
+            </PrivateRoute>
+          } />
           <Route path="/account" element={
             <PrivateRoute>
               <Account />

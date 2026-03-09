@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
+import ImpersonationBanner from './ImpersonationBanner';
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
 export const TC       = '#C4622D';
@@ -224,6 +225,7 @@ export function Avatar({ src, name, size = 24 }) {
 export function PageShell({ children }) {
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#FFFFFF', minHeight: '100vh' }}>
+      <ImpersonationBanner />
       {children}
     </div>
   );

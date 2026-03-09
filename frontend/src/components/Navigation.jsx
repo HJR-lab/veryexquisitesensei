@@ -2,6 +2,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { authAPI } from '../utils/api';
 import { useState, useRef, useEffect } from 'react';
+import ImpersonationBanner from './ImpersonationBanner';
 
 export default function Navigation() {
   const { user, logout, updateUser } = useAuth();
@@ -135,7 +136,9 @@ export default function Navigation() {
   };
 
   return (
-    <header className="bg-background border-b border-border sticky top-0 z-50">
+    <>
+      {!isAdminPage && <ImpersonationBanner />}
+    <header className={`bg-background border-b border-border sticky ${isImpersonating && !isAdminPage ? 'top-8' : 'top-0'} z-50`}>
       <div className="max-w-7xl mx-auto px-3 md:px-6">
         <div className="flex items-center justify-between h-12">
           {/* Mobile - Hamburger Menu */}
@@ -507,5 +510,6 @@ export default function Navigation() {
         )}
       </div>
     </header>
+    </>
   );
 }

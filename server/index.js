@@ -34,7 +34,11 @@ app.use(cors({
   ],
   credentials: true
 }));
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf.toString();
+  }
+}));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
@@ -374,8 +378,8 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
         classesUsed: customer.classes_used || 0,
         role: customer.role || 'student',
         isAdmin: req.user.isAdmin || false,
+        isImpersonating: req.user.isImpersonating || false,
         impersonatedBy: req.user.impersonatedBy,
-        originalAdminToken: req.user.originalAdminToken,
         hasMembership,
         hasActiveEnrollments,
         customerType: customer.customer_type || 'student'
@@ -410,10 +414,9 @@ app.post('/api/auth/impersonate/:email', authenticateToken, async (req, res) => 
       return res.status(404).json({ error: 'Student not found' });
     }
 
-    // Store the original admin token for returning later
-    const originalAdminToken = req.cookies.token || req.headers.authorization?.split(' ')[1];
-
     // Create JWT token for the student (with impersonation flag)
+    // Note: we do NOT embed the admin token here for security reasons.
+    // Instead, the stop-impersonation endpoint re-issues a fresh admin token.
     const impersonationToken = jwt.sign(
       {
         customerId: student.shopify_customer_id,
@@ -422,8 +425,8 @@ app.post('/api/auth/impersonate/:email', authenticateToken, async (req, res) => 
         firstName: student.first_name,
         lastName: student.last_name,
         isAdmin: false,
-        impersonatedBy: req.user.email, // Track who is impersonating
-        originalAdminToken: originalAdminToken // Store admin token for easy return
+        isImpersonating: true,
+        impersonatedBy: req.user.email // Track who is impersonating
       },
       JWT_SECRET,
       { expiresIn: '1d' } // Shorter expiry for impersonation
@@ -446,6 +449,65 @@ app.post('/api/auth/impersonate/:email', authenticateToken, async (req, res) => 
   } catch (error) {
     console.error('❌ Impersonation error:', error);
     res.status(500).json({ error: 'Impersonation failed' });
+  }
+});
+
+// Stop impersonation — re-issues a fresh admin token
+app.post('/api/auth/stop-impersonation', authenticateToken, async (req, res) => {
+  try {
+    // Verify this is an impersonation session
+    if (!req.user.isImpersonating || !req.user.impersonatedBy) {
+      return res.status(400).json({ error: 'Not currently impersonating' });
+    }
+
+    // Verify the original user was an admin
+    const adminEmail = req.user.impersonatedBy;
+    if (adminEmail !== 'info@ves.sg') {
+      return res.status(403).json({ error: 'Original user is not an admin' });
+    }
+
+    // Look up the admin customer record to issue a fresh token
+    const { data: adminCustomer, error } = await supabaseDb.supabase
+      .from('customers')
+      .select('*')
+      .eq('email', adminEmail)
+      .single();
+
+    if (error || !adminCustomer) {
+      console.error('❌ Admin customer not found for stop-impersonation:', adminEmail);
+      return res.status(500).json({ error: 'Admin account not found' });
+    }
+
+    // Issue a fresh admin JWT (same structure as admin login)
+    const token = jwt.sign(
+      {
+        customerId: adminCustomer.shopify_customer_id,
+        dbCustomerId: adminCustomer.id,
+        email: adminCustomer.email,
+        firstName: adminCustomer.first_name,
+        lastName: adminCustomer.last_name,
+        isAdmin: true
+      },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    console.log('🎭 Impersonation ended, admin token re-issued for:', adminEmail);
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        email: adminCustomer.email,
+        firstName: adminCustomer.first_name,
+        lastName: adminCustomer.last_name,
+        isAdmin: true
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Stop impersonation error:', error);
+    res.status(500).json({ error: 'Failed to stop impersonation' });
   }
 });
 
@@ -8745,11 +8807,44 @@ app.post('/api/admin/sync-shopify-orders', authenticateToken, requireAdmin, asyn
   }
 });
 
-// Shopify webhook for order creation
-app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }), async (req, res) => {
+// Shopify webhook HMAC verification middleware
+function verifyShopifyWebhook(req, res, next) {
+  const hmac = req.headers['x-shopify-hmac-sha256'];
+  if (!hmac) {
+    console.error('Missing Shopify HMAC header');
+    return res.status(401).json({ error: 'Missing webhook signature' });
+  }
+
+  const secret = process.env.SHOPIFY_API_SECRET;
+  if (!secret) {
+    console.error('SHOPIFY_API_SECRET not configured');
+    return res.status(500).json({ error: 'Webhook verification not configured' });
+  }
+
+  const crypto = require('crypto');
+  // req.body is a Buffer from express.raw(), use it directly for HMAC
+  const body = Buffer.isBuffer(req.body) ? req.body : (req.rawBody || '');
+  const digest = crypto
+    .createHmac('sha256', secret)
+    .update(body)
+    .digest('base64');
+
   try {
-    // Verify webhook is from Shopify (important for security)
-    const hmac = req.headers['x-shopify-hmac-sha256'];
+    if (!crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(hmac))) {
+      console.error('Invalid Shopify HMAC');
+      return res.status(401).json({ error: 'Invalid webhook signature' });
+    }
+  } catch (e) {
+    console.error('HMAC comparison failed:', e.message);
+    return res.status(401).json({ error: 'Invalid webhook signature' });
+  }
+
+  next();
+}
+
+// Shopify webhook for order creation
+app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }), verifyShopifyWebhook, async (req, res) => {
+  try {
     const shopDomain = req.headers['x-shopify-shop-domain'];
 
     console.log('📦 Received order webhook from Shopify');
@@ -8841,9 +8936,8 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
 });
 
 // Shopify webhook for customer creation
-app.post('/api/shopify/webhook/customers', express.raw({ type: 'application/json' }), async (req, res) => {
+app.post('/api/shopify/webhook/customers', express.raw({ type: 'application/json' }), verifyShopifyWebhook, async (req, res) => {
   try {
-    const hmac = req.headers['x-shopify-hmac-sha256'];
     const shopDomain = req.headers['x-shopify-shop-domain'];
 
     console.log('👤 Received customer webhook from Shopify');

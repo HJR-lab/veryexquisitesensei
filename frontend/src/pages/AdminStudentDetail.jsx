@@ -616,11 +616,7 @@ export default function AdminStudentDetail() {
   const handleImpersonate = async () => {
     try {
       const decodedEmail = decodeURIComponent(email);
-      // If currently in an impersonated session, use the original admin token
-      const adminToken = (user.originalAdminToken) || localStorage.getItem('token');
-      const { data } = await api.post(`/auth/impersonate/${decodedEmail}`, {}, {
-        headers: { Authorization: `Bearer ${adminToken}` }
-      });
+      const { data } = await api.post(`/auth/impersonate/${decodedEmail}`);
       if (data.success && data.token) {
         localStorage.setItem('token', data.token);
         localStorage.setItem('adminReturnPath', window.location.pathname);

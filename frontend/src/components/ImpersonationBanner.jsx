@@ -1,25 +1,21 @@
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { authAPI } from '../utils/api';
+import api from '../utils/api';
 
 export default function ImpersonationBanner() {
-  const { user, updateUser } = useAuth();
-  const navigate = useNavigate();
+  const { user } = useAuth();
   const isImpersonating = user && user.impersonatedBy;
 
   if (!isImpersonating) return null;
 
   const handleReturnToAdmin = async () => {
-    if (user && user.originalAdminToken) {
-      try {
-        localStorage.setItem('token', user.originalAdminToken);
-        const adminData = await authAPI.getMe();
-        updateUser(adminData.user);
-        navigate('/admin/students');
-      } catch (error) {
-        console.error('Error returning to admin:', error);
-        window.location.reload();
-      }
+    try {
+      const { data } = await api.post('/auth/stop-impersonation');
+      localStorage.setItem('token', data.token);
+      window.location.href = '/admin/students';
+    } catch (error) {
+      console.error('Error returning to admin:', error);
+      localStorage.removeItem('token');
+      window.location.href = '/admin/login';
     }
   };
 

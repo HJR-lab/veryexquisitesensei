@@ -1,13 +1,12 @@
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { authAPI } from '../utils/api';
+import api from '../utils/api';
 import { useState, useRef, useEffect } from 'react';
 import ImpersonationBanner from './ImpersonationBanner';
 
 export default function Navigation() {
-  const { user, logout, updateUser } = useAuth();
+  const { user, logout } = useAuth();
   const location = useLocation();
-  const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [controlDropdownOpen, setControlDropdownOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
@@ -112,28 +111,18 @@ export default function Navigation() {
   }, []);
 
   const handleReturnToAdmin = async () => {
-    if (user && user.originalAdminToken) {
-      try {
-        console.log('🔙 Returning to admin view...');
+    try {
+      const { data } = await api.post('/auth/stop-impersonation');
+      localStorage.setItem('token', data.token);
 
-        // Restore the original admin token
-        localStorage.setItem('token', user.originalAdminToken);
-
-        // Fetch the admin user data with the restored token
-        const adminData = await authAPI.getMe();
-
-        // Update the user context with admin data
-        updateUser(adminData.user);
-
-        // Navigate back to where admin was before impersonating
-        const returnPath = localStorage.getItem('adminReturnPath') || '/admin/students';
-        localStorage.removeItem('adminReturnPath');
-        navigate(returnPath);
-      } catch (error) {
-        console.error('Error returning to admin:', error);
-        // If there's an error, reload the page as fallback
-        window.location.reload();
-      }
+      // Navigate back to where admin was before impersonating
+      const returnPath = localStorage.getItem('adminReturnPath') || '/admin/students';
+      localStorage.removeItem('adminReturnPath');
+      window.location.href = returnPath;
+    } catch (error) {
+      console.error('Error returning to admin:', error);
+      localStorage.removeItem('token');
+      window.location.href = '/admin/login';
     }
   };
 

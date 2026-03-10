@@ -176,7 +176,13 @@ export default function AdminStudioAccess() {
     }
   };
 
-  const pendingBookings = bookings.filter(b => b.status === 'pending');
+  const selectedDateStr = fmtKey(selectedDate);
+  const bookingDates = {};
+  bookings.forEach(b => {
+    if (b.status !== 'cancelled') bookingDates[b.booking_date] = (bookingDates[b.booking_date] || 0) + 1;
+  });
+  const filteredBookings = bookings.filter(b => b.booking_date === selectedDateStr);
+  const pendingBookings = filteredBookings.filter(b => b.status === 'pending');
 
   const labelStyle = { fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED, display: 'block', marginBottom: '4px' };
   const inputStyle = { width: '100%', padding: '8px 10px', fontSize: '13px', border: `1px solid ${RULE}`, fontFamily: 'inherit', boxSizing: 'border-box' };
@@ -203,6 +209,39 @@ export default function AdminStudioAccess() {
           <button onClick={() => setShowCreateForm(!showCreateForm)} style={btnStyle(TC, '#FFF')}>
             + Create Booking
           </button>
+        </div>
+
+        {/* Calendar strip */}
+        <div ref={stripRef} style={{ display: 'flex', gap: '4px', overflowX: 'auto', marginBottom: '24px', paddingBottom: '4px' }}>
+          {strip.map(d => {
+            const key = fmtKey(d);
+            const isSelected = key === selectedDateStr;
+            const isSat = d.getDay() === 6;
+            const count = bookingDates[key] || 0;
+            return (
+              <div key={key} onClick={() => !isSat && setSelectedDate(d)} style={{
+                minWidth: '48px', padding: '8px 4px', textAlign: 'center', cursor: isSat ? 'default' : 'pointer',
+                backgroundColor: isSelected ? TC : count > 0 ? TC_LIGHT : '#FFF',
+                border: `1px solid ${isSelected ? TC : count > 0 ? TC : RULE}`,
+                opacity: isSat ? 0.3 : 1, flexShrink: 0,
+              }}>
+                <div style={{ fontSize: '9px', fontWeight: 700, color: isSelected ? '#FFF' : MUTED, textTransform: 'uppercase' }}>
+                  {DAY_LABELS[d.getDay()]}
+                </div>
+                <div style={{ fontSize: '16px', fontWeight: 700, color: isSelected ? '#FFF' : INK }}>
+                  {d.getDate()}
+                </div>
+                <div style={{ fontSize: '8px', color: isSelected ? 'rgba(255,255,255,0.7)' : MUTED, textTransform: 'uppercase' }}>
+                  {MONTH_LABELS[d.getMonth()]}
+                </div>
+                {count > 0 && (
+                  <div style={{ fontSize: '8px', fontWeight: 700, color: isSelected ? '#FFF' : TC, marginTop: '2px' }}>
+                    {count}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* Create form */}
@@ -307,10 +346,10 @@ export default function AdminStudioAccess() {
         {/* All bookings */}
         <div>
           <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, marginBottom: '12px' }}>
-            {loading ? 'Loading...' : `Bookings — ${bookings.length} total`}
+            {loading ? 'Loading...' : `Bookings — ${filteredBookings.length} total`}
           </div>
 
-          {bookings.length === 0 && !loading ? (
+          {filteredBookings.length === 0 && !loading ? (
             <div style={{ backgroundColor: '#FFFFFF', border: `1px solid ${RULE}`, padding: '40px', textAlign: 'center', color: MUTED, fontSize: '13px' }}>
               No bookings for this date
             </div>
@@ -322,17 +361,17 @@ export default function AdminStudioAccess() {
                   <span key={h} style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED }}>{h}</span>
                 ))}
               </div>
-              {bookings.length > 0 && pendingBookings.length === bookings.length ? (
+              {filteredBookings.length > 0 && pendingBookings.length === filteredBookings.length ? (
                 <div style={{ padding: '20px 16px', textAlign: 'center', color: MUTED, fontSize: '12px' }}>
                   All bookings are pending — see above
                 </div>
               ) : (
-                bookings.map((b, i) => {
+                filteredBookings.map((b, i) => {
                   const bd = new Date(b.booking_date + 'T12:00:00');
                   return (
                   <div key={b.id} style={{
                     display: 'grid', gridTemplateColumns: '1.8fr 1fr 0.6fr 0.5fr 0.5fr 0.7fr 1.5fr', gap: '8px',
-                    padding: '12px 16px', borderBottom: i < bookings.length - 1 ? `1px solid ${RULE}` : 'none',
+                    padding: '12px 16px', borderBottom: i < filteredBookings.length - 1 ? `1px solid ${RULE}` : 'none',
                     alignItems: 'center', opacity: b.status === 'cancelled' ? 0.5 : 1,
                   }}>
                     <div>

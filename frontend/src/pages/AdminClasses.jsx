@@ -793,7 +793,7 @@ export default function AdminClasses() {
     return (
       <div key={hb.id} style={{ borderBottom: `1px solid ${RULE}`, borderRight: rightBorder }}>
         <div
-          onClick={() => { if (isExpanded) { setExpandedHBCard(null); } else { setExpandedHBCard(hb.id); if (hb.classes[0]) loadClassMembers(hb.classes[0]); } }}
+          onClick={() => { if (isExpanded) { setExpandedHBCard(null); } else { setExpandedHBCard(hb.id); hb.classes.forEach(cls => loadClassMembers(cls)); } }}
           style={{ borderLeft: `3px solid ${borderColor}`, backgroundColor: isExpanded ? ALT : '#FFFFFF', padding: '12px 12px 12px 11px', cursor: 'pointer', transition: 'background-color 0.1s' }}
           onMouseEnter={e => { e.currentTarget.style.backgroundColor = ALT; }}
           onMouseLeave={e => { e.currentTarget.style.backgroundColor = isExpanded ? ALT : '#FFFFFF'; }}
@@ -829,7 +829,11 @@ export default function AdminClasses() {
                   style={{ fontSize: '10px', fontWeight: 600, padding: '5px 8px', backgroundColor: '#FFFFFF', border: `1px solid ${RULE}`, color: INK, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '3px', cursor: 'pointer' }}
                 >
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortName(`${m.firstName} ${m.lastName}`)}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: MUTED, flexShrink: 0 }}>{m.returningCount || 1}</span>
+                  {m.creditsAllocated != null ? (
+                    <span style={{ fontSize: '10px', fontWeight: 700, color: m.creditsUsed >= m.creditsAllocated ? '#D93025' : MUTED, flexShrink: 0, fontFamily: 'monospace' }}>{m.creditsAllocated}.{m.creditsUsed}</span>
+                  ) : (
+                    <span style={{ fontSize: '10px', fontWeight: 700, color: MUTED, flexShrink: 0 }}>{m.returningCount || 1}</span>
+                  )}
                 </div>
               ))}
               {Array.from({ length: Math.max(0, hb.capacity - count) }).map((_, j) => (

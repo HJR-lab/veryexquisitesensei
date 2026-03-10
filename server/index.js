@@ -5958,9 +5958,9 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, async (req, re
     if (enrollmentIds.length > 0) {
       const { data: enrollments } = await supabaseDb.supabase
         .from('course_enrollments')
-        .select('id, course_identifier')
+        .select('id, course_identifier, course_type, class_credits_allocated, class_credits_used, class_credits_remaining')
         .in('id', enrollmentIds);
-      (enrollments || []).forEach(e => { enrollmentCourseMap[e.id] = e.course_identifier; });
+      (enrollments || []).forEach(e => { enrollmentCourseMap[e.id] = e; });
     }
 
     // Separate active members from absent members
@@ -5984,8 +5984,15 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, async (req, re
       // Determine if this is a makeup student
       // If the student's enrollment is for the SAME course as this class, they're enrolled (not makeup)
       // even if they rescheduled away and back
-      const enrollmentCourse = booking.course_enrollment_id ? enrollmentCourseMap[booking.course_enrollment_id] : null;
+      const enrollmentData = booking.course_enrollment_id ? enrollmentCourseMap[booking.course_enrollment_id] : null;
+      const enrollmentCourse = enrollmentData?.course_identifier || null;
       const enrollmentBase = enrollmentCourse ? getBase(enrollmentCourse) : null;
+
+      // Add HB credit info if this is a handbuilding enrollment
+      if (enrollmentData && (enrollmentData.course_type || '').toLowerCase().includes('handbuilding')) {
+        member.creditsAllocated = enrollmentData.class_credits_allocated || 0;
+        member.creditsUsed = enrollmentData.class_credits_used || 0;
+      }
       const isOwnCourse = enrollmentBase && enrollmentBase === currentCourseBase;
 
       if (!isOwnCourse && booking.booking_type === 'makeup') {

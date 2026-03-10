@@ -66,7 +66,7 @@ export default function AdminStudioAccess() {
 
   const [selectedDate, setSelectedDate] = useState(TODAY);
   const [bookings, setBookings] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const stripRef = useRef(null);
 
@@ -346,27 +346,30 @@ export default function AdminStudioAccess() {
         {/* All bookings */}
         <div>
           <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, marginBottom: '12px' }}>
-            {loading ? 'Loading...' : `Bookings — ${filteredBookings.length} total`}
+            {loading ? 'Loading bookings...' : `Bookings — ${filteredBookings.length} total`}
           </div>
 
-          {filteredBookings.length === 0 && !loading ? (
-            <div style={{ backgroundColor: '#FFFFFF', border: `1px solid ${RULE}`, padding: '40px', textAlign: 'center', color: MUTED, fontSize: '13px' }}>
-              No bookings for this date
+          <div style={{ backgroundColor: '#FFFFFF', border: `1px solid ${RULE}` }}>
+            {/* Table header */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1fr 0.6fr 0.5fr 0.5fr 0.7fr 1.5fr', gap: '8px', padding: '10px 16px', borderBottom: `1px solid ${RULE}`, backgroundColor: '#FAFAFA' }}>
+              {['Student', 'Date', 'Start', 'Hours', 'Amount', 'Status', 'Actions'].map(h => (
+                <span key={h} style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED }}>{h}</span>
+              ))}
             </div>
-          ) : (
-            <div style={{ backgroundColor: '#FFFFFF', border: `1px solid ${RULE}` }}>
-              {/* Table header */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1fr 0.6fr 0.5fr 0.5fr 0.7fr 1.5fr', gap: '8px', padding: '10px 16px', borderBottom: `1px solid ${RULE}`, backgroundColor: '#FAFAFA' }}>
-                {['Student', 'Date', 'Start', 'Hours', 'Amount', 'Status', 'Actions'].map(h => (
-                  <span key={h} style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED }}>{h}</span>
-                ))}
+            {loading ? (
+              <div style={{ padding: '40px 16px', textAlign: 'center', color: MUTED, fontSize: '13px' }}>
+                Loading bookings...
               </div>
-              {filteredBookings.length > 0 && pendingBookings.length === filteredBookings.length ? (
-                <div style={{ padding: '20px 16px', textAlign: 'center', color: MUTED, fontSize: '12px' }}>
-                  All bookings are pending — see above
-                </div>
-              ) : (
-                filteredBookings.map((b, i) => {
+            ) : filteredBookings.length === 0 ? (
+              <div style={{ padding: '40px 16px', textAlign: 'center', color: MUTED, fontSize: '13px' }}>
+                No bookings for this date
+              </div>
+            ) : filteredBookings.length > 0 && pendingBookings.length === filteredBookings.length ? (
+              <div style={{ padding: '20px 16px', textAlign: 'center', color: MUTED, fontSize: '12px' }}>
+                All bookings are pending — see above
+              </div>
+            ) : (
+              filteredBookings.map((b, i) => {
                   const bd = new Date(b.booking_date + 'T12:00:00');
                   return (
                   <div key={b.id} style={{
@@ -408,7 +411,6 @@ export default function AdminStudioAccess() {
                 })
               )}
             </div>
-          )}
         </div>
 
       {/* Attended modal — settle actual hours */}

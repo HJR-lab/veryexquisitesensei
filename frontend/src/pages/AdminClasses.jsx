@@ -88,6 +88,7 @@ export default function AdminClasses() {
   // ── API / data state ────────────────────────────────────────────────────────
   const [courses, setCourses]           = useState([]);
   const [loading, setLoading]           = useState(false);
+  const [summaryStats, setSummaryStats] = useState(null);
   const [classMembers, setClassMembers] = useState({});
   const [absentMembers, setAbsentMembers] = useState({});
   const [loadingMembers, setLoadingMembers] = useState({});
@@ -142,7 +143,14 @@ export default function AdminClasses() {
   const CAL_MONTHS = getCalMonths();
 
   // ── Load on mount ────────────────────────────────────────────────────────────
-  useEffect(() => { loadCourses(); }, []);
+  useEffect(() => {
+    // Phase 1: instant summary
+    api.get('/admin/classes/summary').then(({ data }) => {
+      setSummaryStats(data);
+    }).catch(() => {});
+    // Phase 2: full data
+    loadCourses();
+  }, []);
 
   const loadCourses = async () => {
     try {
@@ -1111,7 +1119,9 @@ export default function AdminClasses() {
         </div>
 
         {loading && (
-          <div style={{ textAlign: 'center', padding: '48px', color: MUTED, fontSize: '13px' }}>Loading...</div>
+          <div style={{ textAlign: 'center', padding: '48px', color: MUTED, fontSize: '13px' }}>
+            {summaryStats ? `Loading ${summaryStats.totalClasses} classes...` : 'Loading...'}
+          </div>
         )}
 
         {!loading && (

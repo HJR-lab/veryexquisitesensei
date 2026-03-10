@@ -89,6 +89,7 @@ export default function AdminStudents() {
   const isMobile = useIsMobile();
 
   const [loading,     setLoading]     = useState(false);
+  const [summaryStats, setSummaryStats] = useState(null);
 
   // Stats
   const [stats, setStats] = useState({
@@ -136,9 +137,17 @@ export default function AdminStudents() {
   const [search, setSearch] = useState('');
   const [uiFilter, setUiFilter] = useState('pkg-wt6'); // 'all'|'pkg-wt6'|'pkg-wt10'|'pkg-wt18'|'pkg-hb4'|'pkg-hb8'|'members'
   const [uiSort, setUiSort] = useState('cohort'); // 'cohort'|'name'|'recent'|'expiry'|'plan'
+  const [pageSize, setPageSize] = useState(10); // 10 | 50 | 'all'
                                                    // member sorts: 'expiry'|'plan'|'name'|'recent'
 
-  useEffect(() => { loadStats(); }, []);
+  useEffect(() => {
+    // Phase 1: instant summary
+    api.get('/admin/students/stats/summary').then(({ data }) => {
+      setSummaryStats(data);
+    }).catch(() => {});
+    // Phase 2: full data (existing loadStats call)
+    loadStats();
+  }, []);
 
   // ─── Data loading ─────────────────────────────────────────────────────────
   const loadStats = async () => {
@@ -595,7 +604,7 @@ export default function AdminStudents() {
                 }}
               >
                 <div style={{ fontSize: '28px', fontWeight: 700, color: tab === s.key ? '#FFF' : INK, lineHeight: 1 }}>
-                  {loading ? '—' : s.value}
+                  {loading ? (summaryStats ? (summaryStats[s.key === 'all' ? 'totalStudents' : s.key === 'students' ? 'activeStudents' : s.key === 'members' ? 'activeMembers' : 'studentMembers'] ?? '—') : '—') : s.value}
                 </div>
                 <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '4px', color: tab === s.key ? 'rgba(255,255,255,0.55)' : MUTED }}>
                   {s.label}
@@ -673,7 +682,9 @@ export default function AdminStudents() {
 
           {/* Loading */}
           {loading && (
-            <div style={{ padding: '40px', textAlign: 'center', color: MUTED, fontSize: '13px' }}>Loading…</div>
+            <div style={{ padding: '40px', textAlign: 'center', color: MUTED, fontSize: '13px' }}>
+              {summaryStats ? `Loading ${summaryStats.totalStudents} users…` : 'Loading…'}
+            </div>
           )}
 
           {/* Empty */}
@@ -682,7 +693,7 @@ export default function AdminStudents() {
           )}
 
           {/* Rows */}
-          {!loading && visibleRows.map((student, i) => {
+          {!loading && (pageSize === 'all' ? visibleRows : visibleRows.slice(0, pageSize)).map((student, i) => {
             const isMember       = student._cardType === 'member';
             const isDual         = student._type === 'student-member';
             const isHB           = student._cardType === 'hb';
@@ -829,10 +840,23 @@ export default function AdminStudents() {
           })}
         </div>
 
-        {/* ── Footer count ─────────────────────────────────────────────── */}
+        {/* ── Footer count + page size ──────────────────────────────────── */}
         {!loading && visibleRows.length > 0 && (
-          <div style={{ padding: '14px 0', fontSize: '11px', color: MUTED, textAlign: 'right' }}>
-            {visibleRows.length} user{visibleRows.length !== 1 ? 's' : ''}
+          <div style={{ padding: '14px 0', fontSize: '11px', color: MUTED, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '10px' }}>
+            <span>
+              {pageSize === 'all' ? visibleRows.length : Math.min(pageSize, visibleRows.length)} of {visibleRows.length} user{visibleRows.length !== 1 ? 's' : ''}
+            </span>
+            <span style={{ color: RULE }}>|</span>
+            <span>Show</span>
+            <select
+              value={pageSize}
+              onChange={e => setPageSize(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+              style={{ padding: '2px 6px', fontSize: '11px', border: `1px solid ${RULE}`, backgroundColor: '#FFF', color: INK, fontFamily: 'inherit', cursor: 'pointer' }}
+            >
+              <option value={10}>10</option>
+              <option value={50}>50</option>
+              <option value="all">All</option>
+            </select>
           </div>
         )}
 

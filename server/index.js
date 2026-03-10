@@ -3511,6 +3511,54 @@ app.get('/api/admin/students/search', authenticateToken, async (req, res) => {
   }
 });
 
+// Get student statistics summary (lightweight, count-only)
+app.get('/api/admin/students/stats/summary', authenticateToken, async (req, res) => {
+  try {
+    const [
+      { count: totalStudents, error: e1 },
+      { count: activeStudents, error: e2 },
+      { count: pausedStudents, error: e3 },
+      { count: hbStudents, error: e4 },
+      { count: activeMembers, error: e5 }
+    ] = await Promise.all([
+      supabaseDb.supabase
+        .from('customers')
+        .select('*', { count: 'exact', head: true }),
+      supabaseDb.supabase
+        .from('course_enrollments')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['active', 'upcoming']),
+      supabaseDb.supabase
+        .from('course_enrollments')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'paused'),
+      supabaseDb.supabase
+        .from('course_enrollments')
+        .select('*', { count: 'exact', head: true })
+        .ilike('course_type', '%handbuilding%')
+        .in('status', ['active', 'upcoming']),
+      supabaseDb.supabase
+        .from('memberships')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['active', 'expiring'])
+    ]);
+
+    const err = e1 || e2 || e3 || e4 || e5;
+    if (err) throw err;
+
+    res.json({
+      totalStudents: totalStudents || 0,
+      activeStudents: activeStudents || 0,
+      pausedStudents: pausedStudents || 0,
+      hbStudents: hbStudents || 0,
+      activeMembers: activeMembers || 0
+    });
+  } catch (error) {
+    console.error('Error fetching student stats summary:', error);
+    res.status(500).json({ error: 'Failed to fetch student stats summary' });
+  }
+});
+
 // Get student statistics
 app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
   console.log('📊 /api/admin/students/stats endpoint called');
@@ -4978,6 +5026,60 @@ app.post('/api/admin/enrollments/:id/pause', authenticateToken, async (req, res)
   }
 });
 
+// Get dashboard stats summary (lightweight, count-only)
+app.get('/api/admin/dashboard/stats/summary', authenticateToken, async (req, res) => {
+  try {
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    const [
+      { count: totalStudents, error: e1 },
+      { count: totalClasses, error: e2 },
+      { count: totalBookings, error: e3 },
+      { count: activeMemberships, error: e4 },
+      { count: galleryPieces, error: e5 },
+      { count: pendingStudioAccess, error: e6 }
+    ] = await Promise.all([
+      supabaseDb.supabase
+        .from('customers')
+        .select('*', { count: 'exact', head: true }),
+      supabaseDb.supabase
+        .from('class_instances')
+        .select('*', { count: 'exact', head: true })
+        .gte('class_date', todayStr),
+      supabaseDb.supabase
+        .from('bookings')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['booked', 'attended']),
+      supabaseDb.supabase
+        .from('memberships')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['active', 'expiring']),
+      supabaseDb.supabase
+        .from('pottery_pieces')
+        .select('*', { count: 'exact', head: true }),
+      supabaseDb.supabase
+        .from('studio_access_bookings')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'pending')
+    ]);
+
+    const err = e1 || e2 || e3 || e4 || e5 || e6;
+    if (err) throw err;
+
+    res.json({
+      totalStudents: totalStudents || 0,
+      totalClasses: totalClasses || 0,
+      totalBookings: totalBookings || 0,
+      activeMemberships: activeMemberships || 0,
+      galleryPieces: galleryPieces || 0,
+      pendingStudioAccess: pendingStudioAccess || 0
+    });
+  } catch (error) {
+    console.error('Error fetching dashboard stats summary:', error);
+    res.status(500).json({ error: 'Failed to fetch dashboard stats summary' });
+  }
+});
+
 // Get dashboard stats
 app.get('/api/admin/dashboard/stats', authenticateToken, async (req, res) => {
   try {
@@ -5731,6 +5833,46 @@ app.put('/api/admin/students/:email', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error updating student:', error);
     res.status(500).json({ error: 'Failed to update student' });
+  }
+});
+
+// Get classes summary (lightweight, count-only)
+app.get('/api/admin/classes/summary', authenticateToken, async (req, res) => {
+  try {
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    const [
+      { count: totalClasses, error: e1 },
+      { count: wtCourses, error: e2 },
+      { count: hbClasses, error: e3 }
+    ] = await Promise.all([
+      supabaseDb.supabase
+        .from('class_instances')
+        .select('*', { count: 'exact', head: true })
+        .gte('class_date', todayStr),
+      supabaseDb.supabase
+        .from('class_instances')
+        .select('*', { count: 'exact', head: true })
+        .ilike('class_type', 'WT%')
+        .gte('class_date', todayStr),
+      supabaseDb.supabase
+        .from('class_instances')
+        .select('*', { count: 'exact', head: true })
+        .ilike('class_type', 'HB%')
+        .gte('class_date', todayStr)
+    ]);
+
+    const err = e1 || e2 || e3;
+    if (err) throw err;
+
+    res.json({
+      totalClasses: totalClasses || 0,
+      wtCourses: wtCourses || 0,
+      hbClasses: hbClasses || 0
+    });
+  } catch (error) {
+    console.error('Error fetching classes summary:', error);
+    res.status(500).json({ error: 'Failed to fetch classes summary' });
   }
 });
 

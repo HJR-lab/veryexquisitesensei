@@ -17,6 +17,7 @@ export default function AdminDashboard() {
   const { user } = useAuth();
 
   const [stats, setStats] = useState(null);
+  const [summaryStats, setSummaryStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [hoveredModule, setHoveredModule] = useState(null);
   const [alerts, setAlerts] = useState([]);
@@ -24,6 +25,12 @@ export default function AdminDashboard() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   useEffect(() => {
+    // Phase 1: instant summary counts
+    api.get('/admin/dashboard/stats/summary').then(({ data }) => {
+      setSummaryStats(data);
+    }).catch(() => {});
+
+    // Phase 2: full stats + activity
     loadStats();
     const onResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', onResize);
@@ -54,10 +61,10 @@ export default function AdminDashboard() {
   };
 
   const modules = [
-    { label: 'Classes',   icon: 'event',           href: '/admin/classes',     desc: 'Schedule & bookings',    stat: loading ? null : (stats?.classes?.total ?? null),      sub: `${stats?.classes?.availableSpots ?? 0} open spots` },
-    { label: 'Users',     icon: 'group',          href: '/admin/students',    desc: 'Students & members',     stat: loading ? null : ((stats?.students?.total ?? 0) + (stats?.memberships?.total ?? 0)),  sub: `${stats?.memberships?.expiringSoon ?? 0} memberships expiring` },
-    { label: 'Studio Access', icon: 'door_open',  href: '/admin/studio-access', desc: 'Studio access bookings', stat: loading ? null : (stats?.studioAccess?.confirmed ?? null), sub: `${stats?.studioAccess?.confirmed ?? 0} confirmed · ${stats?.studioAccess?.pending ?? 0} pending` },
-    { label: 'Gallery',   icon: 'photo_library',   href: '/admin/gallery',     desc: 'Student pottery works',  stat: loading ? null : (stats?.gallery?.total ?? null),      sub: `${stats?.gallery?.addedThisMonth ?? 0} added this month` },
+    { label: 'Classes',   icon: 'event',           href: '/admin/classes',     desc: 'Schedule & bookings',    stat: loading ? (summaryStats?.classes?.total ?? null) : (stats?.classes?.total ?? null),      sub: loading ? '' : `${stats?.classes?.availableSpots ?? 0} open spots` },
+    { label: 'Users',     icon: 'group',          href: '/admin/students',    desc: 'Students & members',     stat: loading ? (summaryStats ? (summaryStats.students?.total ?? 0) + (summaryStats.memberships?.total ?? 0) : null) : ((stats?.students?.total ?? 0) + (stats?.memberships?.total ?? 0)),  sub: loading ? '' : `${stats?.memberships?.expiringSoon ?? 0} memberships expiring` },
+    { label: 'Studio Access', icon: 'door_open',  href: '/admin/studio-access', desc: 'Studio access bookings', stat: loading ? (summaryStats?.studioAccess?.pending ?? null) : (stats?.studioAccess?.confirmed ?? null), sub: loading ? (summaryStats?.studioAccess?.pending != null ? 'pending' : '') : `${stats?.studioAccess?.confirmed ?? 0} confirmed · ${stats?.studioAccess?.pending ?? 0} pending` },
+    { label: 'Gallery',   icon: 'photo_library',   href: '/admin/gallery',     desc: 'Student pottery works',  stat: loading ? (summaryStats?.gallery?.total ?? null) : (stats?.gallery?.total ?? null),      sub: loading ? '' : `${stats?.gallery?.addedThisMonth ?? 0} added this month` },
     { label: 'Instructors', icon: 'person_apron',   href: '/admin/instructors',  desc: 'Profiles & portfolios' },
     { label: 'Events',    icon: 'celebration',     href: '/admin/events',      desc: 'Sales & collaborations' },
     { label: 'Courses',   icon: 'school',          href: '/admin/courses',     desc: 'Course templates' },
@@ -174,7 +181,9 @@ export default function AdminDashboard() {
                 Recent Activity
               </div>
               <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
-                {activity.length === 0 ? (
+                {loading ? (
+                  <div style={{ padding: '14px', fontSize: '12px', color: MUTED }}>Loading activity…</div>
+                ) : activity.length === 0 ? (
                   <div style={{ padding: '14px', fontSize: '12px', color: MUTED }}>No recent activity</div>
                 ) : activity.map((r, i) => {
                   const actionStyles = {

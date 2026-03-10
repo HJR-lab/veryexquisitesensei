@@ -63,8 +63,8 @@ function getShopifyClient() {
 
 // Middleware to verify JWT token
 function authenticateToken(req, res, next) {
-  // Prioritize Authorization header over cookie (for impersonation to work)
-  const token = req.headers.authorization?.split(' ')[1] || req.cookies.token;
+  // Prefer cookie, keep Authorization header as fallback during transition
+  const token = req.cookies?.token || req.headers.authorization?.split(' ')[1];
 
   if (!token) {
     return res.status(401).json({ error: 'Authentication required' });
@@ -179,8 +179,9 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
       res.cookie('token', token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 7 * 24 * 60 * 60 * 1000
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        path: '/',
       });
 
       // Fetch membership and enrollment info for smart redirect
@@ -303,8 +304,9 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     res.cookie('token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/',
     });
 
     res.json({
@@ -433,6 +435,14 @@ app.post('/api/auth/impersonate/:email', authenticateToken, async (req, res) => 
 
     console.log('✅ Impersonation token created for:', studentEmail);
 
+    res.cookie('token', impersonationToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: 1 * 24 * 60 * 60 * 1000, // 1 day (matches impersonation token expiry)
+      path: '/',
+    });
+
     res.json({
       success: true,
       token: impersonationToken,
@@ -492,6 +502,14 @@ app.post('/api/auth/stop-impersonation', authenticateToken, async (req, res) => 
     );
 
     console.log('🎭 Impersonation ended, admin token re-issued for:', adminEmail);
+
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/',
+    });
 
     res.json({
       success: true,
@@ -841,7 +859,12 @@ app.get('/api/students/me/dashboard', authenticateToken, async (req, res) => {
 });
 
 app.post('/api/auth/logout', (req, res) => {
-  res.clearCookie('token');
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    path: '/',
+  });
   res.json({ success: true });
 });
 
@@ -1242,8 +1265,9 @@ app.post('/api/auth/set-initial-password', pinLimiter, async (req, res) => {
     res.cookie('token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/',
     });
 
     // Get full customer details
@@ -5758,6 +5782,14 @@ app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, requireAdm
     });
 
     const bookings = nonCompletedBookings.filter(b => {
+      // Always keep bookings linked to an active/paused enrollment (e.g. rescheduled HB to a different day)
+      if (b.course_enrollment_id && b.course_enrollment && ['active', 'paused'].includes(b.course_enrollment.status)) {
+        return true;
+      }
+      // Also keep bookings with no enrollment link but that are makeup/rescheduled
+      if (b.booking_type === 'makeup' && b.course_enrollment_id) {
+        return true;
+      }
       const base = getBase(b.class_instances?.class_type);
       return !completedGroups.has(base);
     });
@@ -7114,6 +7146,8 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
         .from('bookings')
         .update({
           status: 'booked',
+          booking_type: 'makeup',
+          course_enrollment_id: originalBooking.course_enrollment_id || null,
           original_class_instance_id: originalBooking.class_instance_id,
           rescheduled_from_date: originalBooking.class_instances.class_date,
           reschedule_reason: rescheduleReason || null,
@@ -7136,6 +7170,8 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
           student_id: originalBooking.student_id,
           class_instance_id: newClassInstanceId,
           status: 'booked',
+          booking_type: 'makeup',
+          course_enrollment_id: originalBooking.course_enrollment_id || null,
           original_class_instance_id: originalBooking.class_instance_id,
           rescheduled_from_date: originalBooking.class_instances.class_date,
           reschedule_reason: rescheduleReason || null,

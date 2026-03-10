@@ -59,12 +59,6 @@ export default function SetupPassword() {
       localStorage.removeItem('tempToken');
       localStorage.removeItem('verifiedEmail');
 
-      // Store user data
-      localStorage.setItem('user', JSON.stringify(response.data.user));
-      if (response.data.token) {
-        localStorage.setItem('token', response.data.token);
-      }
-
       // Success! Redirect to gallery
       navigate('/gallery');
     } catch (err) {

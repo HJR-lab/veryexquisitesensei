@@ -9,12 +9,10 @@ export default function ImpersonationBanner() {
 
   const handleReturnToAdmin = async () => {
     try {
-      const { data } = await api.post('/auth/stop-impersonation');
-      localStorage.setItem('token', data.token);
+      await api.post('/auth/stop-impersonation');
       window.location.href = '/admin/students';
     } catch (error) {
       console.error('Error returning to admin:', error);
-      localStorage.removeItem('token');
       window.location.href = '/admin/login';
     }
   };

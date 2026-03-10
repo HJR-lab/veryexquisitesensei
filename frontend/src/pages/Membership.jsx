@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+import api from '../utils/api';
 
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
@@ -115,15 +113,7 @@ export default function Membership() {
 
   const fetchMembership = async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-
-      const response = await axios.get(`${API_URL}/api/membership/my-membership`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/membership/my-membership');
 
       if (response.data.hasMembership) {
         setMembership(response.data.membership);

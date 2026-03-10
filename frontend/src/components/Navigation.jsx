@@ -112,8 +112,7 @@ export default function Navigation() {
 
   const handleReturnToAdmin = async () => {
     try {
-      const { data } = await api.post('/auth/stop-impersonation');
-      localStorage.setItem('token', data.token);
+      await api.post('/auth/stop-impersonation');
 
       // Navigate back to where admin was before impersonating
       const returnPath = localStorage.getItem('adminReturnPath') || '/admin/students';
@@ -121,7 +120,6 @@ export default function Navigation() {
       window.location.href = returnPath;
     } catch (error) {
       console.error('Error returning to admin:', error);
-      localStorage.removeItem('token');
       window.location.href = '/admin/login';
     }
   };

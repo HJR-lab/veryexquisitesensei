@@ -216,7 +216,7 @@ export default function AdminStudentDetail() {
     }
     if (classType) {
       if (classType.toLowerCase().includes('wheelthrowing')) return 'Wheelthrowing 6 Weeks';
-      if (classType.toLowerCase().includes('handbuilding'))  return 'Handbuilding 4 Weeks';
+      if (classType.toLowerCase().includes('handbuilding'))  return 'Handbuilding';
       return classType;
     }
     return 'N/A';
@@ -617,8 +617,7 @@ export default function AdminStudentDetail() {
     try {
       const decodedEmail = decodeURIComponent(email);
       const { data } = await api.post(`/auth/impersonate/${decodedEmail}`);
-      if (data.success && data.token) {
-        localStorage.setItem('token', data.token);
+      if (data.success) {
         localStorage.setItem('adminReturnPath', window.location.pathname);
         window.location.href = '/dashboard';
       }
@@ -661,10 +660,15 @@ export default function AdminStudentDetail() {
     return b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && classDate < today);
   }).length;
 
+  const isHBEnrollment = enrollment && (enrollment.course_type || '').toLowerCase().includes('handbuilding');
+  const hbCreditsAllocated = enrollment?.class_credits_allocated || 0;
+  const hbCreditsUsed = enrollment?.class_credits_used || 0;
+  const hbCreditsRemaining = enrollment?.class_credits_remaining || 0;
+
   const totalBooked    = activeBookings.length;
-  const enrollmentAllocated = enrollment?.number_of_weeks || 0;
+  const enrollmentAllocated = isHBEnrollment ? hbCreditsAllocated : (enrollment?.number_of_weeks || 0);
   const totalAllocated = Math.max(totalBooked, enrollmentAllocated);
-  const unbookedCount  = Math.max(0, totalAllocated - totalBooked);
+  const unbookedCount  = isHBEnrollment ? hbCreditsRemaining : Math.max(0, totalAllocated - totalBooked);
 
   const filteredBookings = [...(showCompletedCourses ? bookings : activeBookings)]
     .filter(b => statusFilter === 'all' || b.status === statusFilter)
@@ -1184,9 +1188,15 @@ export default function AdminStudentDetail() {
                         }} />
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: '11px', color: MUTED }}>{attendedCount} attended · {totalBooked - attendedCount} booked</span>
+                        <span style={{ fontSize: '11px', color: MUTED }}>
+                          {isHBEnrollment
+                            ? `${hbCreditsUsed} used · ${totalBooked} booked`
+                            : `${attendedCount} attended · ${totalBooked - attendedCount} booked`}
+                        </span>
                         <span style={{ fontSize: '11px', color: TC_DARK, fontWeight: 700 }}>
-                          {unbookedCount} available
+                          {isHBEnrollment
+                            ? `${hbCreditsRemaining} credits remaining`
+                            : `${unbookedCount} available`}
                         </span>
                       </div>
                     </div>

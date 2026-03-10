@@ -13,14 +13,10 @@ export function AuthProvider({ children }) {
 
   const checkAuth = async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (token) {
-        const data = await authAPI.getMe();
-        setUser(data.user);
-      }
+      const data = await authAPI.getMe();
+      setUser(data.user);
     } catch (error) {
       console.error('Auth check failed:', error);
-      localStorage.removeItem('token');
     } finally {
       setLoading(false);
     }
@@ -45,10 +41,6 @@ export function AuthProvider({ children }) {
 
   const updateUser = (updatedUser) => {
     setUser(updatedUser);
-    // Update token in localStorage if provided
-    if (updatedUser.token) {
-      localStorage.setItem('token', updatedUser.token);
-    }
   };
 
   return (

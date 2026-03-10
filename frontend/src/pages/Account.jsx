@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import ImpersonationBanner from '../components/ImpersonationBanner';
-import axios from 'axios';
 
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
@@ -115,8 +114,6 @@ export default function Account() {
 
   const loadMembership = async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
       const res = await api.get('/membership/my-membership');
       setMembershipData(res.data);
     } catch (error) {
@@ -126,9 +123,6 @@ export default function Account() {
 
   const loadHistory = async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
-
       const response = await api.get('/classes/my-history');
       console.log('Class history response:', response.data);
 
@@ -169,10 +163,6 @@ export default function Account() {
 
     try {
       const response = await api.put('/auth/profile', memberDetails);
-      // Update token if provided
-      if (response.data.token) {
-        localStorage.setItem('token', response.data.token);
-      }
       updateUser(response.data.user);
       setMessage({ type: 'success', text: 'Profile updated successfully!' });
     } catch (error) {
@@ -244,10 +234,9 @@ export default function Account() {
       const formData = new FormData();
       formData.append('image', file);
 
-      const { data } = await axios.post('/api/upload/image', formData, {
+      const { data } = await api.post('/upload/image', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
       });
 

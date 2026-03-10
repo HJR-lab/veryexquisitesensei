@@ -138,8 +138,6 @@ export default function ClassScheduleNew() {
 
   const fetchStudentData = async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
       const response = await api.get('/students/me');
       setStudentData(response.data.student);
     } catch (error) {
@@ -149,8 +147,6 @@ export default function ClassScheduleNew() {
 
   const fetchDashboardData = async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
       const response = await api.get('/students/me/dashboard');
       setDashboardData(response.data);
       if (response.data.hbEnrollments && response.data.hbEnrollments.length > 0) {
@@ -213,8 +209,6 @@ export default function ClassScheduleNew() {
 
   const fetchMyBookings = async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
       const response = await api.get('/classes/my-bookings');
       setMyBookings(response.data.bookings || []);
     } catch (error) {
@@ -1088,23 +1082,33 @@ export default function ClassScheduleNew() {
             {/* HB course length selector if applicable */}
             {getClassCategory(showBookSheet.classType) === 'handbuilding' && hbEnrollment && hbEnrollment.creditsRemaining > 0 ? (
               <div style={{ marginBottom: '20px' }}>
-                <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: '10px' }}>Course Length</div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  {[4, 8].filter(w => hbEnrollment.creditsRemaining >= w).map(w => (
-                    <button
-                      key={w}
-                      onClick={() => setCourseWeeks(w)}
-                      style={{
-                        flex: 1, padding: '10px 14px', cursor: 'pointer',
-                        border: `1px solid ${courseWeeks === w ? TC : RULE}`,
-                        backgroundColor: courseWeeks === w ? TC_LIGHT : 'transparent',
-                        fontSize: '12px', fontWeight: 700,
-                        color: courseWeeks === w ? TC_DARK : INK,
-                      }}
-                    >
-                      {w}-Week ({w} credits)
-                    </button>
-                  ))}
+                <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: '10px' }}>
+                  Book Weeks ({hbEnrollment.creditsRemaining} credit{hbEnrollment.creditsRemaining !== 1 ? 's' : ''} remaining)
+                </div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {(() => {
+                    const remaining = hbEnrollment.creditsRemaining;
+                    const options = remaining <= 4
+                      ? [remaining]
+                      : remaining <= 7
+                        ? [4, remaining]
+                        : [4, 8];
+                    return options.filter(w => w > 0 && remaining >= w).map(w => (
+                      <button
+                        key={w}
+                        onClick={() => setCourseWeeks(w)}
+                        style={{
+                          flex: 1, padding: '10px 14px', cursor: 'pointer',
+                          border: `1px solid ${courseWeeks === w ? TC : RULE}`,
+                          backgroundColor: courseWeeks === w ? TC_LIGHT : 'transparent',
+                          fontSize: '12px', fontWeight: 700,
+                          color: courseWeeks === w ? TC_DARK : INK,
+                        }}
+                      >
+                        {w}-Week ({w} credits)
+                      </button>
+                    ));
+                  })()}
                 </div>
               </div>
             ) : (

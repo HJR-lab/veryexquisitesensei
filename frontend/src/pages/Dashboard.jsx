@@ -211,7 +211,7 @@ export default function Dashboard() {
       const isWT = classType.startsWith('WT') || lower.includes('wheel');
       const isHB = classType.startsWith('HB') || lower.includes('handbuild');
       if (isWT) typeLabel = 'Wheelthrowing Beginners/Ext';
-      else if (isHB) typeLabel = 'Handbuilding';
+      else if (isHB) typeLabel = `Handbuilding ${weeks} Weeks`;
     }
 
     // Status badge

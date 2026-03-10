@@ -181,7 +181,7 @@ export default function AdminStudioAccess() {
   bookings.forEach(b => {
     if (b.status !== 'cancelled') bookingDates[b.booking_date] = (bookingDates[b.booking_date] || 0) + 1;
   });
-  const filteredBookings = bookings.filter(b => b.booking_date === selectedDateStr);
+  const filteredBookings = bookings;
   const pendingBookings = filteredBookings.filter(b => b.status === 'pending');
 
   const labelStyle = { fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED, display: 'block', marginBottom: '4px' };

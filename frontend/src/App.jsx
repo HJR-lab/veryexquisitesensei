@@ -359,19 +359,19 @@ function App() {
             </PrivateRoute>
           } />
 
-          {/* ── Test pages — student (no auth required) ── */}
-          <Route path="/test/dashboard"   element={<TestDash />} />
-          <Route path="/test/classes"     element={<TestClasses />} />
-          <Route path="/test/gallery"     element={<TestGallery />} />
-          <Route path="/test/account"     element={<TestAccount />} />
-          <Route path="/test/membership"  element={<TestMembership />} />
+          {/* ── Test pages — student (admin only) ── */}
+          <Route path="/test/dashboard"   element={<AdminRoute><TestDash /></AdminRoute>} />
+          <Route path="/test/classes"     element={<AdminRoute><TestClasses /></AdminRoute>} />
+          <Route path="/test/gallery"     element={<AdminRoute><TestGallery /></AdminRoute>} />
+          <Route path="/test/account"     element={<AdminRoute><TestAccount /></AdminRoute>} />
+          <Route path="/test/membership"  element={<AdminRoute><TestMembership /></AdminRoute>} />
 
           {/* ── Test pages — admin ── */}
-          <Route path="/test/admin"                    element={<TestAdminDash />} />
-          <Route path="/test/admin/students"           element={<TestAdminStudents />} />
-          <Route path="/test/admin/students/detail"    element={<TestAdminStudentDetail />} />
-          <Route path="/test/admin/classes"            element={<TestAdminClasses />} />
-          <Route path="/test/admin/memberships"        element={<TestAdminMemberships />} />
+          <Route path="/test/admin"                    element={<AdminRoute><TestAdminDash /></AdminRoute>} />
+          <Route path="/test/admin/students"           element={<AdminRoute><TestAdminStudents /></AdminRoute>} />
+          <Route path="/test/admin/students/detail"    element={<AdminRoute><TestAdminStudentDetail /></AdminRoute>} />
+          <Route path="/test/admin/classes"            element={<AdminRoute><TestAdminClasses /></AdminRoute>} />
+          <Route path="/test/admin/memberships"        element={<AdminRoute><TestAdminMemberships /></AdminRoute>} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>

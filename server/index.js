@@ -28,9 +28,8 @@ app.use(cors({
     'http://127.0.0.1:5173',
     'http://127.0.0.1:5175',
     'https://pottery-gallery-app.vercel.app',
-    /https:\/\/pottery-gallery-app.*\.vercel\.app$/,
-    'https://frontend-phi-seven-81.vercel.app',
-    /https:\/\/frontend-.*\.vercel\.app$/
+    'https://pottery-gallery-app-frontend.vercel.app',
+    'https://frontend-phi-seven-81.vercel.app'
   ],
   credentials: true
 }));
@@ -110,7 +109,7 @@ const pinLimiter = rateLimit({
 app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
-    console.log('🔐 Login attempt for email:', email);
+    console.log('🔐 Login attempt');
 
     if (!email || !password) {
       console.log('❌ Missing email or password');
@@ -127,7 +126,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
         console.error('❌ Invalid admin password attempt');
         return res.status(401).json({ error: 'Invalid credentials' });
       }
-      console.log('✅ Admin login successful:', email);
+      console.log('✅ Admin login successful');
     } else {
       // Student login - verify password from database
       console.log('📊 Querying database for customer...');
@@ -156,12 +155,12 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
       // Verify password
       const isValidPassword = await bcrypt.compare(password, customer.password_hash);
-      console.log('🔑 Password check for', email, ':', isValidPassword ? 'VALID' : 'INVALID');
+
       if (!isValidPassword) {
         return res.status(401).json({ error: 'Invalid credentials' });
       }
 
-      console.log('✅ Student login successful:', email);
+      console.log('✅ Student login successful');
 
       // Create JWT token for student
       const token = jwt.sign(
@@ -324,7 +323,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   } catch (error) {
     console.error('Login error:', error);
     console.error('Error details:', error.message);
-    res.status(500).json({ error: 'Login failed', debug: error.message });
+    res.status(500).json({ error: 'Login failed' });
   }
 });
 
@@ -940,8 +939,8 @@ app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Current and new passwords are required' });
     }
 
-    if (newPassword.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
     }
 
     // Get current password hash from database
@@ -966,7 +965,7 @@ app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
     }
 
     // Hash new password
-    const newPasswordHash = await bcrypt.hash(newPassword, 10);
+    const newPasswordHash = await bcrypt.hash(newPassword, 12);
 
     // Update password in database
     const { error: updateError } = await supabase
@@ -1212,7 +1211,7 @@ app.post('/api/auth/set-initial-password', pinLimiter, async (req, res) => {
     }
 
     // Hash new password
-    const passwordHash = await bcrypt.hash(newPassword, 10);
+    const passwordHash = await bcrypt.hash(newPassword, 12);
 
     // Update password in database
     const { error: updateError } = await supabaseDb.supabase
@@ -1300,7 +1299,7 @@ app.post('/api/upload/image', authenticateToken, upload.single('image'), async (
     });
   } catch (error) {
     console.error('Image upload error:', error);
-    res.status(500).json({ error: error.message || 'Failed to upload image' });
+    res.status(500).json({ error: 'Failed to upload image' });
   }
 });
 
@@ -1330,7 +1329,7 @@ app.post('/api/upload/images', authenticateToken, upload.array('images', 5), asy
     });
   } catch (error) {
     console.error('Images upload error:', error);
-    res.status(500).json({ error: error.message || 'Failed to upload images' });
+    res.status(500).json({ error: 'Failed to upload images' });
   }
 });
 
@@ -1347,7 +1346,7 @@ app.delete('/api/upload/image', authenticateToken, async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Image delete error:', error);
-    res.status(500).json({ error: error.message || 'Failed to delete image' });
+    res.status(500).json({ error: 'Failed to delete image' });
   }
 });
 
@@ -2374,8 +2373,8 @@ app.post('/api/classes/book-hb-schedule', authenticateToken, async (req, res) =>
       return res.status(400).json({ error: 'Enrollment ID and first class ID required' });
     }
 
-    if (!courseWeeks || ![4, 8].includes(courseWeeks)) {
-      return res.status(400).json({ error: 'Course weeks must be 4 or 8 for handbuilding' });
+    if (!courseWeeks || courseWeeks < 1 || courseWeeks > 8) {
+      return res.status(400).json({ error: 'Course weeks must be between 1 and 8 for handbuilding' });
     }
 
     // Verify enrollment belongs to this student and has sufficient credits
@@ -2489,17 +2488,21 @@ app.post('/api/classes/book-hb-schedule', authenticateToken, async (req, res) =>
       })
       .eq('id', enrollmentId);
 
-    // Update enrollment with course dates
+    // Update enrollment with course dates (do NOT overwrite number_of_weeks — it reflects the purchase, not the booking)
     const startDate = new Date(firstClass.class_date);
     const endDate = new Date(hbClasses[hbClasses.length - 1].classDate);
 
+    const dateUpdate = {
+      course_end_date: endDate.toISOString().split('T')[0],
+    };
+    // Only set start date if not already set
+    if (!enrollment.course_start_date) {
+      dateUpdate.course_start_date = startDate.toISOString().split('T')[0];
+    }
+
     await supabaseDb.supabase
       .from('course_enrollments')
-      .update({
-        course_start_date: startDate.toISOString().split('T')[0],
-        course_end_date: endDate.toISOString().split('T')[0],
-        number_of_weeks: courseWeeks
-      })
+      .update(dateUpdate)
       .eq('id', enrollmentId);
 
     console.log(`✅ HB schedule booked: ${bookings.length} classes for enrollment ${enrollmentId}`);
@@ -2511,7 +2514,7 @@ app.post('/api/classes/book-hb-schedule', authenticateToken, async (req, res) =>
         id: b.id,
         classInstanceId: b.class_instance_id
       })),
-      creditsRemaining: newCreditsRemaining,
+      creditsRemaining: enrollment.class_credits_remaining || 0,
       message: `Successfully booked ${courseWeeks}-week handbuilding schedule!`
     });
 
@@ -3164,6 +3167,9 @@ app.get('/api/classes/:classInstanceId/bookings', authenticateToken, async (req,
   try {
     const { classInstanceId } = req.params;
     const bookings = await supabaseDb.getClassBookings(parseInt(classInstanceId));
+    if (!req.user.isAdmin) {
+      return res.json({ count: bookings.length });
+    }
     res.json({ bookings });
   } catch (error) {
     console.error('Error fetching class bookings:', error);
@@ -5390,7 +5396,7 @@ app.get('/api/admin/dashboard/stats', authenticateToken, requireAdmin, async (re
     });
   } catch (error) {
     console.error('Error fetching dashboard stats:', error);
-    res.status(500).json({ error: 'Failed to fetch dashboard stats', details: error.message });
+    res.status(500).json({ error: 'Failed to fetch dashboard stats' });
   }
 });
 
@@ -7875,8 +7881,7 @@ app.post('/api/admin/process-cohorts', authenticateToken, requireAdmin, async (r
     console.error('Error processing cohorts:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to process cohorts',
-      details: error.message
+      error: 'Failed to process cohorts'
     });
   }
 });
@@ -8368,6 +8373,92 @@ app.post('/api/admin/hb-enrollments/:enrollmentId/set-status', authenticateToken
   } catch (error) {
     console.error('Error setting HB enrollment status:', error);
     res.status(500).json({ error: 'Failed to update status' });
+  }
+});
+
+// Admin: Book HB class(es) for a student using their enrollment credits
+app.post('/api/admin/hb-enrollments/:enrollmentId/book-classes', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { enrollmentId } = req.params;
+    const { classInstanceIds } = req.body; // Array of class instance IDs to book
+
+    if (!classInstanceIds || !Array.isArray(classInstanceIds) || classInstanceIds.length === 0) {
+      return res.status(400).json({ error: 'classInstanceIds array is required' });
+    }
+
+    // Get enrollment
+    const { data: enrollment, error: enrollError } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('*')
+      .eq('id', enrollmentId)
+      .single();
+
+    if (enrollError || !enrollment) {
+      return res.status(404).json({ error: 'Enrollment not found' });
+    }
+
+    if (enrollment.status !== 'active') {
+      return res.status(400).json({ error: 'Enrollment is not active' });
+    }
+
+    const studentId = enrollment.student_id;
+
+    // Check for existing bookings to avoid duplicates
+    const { data: existingBookings } = await supabaseDb.supabase
+      .from('bookings')
+      .select('class_instance_id')
+      .eq('student_id', studentId)
+      .in('class_instance_id', classInstanceIds)
+      .in('status', ['booked', 'attended']);
+
+    const alreadyBooked = new Set((existingBookings || []).map(b => b.class_instance_id));
+
+    // Book each class
+    const newBookings = [];
+    for (const classId of classInstanceIds) {
+      if (alreadyBooked.has(classId)) continue;
+
+      const { data: booking, error: bookErr } = await supabaseDb.supabase
+        .from('bookings')
+        .insert({
+          student_id: studentId,
+          class_instance_id: classId,
+          status: 'booked',
+          course_enrollment_id: parseInt(enrollmentId),
+          booking_type: 'regular',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (!bookErr && booking) {
+        newBookings.push(booking);
+        await supabaseDb.updateClassEnrollment(classId, 1);
+      }
+    }
+
+    // Update enrollment booking timestamp
+    await supabaseDb.supabase
+      .from('course_enrollments')
+      .update({
+        bookings_created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', enrollmentId);
+
+    console.log(`✅ Admin booked ${newBookings.length} HB classes for enrollment ${enrollmentId} (student ${studentId})`);
+
+    res.json({
+      success: true,
+      message: `Booked ${newBookings.length} classes`,
+      bookingsCreated: newBookings.length,
+      alreadyBooked: alreadyBooked.size
+    });
+
+  } catch (error) {
+    console.error('Error admin-booking HB classes:', error);
+    res.status(500).json({ error: 'Failed to book classes' });
   }
 });
 
@@ -8931,7 +9022,7 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
   } catch (error) {
     console.error('Error processing Shopify order webhook:', error);
     // Still respond with 200 to prevent Shopify from retrying
-    res.status(200).json({ received: true, error: error.message });
+    res.status(200).json({ received: true });
   }
 });
 
@@ -8967,7 +9058,7 @@ app.post('/api/shopify/webhook/customers', express.raw({ type: 'application/json
 
   } catch (error) {
     console.error('Error processing Shopify customer webhook:', error);
-    res.status(200).json({ received: true, error: error.message });
+    res.status(200).json({ received: true });
   }
 });
 
@@ -9608,7 +9699,15 @@ app.post('/api/instructors/portfolio', authenticateToken, upload.single('image')
     const { dbCustomerId } = req.user;
     const { title, description, media_type, video_url } = req.body;
 
-    let media_url = video_url || null;
+    const isValidVideoUrl = (url) => {
+      if (!url) return false;
+      try {
+        const parsed = new URL(url);
+        const trusted = ['youtube.com', 'www.youtube.com', 'youtu.be', 'vimeo.com', 'www.vimeo.com'];
+        return parsed.protocol === 'https:' && trusted.some(d => parsed.hostname === d);
+      } catch { return false; }
+    };
+    let media_url = isValidVideoUrl(video_url) ? video_url : null;
     let media_path = null;
 
     if (media_type === 'image' && req.file) {

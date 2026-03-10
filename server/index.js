@@ -72,6 +72,13 @@ function authenticateToken(req, res, next) {
   }
 }
 
+function requireAdmin(req, res, next) {
+  if (!req.user.isAdmin) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+}
+
 // ============================================
 // AUTH ENDPOINTS
 // ============================================
@@ -3494,7 +3501,7 @@ app.post('/api/classes/waitlist/process-expired', async (req, res) => {
 // ============================================
 
 // Search students by name or email
-app.get('/api/admin/students/search', authenticateToken, async (req, res) => {
+app.get('/api/admin/students/search', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const q = (req.query.q || '').trim();
     if (q.length < 2) return res.json({ students: [] });
@@ -3512,7 +3519,7 @@ app.get('/api/admin/students/search', authenticateToken, async (req, res) => {
 });
 
 // Get student statistics summary (lightweight, count-only)
-app.get('/api/admin/students/stats/summary', authenticateToken, async (req, res) => {
+app.get('/api/admin/students/stats/summary', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const [
       { count: totalStudents, error: e1 },
@@ -3560,7 +3567,7 @@ app.get('/api/admin/students/stats/summary', authenticateToken, async (req, res)
 });
 
 // Get student statistics
-app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
+app.get('/api/admin/students/stats', authenticateToken, requireAdmin, async (req, res) => {
   console.log('📊 /api/admin/students/stats endpoint called');
   try {
     // Get all students with pagination (Supabase default limit is 1000)
@@ -4662,7 +4669,7 @@ app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
 });
 
 // Get paused students
-app.get('/api/admin/students/paused/list', authenticateToken, async (req, res) => {
+app.get('/api/admin/students/paused/list', authenticateToken, requireAdmin, async (req, res) => {
   try {
     // Get all paused enrollments
     const { data: pausedEnrollments, error } = await supabaseDb.supabase
@@ -4718,7 +4725,7 @@ app.get('/api/admin/students/paused/list', authenticateToken, async (req, res) =
 });
 
 // Resume a paused student
-app.post('/api/admin/students/:id/resume', authenticateToken, async (req, res) => {
+app.post('/api/admin/students/:id/resume', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const studentId = parseInt(req.params.id);
 
@@ -4766,7 +4773,7 @@ app.post('/api/admin/students/:id/resume', authenticateToken, async (req, res) =
 });
 
 // Get single student details
-app.get('/api/admin/students/:email', authenticateToken, async (req, res) => {
+app.get('/api/admin/students/:email', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { email } = req.params;
     const decodedEmail = decodeURIComponent(email);
@@ -4842,7 +4849,7 @@ app.get('/api/admin/students/:email', authenticateToken, async (req, res) => {
 });
 
 // Get student enrollment
-app.get('/api/admin/students/:id/enrollment', authenticateToken, async (req, res) => {
+app.get('/api/admin/students/:id/enrollment', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const studentId = parseInt(req.params.id);
 
@@ -4945,7 +4952,7 @@ app.get('/api/admin/students/:id/enrollment', authenticateToken, async (req, res
 });
 
 // Pause an enrollment
-app.post('/api/admin/enrollments/:id/pause', authenticateToken, async (req, res) => {
+app.post('/api/admin/enrollments/:id/pause', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const enrollmentId = parseInt(req.params.id);
     const { weeksCompleted, weeksRemaining, reason } = req.body;
@@ -5027,7 +5034,7 @@ app.post('/api/admin/enrollments/:id/pause', authenticateToken, async (req, res)
 });
 
 // Get dashboard stats summary (lightweight, count-only)
-app.get('/api/admin/dashboard/stats/summary', authenticateToken, async (req, res) => {
+app.get('/api/admin/dashboard/stats/summary', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const todayStr = new Date().toISOString().split('T')[0];
 
@@ -5081,7 +5088,7 @@ app.get('/api/admin/dashboard/stats/summary', authenticateToken, async (req, res
 });
 
 // Get dashboard stats
-app.get('/api/admin/dashboard/stats', authenticateToken, async (req, res) => {
+app.get('/api/admin/dashboard/stats', authenticateToken, requireAdmin, async (req, res) => {
   try {
     // Get period filter from query params
     const { startDate: periodStart, endDate: periodEnd } = req.query;
@@ -5302,7 +5309,7 @@ app.get('/api/admin/dashboard/stats', authenticateToken, async (req, res) => {
 });
 
 // Dashboard alerts + recent activity
-app.get('/api/admin/dashboard/activity', authenticateToken, async (req, res) => {
+app.get('/api/admin/dashboard/activity', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const now = new Date();
     const today = now.toISOString().split('T')[0];
@@ -5558,7 +5565,7 @@ app.get('/api/admin/dashboard/activity', authenticateToken, async (req, res) => 
 });
 
 // Get student bookings (accepts email or numeric ID)
-app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, async (req, res) => {
+app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { emailOrId } = req.params;
     const decodedParam = decodeURIComponent(emailOrId);
@@ -5785,7 +5792,7 @@ app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, async (req
 });
 
 // Update student
-app.put('/api/admin/students/:email', authenticateToken, async (req, res) => {
+app.put('/api/admin/students/:email', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { email } = req.params;
     const decodedEmail = decodeURIComponent(email);
@@ -5837,7 +5844,7 @@ app.put('/api/admin/students/:email', authenticateToken, async (req, res) => {
 });
 
 // Get classes summary (lightweight, count-only)
-app.get('/api/admin/classes/summary', authenticateToken, async (req, res) => {
+app.get('/api/admin/classes/summary', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const todayStr = new Date().toISOString().split('T')[0];
 
@@ -5877,7 +5884,7 @@ app.get('/api/admin/classes/summary', authenticateToken, async (req, res) => {
 });
 
 // Get all classes with course identifiers for admin
-app.get('/api/admin/classes', authenticateToken, async (req, res) => {
+app.get('/api/admin/classes', authenticateToken, requireAdmin, async (req, res) => {
   try {
     console.log('🔍 Fetching admin classes...');
 
@@ -5995,7 +6002,7 @@ app.get('/api/admin/classes', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/admin/classes/:classId/members', authenticateToken, async (req, res) => {
+app.get('/api/admin/classes/:classId/members', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { classId } = req.params;
 
@@ -6208,7 +6215,7 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, async (req, re
 });
 
 // Add student to class
-app.post('/api/admin/classes/:classId/add-student', authenticateToken, async (req, res) => {
+app.post('/api/admin/classes/:classId/add-student', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { classId } = req.params;
     const { studentId } = req.body;
@@ -6397,7 +6404,7 @@ app.post('/api/admin/classes/:classId/add-student', authenticateToken, async (re
 });
 
 // Remove student from class (cancel booking)
-app.delete('/api/admin/bookings/:bookingId', authenticateToken, async (req, res) => {
+app.delete('/api/admin/bookings/:bookingId', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { bookingId } = req.params;
 
@@ -6450,7 +6457,7 @@ app.delete('/api/admin/bookings/:bookingId', authenticateToken, async (req, res)
 });
 
 // Toggle booking type between regular and makeup
-app.patch('/api/admin/bookings/:bookingId/makeup', authenticateToken, async (req, res) => {
+app.patch('/api/admin/bookings/:bookingId/makeup', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { bookingId } = req.params;
 
@@ -6492,7 +6499,7 @@ app.patch('/api/admin/bookings/:bookingId/makeup', authenticateToken, async (req
 });
 
 // Set booking type (enrolled/makeup) explicitly, with optional original course identifier
-app.put('/api/admin/bookings/:bookingId/type', authenticateToken, async (req, res) => {
+app.put('/api/admin/bookings/:bookingId/type', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { bookingId } = req.params;
     const { bookingType, originalCourseIdentifier } = req.body; // 'enrolled' or 'makeup'
@@ -6540,7 +6547,7 @@ app.put('/api/admin/bookings/:bookingId/type', authenticateToken, async (req, re
 });
 
 // Toggle booking attended status (admin only)
-app.put('/api/admin/bookings/:bookingId/attended', authenticateToken, async (req, res) => {
+app.put('/api/admin/bookings/:bookingId/attended', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { bookingId } = req.params;
     const { status } = req.body; // 'attended' or 'booked'
@@ -6569,7 +6576,7 @@ app.put('/api/admin/bookings/:bookingId/attended', authenticateToken, async (req
 });
 
 // Create a booking for a student (admin only)
-app.post('/api/admin/bookings', authenticateToken, async (req, res) => {
+app.post('/api/admin/bookings', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { studentId, classInstanceId, bookingType, status } = req.body;
 
@@ -6646,7 +6653,7 @@ app.post('/api/admin/bookings', authenticateToken, async (req, res) => {
 });
 
 // Update class instance (date, time, instructor)
-app.patch('/api/admin/classes/:classId', authenticateToken, async (req, res) => {
+app.patch('/api/admin/classes/:classId', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { classId } = req.params;
     const { classDate, startTime, endTime, instructor, maxCapacity, classTitle, classDescription } = req.body;
@@ -6699,7 +6706,7 @@ app.patch('/api/admin/classes/:classId', authenticateToken, async (req, res) => 
 });
 
 // Create a new class
-app.post('/api/admin/classes', authenticateToken, async (req, res) => {
+app.post('/api/admin/classes', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { startTime, endTime, classType, instructor, room, teachingCapacity, makeUpCapacity, glazingCapacity, numberOfClasses, classDates } = req.body;
 
@@ -6784,7 +6791,7 @@ app.post('/api/admin/classes', authenticateToken, async (req, res) => {
 });
 
 // Admin: Bulk delete phantom classes after a cutoff date (no active bookings)
-app.delete('/api/admin/classes/bulk-after', authenticateToken, async (req, res) => {
+app.delete('/api/admin/classes/bulk-after', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { afterDate } = req.body || {};
     if (!afterDate) return res.status(400).json({ error: 'afterDate required (YYYY-MM-DD)' });
@@ -6825,7 +6832,7 @@ app.delete('/api/admin/classes/bulk-after', authenticateToken, async (req, res) 
 });
 
 // Delete a class
-app.delete('/api/admin/classes/:classId', authenticateToken, async (req, res) => {
+app.delete('/api/admin/classes/:classId', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { classId } = req.params;
 
@@ -6864,7 +6871,7 @@ app.delete('/api/admin/classes/:classId', authenticateToken, async (req, res) =>
   }
 });
 
-app.get('/api/admin/customers', authenticateToken, async (req, res) => {
+app.get('/api/admin/customers', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const customers = await supabaseDb.getAllCustomers();
 
@@ -6891,7 +6898,7 @@ app.get('/api/admin/customers', authenticateToken, async (req, res) => {
 // ==========================================
 
 // Get all paused students
-app.get('/api/admin/paused-students', authenticateToken, async (req, res) => {
+app.get('/api/admin/paused-students', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { data: pausedStudents, error } = await supabaseDb.supabase
       .from('customers')
@@ -6909,7 +6916,7 @@ app.get('/api/admin/paused-students', authenticateToken, async (req, res) => {
 });
 
 // Pause a student's course
-app.post('/api/admin/students/:studentId/pause', authenticateToken, async (req, res) => {
+app.post('/api/admin/students/:studentId/pause', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { studentId } = req.params;
     const { pauseReason, pausedAtWeek, resumeCourseIdentifier } = req.body;
@@ -6942,7 +6949,7 @@ app.post('/api/admin/students/:studentId/pause', authenticateToken, async (req, 
 });
 
 // Resume a paused student
-app.post('/api/admin/students/:studentId/resume', authenticateToken, async (req, res) => {
+app.post('/api/admin/students/:studentId/resume', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { studentId } = req.params;
 
@@ -6970,7 +6977,7 @@ app.post('/api/admin/students/:studentId/resume', authenticateToken, async (req,
 });
 
 // Reschedule a booking
-app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, async (req, res) => {
+app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { bookingId } = req.params;
     const { newClassInstanceId, rescheduleReason, fee, isGlazingReschedule } = req.body;
@@ -7079,7 +7086,7 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, async (
 });
 
 // Get reschedule fees for a student
-app.get('/api/admin/students/:studentId/fees', authenticateToken, async (req, res) => {
+app.get('/api/admin/students/:studentId/fees', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { studentId } = req.params;
 
@@ -7099,7 +7106,7 @@ app.get('/api/admin/students/:studentId/fees', authenticateToken, async (req, re
 });
 
 // Update fee payment status
-app.patch('/api/admin/fees/:feeId/payment', authenticateToken, async (req, res) => {
+app.patch('/api/admin/fees/:feeId/payment', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { feeId } = req.params;
     const { paymentStatus } = req.body;
@@ -7128,7 +7135,7 @@ app.patch('/api/admin/fees/:feeId/payment', authenticateToken, async (req, res) 
   }
 });
 
-app.delete('/api/admin/fees/:feeId', authenticateToken, async (req, res) => {
+app.delete('/api/admin/fees/:feeId', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { feeId } = req.params;
 
@@ -7146,7 +7153,7 @@ app.delete('/api/admin/fees/:feeId', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/admin/customers/:customerId/pieces', authenticateToken, async (req, res) => {
+app.get('/api/admin/customers/:customerId/pieces', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { customerId } = req.params;
 
@@ -7185,7 +7192,7 @@ app.get('/api/admin/customers/:customerId/pieces', authenticateToken, async (req
 });
 
 // Update customer (student) info
-app.put('/api/admin/customers/:customerId', authenticateToken, async (req, res) => {
+app.put('/api/admin/customers/:customerId', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { customerId } = req.params;
     const updateData = req.body;
@@ -7216,7 +7223,7 @@ app.put('/api/admin/customers/:customerId', authenticateToken, async (req, res) 
 });
 
 // Get all pottery pieces for admin gallery view
-app.get('/api/admin/pottery/all', authenticateToken, async (req, res) => {
+app.get('/api/admin/pottery/all', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const allPieces = await supabaseDb.getAllPotteryPieces();
 
@@ -7249,7 +7256,7 @@ app.get('/api/admin/pottery/all', authenticateToken, async (req, res) => {
 });
 
 // Toggle piece public status
-app.put('/api/admin/pottery/:id/toggle-public', authenticateToken, async (req, res) => {
+app.put('/api/admin/pottery/:id/toggle-public', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -7275,7 +7282,7 @@ app.put('/api/admin/pottery/:id/toggle-public', authenticateToken, async (req, r
 });
 
 // Toggle piece featured status
-app.put('/api/admin/pottery/:id/toggle-featured', authenticateToken, async (req, res) => {
+app.put('/api/admin/pottery/:id/toggle-featured', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -7301,7 +7308,7 @@ app.put('/api/admin/pottery/:id/toggle-featured', authenticateToken, async (req,
 });
 
 // Create clay type
-app.post('/api/admin/clay-types', authenticateToken, async (req, res) => {
+app.post('/api/admin/clay-types', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { name, description, active } = req.body;
 
@@ -7323,7 +7330,7 @@ app.post('/api/admin/clay-types', authenticateToken, async (req, res) => {
 });
 
 // Update clay type
-app.put('/api/admin/clay-types/:id', authenticateToken, async (req, res) => {
+app.put('/api/admin/clay-types/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, active } = req.body;
@@ -7342,7 +7349,7 @@ app.put('/api/admin/clay-types/:id', authenticateToken, async (req, res) => {
 });
 
 // Delete clay type
-app.delete('/api/admin/clay-types/:id', authenticateToken, async (req, res) => {
+app.delete('/api/admin/clay-types/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     await supabaseDb.deleteClayType(parseInt(id));
@@ -7354,7 +7361,7 @@ app.delete('/api/admin/clay-types/:id', authenticateToken, async (req, res) => {
 });
 
 // Create glaze
-app.post('/api/admin/glazes', authenticateToken, async (req, res) => {
+app.post('/api/admin/glazes', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { name, description, color, cone, active } = req.body;
 
@@ -7378,7 +7385,7 @@ app.post('/api/admin/glazes', authenticateToken, async (req, res) => {
 });
 
 // Update glaze
-app.put('/api/admin/glazes/:id', authenticateToken, async (req, res) => {
+app.put('/api/admin/glazes/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, color, cone, active } = req.body;
@@ -7399,7 +7406,7 @@ app.put('/api/admin/glazes/:id', authenticateToken, async (req, res) => {
 });
 
 // Delete glaze
-app.delete('/api/admin/glazes/:id', authenticateToken, async (req, res) => {
+app.delete('/api/admin/glazes/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     await supabaseDb.deleteGlaze(parseInt(id));
@@ -7411,7 +7418,7 @@ app.delete('/api/admin/glazes/:id', authenticateToken, async (req, res) => {
 });
 
 // Get all memberships
-app.get('/api/admin/memberships', authenticateToken, async (req, res) => {
+app.get('/api/admin/memberships', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const memberships = await supabaseDb.getAllMemberships();
 
@@ -7437,7 +7444,7 @@ app.get('/api/admin/memberships', authenticateToken, async (req, res) => {
 });
 
 // Create membership
-app.post('/api/admin/memberships', authenticateToken, async (req, res) => {
+app.post('/api/admin/memberships', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { customerId, membershipType, startDate, endDate, perks } = req.body;
 
@@ -7465,7 +7472,7 @@ app.post('/api/admin/memberships', authenticateToken, async (req, res) => {
 });
 
 // Update membership
-app.put('/api/admin/memberships/:id', authenticateToken, async (req, res) => {
+app.put('/api/admin/memberships/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { membershipType, startDate, endDate, status, perks } = req.body;
@@ -7491,7 +7498,7 @@ app.put('/api/admin/memberships/:id', authenticateToken, async (req, res) => {
 });
 
 // Delete membership
-app.delete('/api/admin/memberships/:id', authenticateToken, async (req, res) => {
+app.delete('/api/admin/memberships/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     // Get membership to know customer_id before deleting
@@ -7768,7 +7775,7 @@ app.get('/api/membership/dashboard', authenticateToken, async (req, res) => {
 // ============================================
 
 // Manually trigger cohort processing
-app.post('/api/admin/process-cohorts', authenticateToken, async (req, res) => {
+app.post('/api/admin/process-cohorts', authenticateToken, requireAdmin, async (req, res) => {
   try {
     console.log('🔄 Manual cohort processing triggered');
     const result = await processReadyCohorts();
@@ -7844,7 +7851,7 @@ async function autoCompleteFinishedEnrollments() {
 }
 
 // Sync all customers from Shopify
-app.post('/api/admin/sync-shopify-customers', authenticateToken, async (req, res) => {
+app.post('/api/admin/sync-shopify-customers', authenticateToken, requireAdmin, async (req, res) => {
   try {
     console.log('🔄 Starting Shopify customer sync...');
     const client = getShopifyClient();
@@ -8090,7 +8097,7 @@ app.post('/api/admin/sync-shopify-customers', authenticateToken, async (req, res
 });
 
 // Backfill HB enrollment credits (fix enrollments where credits were not saved)
-app.post('/api/admin/backfill-hb-credits', authenticateToken, async (req, res) => {
+app.post('/api/admin/backfill-hb-credits', authenticateToken, requireAdmin, async (req, res) => {
   try {
     console.log('🔧 Backfilling HB enrollment credits...');
 
@@ -8157,7 +8164,7 @@ app.post('/api/admin/backfill-hb-credits', authenticateToken, async (req, res) =
 });
 
 // Admin: Mark HB class as completed (increment used, decrement remaining)
-app.post('/api/admin/hb-enrollments/:enrollmentId/mark-class-done', authenticateToken, async (req, res) => {
+app.post('/api/admin/hb-enrollments/:enrollmentId/mark-class-done', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { enrollmentId } = req.params;
     const { count = 1 } = req.body; // How many classes to mark done (default 1)
@@ -8212,7 +8219,7 @@ app.post('/api/admin/hb-enrollments/:enrollmentId/mark-class-done', authenticate
 });
 
 // Admin: Set HB enrollment credits directly (for corrections)
-app.post('/api/admin/hb-enrollments/:enrollmentId/set-credits', authenticateToken, async (req, res) => {
+app.post('/api/admin/hb-enrollments/:enrollmentId/set-credits', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { enrollmentId } = req.params;
     const { allocated, used } = req.body;
@@ -8253,7 +8260,7 @@ app.post('/api/admin/hb-enrollments/:enrollmentId/set-credits', authenticateToke
 });
 
 // Admin: Set HB enrollment status (cancel, complete, etc.)
-app.post('/api/admin/hb-enrollments/:enrollmentId/set-status', authenticateToken, async (req, res) => {
+app.post('/api/admin/hb-enrollments/:enrollmentId/set-status', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { enrollmentId } = req.params;
     const { status } = req.body;
@@ -8279,7 +8286,7 @@ app.post('/api/admin/hb-enrollments/:enrollmentId/set-status', authenticateToken
 });
 
 // Sync recent orders and create enrollments/bookings
-app.post('/api/admin/sync-shopify-orders', authenticateToken, async (req, res) => {
+app.post('/api/admin/sync-shopify-orders', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { sinceDate } = req.body || {};
     console.log('🔄 Starting Shopify order sync...');
@@ -8977,7 +8984,7 @@ Be warm, encouraging, and helpful. Provide clear instructions. If you don't know
 // ============================================
 
 // Get all suppliers
-app.get('/api/admin/inventory/suppliers', authenticateToken, async (req, res) => {
+app.get('/api/admin/inventory/suppliers', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { rows: suppliers } = await supabaseDb.query(`
       SELECT * FROM suppliers
@@ -8992,7 +8999,7 @@ app.get('/api/admin/inventory/suppliers', authenticateToken, async (req, res) =>
 });
 
 // Create supplier
-app.post('/api/admin/inventory/suppliers', authenticateToken, async (req, res) => {
+app.post('/api/admin/inventory/suppliers', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { name, contactPerson, email, phone, address, notes } = req.body;
 
@@ -9014,7 +9021,7 @@ app.post('/api/admin/inventory/suppliers', authenticateToken, async (req, res) =
 });
 
 // Get all inventory items with categories and suppliers
-app.get('/api/admin/inventory/items', authenticateToken, async (req, res) => {
+app.get('/api/admin/inventory/items', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { rows: items } = await supabaseDb.query(`
       SELECT
@@ -9037,7 +9044,7 @@ app.get('/api/admin/inventory/items', authenticateToken, async (req, res) => {
 });
 
 // Get low stock items
-app.get('/api/admin/inventory/low-stock', authenticateToken, async (req, res) => {
+app.get('/api/admin/inventory/low-stock', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { rows: items } = await supabaseDb.query(`
       SELECT
@@ -9061,7 +9068,7 @@ app.get('/api/admin/inventory/low-stock', authenticateToken, async (req, res) =>
 });
 
 // Create inventory item
-app.post('/api/admin/inventory/items', authenticateToken, async (req, res) => {
+app.post('/api/admin/inventory/items', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const {
       categoryId, supplierId, name, description, sku, unit,
@@ -9094,7 +9101,7 @@ app.post('/api/admin/inventory/items', authenticateToken, async (req, res) => {
 });
 
 // Update inventory item stock
-app.post('/api/admin/inventory/items/:id/adjust-stock', authenticateToken, async (req, res) => {
+app.post('/api/admin/inventory/items/:id/adjust-stock', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { quantity, transactionType, notes, referenceNumber } = req.body;
@@ -9154,7 +9161,7 @@ app.post('/api/admin/inventory/items/:id/adjust-stock', authenticateToken, async
 });
 
 // Get inventory categories
-app.get('/api/admin/inventory/categories', authenticateToken, async (req, res) => {
+app.get('/api/admin/inventory/categories', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { rows: categories } = await supabaseDb.query(`
       SELECT * FROM inventory_categories ORDER BY name ASC
@@ -9167,7 +9174,7 @@ app.get('/api/admin/inventory/categories', authenticateToken, async (req, res) =
 });
 
 // Send low stock alert email to supplier
-app.post('/api/admin/inventory/send-reorder-email', authenticateToken, async (req, res) => {
+app.post('/api/admin/inventory/send-reorder-email', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { itemId } = req.body;
 
@@ -9238,7 +9245,7 @@ app.post('/api/admin/inventory/send-reorder-email', authenticateToken, async (re
 });
 
 // Get inventory transaction history for an item
-app.get('/api/admin/inventory/items/:id/transactions', authenticateToken, async (req, res) => {
+app.get('/api/admin/inventory/items/:id/transactions', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { rows: transactions } = await supabaseDb.query(`
@@ -9256,7 +9263,7 @@ app.get('/api/admin/inventory/items/:id/transactions', authenticateToken, async 
 });
 
 // Get inventory dashboard stats
-app.get('/api/admin/inventory/stats', authenticateToken, async (req, res) => {
+app.get('/api/admin/inventory/stats', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { rows: [stats] } = await supabaseDb.query(`
       SELECT
@@ -9376,7 +9383,7 @@ app.get('/api/events/upcoming', async (req, res) => {
 });
 
 // ── Admin Events ─────────────────────────────────────────────────────────────
-app.get('/api/admin/events', authenticateToken, async (req, res) => {
+app.get('/api/admin/events', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { data, error } = await supabaseDb.supabase
       .from('events')
@@ -9390,7 +9397,7 @@ app.get('/api/admin/events', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/admin/events', authenticateToken, async (req, res) => {
+app.post('/api/admin/events', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { title, event_type, status, date, end_date, start_time, end_time, location, description, link, notes, checklist } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
@@ -9407,7 +9414,7 @@ app.post('/api/admin/events', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/admin/events/:id', authenticateToken, async (req, res) => {
+app.put('/api/admin/events/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { title, event_type, status, date, end_date, start_time, end_time, location, description, link, notes, checklist } = req.body;
     const { data, error } = await supabaseDb.supabase
@@ -9424,7 +9431,7 @@ app.put('/api/admin/events/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.delete('/api/admin/events/:id', authenticateToken, async (req, res) => {
+app.delete('/api/admin/events/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { error } = await supabaseDb.supabase
       .from('events')
@@ -9455,7 +9462,7 @@ app.get('/api/settings/studio-policy', async (req, res) => {
   }
 });
 
-app.get('/api/admin/settings/studio-policy', authenticateToken, async (req, res) => {
+app.get('/api/admin/settings/studio-policy', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { data, error } = await supabaseDb.supabase
       .from('admin_settings')
@@ -9471,7 +9478,7 @@ app.get('/api/admin/settings/studio-policy', authenticateToken, async (req, res)
   }
 });
 
-app.put('/api/admin/settings/studio-policy', authenticateToken, async (req, res) => {
+app.put('/api/admin/settings/studio-policy', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { sections } = req.body;
     if (!Array.isArray(sections)) {
@@ -9912,7 +9919,7 @@ app.get('/api/instructor/dashboard', authenticateToken, async (req, res) => {
 });
 
 // POST /api/admin/instructors - Create a new instructor
-app.post('/api/admin/instructors', authenticateToken, async (req, res) => {
+app.post('/api/admin/instructors', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { first_name, last_name, email, bio } = req.body;
 
@@ -9963,7 +9970,7 @@ app.post('/api/admin/instructors', authenticateToken, async (req, res) => {
 
 // GET /api/admin/instructors/:id/teaching - Teaching data filtered from /api/admin/classes
 // Reuses the exact same data source (class_instances + bookings) filtered by instructor name
-app.get('/api/admin/instructors/:id/teaching', authenticateToken, async (req, res) => {
+app.get('/api/admin/instructors/:id/teaching', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -10050,7 +10057,7 @@ app.get('/api/admin/instructors/:id/teaching', authenticateToken, async (req, re
 });
 
 // POST /api/admin/instructors/:id/profile-image - Admin uploads profile image for instructor
-app.post('/api/admin/instructors/:id/profile-image', authenticateToken, upload.single('image'), async (req, res) => {
+app.post('/api/admin/instructors/:id/profile-image', authenticateToken, requireAdmin, upload.single('image'), async (req, res) => {
   try {
     const { id } = req.params;
     if (!req.file) return res.status(400).json({ error: 'No image file provided' });
@@ -10073,7 +10080,7 @@ app.post('/api/admin/instructors/:id/profile-image', authenticateToken, upload.s
 });
 
 // PUT /api/admin/customers/:id/role - Admin sets user role
-app.put('/api/admin/customers/:id/role', authenticateToken, async (req, res) => {
+app.put('/api/admin/customers/:id/role', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { role } = req.body;
     const { id } = req.params;
@@ -10375,7 +10382,7 @@ app.put('/api/studio-access/bookings/:id/cancel', authenticateToken, async (req,
 });
 
 // ── Admin: List bookings ────────────────────────────────────────────────────
-app.get('/api/admin/studio-access/bookings', authenticateToken, async (req, res) => {
+app.get('/api/admin/studio-access/bookings', authenticateToken, requireAdmin, async (req, res) => {
   try {
     if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin only' });
     const { date, studentId } = req.query;
@@ -10408,7 +10415,7 @@ app.get('/api/admin/studio-access/bookings', authenticateToken, async (req, res)
 });
 
 // ── Admin: Student studio access history ────────────────────────────────────
-app.get('/api/admin/students/:studentId/studio-access', authenticateToken, async (req, res) => {
+app.get('/api/admin/students/:studentId/studio-access', authenticateToken, requireAdmin, async (req, res) => {
   try {
     if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin only' });
     const { studentId } = req.params;
@@ -10439,7 +10446,7 @@ app.get('/api/admin/students/:studentId/studio-access', authenticateToken, async
 });
 
 // ── Admin: Create booking on behalf of student ──────────────────────────────
-app.post('/api/admin/studio-access/bookings', authenticateToken, async (req, res) => {
+app.post('/api/admin/studio-access/bookings', authenticateToken, requireAdmin, async (req, res) => {
   try {
     if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin only' });
     const { customerId, date, startTime, hours: reqHours, notes, adminNotes } = req.body;
@@ -10479,7 +10486,7 @@ app.post('/api/admin/studio-access/bookings', authenticateToken, async (req, res
 });
 
 // ── Admin: Confirm pending booking ──────────────────────────────────────────
-app.put('/api/admin/studio-access/bookings/:id/confirm', authenticateToken, async (req, res) => {
+app.put('/api/admin/studio-access/bookings/:id/confirm', authenticateToken, requireAdmin, async (req, res) => {
   try {
     if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin only' });
 
@@ -10501,7 +10508,7 @@ app.put('/api/admin/studio-access/bookings/:id/confirm', authenticateToken, asyn
 });
 
 // ── Admin: Mark as attended (settles actual hours + amount) ─────────────────
-app.put('/api/admin/studio-access/bookings/:id/attended', authenticateToken, async (req, res) => {
+app.put('/api/admin/studio-access/bookings/:id/attended', authenticateToken, requireAdmin, async (req, res) => {
   try {
     if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin only' });
 
@@ -10535,7 +10542,7 @@ app.put('/api/admin/studio-access/bookings/:id/attended', authenticateToken, asy
 });
 
 // ── Admin: Cancel booking ───────────────────────────────────────────────────
-app.put('/api/admin/studio-access/bookings/:id/cancel', authenticateToken, async (req, res) => {
+app.put('/api/admin/studio-access/bookings/:id/cancel', authenticateToken, requireAdmin, async (req, res) => {
   try {
     if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin only' });
 
@@ -10556,7 +10563,7 @@ app.put('/api/admin/studio-access/bookings/:id/cancel', authenticateToken, async
 });
 
 // ── Admin: Hard delete booking ──────────────────────────────────────────────
-app.delete('/api/admin/studio-access/bookings/:id', authenticateToken, async (req, res) => {
+app.delete('/api/admin/studio-access/bookings/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin only' });
 

@@ -345,7 +345,7 @@ export default function AdminStudioAccess() {
                       </span>
                       {b.amount_sgd === 0 && b.passes?.total > 0 && (
                         <div style={{ fontSize: '9px', fontWeight: 700, color: TC, marginTop: '2px' }}>
-                          Pass · {b.passes.remaining}/{b.passes.total} remaining
+                          Pass · {b.passes.remaining}/{b.passes.total} left
                         </div>
                       )}
                     </div>

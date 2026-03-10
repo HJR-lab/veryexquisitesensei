@@ -10242,7 +10242,16 @@ app.get('/api/admin/studio-access/bookings', authenticateToken, async (req, res)
 
     const { data, error } = await query;
     if (error) throw error;
-    res.json({ bookings: data || [] });
+
+    // Enrich with pass info for each unique customer
+    const customerIds = [...new Set((data || []).map(b => b.customer_id))];
+    const passMap = {};
+    for (const cid of customerIds) {
+      passMap[cid] = await getStudioAccessPasses(cid);
+    }
+    const enriched = (data || []).map(b => ({ ...b, passes: passMap[b.customer_id] || null }));
+
+    res.json({ bookings: enriched });
   } catch (error) {
     console.error('Error fetching admin studio access bookings:', error);
     res.status(500).json({ error: 'Failed to fetch bookings' });

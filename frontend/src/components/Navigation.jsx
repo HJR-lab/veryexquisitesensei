@@ -125,8 +125,10 @@ export default function Navigation() {
         // Update the user context with admin data
         updateUser(adminData.user);
 
-        // Navigate back to admin
-        navigate('/admin/students');
+        // Navigate back to where admin was before impersonating
+        const returnPath = localStorage.getItem('adminReturnPath') || '/admin/students';
+        localStorage.removeItem('adminReturnPath');
+        navigate(returnPath);
       } catch (error) {
         console.error('Error returning to admin:', error);
         // If there's an error, reload the page as fallback

@@ -623,6 +623,7 @@ export default function AdminStudentDetail() {
       });
       if (data.success && data.token) {
         localStorage.setItem('token', data.token);
+        localStorage.setItem('adminReturnPath', window.location.pathname);
         window.location.href = '/dashboard';
       }
     } catch (error) {

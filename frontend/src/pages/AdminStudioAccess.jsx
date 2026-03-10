@@ -343,6 +343,11 @@ export default function AdminStudioAccess() {
                           </Link>
                         ) : 'Unknown'}
                       </span>
+                      {b.amount_sgd === 0 && b.passes?.total > 0 && (
+                        <div style={{ fontSize: '9px', fontWeight: 700, color: TC, marginTop: '2px' }}>
+                          Pass · {b.passes.remaining}/{b.passes.total} remaining
+                        </div>
+                      )}
                     </div>
                     <span style={{ fontSize: '12px' }}>{DAY_LABELS[bd.getDay()]} {bd.getDate()} {MONTH_LABELS[bd.getMonth()]}</span>
                     <span style={{ fontSize: '12px' }}>{fmt24to12(b.start_time)}</span>

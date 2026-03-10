@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
-import AIChat from './components/AIChat';
+// import AIChat from './components/AIChat'; // Removed for security review
 import Login from './pages/Login';
 import AdminLogin from './pages/AdminLogin';
 import Register from './pages/Register';
@@ -140,7 +140,7 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AIChat />
+        {/* <AIChat /> */}
         <Routes>
           <Route
             path="/login"

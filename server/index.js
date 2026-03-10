@@ -1,6 +1,8 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const cookieParser = require('cookie-parser');
@@ -14,9 +16,11 @@ const { startAutomaticProcessing, processReadyCohorts } = require('./utils/cohor
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) { console.error('FATAL: JWT_SECRET not set'); process.exit(1); }
 
 // Middleware
+app.use(helmet());
 app.use(cors({
   origin: [
     'http://localhost:5173',
@@ -83,7 +87,23 @@ function requireAdmin(req, res, next) {
 // AUTH ENDPOINTS
 // ============================================
 
-app.post('/api/auth/login', async (req, res) => {
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // 10 attempts per window
+  message: { error: 'Too many attempts, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const pinLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many attempts, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
     console.log('🔐 Login attempt for email:', email);
@@ -97,9 +117,9 @@ app.post('/api/auth/login', async (req, res) => {
     const isAdminEmail = email === 'info@ves.sg';
 
     if (isAdminEmail) {
-      // Verify hardcoded admin password
-      const ADMIN_PASSWORD = 'Techn0pu$$';
-      if (password !== ADMIN_PASSWORD) {
+      // Verify admin password against bcrypt hash from environment
+      const isValidAdmin = await bcrypt.compare(password, process.env.ADMIN_PASSWORD_HASH);
+      if (!isValidAdmin) {
         console.error('❌ Invalid admin password attempt');
         return res.status(401).json({ error: 'Invalid credentials' });
       }
@@ -912,7 +932,7 @@ app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
 // ============================================
 
 // Request email verification (send 6-digit PIN)
-app.post('/api/auth/request-verification', async (req, res) => {
+app.post('/api/auth/request-verification', pinLimiter, async (req, res) => {
   try {
     const { email } = req.body;
     console.log('🔔 Verification request for:', email);
@@ -996,7 +1016,7 @@ app.post('/api/auth/request-verification', async (req, res) => {
 });
 
 // Verify PIN code
-app.post('/api/auth/verify-pin', async (req, res) => {
+app.post('/api/auth/verify-pin', pinLimiter, async (req, res) => {
   try {
     const { email, code } = req.body;
 
@@ -1090,7 +1110,7 @@ app.post('/api/auth/verify-pin', async (req, res) => {
 });
 
 // Set initial password (after email verification)
-app.post('/api/auth/set-initial-password', async (req, res) => {
+app.post('/api/auth/set-initial-password', pinLimiter, async (req, res) => {
   try {
     const { tempToken, newPassword } = req.body;
 
@@ -3089,7 +3109,7 @@ app.get('/api/classes/:classInstanceId/bookings', authenticateToken, async (req,
   }
 });
 
-app.post('/api/classes/bookings/:bookingId/mark-attendance', authenticateToken, async (req, res) => {
+app.post('/api/classes/bookings/:bookingId/mark-attendance', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { bookingId } = req.params;
     const { attended, notes } = req.body;
@@ -3184,6 +3204,10 @@ app.post('/api/classes/bookings/:bookingId/mark-attendance', authenticateToken, 
 app.get('/api/students/:studentId/attendance', authenticateToken, async (req, res) => {
   try {
     const { studentId } = req.params;
+
+    if (!req.user.isAdmin && req.user.dbCustomerId !== parseInt(studentId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
 
     const customer = await supabaseDb.getCustomerById(parseInt(studentId));
 
@@ -3357,7 +3381,7 @@ app.get('/api/classes/:classInstanceId/waitlist', authenticateToken, async (req,
   }
 });
 
-app.post('/api/classes/:classInstanceId/waitlist/offer-next', authenticateToken, async (req, res) => {
+app.post('/api/classes/:classInstanceId/waitlist/offer-next', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { classInstanceId } = req.params;
 
@@ -3464,7 +3488,7 @@ app.post('/api/classes/waitlist/claim', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/classes/waitlist/process-expired', async (req, res) => {
+app.post('/api/classes/waitlist/process-expired', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const expiredOffers = await supabaseDb.getExpiredWaitlistOffers();
 
@@ -8854,132 +8878,6 @@ app.post('/api/shopify/webhook/customers', express.raw({ type: 'application/json
 });
 
 // ============================================
-// AI CHAT ENDPOINTS
-// ============================================
-
-app.post('/api/ai/chat', authenticateToken, async (req, res) => {
-  try {
-    const { message, currentPage, conversationHistory } = req.body;
-    const { dbCustomerId, firstName, lastName, email } = req.user;
-
-    if (!message || !message.trim()) {
-      return res.status(400).json({ error: 'Message is required' });
-    }
-
-    // Check if OpenRouter API key is configured
-    if (!process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY === 'your_openrouter_api_key_here') {
-      return res.status(503).json({
-        error: 'AI assistant is not configured. Please contact the administrator.'
-      });
-    }
-
-    // Initialize OpenRouter client (using OpenAI SDK with custom base URL)
-    const OpenAI = require('openai');
-    const openai = new OpenAI({
-      apiKey: process.env.OPENROUTER_API_KEY,
-      baseURL: 'https://openrouter.ai/api/v1'
-    });
-
-    // Determine if user is on admin page
-    const isAdmin = currentPage && currentPage.startsWith('/admin');
-
-    // Build system prompt based on user role
-    const systemPrompt = isAdmin
-      ? `You are a helpful AI assistant for the VES Pottery Studio admin dashboard. You help administrators manage students, classes, bookings, memberships, and the pottery gallery.
-
-Current user: ${firstName} ${lastName} (${email})
-Current page: ${currentPage}
-
-You can help with:
-- Student management (viewing students, managing allocations, updating info)
-- Class scheduling and management
-- Booking and attendance tracking
-- Membership management
-- Pottery gallery management (making pieces public/featured)
-- Reference data (clay types, glazes)
-- Analytics and reporting
-
-Be concise, friendly, and helpful. Provide step-by-step guidance when needed. If you don't know something, be honest about it.`
-      : `You are a helpful AI assistant for VES Pottery Studio members. You help students book classes, manage their pottery gallery, view their membership, and navigate the site.
-
-Current user: ${firstName} ${lastName} (${email})
-Current page: ${currentPage}
-
-You can help with:
-- Booking pottery classes
-- Viewing and managing their pottery gallery
-- Uploading new pottery pieces
-- Checking membership status
-- Viewing upcoming bookings
-- General questions about the studio
-
-Be warm, encouraging, and helpful. Provide clear instructions. If you don't know something, be honest about it.`;
-
-    // Build messages array for OpenAI
-    const messages = [
-      { role: 'system', content: systemPrompt }
-    ];
-
-    // Add conversation history (last 10 messages)
-    if (conversationHistory && Array.isArray(conversationHistory)) {
-      conversationHistory.slice(-10).forEach(msg => {
-        messages.push({
-          role: msg.role,
-          content: msg.content
-        });
-      });
-    }
-
-    // Add current user message
-    messages.push({
-      role: 'user',
-      content: message
-    });
-
-    // Call OpenRouter API (using DeepSeek model - fast and cost-effective)
-    const completion = await openai.chat.completions.create({
-      model: 'deepseek/deepseek-chat',
-      messages: messages,
-      temperature: 0.7,
-      max_tokens: 500
-    });
-
-    const reply = completion.choices[0].message.content;
-
-    res.json({
-      success: true,
-      reply: reply
-    });
-
-  } catch (error) {
-    console.error('AI chat error:', error);
-
-    // Handle OpenRouter API errors
-    if (error.status === 401) {
-      return res.status(503).json({
-        error: 'AI service authentication failed. Please contact administrator.'
-      });
-    }
-
-    if (error.status === 429) {
-      return res.status(503).json({
-        error: 'AI service quota exceeded. Please contact the administrator to add OpenRouter credits.'
-      });
-    }
-
-    if (error.code === 'insufficient_quota') {
-      return res.status(503).json({
-        error: 'AI service quota exceeded. The OpenRouter account needs additional credits.'
-      });
-    }
-
-    res.status(500).json({
-      error: 'Failed to get AI response. Please try again.'
-    });
-  }
-});
-
-// ============================================
 // INVENTORY MANAGEMENT ENDPOINTS
 // ============================================
 
@@ -9299,70 +9197,6 @@ app.get('*', (req, res, next) => {
     res.sendFile('index.html', { root: 'public' });
   } else {
     next();
-  }
-});
-
-// DEBUG: Carolyn's bookings endpoints
-app.get('/api/debug/carolyn/bookings', async (req, res) => {
-  try {
-    const result = await supabaseDb.query(`
-      SELECT
-        b.id as booking_id,
-        ci.class_date,
-        ci.instructor,
-        ci.class_type
-      FROM bookings b
-      JOIN class_instances ci ON b.class_instance_id = ci.id
-      WHERE b.student_id = 1778
-      ORDER BY ci.class_date
-    `);
-
-    res.json({
-      total: result.rows.length,
-      bookings: result.rows
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/debug/carolyn/joyce-lim-bookings', async (req, res) => {
-  try {
-    // First, find what we're about to delete
-    const findResult = await supabaseDb.query(`
-      SELECT b.id, ci.class_date, ci.instructor
-      FROM bookings b
-      JOIN class_instances ci ON b.class_instance_id = ci.id
-      WHERE b.student_id = 1778
-      AND ci.instructor = 'Joyce Lim'
-      AND ci.class_date BETWEEN '2026-01-19' AND '2026-02-16'
-    `);
-
-    if (findResult.rows.length === 0) {
-      return res.json({ message: 'No Joyce Lim bookings found to delete', deleted: 0 });
-    }
-
-    // Delete them
-    const deleteResult = await supabaseDb.query(`
-      DELETE FROM bookings
-      WHERE id IN (
-        SELECT b.id
-        FROM bookings b
-        JOIN class_instances ci ON b.class_instance_id = ci.id
-        WHERE b.student_id = 1778
-        AND ci.instructor = 'Joyce Lim'
-        AND ci.class_date BETWEEN '2026-01-19' AND '2026-02-16'
-      )
-      RETURNING id
-    `);
-
-    res.json({
-      message: `Deleted ${deleteResult.rows.length} Joyce Lim bookings`,
-      deleted: deleteResult.rows.length,
-      bookingsDeleted: findResult.rows
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
   }
 });
 

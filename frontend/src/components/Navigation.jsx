@@ -220,13 +220,6 @@ export default function Navigation() {
                       >
                         Reference
                       </Link>
-                      <Link
-                        to="/admin/studio-access"
-                        onClick={() => setControlDropdownOpen(false)}
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
-                      >
-                        Studio Access
-                      </Link>
                     </div>
                   )}
                 </div>
@@ -419,13 +412,6 @@ export default function Navigation() {
                         onClick={() => setMobileMenuOpen(false)}
                       >
                         Reference
-                      </Link>
-                      <Link
-                        className={`text-sm font-normal uppercase tracking-wide ${isActive('/admin/studio-access') ? 'text-text font-bold' : 'text-text-muted'}`}
-                        to="/admin/studio-access"
-                        onClick={() => setMobileMenuOpen(false)}
-                      >
-                        Studio Access
                       </Link>
                     </div>
                   </div>

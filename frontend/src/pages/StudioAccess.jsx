@@ -109,6 +109,7 @@ export default function StudioAccess() {
   const [loading, setLoading] = useState(false);
   const [bookingLoading, setBookingLoading] = useState(false);
   const [showConfirmSheet, setShowConfirmSheet] = useState(false);
+  const [usePass, setUsePass] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const stripRef = useRef(null);
@@ -186,6 +187,7 @@ export default function StudioAccess() {
         date: dateStr,
         startTime,
         notes: notes || undefined,
+        usePass: usePass || undefined,
       });
 
       setSuccess(data.message);
@@ -246,6 +248,36 @@ export default function StudioAccess() {
           <h1 style={{ fontSize: '22px', fontWeight: 700, margin: 0 }}>Studio Access</h1>
           <p style={{ fontSize: '12px', color: MUTED, margin: '4px 0 0' }}>Book independent wheel time · $20/hr · Min 2hrs</p>
         </div>
+
+        {/* Studio Access Passes */}
+        {myBookings.passes?.total > 0 && (
+          <div style={{
+            padding: '16px', backgroundColor: myBookings.passes.remaining > 0 ? TC_LIGHT : '#F5F5F5',
+            border: `1px solid ${myBookings.passes.remaining > 0 ? TC : '#DDD'}`,
+            marginBottom: '24px',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: myBookings.passes.remaining > 0 ? TC_DARK : MUTED, marginBottom: '4px' }}>
+                  Studio Access Passes
+                </div>
+                <div style={{ fontSize: '12px', color: INK }}>
+                  {myBookings.passes.remaining > 0
+                    ? `${myBookings.passes.remaining} of ${myBookings.passes.total} passes remaining — free, no time limit`
+                    : 'All passes used'}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {[...Array(myBookings.passes.total)].map((_, i) => (
+                  <div key={i} style={{
+                    width: '14px', height: '14px', borderRadius: '50%',
+                    backgroundColor: i < myBookings.passes.remaining ? TC : '#DDD',
+                  }} />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Member view */}
         {hasActiveMembership && (
@@ -554,12 +586,26 @@ export default function StudioAccess() {
               {DAY_LABELS[selectedDate.getDay()]}, {selectedDate.getDate()} {MONTH_LABELS[selectedDate.getMonth()]} · From {fmt24to12(startTime)}
             </div>
 
+            {myBookings.passes?.remaining > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 14px', backgroundColor: usePass ? TC_LIGHT : '#F5F5F5', border: `1px solid ${usePass ? TC : '#DDD'}`, marginBottom: '16px', cursor: 'pointer' }}
+                onClick={() => setUsePass(!usePass)}
+              >
+                <div style={{ width: '18px', height: '18px', borderRadius: '50%', border: `2px solid ${usePass ? TC : '#CCC'}`, backgroundColor: usePass ? TC : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {usePass && <span style={{ color: '#FFF', fontSize: '12px', fontWeight: 700 }}>✓</span>}
+                </div>
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: usePass ? TC_DARK : INK }}>Use Studio Pass</div>
+                  <div style={{ fontSize: '11px', color: MUTED }}>{myBookings.passes.remaining} pass{myBookings.passes.remaining !== 1 ? 'es' : ''} remaining · Free, no time limit</div>
+                </div>
+              </div>
+            )}
+
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderTop: `1px solid ${RULE}`, borderBottom: `1px solid ${RULE}`, marginBottom: '16px' }}>
-              <span style={{ fontSize: '13px' }}>Minimum</span>
-              <span style={{ fontSize: '13px', fontWeight: 700 }}>2 hours · $40</span>
+              <span style={{ fontSize: '13px' }}>{usePass ? 'Studio Pass' : 'Minimum'}</span>
+              <span style={{ fontSize: '13px', fontWeight: 700 }}>{usePass ? 'Free — no time limit' : '2 hours · $40'}</span>
             </div>
             <div style={{ fontSize: '11px', color: MUTED, marginBottom: '16px' }}>
-              Actual hours and amount will be settled after your session. You only pay for the time you use.
+              {usePass ? 'This pass covers your full session — stay as long as you like!' : 'Actual hours and amount will be settled after your session. You only pay for the time you use.'}
             </div>
 
             {availability?.isSameDay && (
@@ -575,9 +621,11 @@ export default function StudioAccess() {
               </div>
             )}
 
-            <div style={{ fontSize: '11px', color: MUTED, marginBottom: '20px' }}>
-              Payment via QR code in-studio after your session
-            </div>
+            {!usePass && (
+              <div style={{ fontSize: '11px', color: MUTED, marginBottom: '20px' }}>
+                Payment via QR code in-studio after your session
+              </div>
+            )}
 
             <button
               onClick={handleBook}

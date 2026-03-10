@@ -738,6 +738,7 @@ app.get('/api/students/me/dashboard', authenticateToken, async (req, res) => {
       packageInfo,
       flexibleCreditsInfo,
       hbEnrollments,
+      studioAccessPasses: await getStudioAccessPasses(dbCustomerId),
       enrollments: {
         active: activeEnrollments,
         upcoming: upcomingEnrollments,
@@ -3491,6 +3492,24 @@ app.post('/api/classes/waitlist/process-expired', async (req, res) => {
 // ============================================
 // ADMIN ENDPOINTS
 // ============================================
+
+// Search students by name or email
+app.get('/api/admin/students/search', authenticateToken, async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    if (q.length < 2) return res.json({ students: [] });
+    const { data, error } = await supabaseDb.supabase
+      .from('customers')
+      .select('id, email, first_name, last_name, customer_type')
+      .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,email.ilike.%${q}%`)
+      .limit(10);
+    if (error) throw error;
+    res.json({ students: data || [] });
+  } catch (err) {
+    console.error('Student search error:', err);
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
 
 // Get student statistics
 app.get('/api/admin/students/stats', authenticateToken, async (req, res) => {
@@ -9944,6 +9963,33 @@ const STUDIO_ACCESS_RATE = 20; // $20/hr
 const STUDIO_ACCESS_MIN_HOURS = 2;
 const STUDIO_ACCESS_MAX_PER_DATE = 10;
 
+async function getStudioAccessPasses(customerId) {
+  // Check if student has a WT 6wk x3 package enrollment (active or completed)
+  const { data: enrollments } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('id, package_total_courses, course_identifier, course_type, status')
+    .eq('student_id', customerId)
+    .eq('package_total_courses', 3);
+
+  const hasWt3 = enrollments?.some(enr =>
+    (enr.course_identifier || '').toUpperCase().startsWith('WT') ||
+    (enr.course_type || '').toLowerCase().includes('wheelthrowing')
+  );
+
+  if (!hasWt3) return { total: 0, used: 0, remaining: 0 };
+
+  // Count used passes (bookings with is_pass = true or amount_sgd = 0 and notes contain 'pass')
+  const { data: passBookings } = await supabaseDb.supabase
+    .from('studio_access_bookings')
+    .select('id')
+    .eq('customer_id', customerId)
+    .eq('amount_sgd', 0)
+    .neq('status', 'cancelled');
+
+  const used = passBookings?.length || 0;
+  return { total: 3, used, remaining: Math.max(0, 3 - used) };
+}
+
 async function checkStudioAccessEligibility(customerId) {
   // Check active/paused course enrollment
   const { data: enrollments } = await supabaseDb.supabase
@@ -10042,7 +10088,10 @@ app.get('/api/studio-access/my-bookings', authenticateToken, async (req, res) =>
       .order('booking_date', { ascending: false })
       .limit(10);
 
-    res.json({ upcoming: data || [], past: pastData || [] });
+    // Check studio access passes
+    const passes = await getStudioAccessPasses(customerId);
+
+    res.json({ upcoming: data || [], past: pastData || [], passes });
   } catch (error) {
     console.error('Error fetching studio access bookings:', error);
     res.status(500).json({ error: 'Failed to fetch bookings' });
@@ -10053,7 +10102,7 @@ app.get('/api/studio-access/my-bookings', authenticateToken, async (req, res) =>
 app.post('/api/studio-access/book', authenticateToken, async (req, res) => {
   try {
     const customerId = req.user.dbCustomerId;
-    const { date, startTime, notes } = req.body;
+    const { date, startTime, notes, usePass } = req.body;
 
     if (!date || !startTime) {
       return res.status(400).json({ error: 'Date and start time are required' });
@@ -10063,6 +10112,16 @@ app.post('/api/studio-access/book', authenticateToken, async (req, res) => {
     const eligibility = await checkStudioAccessEligibility(customerId);
     if (!eligibility.eligible) {
       return res.status(403).json({ error: eligibility.reason });
+    }
+
+    // If using a pass, verify they have remaining passes
+    let isPassBooking = false;
+    if (usePass) {
+      const passes = await getStudioAccessPasses(customerId);
+      if (passes.remaining <= 0) {
+        return res.status(400).json({ error: 'No studio access passes remaining' });
+      }
+      isPassBooking = true;
     }
 
     // Validate date is not Saturday
@@ -10089,8 +10148,9 @@ app.post('/api/studio-access/book', authenticateToken, async (req, res) => {
     const today = now.toISOString().split('T')[0];
     const status = date === today ? 'pending' : 'booked';
 
-    // Default: min 2 hours, actual hours settled by admin when marking attended
-    const hours = STUDIO_ACCESS_MIN_HOURS;
+    // Pass bookings: free, no hour restriction. Regular: min 2 hours, settled by admin.
+    const hours = isPassBooking ? 0 : STUDIO_ACCESS_MIN_HOURS;
+    const amount = isPassBooking ? 0 : hours * STUDIO_ACCESS_RATE;
 
     const { data, error } = await supabaseDb.supabase
       .from('studio_access_bookings')
@@ -10100,15 +10160,15 @@ app.post('/api/studio-access/book', authenticateToken, async (req, res) => {
         start_time: startTime,
         end_time: null,
         hours,
-        amount_sgd: hours * STUDIO_ACCESS_RATE,
+        amount_sgd: amount,
         status,
-        notes: notes || null,
+        notes: isPassBooking ? `${notes || ''} [Studio Pass]`.trim() : (notes || null),
       }])
       .select()
       .single();
 
     if (error) throw error;
-    res.json({ booking: data, message: status === 'pending' ? 'Booking submitted — awaiting confirmation' : 'Booking confirmed' });
+    res.json({ booking: data, message: status === 'pending' ? 'Booking submitted — awaiting confirmation' : 'Booking confirmed', passUsed: isPassBooking });
   } catch (error) {
     console.error('Error creating studio access booking:', error);
     res.status(500).json({ error: 'Failed to create booking' });

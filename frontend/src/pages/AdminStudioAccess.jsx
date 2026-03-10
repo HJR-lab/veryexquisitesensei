@@ -1,6 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../utils/api';
+import AdminNav from '../components/AdminNav';
+
+function useIsMobile(bp = 768) {
+  const [m, setM] = useState(typeof window !== 'undefined' ? window.innerWidth < bp : false);
+  useEffect(() => {
+    const h = () => setM(window.innerWidth < bp);
+    window.addEventListener('resize', h);
+    return () => window.removeEventListener('resize', h);
+  }, [bp]);
+  return m;
+}
 
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
@@ -47,6 +58,7 @@ function fmt24to12(t) {
 }
 
 export default function AdminStudioAccess() {
+  const isMobile = useIsMobile();
   const TODAY = new Date();
   TODAY.setHours(0, 0, 0, 0);
   const todayStr = fmtKey(TODAY);
@@ -135,8 +147,8 @@ export default function AdminStudioAccess() {
     setSearchQuery(q);
     if (q.length < 2) { setSearchResults([]); return; }
     try {
-      const { data } = await api.get(`/admin/students?search=${encodeURIComponent(q)}`);
-      setSearchResults((data.students || data || []).slice(0, 8));
+      const { data } = await api.get(`/admin/students/search?q=${encodeURIComponent(q)}`);
+      setSearchResults((data.students || []).slice(0, 8));
     } catch { setSearchResults([]); }
   };
 
@@ -175,19 +187,23 @@ export default function AdminStudioAccess() {
 
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      {/* Header */}
-      <div style={{ backgroundColor: '#FFFFFF', borderBottom: `1px solid ${RULE}`, padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <Link to="/admin" style={{ color: TC, textDecoration: 'none', fontSize: '12px', fontWeight: 700 }}>← Dashboard</Link>
-          <span style={{ fontSize: '12px', color: MUTED }}>/</span>
-          <h1 style={{ fontSize: '18px', fontWeight: 700, margin: 0, color: INK }}>Studio Access</h1>
-        </div>
-        <button onClick={() => setShowCreateForm(!showCreateForm)} style={btnStyle(TC, '#FFF')}>
-          + Create Booking
-        </button>
-      </div>
+      <AdminNav active="studio-access" />
+      <main style={{ maxWidth: '1140px', margin: '0 auto', padding: isMobile ? '20px 16px 60px' : '32px 24px 60px' }}>
 
-      <div style={{ maxWidth: '900px', margin: '0 auto', padding: '24px' }}>
+        {/* Page header */}
+        <div style={{ marginBottom: '28px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>
+              Admin
+            </div>
+            <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>
+              Studio Access
+            </h1>
+          </div>
+          <button onClick={() => setShowCreateForm(!showCreateForm)} style={btnStyle(TC, '#FFF')}>
+            + Create Booking
+          </button>
+        </div>
 
         {/* Create form */}
         {showCreateForm && (
@@ -350,7 +366,6 @@ export default function AdminStudioAccess() {
             </div>
           )}
         </div>
-      </div>
 
       {/* Attended modal — settle actual hours */}
       {attendedModal && (
@@ -385,6 +400,7 @@ export default function AdminStudioAccess() {
           </div>
         </>
       )}
+      </main>
     </div>
   );
 }

@@ -9,6 +9,7 @@ const RULE = 'rgba(40,40,40,0.09)';
 const NAV_LINKS = [
   { id: 'classes',     label: 'Classes',   href: '/admin/classes' },
   { id: 'students',    label: 'Users',     href: '/admin/students' },
+  { id: 'studio-access', label: 'Studio',  href: '/admin/studio-access' },
 ];
 
 export default function AdminNav({ active, onSyncComplete }) {

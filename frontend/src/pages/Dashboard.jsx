@@ -490,6 +490,36 @@ export default function Dashboard() {
           </section>
         )}
 
+        {/* ── STUDIO ACCESS PASSES ── */}
+        {dashboardData?.studioAccessPasses?.total > 0 && (
+          <>
+            <Divider />
+            <section style={{ marginBottom: '28px' }}>
+              <SectionLabel>Studio Access Passes</SectionLabel>
+              <Link to="/studio-access" style={{ textDecoration: 'none' }}>
+                <div style={{ padding: '16px', border: `1px solid ${RULE}`, backgroundColor: ALT, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: INK, marginBottom: '4px' }}>
+                      {dashboardData.studioAccessPasses.remaining} of {dashboardData.studioAccessPasses.total} passes remaining
+                    </div>
+                    <div style={{ fontSize: '11px', color: MUTED }}>
+                      Free studio access — no time limit per visit
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    {[...Array(dashboardData.studioAccessPasses.total)].map((_, i) => (
+                      <div key={i} style={{
+                        width: '12px', height: '12px', borderRadius: '50%',
+                        backgroundColor: i < dashboardData.studioAccessPasses.remaining ? TC : '#DDD',
+                      }} />
+                    ))}
+                  </div>
+                </div>
+              </Link>
+            </section>
+          </>
+        )}
+
         <Divider />
 
         {/* ── 3. UPCOMING CLASSES ── */}

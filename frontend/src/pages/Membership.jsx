@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../utils/api';
+import ImpersonationBanner from '../components/ImpersonationBanner';
 
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
@@ -137,6 +138,8 @@ export default function Membership() {
 
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#FFFFFF', minHeight: '100vh' }}>
+
+      <ImpersonationBanner />
 
       {/* TOP BAR */}
       <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: '#FFFFFF', borderBottom: `1px solid ${RULE}` }}>

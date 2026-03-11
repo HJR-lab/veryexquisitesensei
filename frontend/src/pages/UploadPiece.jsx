@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
+import ImpersonationBanner from '../components/ImpersonationBanner';
 
 /* ─── VES palette ─── */
 const TC       = '#C4622D';
@@ -173,6 +174,7 @@ export default function UploadPiece() {
 
   return (
     <div style={{ minHeight: '100vh', background: BG, paddingBottom: '100px' }}>
+      <ImpersonationBanner />
 
       {/* ─── Header ─── */}
       <div style={{ background: '#fff', borderBottom: `1px solid ${RULE}`, position: 'sticky', top: 0, zIndex: 50 }}>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
+import ImpersonationBanner from '../components/ImpersonationBanner';
 
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
@@ -37,6 +38,7 @@ export default function StudioPolicy() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#FAFAF8' }}>
+      <ImpersonationBanner />
       {/* Header */}
       <header style={{ backgroundColor: '#FFF', borderBottom: `1px solid ${RULE}`, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
         <button

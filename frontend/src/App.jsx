@@ -2,16 +2,14 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 // import AIChat from './components/AIChat'; // Removed for security review
 import Login from './pages/Login';
-import AdminLogin from './pages/AdminLogin';
-import Register from './pages/Register';
-import VerifyEmail from './pages/VerifyEmail';
-import SetupPassword from './pages/SetupPassword';
+import AuthCallback from './pages/AuthCallback';
 import Gallery from './pages/Gallery';
 import GalleryNew from './pages/GalleryNew';
 import ClassScheduleNew from './pages/ClassScheduleNew';
 import AdminCoursesNew from './pages/AdminCoursesNew';
 import Admin from './pages/Admin';
 import AdminDashboard from './pages/AdminDashboard';
+import UtilityDashboard from './pages/UtilityDashboard';
 import AdminStudents from './pages/AdminStudents';
 import AdminStudentDetail from './pages/AdminStudentDetail';
 import AdminMemberships from './pages/AdminMemberships';
@@ -75,7 +73,7 @@ function AdminRoute({ children }) {
 
   // If not logged in, redirect to admin login
   if (!user) {
-    return <Navigate to="/admin/login" />;
+    return <Navigate to="/login" />;
   }
 
   // Allow access if user is admin OR if impersonating
@@ -141,31 +139,7 @@ function App() {
               </PublicRoute>
             }
           />
-          <Route
-            path="/admin/login"
-            element={
-              <PublicRoute>
-                <AdminLogin />
-              </PublicRoute>
-            }
-          />
-          <Route
-            path="/register"
-            element={
-              <PublicRoute>
-                <Register />
-              </PublicRoute>
-            }
-          />
-          <Route
-            path="/verify-email"
-            element={
-              <PublicRoute>
-                <VerifyEmail />
-              </PublicRoute>
-            }
-          />
-          <Route path="/setup-password" element={<SetupPassword />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
           <Route
             path="/gallery"
             element={
@@ -191,6 +165,14 @@ function App() {
             element={
               <AdminRoute>
                 <AdminDashboard />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/admin/doe-dashboard"
+            element={
+              <AdminRoute>
+                <UtilityDashboard />
               </AdminRoute>
             }
           />

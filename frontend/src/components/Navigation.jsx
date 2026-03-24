@@ -5,7 +5,7 @@ import { useState, useRef, useEffect } from 'react';
 import ImpersonationBanner from './ImpersonationBanner';
 
 export default function Navigation() {
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [controlDropdownOpen, setControlDropdownOpen] = useState(false);
@@ -112,7 +112,10 @@ export default function Navigation() {
 
   const handleReturnToAdmin = async () => {
     try {
-      await api.post('/auth/stop-impersonation');
+      const response = await api.post('/auth/stop-impersonation');
+      if (response.data.user) {
+        updateUser(response.data.user);
+      }
 
       // Navigate back to where admin was before impersonating
       const returnPath = localStorage.getItem('adminReturnPath') || '/admin/students';
@@ -120,7 +123,7 @@ export default function Navigation() {
       window.location.href = returnPath;
     } catch (error) {
       console.error('Error returning to admin:', error);
-      window.location.href = '/admin/login';
+      window.location.href = '/login';
     }
   };
 
@@ -331,12 +334,6 @@ export default function Navigation() {
                   >
                     Log In
                   </Link>
-                  <Link
-                    to="/register"
-                    className="px-3 py-1 bg-background text-text text-sm font-normal uppercase tracking-wide hover:bg-background-alt transition-colors border border-text"
-                  >
-                    Sign Up
-                  </Link>
                 </>
               )}
             </div>
@@ -483,13 +480,6 @@ export default function Navigation() {
                       onClick={() => setMobileMenuOpen(false)}
                     >
                       Log In
-                    </Link>
-                    <Link
-                      to="/register"
-                      className="block w-full px-6 py-2 bg-background text-text text-sm font-normal uppercase tracking-wide text-center border border-text"
-                      onClick={() => setMobileMenuOpen(false)}
-                    >
-                      Sign Up
                     </Link>
                   </>
                 )}

@@ -2,7 +2,7 @@ import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 
 export default function ImpersonationBanner() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const isImpersonating = user && user.impersonatedBy;
   const isAdmin = user && (user.isAdmin || user.impersonatedBy);
 
@@ -11,7 +11,10 @@ export default function ImpersonationBanner() {
   const handleReturnToAdmin = async () => {
     try {
       if (isImpersonating) {
-        await api.post('/auth/stop-impersonation');
+        const response = await api.post('/auth/stop-impersonation');
+        if (response.data.user) {
+          updateUser(response.data.user);
+        }
       }
       const returnPath = localStorage.getItem('adminReturnPath') || '/admin/students';
       localStorage.removeItem('adminReturnPath');

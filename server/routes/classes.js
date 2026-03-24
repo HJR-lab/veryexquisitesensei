@@ -905,19 +905,17 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
     });
   }
 
-  // Get student info to check for 10-class package
-  const { data: student, error: studentError } = await supabaseDb.supabase
-    .from('customers')
-    .select('classes_allocated, course_expiry_date')
-    .eq('id', dbCustomerId)
-    .single();
-
-  if (studentError) {
-    console.error('Error fetching student:', studentError);
-    return res.status(500).json({ error: 'Failed to fetch student information' });
+  // Check for 10-class package via the booking's enrollment (not the stale classes_allocated field)
+  let has10ClassPackage = false;
+  if (currentBooking.course_enrollment_id) {
+    const { data: bookingEnrollment } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('number_of_weeks, course_title')
+      .eq('id', currentBooking.course_enrollment_id)
+      .single();
+    has10ClassPackage = bookingEnrollment?.number_of_weeks === 10 ||
+      (bookingEnrollment?.course_title?.includes('10 Classes') ?? false);
   }
-
-  const has10ClassPackage = student.classes_allocated === 10 && student.course_expiry_date === null;
 
   // Check if this is a glazing class (Week 6/6 Glazing)
   const isOldClassGlazing = oldClass.class_type?.includes('Week 6/6') && oldClass.class_type?.includes('Glazing');

@@ -1,15 +1,13 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import '../styles/Auth.css';
 
 export default function Login() {
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
-  const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -17,40 +15,57 @@ export default function Login() {
     setLoading(true);
 
     try {
-      // Prevent admin from logging in via student login
-      if (email === 'info@ves.sg') {
-        setError('Please use the admin login page.');
-        setLoading(false);
-        return;
-      }
-
-      const result = await login(email, password);
-      // Smart redirect: members without active courses → member dashboard
-      if (result?.user?.hasMembership && !result?.user?.hasActiveEnrollments) {
-        navigate('/member');
-      } else {
-        navigate('/gallery');
-      }
+      await login(email);
+      setSent(true);
     } catch (err) {
-      setError(err.response?.data?.error || 'Login failed');
+      setError(err.message || 'Failed to send magic link');
     } finally {
       setLoading(false);
     }
   };
+
+  if (sent) {
+    return (
+      <div className="auth-container">
+        <div className="auth-card">
+          <div className="auth-header">
+            <h1>Check Your Email</h1>
+            <p>
+              If you have an account, we've sent a sign-in link to{' '}
+              <strong>{email}</strong>
+            </p>
+          </div>
+          <div style={{ padding: '1rem', textAlign: 'center', color: '#666' }}>
+            <p>Click the link in the email to sign in.</p>
+            <p style={{ marginTop: '1rem', fontSize: '0.875rem' }}>
+              Don't see it? Check your spam folder.
+            </p>
+          </div>
+          <button
+            className="btn-secondary"
+            onClick={() => { setSent(false); setEmail(''); }}
+            style={{ marginTop: '1rem' }}
+          >
+            Try a different email
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="auth-container">
       <div className="auth-card">
         <div className="auth-header">
           <h1>VES Pottery Gallery</h1>
-          <p>Sign in to view your pottery portfolio</p>
+          <p>Enter your email to receive a sign-in link</p>
         </div>
 
         <form onSubmit={handleSubmit} className="auth-form">
           {error && <div className="error-message">{error}</div>}
 
           <div className="form-group">
-            <label htmlFor="email">Email</label>
+            <label htmlFor="email">Email Address</label>
             <input
               id="email"
               type="email"
@@ -58,34 +73,14 @@ export default function Login() {
               onChange={(e) => setEmail(e.target.value)}
               required
               placeholder="your.email@example.com"
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="password">Password</label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              placeholder="Enter your password"
+              autoFocus
             />
           </div>
 
           <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Sending...' : 'Send Sign-In Link'}
           </button>
         </form>
-
-        <div className="auth-footer">
-          <p>
-            First time? <Link to="/verify-email">Verify Your Email</Link>
-          </p>
-          <p style={{ marginTop: '0.5rem', fontSize: '0.875rem' }}>
-            Admin? <Link to="/admin/login">Admin Login</Link>
-          </p>
-        </div>
       </div>
     </div>
   );

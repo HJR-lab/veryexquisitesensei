@@ -140,7 +140,7 @@ export default function PublicGallery() {
             fontSize: '10px', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase',
             color: TC, marginBottom: '10px',
           }}>
-            Student Portal
+            Ves Clay Club Portal
           </div>
           <h1 style={{
             fontSize: '24px', fontWeight: 700, letterSpacing: '-0.3px',

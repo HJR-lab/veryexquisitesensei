@@ -82,13 +82,6 @@ export default function Account() {
     profilePicture: ''
   });
 
-  // Password state
-  const [passwords, setPasswords] = useState({
-    currentPassword: '',
-    newPassword: '',
-    confirmPassword: ''
-  });
-
   // Class History state
   const [history, setHistory] = useState([]);
   const [stats, setStats] = useState({ totalClasses: 0, attendedClasses: 0 });
@@ -176,41 +169,6 @@ export default function Account() {
     }
   };
 
-  const handlePasswordChange = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setMessage({ type: '', text: '' });
-
-    if (passwords.newPassword !== passwords.confirmPassword) {
-      setMessage({ type: 'error', text: 'New passwords do not match' });
-      setLoading(false);
-      return;
-    }
-
-    if (passwords.newPassword.length < 6) {
-      setMessage({ type: 'error', text: 'Password must be at least 6 characters' });
-      setLoading(false);
-      return;
-    }
-
-    try {
-      await api.post('/auth/change-password', {
-        currentPassword: passwords.currentPassword,
-        newPassword: passwords.newPassword
-      });
-      setMessage({ type: 'success', text: 'Password changed successfully!' });
-      setPasswords({ currentPassword: '', newPassword: '', confirmPassword: '' });
-    } catch (error) {
-      console.error('Error changing password:', error);
-      setMessage({
-        type: 'error',
-        text: error.response?.data?.error || 'Failed to change password'
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleProfilePictureUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -282,7 +240,6 @@ export default function Account() {
 
   const tabs = [
     { id: 'details',  label: 'Details'  },
-    { id: 'security', label: 'Password' },
     { id: 'history',  label: 'History'  },
   ];
 
@@ -511,48 +468,6 @@ export default function Account() {
                 Sign Out
               </button>
             </div>
-          </div>
-        )}
-
-        {/* PASSWORD TAB */}
-        {activeTab === 'security' && (
-          <div style={{ padding: '24px 20px' }}>
-            <form onSubmit={handlePasswordChange}>
-              <FieldRow
-                label="Current Password"
-                value={passwords.currentPassword}
-                type="password"
-                onChange={e => setPasswords({ ...passwords, currentPassword: e.target.value })}
-              />
-              <FieldRow
-                label="New Password"
-                value={passwords.newPassword}
-                type="password"
-                onChange={e => setPasswords({ ...passwords, newPassword: e.target.value })}
-              />
-              <FieldRow
-                label="Confirm Password"
-                value={passwords.confirmPassword}
-                type="password"
-                onChange={e => setPasswords({ ...passwords, confirmPassword: e.target.value })}
-              />
-              <div style={{ fontSize: '11px', color: MUTED, marginTop: '-8px', marginBottom: '20px' }}>
-                Minimum 6 characters
-              </div>
-              <button
-                type="submit"
-                disabled={loading}
-                style={{
-                  width: '100%', padding: '13px',
-                  border: 'none', backgroundColor: loading ? MUTED : INK, color: '#FFF',
-                  fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  fontFamily: 'Atak, sans-serif',
-                }}
-              >
-                {loading ? 'Changing...' : 'Change Password'}
-              </button>
-            </form>
           </div>
         )}
 

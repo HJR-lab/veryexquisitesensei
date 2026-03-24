@@ -11,11 +11,23 @@ const api = axios.create({
   },
 });
 
-// Attach Supabase Auth token to all API requests
-api.interceptors.request.use(async (config) => {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session?.access_token) {
-    config.headers.Authorization = `Bearer ${session.access_token}`;
+// Cache the access token to avoid lock contention with onAuthStateChange
+let cachedAccessToken = null;
+
+// Initialize token from existing session (non-blocking)
+supabase.auth.getSession().then(({ data: { session } }) => {
+  cachedAccessToken = session?.access_token || null;
+});
+
+// Keep token updated via auth state changes
+supabase.auth.onAuthStateChange((_event, session) => {
+  cachedAccessToken = session?.access_token || null;
+});
+
+// Attach cached token to all API requests (synchronous — no lock contention)
+api.interceptors.request.use((config) => {
+  if (cachedAccessToken) {
+    config.headers.Authorization = `Bearer ${cachedAccessToken}`;
   }
   return config;
 });

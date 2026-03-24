@@ -1,5 +1,4 @@
 import axios from 'axios';
-import supabase from './supabase';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -11,23 +10,15 @@ const api = axios.create({
   },
 });
 
-// Cache the access token to avoid lock contention with onAuthStateChange
+// Token is set by useAuth hook via setApiToken — avoids Supabase lock contention
 let cachedAccessToken = null;
 
-// Initialize token from existing session — store the promise so we can await it
-const tokenReady = supabase.auth.getSession().then(({ data: { session } }) => {
-  cachedAccessToken = session?.access_token || null;
-});
-
-// Keep token updated via auth state changes
-supabase.auth.onAuthStateChange((_event, session) => {
-  cachedAccessToken = session?.access_token || null;
-});
+export function setApiToken(token) {
+  cachedAccessToken = token;
+}
 
 // Attach cached token to all API requests
-// First request waits for initial session check; subsequent requests are synchronous
-api.interceptors.request.use(async (config) => {
-  await tokenReady;
+api.interceptors.request.use((config) => {
   if (cachedAccessToken) {
     config.headers.Authorization = `Bearer ${cachedAccessToken}`;
   }

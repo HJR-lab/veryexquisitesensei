@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import supabase from '../utils/supabase';
-import { authAPI } from '../utils/api';
+import { authAPI, setApiToken } from '../utils/api';
 
 const AuthContext = createContext(null);
 
@@ -22,6 +22,7 @@ export function AuthProvider({ children }) {
     // Check for existing session on mount
     const initAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession();
+      setApiToken(session?.access_token || null);
       if (session) {
         await fetchUser();
       }
@@ -33,6 +34,7 @@ export function AuthProvider({ children }) {
     // Listen for auth state changes (login, logout, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        setApiToken(session?.access_token || null);
         if (event === 'SIGNED_IN' && session) {
           await fetchUser();
         } else if (event === 'SIGNED_OUT') {
@@ -57,6 +59,7 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     await supabase.auth.signOut();
+    setApiToken(null);
     await authAPI.logout(); // Clear server-side impersonation cookie if any
     setUser(null);
   };

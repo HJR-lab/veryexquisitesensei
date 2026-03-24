@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const jwt = require('jsonwebtoken');
+const supabaseDb = require('./utils/supabaseDb');
 const cookieParser = require('cookie-parser');
 const { shopifyApi, LATEST_API_VERSION } = require('@shopify/shopify-api');
 require('@shopify/shopify-api/adapters/node');
@@ -11,8 +11,6 @@ const { startAutomaticProcessing } = require('./utils/cohortAutoProcessor');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) { console.error('FATAL: JWT_SECRET not set'); process.exit(1); }
 
 // Middleware
 app.use(helmet());
@@ -24,7 +22,8 @@ app.use(cors({
     'http://127.0.0.1:5175',
     'https://pottery-gallery-app.vercel.app',
     'https://pottery-gallery-app-frontend.vercel.app',
-    'https://frontend-phi-seven-81.vercel.app'
+    'https://frontend-phi-seven-81.vercel.app',
+    'https://www.ves.sg'
   ],
   credentials: true
 }));
@@ -34,7 +33,7 @@ app.use(express.json({
   }
 }));
 app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser());
+app.use(cookieParser(process.env.COOKIE_SECRET));
 
 // Initialize Shopify API
 const shopify = shopifyApi({
@@ -55,17 +54,72 @@ function getShopifyClient() {
   });
 }
 
-// Middleware to verify JWT token
-function authenticateToken(req, res, next) {
-  const token = req.cookies?.token || req.headers.authorization?.split(' ')[1];
+// Middleware to verify Supabase Auth token
+async function authenticateToken(req, res, next) {
+  const token = req.headers.authorization?.split(' ')[1];
   if (!token) {
     return res.status(401).json({ error: 'Authentication required' });
   }
+
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
+    // Verify token with Supabase Auth (uses service key)
+    const { data: { user: authUser }, error: authError } = await supabaseDb.supabase.auth.getUser(token);
+    if (authError || !authUser) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+
+    // Look up customer by email
+    const { data: customer, error: customerError } = await supabaseDb.supabase
+      .from('customers')
+      .select('id, email, first_name, last_name, shopify_customer_id, role')
+      .eq('email', authUser.email)
+      .single();
+
+    if (customerError || !customer) {
+      return res.status(401).json({ error: 'No account found' });
+    }
+
+    const isAdmin = customer.email === 'info@ves.sg';
+
+    // Check for impersonation cookie (admin only)
+    const impersonateId = req.signedCookies?.ves_impersonate;
+    if (impersonateId && isAdmin) {
+      const { data: target, error: targetError } = await supabaseDb.supabase
+        .from('customers')
+        .select('id, email, first_name, last_name, shopify_customer_id, role')
+        .eq('id', impersonateId)
+        .single();
+
+      if (!targetError && target) {
+        req.user = {
+          customerId: target.shopify_customer_id,
+          dbCustomerId: target.id,
+          email: target.email,
+          firstName: target.first_name,
+          lastName: target.last_name,
+          isAdmin: false,
+          isImpersonating: true,
+          impersonatedBy: customer.email,
+          role: target.role || 'student'
+        };
+        return next();
+      }
+    }
+
+    req.user = {
+      customerId: customer.shopify_customer_id,
+      dbCustomerId: customer.id,
+      email: customer.email,
+      firstName: customer.first_name,
+      lastName: customer.last_name,
+      isAdmin,
+      isImpersonating: false,
+      impersonatedBy: null,
+      role: customer.role || 'student'
+    };
     next();
   } catch (error) {
+    console.error('Auth middleware error:', error);
     return res.status(403).json({ error: 'Invalid or expired token' });
   }
 }

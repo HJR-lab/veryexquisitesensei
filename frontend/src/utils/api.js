@@ -14,8 +14,8 @@ const api = axios.create({
 // Cache the access token to avoid lock contention with onAuthStateChange
 let cachedAccessToken = null;
 
-// Initialize token from existing session (non-blocking)
-supabase.auth.getSession().then(({ data: { session } }) => {
+// Initialize token from existing session — store the promise so we can await it
+const tokenReady = supabase.auth.getSession().then(({ data: { session } }) => {
   cachedAccessToken = session?.access_token || null;
 });
 
@@ -24,8 +24,10 @@ supabase.auth.onAuthStateChange((_event, session) => {
   cachedAccessToken = session?.access_token || null;
 });
 
-// Attach cached token to all API requests (synchronous — no lock contention)
-api.interceptors.request.use((config) => {
+// Attach cached token to all API requests
+// First request waits for initial session check; subsequent requests are synchronous
+api.interceptors.request.use(async (config) => {
+  await tokenReady;
   if (cachedAccessToken) {
     config.headers.Authorization = `Bearer ${cachedAccessToken}`;
   }

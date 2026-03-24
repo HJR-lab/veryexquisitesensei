@@ -24,7 +24,7 @@ app.use(cors({
     'https://pottery-gallery-app.vercel.app',
     'https://pottery-gallery-app-frontend.vercel.app',
     'https://frontend-phi-seven-81.vercel.app',
-    'https://www.ves.sg'
+    'https://club.ves.sg'
   ],
   credentials: true
 }));

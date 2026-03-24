@@ -21,6 +21,13 @@ export default function AuthCallback() {
     };
 
     handleCallback();
+
+    // Timeout if user never populates (e.g., no customers row for this email)
+    const timeout = setTimeout(() => {
+      setError('Unable to sign in. Your email may not be registered. Please contact VES staff.');
+    }, 10000);
+
+    return () => clearTimeout(timeout);
   }, []);
 
   // Once user is populated by useAuth, redirect

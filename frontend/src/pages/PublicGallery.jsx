@@ -21,9 +21,9 @@ const ROLE_COLORS = {
 
 export default function PublicGallery() {
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
+  const [magicLinkSent, setMagicLinkSent] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -78,15 +78,10 @@ export default function PublicGallery() {
     setError('');
     setLoginLoading(true);
     try {
-      if (email === 'info@ves.sg') {
-        setError('Please use the admin login page.');
-        setLoginLoading(false);
-        return;
-      }
-      await login(email, password);
-      navigate('/dashboard');
+      await login(email);
+      setMagicLinkSent(true);
     } catch (err) {
-      setError(err.response?.data?.error || 'Login failed');
+      setError(err.message || 'Failed to send sign-in link');
     } finally {
       setLoginLoading(false);
     }
@@ -154,58 +149,64 @@ export default function PublicGallery() {
             Sign in to your account
           </h1>
 
-          <form onSubmit={handleSubmit}>
-            {error && (
-              <div style={{
-                fontSize: '12px', color: '#C0392B', backgroundColor: '#FDEDEC',
-                padding: '10px 14px', marginBottom: '14px', textAlign: 'left',
-              }}>
-                {error}
+          {magicLinkSent ? (
+            <div style={{ textAlign: 'center' }}>
+              <p style={{ fontSize: '14px', color: INK, marginBottom: '8px' }}>
+                If you have an account, we've sent a sign-in link to <strong>{email}</strong>
+              </p>
+              <p style={{ fontSize: '12px', color: MUTED }}>
+                Click the link in the email to sign in. Don't see it? Check your spam folder.
+              </p>
+              <button
+                onClick={() => { setMagicLinkSent(false); setEmail(''); }}
+                style={{
+                  marginTop: '16px', fontSize: '12px', fontWeight: 600,
+                  color: TC_DARK, backgroundColor: 'transparent',
+                  border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                Try a different email
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit}>
+              {error && (
+                <div style={{
+                  fontSize: '12px', color: '#C0392B', backgroundColor: '#FDEDEC',
+                  padding: '10px 14px', marginBottom: '14px', textAlign: 'left',
+                }}>
+                  {error}
+                </div>
+              )}
+
+              <div style={{ marginBottom: '16px' }}>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  placeholder="Email"
+                  style={inputStyle}
+                />
               </div>
-            )}
 
-            <div style={{ marginBottom: '10px' }}>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                placeholder="Email"
-                style={inputStyle}
-              />
-            </div>
-
-            <div style={{ marginBottom: '16px' }}>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                placeholder="Password"
-                style={inputStyle}
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loginLoading}
-              style={{
-                width: '100%',
-                fontSize: '12px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-                padding: '12px',
-                backgroundColor: TC, color: '#FFFFFF',
-                border: 'none', cursor: loginLoading ? 'default' : 'pointer',
-                opacity: loginLoading ? 0.7 : 1,
-                fontFamily: 'inherit',
-              }}
-            >
-              {loginLoading ? 'Signing in...' : 'Sign In'}
-            </button>
-          </form>
-
-          <div style={{ marginTop: '16px', fontSize: '12px', color: MUTED }}>
-            First time? <Link to="/verify-email" style={{ color: TC_DARK, fontWeight: 600, textDecoration: 'none' }}>Verify your email</Link>
-          </div>
+              <button
+                type="submit"
+                disabled={loginLoading}
+                style={{
+                  width: '100%',
+                  fontSize: '12px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                  padding: '12px',
+                  backgroundColor: TC, color: '#FFFFFF',
+                  border: 'none', cursor: loginLoading ? 'default' : 'pointer',
+                  opacity: loginLoading ? 0.7 : 1,
+                  fontFamily: 'inherit',
+                }}
+              >
+                {loginLoading ? 'Sending...' : 'Send Sign-In Link'}
+              </button>
+            </form>
+          )}
         </div>
       </section>
 

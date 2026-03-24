@@ -11,6 +11,7 @@ const { startAutomaticProcessing } = require('./utils/cohortAutoProcessor');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+if (!process.env.COOKIE_SECRET) { console.error('FATAL: COOKIE_SECRET not set'); process.exit(1); }
 
 // Middleware
 app.use(helmet());

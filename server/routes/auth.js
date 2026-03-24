@@ -1,254 +1,11 @@
-const rateLimit = require('express-rate-limit');
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
 const supabaseDb = require('../utils/supabaseDb');
+const { getStudioAccessPasses } = require('../utils/studioAccess');
 
-const JWT_SECRET = process.env.JWT_SECRET;
-
-module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, getStudioAccessPasses }) {
+module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler }) {
 
 // ============================================
 // AUTH ENDPOINTS
 // ============================================
-
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // 10 attempts per window
-  message: { error: 'Too many attempts, please try again later' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-const pinLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5,
-  message: { error: 'Too many attempts, please try again later' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-app.post('/api/auth/login', authLimiter, asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
-  console.log('🔐 Login attempt');
-
-  if (!email || !password) {
-    console.log('❌ Missing email or password');
-    return res.status(400).json({ error: 'Email and password required' });
-  }
-
-  // Check if this is admin login
-  const isAdminEmail = email === 'info@ves.sg';
-
-  if (isAdminEmail) {
-    // Verify admin password against bcrypt hash from environment
-    const isValidAdmin = await bcrypt.compare(password, process.env.ADMIN_PASSWORD_HASH);
-    if (!isValidAdmin) {
-      console.error('❌ Invalid admin password attempt');
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-    console.log('✅ Admin login successful');
-  } else {
-    // Student login - verify password from database
-    console.log('📊 Querying database for customer...');
-    const { data: customer, error: customerError } = await supabaseDb.supabase
-      .from('customers')
-      .select('id, email, first_name, last_name, password_hash, shopify_customer_id, role')
-      .eq('email', email.toLowerCase())
-      .single();
-
-    console.log('📊 Database query result:', { found: !!customer, error: !!customerError });
-
-    if (customerError || !customer) {
-      console.log('❌ Customer not found or error:', customerError);
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    console.log('📊 Customer has password_hash:', !!customer.password_hash);
-
-    if (!customer.password_hash) {
-      console.log('❌ No password hash - needs verification');
-      return res.status(401).json({
-        error: 'Please verify your email first',
-        needsVerification: true
-      });
-    }
-
-    // Verify password
-    const isValidPassword = await bcrypt.compare(password, customer.password_hash);
-
-    if (!isValidPassword) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    console.log('✅ Student login successful');
-
-    // Create JWT token for student
-    const token = jwt.sign(
-      {
-        customerId: customer.shopify_customer_id,
-        dbCustomerId: customer.id,
-        email: customer.email,
-        firstName: customer.first_name,
-        lastName: customer.last_name,
-        isAdmin: false
-      },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      path: '/',
-    });
-
-    // Fetch membership and enrollment info for smart redirect
-    const [hasMembership, activeEnrollmentRes] = await Promise.all([
-      supabaseDb.hasActiveMembership(customer.id),
-      supabaseDb.supabase
-        .from('course_enrollments')
-        .select('id')
-        .eq('student_id', customer.id)
-        .in('status', ['active', 'pending'])
-        .limit(1)
-    ]);
-    const hasActiveEnrollments = (activeEnrollmentRes.data || []).length > 0;
-
-    // Fetch customer_type
-    const { data: custRecord } = await supabaseDb.supabase
-      .from('customers')
-      .select('customer_type')
-      .eq('id', customer.id)
-      .single();
-
-    return res.json({
-      success: true,
-      user: {
-        id: customer.shopify_customer_id,
-        dbId: customer.id,
-        email: customer.email,
-        firstName: customer.first_name,
-        lastName: customer.last_name,
-        role: customer.role || 'student',
-        isAdmin: false,
-        hasMembership,
-        hasActiveEnrollments,
-        customerType: custRecord?.customer_type || 'student'
-      },
-      token
-    });
-  }
-
-  // Admin login - get or create admin customer in database
-  let { data: customer, error: dbError } = await supabaseDb.supabase
-    .from('customers')
-    .select('*')
-    .eq('email', email)
-    .single();
-
-  // If admin doesn't exist in database, create it or update old admin email
-  if (dbError || !customer) {
-    console.log('Admin not found in database, checking for old admin...');
-
-    // First, try to find and update the old admin (info@ves.com)
-    const { data: oldAdmin } = await supabaseDb.supabase
-      .from('customers')
-      .select('*')
-      .eq('email', 'info@ves.com')
-      .single();
-
-    if (oldAdmin) {
-      // Update the old admin email to the new one
-      console.log('Updating old admin email from info@ves.com to info@ves.sg');
-      const { data: updatedAdmin, error: updateError } = await supabaseDb.supabase
-        .from('customers')
-        .update({
-          email: 'info@ves.sg',
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', oldAdmin.id)
-        .select()
-        .single();
-
-      if (updateError) {
-        console.error('Error updating admin:', updateError);
-        return res.status(500).json({ error: 'Failed to update admin user' });
-      }
-
-      customer = updatedAdmin;
-      console.log('✅ Updated admin email successfully');
-    } else {
-      // Create new admin with different shopify_customer_id
-      console.log('Creating new admin user...');
-      const { data: newCustomer, error: createError } = await supabaseDb.supabase
-        .from('customers')
-        .insert({
-          shopify_customer_id: '9999999999998', // Different ID to avoid conflict
-          email: 'info@ves.sg',
-          first_name: 'VES',
-          last_name: 'Admin',
-          customer_type: 'admin',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
-        .select()
-        .single();
-
-      if (createError) {
-        console.error('Error creating admin:', createError);
-        console.error('Error details:', JSON.stringify(createError, null, 2));
-        return res.status(500).json({ error: 'Failed to create admin user', details: createError.message });
-      }
-
-      customer = newCustomer;
-      console.log('✅ Created new admin user in database');
-    }
-  }
-
-  // Create JWT token for admin
-  const token = jwt.sign(
-    {
-      customerId: customer.shopify_customer_id,
-      dbCustomerId: customer.id,
-      email: customer.email,
-      firstName: customer.first_name,
-      lastName: customer.last_name,
-      isAdmin: true
-    },
-    JWT_SECRET,
-    { expiresIn: '7d' }
-  );
-
-  res.cookie('token', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-    path: '/',
-  });
-
-  res.json({
-    success: true,
-    user: {
-      id: customer.shopify_customer_id,
-      dbId: customer.id,
-      email: customer.email,
-      firstName: customer.first_name,
-      lastName: customer.last_name,
-      isAdmin: true
-    },
-    token
-  });
-
-}));
-
-app.post('/api/auth/register', async (req, res) => {
-  return res.status(403).json({
-    error: 'Registration is disabled. Please contact VES staff to be added as a customer.'
-  });
-});
 
 app.get('/api/auth/me', authenticateToken, async (req, res) => {
   try {
@@ -307,17 +64,98 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
   }
 });
 
+app.post('/api/auth/logout', (req, res) => {
+  // Clear old JWT cookie from pre-migration sessions
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    path: '/',
+  });
+  // Clear impersonation cookie if present
+  res.clearCookie('ves_impersonate', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    path: '/',
+    signed: true,
+  });
+  res.json({ success: true });
+});
+
+// Update user profile
+app.put('/api/auth/profile', authenticateToken, asyncHandler(async (req, res) => {
+  const { dbCustomerId } = req.user;
+  const { firstName, lastName, email, mobile, dateOfBirth, profilePicture } = req.body;
+
+  // Validate required fields
+  if (!firstName || !lastName || !email) {
+    return res.status(400).json({ error: 'First name, last name, and email are required' });
+  }
+
+  // Check if email is already taken by another user
+  if (email !== req.user.email) {
+    const { data: existingUser } = await supabaseDb.supabase
+      .from('customers')
+      .select('id')
+      .eq('email', email)
+      .neq('id', dbCustomerId)
+      .single();
+
+    if (existingUser) {
+      return res.status(400).json({ error: 'Email already in use' });
+    }
+  }
+
+  // Update customer in database
+  const updateData = {
+    first_name: firstName,
+    last_name: lastName,
+    email: email,
+    mobile: mobile || null,
+    date_of_birth: dateOfBirth || null,
+    updated_at: new Date().toISOString()
+  };
+
+  // Only update profile_picture if it's provided in the request
+  if (profilePicture !== undefined) {
+    updateData.profile_picture = profilePicture || null;
+  }
+
+  const { data: updatedCustomer, error } = await supabaseDb.supabase
+    .from('customers')
+    .update(updateData)
+    .eq('id', dbCustomerId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error updating profile:', error);
+    return res.status(500).json({ error: 'Failed to update profile' });
+  }
+
+  res.json({
+    user: {
+      customerId: req.user.customerId,
+      dbCustomerId: dbCustomerId,
+      email: updatedCustomer.email,
+      firstName: updatedCustomer.first_name,
+      lastName: updatedCustomer.last_name,
+      mobile: updatedCustomer.mobile,
+      dateOfBirth: updatedCustomer.date_of_birth,
+      profilePicture: updatedCustomer.profile_picture
+    }
+  });
+}));
+
 // Admin impersonation endpoint
 app.post('/api/auth/impersonate/:email', authenticateToken, asyncHandler(async (req, res) => {
-  // Verify the requester is an admin
   if (!req.user.isAdmin) {
     return res.status(403).json({ error: 'Admin access required' });
   }
 
   const studentEmail = decodeURIComponent(req.params.email);
-  console.log('🎭 Admin impersonation request for:', studentEmail);
 
-  // Look up the student
   const { data: student, error } = await supabaseDb.supabase
     .from('customers')
     .select('*')
@@ -325,41 +163,21 @@ app.post('/api/auth/impersonate/:email', authenticateToken, asyncHandler(async (
     .single();
 
   if (error || !student) {
-    console.log('❌ Student not found:', studentEmail);
     return res.status(404).json({ error: 'Student not found' });
   }
 
-  // Create JWT token for the student (with impersonation flag)
-  // Note: we do NOT embed the admin token here for security reasons.
-  // Instead, the stop-impersonation endpoint re-issues a fresh admin token.
-  const impersonationToken = jwt.sign(
-    {
-      customerId: student.shopify_customer_id,
-      dbCustomerId: student.id,
-      email: student.email,
-      firstName: student.first_name,
-      lastName: student.last_name,
-      isAdmin: false,
-      isImpersonating: true,
-      impersonatedBy: req.user.email // Track who is impersonating
-    },
-    JWT_SECRET,
-    { expiresIn: '1d' } // Shorter expiry for impersonation
-  );
-
-  console.log('✅ Impersonation token created for:', studentEmail);
-
-  res.cookie('token', impersonationToken, {
+  // Set signed impersonation cookie
+  res.cookie('ves_impersonate', String(student.id), {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 1 * 24 * 60 * 60 * 1000, // 1 day (matches impersonation token expiry)
+    maxAge: 24 * 60 * 60 * 1000,
     path: '/',
+    signed: true,
   });
 
   res.json({
     success: true,
-    token: impersonationToken,
     student: {
       id: student.shopify_customer_id,
       dbId: student.id,
@@ -368,70 +186,64 @@ app.post('/api/auth/impersonate/:email', authenticateToken, asyncHandler(async (
       lastName: student.last_name
     }
   });
-
 }));
 
-// Stop impersonation — re-issues a fresh admin token
+// Stop impersonation — clear cookie and return admin user data
 app.post('/api/auth/stop-impersonation', authenticateToken, asyncHandler(async (req, res) => {
-  // Verify this is an impersonation session
-  if (!req.user.isImpersonating || !req.user.impersonatedBy) {
-    return res.status(400).json({ error: 'Not currently impersonating' });
-  }
+  // Clear the impersonation cookie
+  res.clearCookie('ves_impersonate', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    path: '/',
+    signed: true,
+  });
 
-  // Verify the original user was an admin
-  const adminEmail = req.user.impersonatedBy;
-  if (adminEmail !== 'info@ves.sg') {
-    return res.status(403).json({ error: 'Original user is not an admin' });
-  }
-
-  // Look up the admin customer record to issue a fresh token
-  const { data: adminCustomer, error } = await supabaseDb.supabase
+  // Look up admin to return fresh admin user data
+  const adminEmail = req.user.impersonatedBy || req.user.email;
+  const { data: admin, error } = await supabaseDb.supabase
     .from('customers')
     .select('*')
     .eq('email', adminEmail)
     .single();
 
-  if (error || !adminCustomer) {
-    console.error('❌ Admin customer not found for stop-impersonation:', adminEmail);
+  if (error || !admin) {
     return res.status(500).json({ error: 'Admin account not found' });
   }
 
-  // Issue a fresh admin JWT (same structure as admin login)
-  const token = jwt.sign(
-    {
-      customerId: adminCustomer.shopify_customer_id,
-      dbCustomerId: adminCustomer.id,
-      email: adminCustomer.email,
-      firstName: adminCustomer.first_name,
-      lastName: adminCustomer.last_name,
-      isAdmin: true
-    },
-    JWT_SECRET,
-    { expiresIn: '7d' }
-  );
-
-  console.log('🎭 Impersonation ended, admin token re-issued for:', adminEmail);
-
-  res.cookie('token', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-    path: '/',
-  });
+  const [hasMembership, activeEnrollmentRes] = await Promise.all([
+    supabaseDb.hasActiveMembership(admin.id),
+    supabaseDb.supabase
+      .from('course_enrollments')
+      .select('id')
+      .eq('student_id', admin.id)
+      .in('status', ['active', 'pending'])
+      .limit(1)
+  ]);
+  const hasActiveEnrollments = (activeEnrollmentRes.data || []).length > 0;
 
   res.json({
     success: true,
-    token,
     user: {
-      email: adminCustomer.email,
-      firstName: adminCustomer.first_name,
-      lastName: adminCustomer.last_name,
-      isAdmin: true
+      customerId: admin.shopify_customer_id,
+      dbCustomerId: admin.id,
+      email: admin.email,
+      firstName: admin.first_name,
+      lastName: admin.last_name,
+      isAdmin: true,
+      isImpersonating: false,
+      impersonatedBy: null,
+      role: admin.role || 'admin',
+      hasMembership,
+      hasActiveEnrollments,
+      customerType: admin.customer_type || 'admin'
     }
   });
-
 }));
+
+// ============================================
+// STUDENT ENDPOINTS
+// ============================================
 
 // Get current student's data (for student dashboard)
 app.get('/api/students/me', authenticateToken, asyncHandler(async (req, res) => {
@@ -751,420 +563,6 @@ app.get('/api/students/me/dashboard', authenticateToken, asyncHandler(async (req
       pending: pendingEnrollments
     }
   });
-}));
-
-app.post('/api/auth/logout', (req, res) => {
-  res.clearCookie('token', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    path: '/',
-  });
-  res.json({ success: true });
-});
-
-// Update user profile
-app.put('/api/auth/profile', authenticateToken, asyncHandler(async (req, res) => {
-  const { dbCustomerId } = req.user;
-  const { firstName, lastName, email, mobile, dateOfBirth, profilePicture } = req.body;
-
-  // Validate required fields
-  if (!firstName || !lastName || !email) {
-    return res.status(400).json({ error: 'First name, last name, and email are required' });
-  }
-
-  // Check if email is already taken by another user
-  if (email !== req.user.email) {
-    const { data: existingUser } = await supabaseDb.supabase
-      .from('customers')
-      .select('id')
-      .eq('email', email)
-      .neq('id', dbCustomerId)
-      .single();
-
-    if (existingUser) {
-      return res.status(400).json({ error: 'Email already in use' });
-    }
-  }
-
-  // Update customer in database
-  const updateData = {
-    first_name: firstName,
-    last_name: lastName,
-    email: email,
-    mobile: mobile || null,
-    date_of_birth: dateOfBirth || null,
-    updated_at: new Date().toISOString()
-  };
-
-  // Only update profile_picture if it's provided in the request
-  if (profilePicture !== undefined) {
-    updateData.profile_picture = profilePicture || null;
-  }
-
-  const { data: updatedCustomer, error } = await supabaseDb.supabase
-    .from('customers')
-    .update(updateData)
-    .eq('id', dbCustomerId)
-    .select()
-    .single();
-
-  if (error) {
-    console.error('Error updating profile:', error);
-    return res.status(500).json({ error: 'Failed to update profile' });
-  }
-
-  // Generate new token with updated info
-  const token = jwt.sign(
-    {
-      customerId: req.user.customerId,
-      dbCustomerId: dbCustomerId,
-      email: updatedCustomer.email,
-      firstName: updatedCustomer.first_name,
-      lastName: updatedCustomer.last_name
-    },
-    JWT_SECRET,
-    { expiresIn: '7d' }
-  );
-
-  res.json({
-    token,
-    user: {
-      customerId: req.user.customerId,
-      dbCustomerId: dbCustomerId,
-      email: updatedCustomer.email,
-      firstName: updatedCustomer.first_name,
-      lastName: updatedCustomer.last_name,
-      mobile: updatedCustomer.mobile,
-      dateOfBirth: updatedCustomer.date_of_birth,
-      profilePicture: updatedCustomer.profile_picture
-    }
-  });
-}));
-
-// Change password
-app.post('/api/auth/change-password', authenticateToken, asyncHandler(async (req, res) => {
-  const { dbCustomerId } = req.user;
-  const { currentPassword, newPassword } = req.body;
-
-  if (!currentPassword || !newPassword) {
-    return res.status(400).json({ error: 'Current and new passwords are required' });
-  }
-
-  if (newPassword.length < 8) {
-    return res.status(400).json({ error: 'Password must be at least 8 characters' });
-  }
-
-  // Get current password hash from database
-  const { data: customer, error: fetchError } = await supabaseDb.supabase
-    .from('customers')
-    .select('password_hash')
-    .eq('id', dbCustomerId)
-    .single();
-
-  if (fetchError || !customer) {
-    return res.status(404).json({ error: 'User not found' });
-  }
-
-  if (!customer.password_hash) {
-    return res.status(400).json({ error: 'No password set. Please contact support.' });
-  }
-
-  // Verify current password
-  const isValidPassword = await bcrypt.compare(currentPassword, customer.password_hash);
-  if (!isValidPassword) {
-    return res.status(401).json({ error: 'Current password is incorrect' });
-  }
-
-  // Hash new password
-  const newPasswordHash = await bcrypt.hash(newPassword, 12);
-
-  // Update password in database
-  const { error: updateError } = await supabaseDb.supabase
-    .from('customers')
-    .update({
-      password_hash: newPasswordHash,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', dbCustomerId);
-
-  if (updateError) {
-    console.error('Error updating password:', updateError);
-    return res.status(500).json({ error: 'Failed to update password' });
-  }
-
-  res.json({ success: true, message: 'Password changed successfully' });
-}));
-
-// ============================================
-// EMAIL VERIFICATION ENDPOINTS (Student First-Time Login)
-// ============================================
-
-// Request email verification (send 6-digit PIN)
-app.post('/api/auth/request-verification', pinLimiter, asyncHandler(async (req, res) => {
-  const { email } = req.body;
-  console.log('🔔 Verification request for:', email);
-
-  if (!email) {
-    return res.status(400).json({ error: 'Email is required' });
-  }
-
-  // Find customer by email
-  const { data: customer, error: customerError } = await supabaseDb.supabase
-    .from('customers')
-    .select('id, email, first_name, last_name, password_hash')
-    .eq('email', email.toLowerCase())
-    .single();
-
-  console.log('Database response:', { customer: customer ? 'found' : 'not found', error: customerError });
-
-  if (customerError || !customer) {
-    console.log('❌ Customer not found or error:', customerError);
-    return res.status(404).json({ error: 'No account found with this email address' });
-  }
-
-  // Check if customer already has a password set
-  if (customer.password_hash) {
-    return res.status(400).json({
-      error: 'Account already verified. Please use the login page.',
-      hasPassword: true
-    });
-  }
-
-  // Generate random 6-digit code
-  const code = Math.floor(100000 + Math.random() * 900000).toString();
-
-  // Set expiration to 24 hours from now (workaround for timezone issue)
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
-  // Delete any existing unverified codes for this customer
-  await supabaseDb.supabase
-    .from('verification_codes')
-    .delete()
-    .eq('customer_id', customer.id)
-    .eq('verified', false);
-
-  // Store verification code
-  const { error: insertError } = await supabaseDb.supabase
-    .from('verification_codes')
-    .insert({
-      customer_id: customer.id,
-      email: email.toLowerCase(),
-      code: code,
-      verified: false,
-      expires_at: expiresAt.toISOString(),
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    });
-
-  if (insertError) {
-    console.error('Error storing verification code:', insertError);
-    return res.status(500).json({ error: 'Failed to generate verification code' });
-  }
-
-  // TODO: Send email with verification code
-  // For now, log it to console (in production, use nodemailer or SendGrid)
-  console.log('\n📧 Verification Code for', email);
-  console.log('👤 Name:', customer.first_name, customer.last_name);
-  console.log('🔢 Code:', code);
-  console.log('⏰ Expires:', expiresAt.toLocaleString());
-  console.log('\n');
-
-  res.json({
-    success: true,
-    message: 'Verification code sent to your email',
-    // In development, return the code for testing
-    ...(process.env.NODE_ENV !== 'production' && { code })
-  });
-
-}));
-
-// Verify PIN code
-app.post('/api/auth/verify-pin', pinLimiter, asyncHandler(async (req, res) => {
-  const { email, code } = req.body;
-
-  if (!email || !code) {
-    return res.status(400).json({ error: 'Email and verification code are required' });
-  }
-
-  // Find verification code
-  const { data: verification, error: verifyError } = await supabaseDb.supabase
-    .from('verification_codes')
-    .select('*')
-    .eq('email', email.toLowerCase())
-    .eq('code', code)
-    .eq('verified', false)
-    .single();
-
-  if (verifyError || !verification) {
-    return res.status(401).json({ error: 'Invalid or expired verification code' });
-  }
-
-  // Check if code has expired
-  const expiresAt = new Date(verification.expires_at);
-  const now = new Date();
-  console.log('⏰ Expiration check:', {
-    expires_at: expiresAt.toISOString(),
-    now: now.toISOString(),
-    expired: expiresAt < now
-  });
-
-  if (expiresAt < now) {
-    console.log('❌ Code expired');
-    return res.status(401).json({ error: 'Verification code has expired. Please request a new one.' });
-  }
-
-  console.log('✅ Code is valid and not expired');
-
-  // Mark code as verified
-  const { error: updateError } = await supabaseDb.supabase
-    .from('verification_codes')
-    .update({
-      verified: true,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', verification.id);
-
-  if (updateError) {
-    console.error('Error updating verification code:', updateError);
-    return res.status(500).json({ error: 'Failed to verify code' });
-  }
-
-  // Get customer details
-  const { data: customer, error: customerError } = await supabaseDb.supabase
-    .from('customers')
-    .select('*')
-    .eq('id', verification.customer_id)
-    .single();
-
-  if (customerError || !customer) {
-    return res.status(404).json({ error: 'Customer not found' });
-  }
-
-  // Create a temporary token for password setup (valid for 30 minutes)
-  const tempToken = jwt.sign(
-    {
-      customerId: customer.shopify_customer_id,
-      dbCustomerId: customer.id,
-      email: customer.email,
-      isVerified: true,
-      isTemporary: true
-    },
-    JWT_SECRET,
-    { expiresIn: '30m' }
-  );
-
-  res.json({
-    success: true,
-    message: 'Email verified successfully',
-    tempToken,
-    customer: {
-      id: customer.id,
-      email: customer.email,
-      firstName: customer.first_name,
-      lastName: customer.last_name
-    }
-  });
-
-}));
-
-// Set initial password (after email verification)
-app.post('/api/auth/set-initial-password', pinLimiter, asyncHandler(async (req, res) => {
-  const { tempToken, newPassword } = req.body;
-
-  if (!tempToken || !newPassword) {
-    return res.status(400).json({ error: 'Temporary token and new password are required' });
-  }
-
-  if (newPassword.length < 8) {
-    return res.status(400).json({ error: 'Password must be at least 8 characters long' });
-  }
-
-  // Verify temporary token
-  let decoded;
-  try {
-    decoded = jwt.verify(tempToken, JWT_SECRET);
-  } catch (err) {
-    return res.status(401).json({ error: 'Invalid or expired verification session' });
-  }
-
-  if (!decoded.isTemporary || !decoded.isVerified) {
-    return res.status(401).json({ error: 'Invalid verification token' });
-  }
-
-  // Check if password is already set
-  const { data: customer, error: fetchError } = await supabaseDb.supabase
-    .from('customers')
-    .select('password_hash')
-    .eq('id', decoded.dbCustomerId)
-    .single();
-
-  if (fetchError) {
-    return res.status(404).json({ error: 'Customer not found' });
-  }
-
-  if (customer.password_hash) {
-    return res.status(400).json({ error: 'Password already set. Please use the login page.' });
-  }
-
-  // Hash new password
-  const passwordHash = await bcrypt.hash(newPassword, 12);
-
-  // Update password in database
-  const { error: updateError } = await supabaseDb.supabase
-    .from('customers')
-    .update({
-      password_hash: passwordHash,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', decoded.dbCustomerId);
-
-  if (updateError) {
-    console.error('Error setting password:', updateError);
-    return res.status(500).json({ error: 'Failed to set password' });
-  }
-
-  // Create permanent JWT token for login
-  const token = jwt.sign(
-    {
-      customerId: decoded.customerId,
-      dbCustomerId: decoded.dbCustomerId,
-      email: decoded.email,
-      isAdmin: false
-    },
-    JWT_SECRET,
-    { expiresIn: '7d' }
-  );
-
-  res.cookie('token', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-    path: '/',
-  });
-
-  // Get full customer details
-  const { data: fullCustomer } = await supabaseDb.supabase
-    .from('customers')
-    .select('*')
-    .eq('id', decoded.dbCustomerId)
-    .single();
-
-  res.json({
-    success: true,
-    message: 'Password set successfully. You are now logged in.',
-    user: {
-      id: fullCustomer.shopify_customer_id,
-      dbId: fullCustomer.id,
-      email: fullCustomer.email,
-      firstName: fullCustomer.first_name,
-      lastName: fullCustomer.last_name,
-      isAdmin: false
-    },
-    token
-  });
-
 }));
 
 };

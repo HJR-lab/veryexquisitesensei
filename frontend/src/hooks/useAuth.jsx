@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import supabase from '../utils/supabase';
 import { authAPI } from '../utils/api';
 
 const AuthContext = createContext(null);
@@ -7,35 +8,56 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    checkAuth();
-  }, []);
-
-  const checkAuth = async () => {
+  const fetchUser = useCallback(async () => {
     try {
       const data = await authAPI.getMe();
       setUser(data.user);
     } catch (error) {
-      console.error('Auth check failed:', error);
-    } finally {
-      setLoading(false);
+      console.error('Failed to fetch user:', error);
+      setUser(null);
     }
-  };
+  }, []);
 
-  const login = async (email, password) => {
-    const data = await authAPI.login(email, password);
-    setUser(data.user);
-    return data;
-  };
+  useEffect(() => {
+    // Check for existing session on mount
+    const initAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        await fetchUser();
+      }
+      setLoading(false);
+    };
 
-  const register = async (email, password, firstName, lastName) => {
-    const data = await authAPI.register(email, password, firstName, lastName);
-    setUser(data.user);
-    return data;
+    initAuth();
+
+    // Listen for auth state changes (login, logout, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === 'SIGNED_IN' && session) {
+          await fetchUser();
+        } else if (event === 'SIGNED_OUT') {
+          setUser(null);
+        }
+      }
+    );
+
+    return () => subscription.unsubscribe();
+  }, [fetchUser]);
+
+  const login = async (email) => {
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+    if (error) throw error;
+    // No immediate user — they need to click the magic link
   };
 
   const logout = async () => {
-    await authAPI.logout();
+    await supabase.auth.signOut();
+    await authAPI.logout(); // Clear server-side impersonation cookie if any
     setUser(null);
   };
 
@@ -43,8 +65,12 @@ export function AuthProvider({ children }) {
     setUser(updatedUser);
   };
 
+  const refreshUser = async () => {
+    await fetchUser();
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, updateUser }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, updateUser, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

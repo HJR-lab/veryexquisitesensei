@@ -1,4 +1,5 @@
 import axios from 'axios';
+import supabase from './supabase';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -10,30 +11,24 @@ const api = axios.create({
   },
 });
 
+// Attach Supabase Auth token to all API requests
+api.interceptors.request.use(async (config) => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.access_token) {
+    config.headers.Authorization = `Bearer ${session.access_token}`;
+  }
+  return config;
+});
+
 // Auth API
 export const authAPI = {
-  login: async (email, password) => {
-    const { data } = await api.post('/auth/login', { email, password });
-    return data;
-  },
-
-  register: async (email, password, firstName, lastName) => {
-    const { data } = await api.post('/auth/register', {
-      email,
-      password,
-      firstName,
-      lastName,
-    });
+  getMe: async () => {
+    const { data } = await api.get('/auth/me');
     return data;
   },
 
   logout: async () => {
     await api.post('/auth/logout');
-  },
-
-  getMe: async () => {
-    const { data } = await api.get('/auth/me');
-    return data;
   },
 };
 

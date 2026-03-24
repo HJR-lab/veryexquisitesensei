@@ -954,7 +954,8 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
   // Apply cohort restrictions for standard 6-week WT courses (not 10-class package)
   // NOTE: 10-class package students can reschedule across categories (HB ↔ WT)
   // Regular course students must stay within their original course type and cohort dates
-  if (!has10ClassPackage) {
+  // HB drop-in bookings have no course_enrollment_id — skip cohort restrictions for them
+  if (!has10ClassPackage && currentBooking.course_enrollment_id) {
     // Get student's course enrollment to find cohort dates
     const { data: enrollment, error: enrollmentError } = await supabaseDb.supabase
       .from('course_enrollments')

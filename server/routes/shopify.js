@@ -581,8 +581,8 @@ app.post('/api/admin/sync-shopify-orders', authenticateToken, requireAdmin, asyn
   const { sinceDate } = req.body || {};
   console.log('🔄 Starting Shopify order sync...');
   const client = getShopifyClient();
-  const { processCoursePurchase } = require('./utils/courseEnrollmentManager');
-  const { supabase } = require('./utils/supabaseDb');
+  const { processCoursePurchase } = require('../utils/courseEnrollmentManager');
+  const { supabase } = require('../utils/supabaseDb');
 
   let processedCount = 0;
   let enrollmentsCreated = 0;
@@ -771,10 +771,10 @@ app.post('/api/admin/sync-shopify-orders', authenticateToken, requireAdmin, asyn
               const dupLastName = `${customer.lastName || ''} (${paxIndex + 1})`;
 
               try {
-                const { findCustomerByEmail } = require('./utils/supabaseDb');
+                const { findCustomerByEmail } = require('../utils/supabaseDb');
                 const existingDup = await findCustomerByEmail(paxEmail);
                 if (!existingDup) {
-                  const { supabase: db } = require('./utils/supabaseDb');
+                  const { supabase: db } = require('../utils/supabaseDb');
                   await db.from('customers').insert({
                     email: paxEmail,
                     first_name: dupFirstName,
@@ -831,7 +831,7 @@ app.post('/api/admin/sync-shopify-orders', authenticateToken, requireAdmin, asyn
           }
         } else if (productTitle.toLowerCase().includes('clay club')) {
           // ── Clay Club membership sync ──────────────────────────────────
-          const { findCustomerByEmail, createMembership } = require('./utils/supabaseDb');
+          const { findCustomerByEmail, createMembership } = require('../utils/supabaseDb');
           const memberCustomer = await findCustomerByEmail(customer.email);
           if (!memberCustomer) {
             console.log(`⚠️  Clay Club order for unknown customer: ${customer.email}`);
@@ -968,7 +968,7 @@ app.post('/api/admin/sync-shopify-orders', authenticateToken, requireAdmin, asyn
 
   // Update last sync timestamp
   try {
-    const { supabase } = require('./utils/supabaseDb');
+    const { supabase } = require('../utils/supabaseDb');
     const { error: updateError } = await supabase
       .from('sync_tracking')
       .upsert({
@@ -1077,7 +1077,7 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
 
     // Process line items to check for course purchases
     if (orderData.line_items && orderData.line_items.length > 0) {
-      const { processCoursePurchase } = require('./utils/courseEnrollmentManager');
+      const { processCoursePurchase } = require('../utils/courseEnrollmentManager');
 
       for (const item of orderData.line_items) {
         const productTitle = item.title || '';

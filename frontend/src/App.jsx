@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 // import AIChat from './components/AIChat'; // Removed for security review
-import Login from './pages/Login';
+
 import AuthCallback from './pages/AuthCallback';
 import Gallery from './pages/Gallery';
 import GalleryNew from './pages/GalleryNew';
@@ -131,14 +131,7 @@ function App() {
       <AuthProvider>
         {/* <AIChat /> */}
         <Routes>
-          <Route
-            path="/login"
-            element={
-              <PublicRoute>
-                <Login />
-              </PublicRoute>
-            }
-          />
+          <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
           <Route
             path="/gallery"

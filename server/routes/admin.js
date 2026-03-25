@@ -828,13 +828,23 @@ app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandl
           variantTitle: enrollment?.course_variant_title || buildVariantTitleFromBookings(s.id, displayCourse?.courseIdentifier) || null,
           coursePurchaseCount: courses.length || 0,
           coursePurchaseDate: s.course_purchase_date,
-          enrollmentCreatedAt: enrollment?.created_at || s.course_purchase_date || null,
+          enrollmentCreatedAt: (() => {
+            const allEnrollments = studentActiveEnrollmentsMap[s.id] || [];
+            if (allEnrollments.length > 0) {
+              return allEnrollments.reduce((latest, e) => !latest || new Date(e.created_at) > new Date(latest) ? e.created_at : latest, null);
+            }
+            return enrollment?.created_at || s.course_purchase_date || null;
+          })(),
           enrollmentStatus: enrollment?.status || 'active',
           weeksRemaining: classesRemaining,
           classesAttended: endedClassesInCurrentCourse,
           classesAllocated: currentCourseAllocated,
           packageTotalCourses: enrollment?.package_total_courses || null,
-          hasUpcomingCourse: upcomingCourses.length > 0, // Flag to indicate student has upcoming courses
+          hasUpcomingCourse: upcomingCourses.length > 0,
+          upcomingCourse: upcomingCourses.length > 0 ? {
+            courseIdentifier: upcomingCourses[0].courseIdentifier,
+            variantTitle: buildVariantTitleFromBookings(s.id, upcomingCourses[0].courseIdentifier) || null
+          } : null,
           cohortSize: getCohortSize(s.id)
         };
       })

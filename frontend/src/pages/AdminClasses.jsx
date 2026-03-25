@@ -159,7 +159,19 @@ export default function AdminClasses() {
     try {
       setLoading(true);
       const { data } = await api.get('/admin/classes');
-      setCourses(data.courses || []);
+      const allCourses = data.courses || [];
+      setCourses(allCourses);
+
+      // Auto-load members for HB classes so counts are accurate
+      allCourses.forEach(c => {
+        if (c.classes?.length > 0 && (c.classes[0]?.class_type || '').toUpperCase().startsWith('HB')) {
+          c.classes.forEach(cls => {
+            api.get(`/admin/classes/${cls.id}/members`).then(({ data: mData }) => {
+              setClassMembers(prev => ({ ...prev, [cls.id]: mData.members || [] }));
+            }).catch(() => {});
+          });
+        }
+      });
     } catch (error) {
       console.error('Failed to load courses:', error);
     } finally {
@@ -781,11 +793,6 @@ export default function AdminClasses() {
 
   // ── HB card ───────────────────────────────────────────────────────────────────
   function renderHBCard(hb, i) {
-    const count       = hb.enrolled;
-    const atCap       = count >= hb.capacity;
-    const nearCap     = count >= hb.capacity - 2 && !atCap;
-    const fillColor   = atCap ? '#D93025' : nearCap ? '#E6A817' : '#888';
-    const borderColor = atCap ? '#D93025' : '#888';
     const isExpanded  = expandedHBCard === hb.id;
     const cols        = isMobile ? 2 : 3;
     const rightBorder = (i + 1) % cols !== 0 ? `1px solid ${RULE}` : 'none';
@@ -796,10 +803,20 @@ export default function AdminClasses() {
       (classMembers[cls.id] || []).forEach(m => {
         if (!seenIds.has(m.studentId)) {
           seenIds.add(m.studentId);
+          // Filter out completed students (all credits used)
+          if (m.creditsAllocated != null && m.creditsUsed >= m.creditsAllocated) return;
           allMembers.push(m);
         }
       });
     });
+
+    // Use filtered active member count if loaded, otherwise backend total
+    const membersLoaded = hb.classes.some(cls => classMembers[cls.id]);
+    const count       = membersLoaded ? allMembers.length : hb.enrolled;
+    const atCap       = count >= hb.capacity;
+    const nearCap     = count >= hb.capacity - 2 && !atCap;
+    const fillColor   = atCap ? '#D93025' : nearCap ? '#E6A817' : '#888';
+    const borderColor = atCap ? '#D93025' : '#888';
 
     return (
       <div key={hb.id} style={{ borderBottom: `1px solid ${RULE}`, borderRight: rightBorder }}>

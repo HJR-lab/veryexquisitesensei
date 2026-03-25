@@ -394,6 +394,7 @@ export default function AdminStudents() {
         _membership: membership || null,
         _statusKey: s.enrollmentStatus === 'upcoming' ? 'upcoming' : 'active',
         _packageTotalCourses: s.packageTotalCourses || null,
+        _upcomingCourse: s.upcomingCourse || null,
       };
     });
 
@@ -753,6 +754,18 @@ export default function AdminStudents() {
                       )}
                       {student.courseIdentifier && (
                         <span style={{ fontFamily: 'monospace', fontSize: '9px', color: MUTED }}>{student.courseIdentifier}</span>
+                      )}
+                      {student._upcomingCourse && (
+                        <>
+                          {student._upcomingCourse.variantTitle && (
+                            <span style={{ fontFamily: 'monospace', fontSize: '10px', fontWeight: 700, color: '#888', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '170px', marginTop: '4px' }}>
+                              {student._upcomingCourse.variantTitle}
+                            </span>
+                          )}
+                          <span style={{ fontFamily: 'monospace', fontSize: '9px', color: MUTED }}>
+                            {student._upcomingCourse.courseIdentifier} <span style={{ fontSize: '8px', color: '#E6A817', fontWeight: 700 }}>UPCOMING</span>
+                          </span>
+                        </>
                       )}
                     </>
                   )}

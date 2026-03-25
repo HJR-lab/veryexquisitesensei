@@ -27,12 +27,16 @@ const INSTRUCTORS = {
   LYNETTE_TING: { code: 'LT', name: 'Lynette Ting' }
 };
 
-// Get instructor for course type
-function getInstructorForCourse(courseType) {
+// Get instructor for course type and schedule
+function getInstructorForCourse(courseType, schedulePattern) {
   if (courseType && courseType.toLowerCase().includes('handbuilding')) {
     return INSTRUCTORS.LYNETTE_TING; // Handbuilding taught by LT
   }
-  // Default to Joyce Lim for wheelthrowing (can also be DL)
+  // Weekends (Saturday/Sunday) are taught by Dillon Lin
+  if (schedulePattern && ['SATURDAY', 'SUNDAY'].includes(schedulePattern.toUpperCase())) {
+    return INSTRUCTORS.DILLON_LIN;
+  }
+  // Weekdays default to Joyce Lim
   return INSTRUCTORS.JOYCE_LIM;
 }
 
@@ -169,7 +173,7 @@ async function processCoursePurchase(order, lineItem) {
       console.log(`📦 Package: Allocated ${totalClassesAllocated} classes (${weeksPerCourse} × ${coursesInPackage} courses), course count now ${(student.course_purchase_count || 0) + coursePurchaseIncrement}`);
     }
 
-    // Handbuilding courses use credit system (no auto-booking)
+    // Handbuilding courses use credit system with auto-booking into chosen day
     if (courseInfo.courseType && courseInfo.courseType.toLowerCase().includes('handbuilding')) {
       const credits = courseInfo.numberOfWeeks || 4; // 4 or 8 class credits
 
@@ -182,14 +186,55 @@ async function processCoursePurchase(order, lineItem) {
         glazing_class_used: false
       });
 
-      console.log(`🎨 Handbuilding enrollment: ${credits} credits allocated (student will self-register for classes)`);
+      console.log(`🎨 Handbuilding enrollment: ${credits} credits allocated`);
+
+      // Book into upcoming HB class instances for the student's chosen day
+      let hbBookingsCreated = 0;
+      if (courseInfo.schedulePattern) {
+        const dayMap = { MONDAY: 'MON', TUESDAY: 'TUE', WEDNESDAY: 'WED', THURSDAY: 'THU', FRIDAY: 'FRI', SATURDAY: 'SAT', SUNDAY: 'SUN' };
+        const dayCode = dayMap[courseInfo.schedulePattern.toUpperCase()] || '';
+
+        if (dayCode) {
+          // Find upcoming HB class instances for this day (e.g., HBMONNT_LT, HBSATEV_LT)
+          const today = new Date().toISOString().split('T')[0];
+          const { data: hbClasses } = await supabase
+            .from('class_instances')
+            .select('id, class_date, class_type')
+            .ilike('class_type', `HB${dayCode}%`)
+            .gte('class_date', today)
+            .order('class_date', { ascending: true })
+            .limit(credits);
+
+          if (hbClasses && hbClasses.length > 0) {
+            const bookingNow = new Date().toISOString();
+            const hbBookings = hbClasses.map(ci => ({
+              student_id: student.id,
+              class_instance_id: ci.id,
+              status: 'booked',
+              booking_type: 'regular',
+              course_enrollment_id: enrollment.id,
+              booking_date: bookingNow,
+              created_at: bookingNow,
+              updated_at: bookingNow
+            }));
+
+            const created = await createMultipleBookings(hbBookings);
+            hbBookingsCreated = created.length;
+
+            console.log(`📅 Booked ${hbBookingsCreated} HB classes on ${courseInfo.schedulePattern}s`);
+          } else {
+            console.log(`⚠️  No upcoming HB class instances found for ${dayCode}`);
+          }
+        }
+      }
 
       return {
         success: true,
         enrollment,
         isHandbuilding: true,
         creditsAllocated: credits,
-        message: `${credits} class credits allocated. Student can self-register for HB classes.`
+        bookingsCreated: hbBookingsCreated,
+        message: `${credits} class credits allocated, ${hbBookingsCreated} classes booked.`
       };
     }
 
@@ -253,15 +298,8 @@ async function checkAndProcessThreshold(newEnrollment) {
       return result;
     }
 
-    // No peer has bookings — check if class instances already exist in DB
-    const existingClasses = await findExistingClassInstances(newEnrollment);
-
-    if (existingClasses && existingClasses.length > 0) {
-      console.log(`📅 Found ${existingClasses.length} existing class instances in DB, linking students...`);
-      return await linkStudentsToExistingClasses(cohortEnrollments, existingClasses);
-    }
-
-    // No existing class instances — create new ones (draft or active based on threshold)
+    // No peer has bookings — create new class instances for this cohort
+    // Each cohort (course type + schedule + time) gets its own classes
     const classStatus = studentCount >= MINIMUM_STUDENTS_THRESHOLD ? 'active' : 'draft';
 
     if (classStatus === 'draft') {
@@ -356,32 +394,9 @@ async function findExistingClassInstances(enrollment) {
     return classTimeNorm === enrollTimeNorm;
   });
 
-  if (timeMatches.length > 0) return timeMatches;
-
-  // If multiple class codes on same day (e.g. WT2802PM_JL and WT2802PM_DL),
-  // pick the one with the most existing bookings
-  const byBaseType = {};
-  for (const c of dayMatches) {
-    const base = c.class_type.replace(/\.\d+$/, '');
-    if (!byBaseType[base]) byBaseType[base] = [];
-    byBaseType[base].push(c);
-  }
-
-  for (const [base, classes] of Object.entries(byBaseType)) {
-    if (classes.length >= 6) {
-      const { count } = await supabase.from('bookings')
-        .select('id', { count: 'exact', head: true })
-        .in('class_instance_id', classes.map(c => c.id));
-      if (count > 0) return classes;
-    }
-  }
-
-  // Return first group with 6+ classes
-  for (const classes of Object.values(byBaseType)) {
-    if (classes.length >= 6) return classes;
-  }
-
-  return dayMatches;
+  // Only return classes that match the enrollment's time slot
+  // No fallback to day-only matching — wrong time = wrong class
+  return timeMatches;
 }
 
 /**
@@ -458,14 +473,18 @@ async function createClassesAndBookings(cohortEnrollments, classStatus = 'active
       room: firstEnrollment.room
     };
 
-    // Get appropriate instructor for this course type
-    const instructor = getInstructorForCourse(firstEnrollment.course_type);
+    // Get appropriate instructor for this course type and schedule
+    const instructor = getInstructorForCourse(firstEnrollment.course_type, firstEnrollment.schedule_pattern);
+
+    // Intermediate courses use Studio B, others use Studio A
+    const isIntermediate = (firstEnrollment.course_type || '').toLowerCase().includes('intermediate');
+    const defaultRoom = isIntermediate ? 'Studio B' : 'Studio A';
 
     // Generate class instance objects
     const classInstanceObjects = generateClassInstanceObjects(courseInfo, {
       instructorName: firstEnrollment.instructor || instructor.name,
       instructorCode: instructor.code,
-      room: firstEnrollment.room || 'Studio A',
+      room: firstEnrollment.room || defaultRoom,
       maxCapacity: 10,
       startTime: courseInfo.classTime ? courseInfo.classTime.split(' - ')[0] : '7:00 PM',
       endTime: courseInfo.classTime ? courseInfo.classTime.split(' - ')[1] : '9:30 PM'
@@ -507,14 +526,21 @@ async function createClassesAndBookings(cohortEnrollments, classStatus = 'active
 
     console.log(`✅ Created ${createdBookings.length} bookings`);
 
-    // Update all enrollments with booking timestamps
+    // Derive course_identifier from created class instances
+    const baseCourseId = createdClasses.length > 0
+      ? (createdClasses[0].class_type || '').replace(/\.\d+$/, '')
+      : null;
+
+    // Update all enrollments with booking timestamps and course_identifier
     const now = new Date().toISOString();
     for (const enrollment of cohortEnrollments) {
-      await updateCourseEnrollment(enrollment.id, {
+      const updateData = {
         status: 'active',
         thresholdMetAt: now,
         bookingsCreatedAt: now
-      });
+      };
+      if (baseCourseId) updateData.course_identifier = baseCourseId;
+      await updateCourseEnrollment(enrollment.id, updateData);
     }
 
     return {
@@ -595,13 +621,15 @@ async function addStudentToExistingCohort(newEnrollment, existingEnrollment) {
       await updateClassEnrollment(classInstanceId, 1);
     }
 
-    // Update enrollment with booking timestamp
-    await updateCourseEnrollment(newEnrollment.id, {
+    // Update enrollment with booking timestamp and course_identifier
+    const enrollUpdate = {
       status: 'active',
       bookingsCreatedAt: new Date().toISOString()
-    });
+    };
+    if (baseCourseId) enrollUpdate.course_identifier = baseCourseId;
+    await updateCourseEnrollment(newEnrollment.id, enrollUpdate);
 
-    console.log(`✅ Added student to existing cohort with ${createdBookings.length} bookings`);
+    console.log(`✅ Added student to existing cohort with ${createdBookings.length} bookings (${baseCourseId})`);
 
     return {
       thresholdMet: true,

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
+import { useAuth } from '../hooks/useAuth';
 import ImpersonationBanner from '../components/ImpersonationBanner';
 
 const TC       = '#C4622D';
@@ -13,6 +14,14 @@ const ALT      = '#F5F3F0';
 
 export default function GalleryNew() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  // Redirect admin to dashboard instead of gallery
+  useEffect(() => {
+    if (user?.isAdmin && !user?.isImpersonating) {
+      navigate('/admin', { replace: true });
+    }
+  }, [user, navigate]);
 
   // --- gallery sub-tab ---
   const [galleryTab, setGalleryTab] = useState('mine'); // 'mine' | 'community'

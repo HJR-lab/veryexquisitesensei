@@ -11,7 +11,7 @@ const { startAutomaticProcessing } = require('./utils/cohortAutoProcessor');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-if (!process.env.COOKIE_SECRET) { console.error('FATAL: COOKIE_SECRET not set'); process.exit(1); }
+if (!process.env.COOKIE_SECRET) { console.error('WARNING: COOKIE_SECRET not set — impersonation will not work'); }
 
 // Middleware
 app.use(helmet());
@@ -173,32 +173,22 @@ app.get('*', (req, res, next) => {
   }
 });
 
-// Start server
-const server = app.listen(PORT, async () => {
-  console.log(`🎨 VES Pottery Gallery API running on port ${PORT}`);
-  console.log(`📍 Health check: http://localhost:${PORT}/health`);
-  console.log(`🔐 Auth endpoints: /api/auth/*`);
-  console.log(`🏺 Gallery endpoints: /api/pottery/*`);
-  console.log(`📤 Upload endpoints: /api/upload/*`);
-  console.log(`🗄️  Supabase database connected`);
+// Export for Vercel serverless
+module.exports = app;
 
-  await ensureBucketExists();
-  startAutomaticProcessing();
-});
-
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM signal received: closing HTTP server');
-  server.close(() => {
-    console.log('HTTP server closed');
-    process.exit(0);
+// Start server only when running directly (not imported by Vercel)
+if (require.main === module) {
+  const server = app.listen(PORT, async () => {
+    console.log(`VES Pottery Gallery API running on port ${PORT}`);
+    await ensureBucketExists();
+    startAutomaticProcessing();
   });
-});
 
-process.on('SIGINT', async () => {
-  console.log('\nSIGINT signal received: closing HTTP server');
-  server.close(() => {
-    console.log('HTTP server closed');
-    process.exit(0);
+  process.on('SIGTERM', async () => {
+    server.close(() => process.exit(0));
   });
-});
+
+  process.on('SIGINT', async () => {
+    server.close(() => process.exit(0));
+  });
+}

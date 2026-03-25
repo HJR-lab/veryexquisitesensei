@@ -5,7 +5,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://server-neon-six.vercel.app/api/$1"
+      "destination": "https://ves-pottery-api-production.up.railway.app/api/$1"
     },
     {
       "source": "/(.*)",

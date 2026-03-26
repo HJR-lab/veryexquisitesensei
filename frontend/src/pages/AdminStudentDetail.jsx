@@ -679,12 +679,13 @@ export default function AdminStudentDetail() {
   const hbCreditsRemaining = enrollment?.class_credits_remaining || 0;
 
   const totalBooked    = activeBookings.length;
+  const allBookedCount = bookings.length; // includes completed-course bookings
   const enrollmentAllocated = isHBEnrollment ? hbCreditsAllocated : (enrollment?.number_of_weeks || 0);
-  const totalAllocated = Math.max(totalBooked, enrollmentAllocated);
-  // For HB: compute unbooked from actual bookings vs allocated, not just trust class_credits_remaining
+  const totalAllocated = Math.max(allBookedCount, enrollmentAllocated);
+  // For HB: compute unbooked from ALL bookings (including completed courses) vs allocated
   const unbookedCount  = isHBEnrollment
-    ? Math.max(0, hbCreditsAllocated - totalBooked)
-    : Math.max(0, totalAllocated - totalBooked);
+    ? Math.max(0, hbCreditsAllocated - allBookedCount)
+    : Math.max(0, totalAllocated - allBookedCount);
 
   const filteredBookings = [...(showCompletedCourses ? bookings : activeBookings)]
     .filter(b => statusFilter === 'all' || b.status === statusFilter)

@@ -98,8 +98,28 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
         course_purchase_count, classes_allocated, created_at
       )
     `)
-    .in('status', ['active', 'paused', 'upcoming', 'completed'])
+    .in('status', ['active', 'paused', 'upcoming'])
     .order('created_at', { ascending: false });
+
+  // Also fetch completed HB enrollments (so HB students with completed courses still show)
+  const { data: completedHB } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select(`
+      id, student_id, course_type, course_title, course_variant_title,
+      course_identifier, schedule_pattern, class_time, status,
+      number_of_weeks, class_credits_allocated, class_credits_used, class_credits_remaining,
+      course_start_date, course_end_date, created_at, package_total_courses,
+      customers!course_enrollments_student_id_fkey (
+        id, email, first_name, last_name, customer_type,
+        course_purchase_count, classes_allocated, created_at
+      )
+    `)
+    .eq('status', 'completed')
+    .ilike('course_type', '%handbuilding%')
+    .order('created_at', { ascending: false });
+
+  // Merge — completedHB appended so active/paused take priority in dedup
+  const allEnrollments = [...(enrollments || []), ...(completedHB || [])];
 
   if (enrErr) throw enrErr;
 
@@ -158,7 +178,7 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
     };
   });
 
-  for (const enr of (enrollments || [])) {
+  for (const enr of allEnrollments) {
     const student = enr.customers;
     if (!student) continue;
     const sid = student.id;

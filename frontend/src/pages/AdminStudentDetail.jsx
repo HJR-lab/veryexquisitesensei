@@ -663,7 +663,7 @@ export default function AdminStudentDetail() {
       return (b.status === 'attended' || b.status === 'completed') && d < today;
     });
   };
-  const [showCompletedCourses, setShowCompletedCourses] = useState(false);
+  const [showCompletedCourses, setShowCompletedCourses] = useState(true);
   const activeBookings = bookings.filter(b => !isCompletedCourse(courseGroups[getBaseId(b)] || []));
   const completedCourseCount = Object.values(courseGroups).filter(g => isCompletedCourse(g)).length;
 

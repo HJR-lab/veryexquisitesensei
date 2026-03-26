@@ -109,12 +109,22 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
       .from('memberships')
       .select('id, customer_id, membership_type, status, start_date, end_date, customers!memberships_customer_id_fkey(email, first_name, last_name, customer_type)')
       .in('status', ['active', 'expiring']),
-    supabaseDb.supabase
-      .from('bookings')
-      .select('course_enrollment_id, status, class_instances!bookings_class_instance_id_fkey(class_date)')
-      .in('status', ['booked', 'attended', 'completed'])
-      .not('course_enrollment_id', 'is', null)
-      .range(0, 4999)
+    // Paginate bookings to avoid Supabase 1000-row default limit
+    (async () => {
+      let all = [], page = 0, hasMore = true;
+      while (hasMore) {
+        const { data } = await supabaseDb.supabase
+          .from('bookings')
+          .select('course_enrollment_id, status, class_instances!bookings_class_instance_id_fkey(class_date)')
+          .in('status', ['booked', 'attended', 'completed'])
+          .not('course_enrollment_id', 'is', null)
+          .range(page * 1000, (page + 1) * 1000 - 1);
+        all = all.concat(data || []);
+        hasMore = (data || []).length === 1000;
+        page++;
+      }
+      return { data: all };
+    })()
   ]);
 
   // Build attended count per enrollment (attended/completed + past booked)

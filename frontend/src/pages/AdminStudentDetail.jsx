@@ -688,6 +688,13 @@ export default function AdminStudentDetail() {
     return b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && classDate < today);
   }).length;
 
+  // Count attended from ALL bookings (including completed course groups) for accurate display
+  const allAttendedCount = bookings.filter(b => {
+    const classDate = new Date(b.class_date);
+    classDate.setHours(0, 0, 0, 0);
+    return b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && classDate < today);
+  }).length;
+
   const isHBEnrollment = enrollment && (enrollment.course_type || '').toLowerCase().includes('handbuilding');
   const hbCreditsAllocated = enrollment?.class_credits_allocated || enrollment?.number_of_weeks || 0;
   const hbCreditsUsed = enrollment?.class_credits_used || 0;
@@ -955,7 +962,7 @@ export default function AdminStudentDetail() {
                         </div>
                         <div style={{ textAlign: 'right' }}>
                           <div style={{ fontSize: '22px', fontWeight: 700 }}>
-                            {isHBEnrollment ? hbCreditsUsed : attendedCount}<span style={{ fontSize: '14px', color: MUTED, fontWeight: 400 }}>/{totalAllocated}</span>
+                            {allAttendedCount}<span style={{ fontSize: '14px', color: MUTED, fontWeight: 400 }}>/{totalAllocated}</span>
                           </div>
                           <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Attended</div>
                         </div>
@@ -964,18 +971,15 @@ export default function AdminStudentDetail() {
                       <div style={{ height: '6px', backgroundColor: ALT, position: 'relative', marginBottom: '8px' }}>
                         <div style={{
                           position: 'absolute', left: 0, top: 0, height: '100%',
-                          width: `${Math.min(100, isHBEnrollment
-                            ? (hbCreditsAllocated > 0 ? (hbCreditsUsed / hbCreditsAllocated) * 100 : 0)
-                            : (totalAllocated > 0 ? (attendedCount / totalAllocated) * 100 : 0)
-                          )}%`,
+                          width: `${Math.min(100, totalAllocated > 0 ? (allAttendedCount / totalAllocated) * 100 : 0)}%`,
                           backgroundColor: TC,
                         }} />
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ fontSize: '11px', color: MUTED }}>
                           {isHBEnrollment
-                            ? `${hbCreditsUsed} attended · ${Math.max(0, allBookedCount - hbCreditsUsed)} booked`
-                            : `${attendedCount} attended · ${Math.max(0, allBookedCount - attendedCount)} booked`}
+                            ? `${allAttendedCount} attended · ${Math.max(0, allBookedCount - allAttendedCount)} booked`
+                            : `${allAttendedCount} attended · ${Math.max(0, allBookedCount - allAttendedCount)} booked`}
                         </span>
                         <span style={{ fontSize: '11px', color: TC_DARK, fontWeight: 700 }}>
                           {isHBEnrollment

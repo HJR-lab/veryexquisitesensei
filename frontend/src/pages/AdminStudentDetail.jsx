@@ -947,7 +947,10 @@ export default function AdminStudentDetail() {
                       <div style={{ height: '6px', backgroundColor: ALT, position: 'relative', marginBottom: '8px' }}>
                         <div style={{
                           position: 'absolute', left: 0, top: 0, height: '100%',
-                          width: `${Math.min(100, totalAllocated > 0 ? (attendedCount / totalAllocated) * 100 : 0)}%`,
+                          width: `${Math.min(100, isHBEnrollment
+                            ? (hbCreditsAllocated > 0 ? (hbCreditsUsed / hbCreditsAllocated) * 100 : 0)
+                            : (totalAllocated > 0 ? (attendedCount / totalAllocated) * 100 : 0)
+                          )}%`,
                           backgroundColor: TC,
                         }} />
                       </div>

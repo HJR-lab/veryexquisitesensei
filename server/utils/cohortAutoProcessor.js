@@ -203,6 +203,66 @@ async function autoMarkPastBookingsAsAttended() {
 }
 
 /**
+ * Check for courses starting in 5 days that haven't had their course details email sent,
+ * and send an admin reminder if any are found.
+ */
+async function checkCourseEmailReminders() {
+  try {
+    const { sendEmail } = require('./emailService');
+
+    const fiveDaysFromNow = new Date();
+    fiveDaysFromNow.setDate(fiveDaysFromNow.getDate() + 5);
+    const targetDate = fiveDaysFromNow.toISOString().split('T')[0];
+
+    // Find class instances on that date
+    const { data: classes } = await supabase
+      .from('class_instances')
+      .select('class_type, class_date')
+      .eq('class_date', targetDate);
+
+    if (!classes || classes.length === 0) return;
+
+    // Get unique base course IDs
+    const courseIds = [...new Set(classes.map(c => c.class_type.split('.')[0]))];
+
+    // Check which have sent emails
+    const { data: sentEmails } = await supabase
+      .from('sent_emails')
+      .select('course_identifier')
+      .in('course_identifier', courseIds)
+      .eq('email_type', 'course_details');
+
+    const sentSet = new Set((sentEmails || []).map(e => e.course_identifier));
+    const unsent = courseIds.filter(id => !sentSet.has(id));
+
+    if (unsent.length === 0) return;
+
+    // Get student counts for unsent courses
+    const reminders = [];
+    for (const courseId of unsent) {
+      const { data: enrollments } = await supabase
+        .from('course_enrollments')
+        .select('id')
+        .like('course_identifier', `${courseId}%`)
+        .in('status', ['active', 'pending']);
+
+      reminders.push(`• ${courseId} — ${(enrollments || []).length} students enrolled`);
+    }
+
+    // Send reminder to admin
+    await sendEmail({
+      to: 'info@ves.sg',
+      subject: `VES Admin: ${unsent.length} course email${unsent.length > 1 ? 's' : ''} pending`,
+      html: `<p>The following courses start in 5 days and haven't had their course details email sent:</p><p>${reminders.join('<br/>')}</p><p><a href="https://club.ves.sg/admin/emails">Review and send course emails</a></p>`,
+    });
+
+    console.log(`[Auto-Processor] Sent course email reminder for ${unsent.length} courses`);
+  } catch (error) {
+    console.error('[Auto-Processor] Course email reminder failed:', error);
+  }
+}
+
+/**
  * Schedule automatic processing (call this on server startup)
  */
 function startAutomaticProcessing() {
@@ -224,6 +284,7 @@ function startAutomaticProcessing() {
       console.log('[Auto-Processor] Running daily scheduled check...');
       processReadyCohorts().catch(console.error);
       autoMarkPastBookingsAsAttended().catch(console.error);
+      checkCourseEmailReminders().catch(console.error);
     }
   };
 
@@ -236,5 +297,6 @@ function startAutomaticProcessing() {
 module.exports = {
   processReadyCohorts,
   autoMarkPastBookingsAsAttended,
+  checkCourseEmailReminders,
   startAutomaticProcessing
 };

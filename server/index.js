@@ -82,8 +82,8 @@ async function authenticateToken(req, res, next) {
 
     const isAdmin = customer.email === 'info@ves.sg';
 
-    // Check for impersonation cookie (admin only)
-    const impersonateId = req.signedCookies?.ves_impersonate;
+    // Check for impersonation via header or cookie (admin only)
+    const impersonateId = req.headers['x-impersonate-id'] || req.signedCookies?.ves_impersonate;
     if (impersonateId && isAdmin) {
       const { data: target, error: targetError } = await supabaseDb.supabase
         .from('customers')

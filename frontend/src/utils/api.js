@@ -17,10 +17,14 @@ export function setApiToken(token) {
   cachedAccessToken = token;
 }
 
-// Attach cached token to all API requests
+// Attach cached token and impersonation header to all API requests
 api.interceptors.request.use((config) => {
   if (cachedAccessToken) {
     config.headers.Authorization = `Bearer ${cachedAccessToken}`;
+  }
+  const impersonateId = localStorage.getItem('ves_impersonate_id');
+  if (impersonateId) {
+    config.headers['X-Impersonate-Id'] = impersonateId;
   }
   return config;
 });

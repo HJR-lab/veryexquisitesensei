@@ -621,8 +621,9 @@ export default function AdminStudentDetail() {
     try {
       const decodedEmail = decodeURIComponent(email);
       const { data } = await api.post(`/auth/impersonate/${decodedEmail}`);
-      if (data.success) {
+      if (data.success && data.student) {
         localStorage.setItem('adminReturnPath', window.location.pathname);
+        localStorage.setItem('ves_impersonate_id', String(data.student.dbId));
         window.location.href = '/dashboard';
       }
     } catch (error) {

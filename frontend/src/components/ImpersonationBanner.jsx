@@ -18,9 +18,11 @@ export default function ImpersonationBanner() {
       }
       const returnPath = localStorage.getItem('adminReturnPath') || '/admin/students';
       localStorage.removeItem('adminReturnPath');
+      localStorage.removeItem('ves_impersonate_id');
       window.location.href = returnPath;
     } catch (error) {
       console.error('Error returning to admin:', error);
+      localStorage.removeItem('ves_impersonate_id');
       window.location.href = '/admin/students';
     }
   };

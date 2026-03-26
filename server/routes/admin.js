@@ -101,7 +101,8 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
     .in('status', ['active', 'paused', 'upcoming'])
     .order('created_at', { ascending: false });
 
-  // Also fetch completed HB enrollments (so HB students with completed courses still show)
+  // Also fetch completed HB enrollments that still have remaining credits
+  // (once admin clicks Complete and credits go to 0, they disappear from the list)
   const { data: completedHB } = await supabaseDb.supabase
     .from('course_enrollments')
     .select(`
@@ -116,6 +117,7 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
     `)
     .eq('status', 'completed')
     .ilike('course_type', '%handbuilding%')
+    .gt('class_credits_remaining', 0)
     .order('created_at', { ascending: false });
 
   // Merge — completedHB appended so active/paused take priority in dedup

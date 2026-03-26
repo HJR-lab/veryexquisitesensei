@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { lazy, Suspense } from 'react';
 import AdminLayout from './components/AdminLayout';
+import StudentLayout from './components/StudentLayout';
 
 // Critical path — loaded eagerly (student landing pages)
 import AuthCallback from './pages/AuthCallback';
@@ -146,55 +147,24 @@ function App() {
         <Routes>
           <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
-          <Route
-            path="/gallery"
-            element={
-              <PrivateRoute>
-                <GalleryNew />
-              </PrivateRoute>
-            }
-          />
-          <Route
-            path="/gallery-old"
-            element={
-              <PrivateRoute>
-                <Gallery />
-              </PrivateRoute>
-            }
-          />
           <Route path="/public-gallery" element={<PublicGallery />} />
-          <Route
-            path="/classes"
-            element={
-              <PrivateRoute>
-                <ClassScheduleNew />
-              </PrivateRoute>
-            }
-          />
-          <Route
-            path="/upload"
-            element={
-              <PrivateRoute>
-                <UploadPiece />
-              </PrivateRoute>
-            }
-          />
-          <Route path="/member" element={<PrivateRoute><MemberDashboard /></PrivateRoute>} />
-          <Route path="/membership" element={<PrivateRoute><Membership /></PrivateRoute>} />
-          <Route
-            path="/dashboard"
-            element={
-              <PrivateRoute>
-                <DashboardRoute />
-              </PrivateRoute>
-            }
-          />
-          <Route path="/account" element={<PrivateRoute><Account /></PrivateRoute>} />
-          <Route path="/studio-access" element={<PrivateRoute><StudioAccess /></PrivateRoute>} />
-          <Route path="/policy" element={<PrivateRoute><StudioPolicy /></PrivateRoute>} />
           <Route path="/contact" element={<Contact />} />
           <Route path="/instructor/:id" element={<InstructorProfile />} />
           <Route path="/instructor/:id/portfolio" element={<InstructorPortfolio />} />
+
+          {/* Student routes — persistent bottom nav via StudentLayout */}
+          <Route element={<PrivateRoute><StudentLayout /></PrivateRoute>}>
+            <Route path="/gallery" element={<GalleryNew />} />
+            <Route path="/gallery-old" element={<Gallery />} />
+            <Route path="/classes" element={<ClassScheduleNew />} />
+            <Route path="/upload" element={<UploadPiece />} />
+            <Route path="/member" element={<MemberDashboard />} />
+            <Route path="/membership" element={<Membership />} />
+            <Route path="/dashboard" element={<DashboardRoute />} />
+            <Route path="/account" element={<Account />} />
+            <Route path="/studio-access" element={<StudioAccess />} />
+            <Route path="/policy" element={<StudioPolicy />} />
+          </Route>
 
           {/* Admin routes — persistent nav via AdminLayout */}
           <Route path="/admin" element={<AdminRoute><AdminLayout /></AdminRoute>}>

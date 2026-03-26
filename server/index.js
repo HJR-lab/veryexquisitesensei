@@ -26,7 +26,8 @@ app.use(cors({
     'https://frontend-phi-seven-81.vercel.app',
     'https://club.ves.sg'
   ],
-  credentials: true
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Impersonate-Id']
 }));
 app.use(express.json({
   verify: (req, res, buf) => {
@@ -142,6 +143,38 @@ const asyncHandler = (fn) => (req, res, next) => {
 
 // Shared dependencies for route modules
 const deps = { authenticateToken, requireAdmin, asyncHandler, upload, getShopifyClient, shopify };
+
+// HTTP Cache-Control middleware
+app.use((req, res, next) => {
+  if (req.method !== 'GET') return next();
+
+  const path = req.path;
+
+  // Admin endpoints — no caching
+  if (path.startsWith('/api/admin')) {
+    res.set('Cache-Control', 'no-store');
+  }
+  // User-specific data — private, revalidate every request
+  else if (
+    path === '/api/auth/me' ||
+    path === '/api/students/me' ||
+    path === '/api/students/me/dashboard' ||
+    path === '/api/classes/my-bookings'
+  ) {
+    res.set('Cache-Control', 'private, no-cache');
+  }
+  // Static/slow-changing public data — cache 5 minutes
+  else if (
+    path === '/api/classes/available' ||
+    path === '/api/pottery/public' ||
+    path === '/api/community' ||
+    path === '/api/events/upcoming'
+  ) {
+    res.set('Cache-Control', 'public, max-age=300');
+  }
+
+  next();
+});
 
 // Route modules
 require('./routes/auth')(app, deps);

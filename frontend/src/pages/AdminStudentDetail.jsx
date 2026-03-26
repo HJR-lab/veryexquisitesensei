@@ -931,7 +931,7 @@ export default function AdminStudentDetail() {
             {/* ── ENROLLMENT TAB ── */}
             {section === 'enrollment' && (
               <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF', padding: '24px' }}>
-                {!enrollment || enrollment.no_active ? (
+                {!enrollment ? (
                   <div style={{ padding: '20px 0', textAlign: 'center', color: MUTED, fontSize: '13px' }}>No active enrollment.</div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>

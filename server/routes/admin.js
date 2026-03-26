@@ -1678,12 +1678,11 @@ app.get('/api/admin/students/:id/enrollment', authenticateToken, requireAdmin, a
   }
 
   // Return current enrollment with completed history attached
+  console.log(`[enrollment] student=${studentId} active=${activeEnrollments.length} completed=${completedEnrollments.length} current=${currentEnrollment?.id || 'null'} status=${currentEnrollment?.status || 'null'}`);
   if (currentEnrollment) {
-    currentEnrollment.completed_history = completedEnrollments;
-    res.json(currentEnrollment);
-  } else if (completedEnrollments.length > 0) {
-    // No active enrollment but has history — return null current with history
-    res.json({ no_active: true, completed_history: completedEnrollments });
+    // Avoid circular reference: exclude currentEnrollment from completed_history
+    const history = completedEnrollments.filter(e => e.id !== currentEnrollment.id);
+    res.json({ ...currentEnrollment, completed_history: history });
   } else {
     res.json(null);
   }

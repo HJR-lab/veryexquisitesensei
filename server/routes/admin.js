@@ -1145,6 +1145,32 @@ app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandl
 
     console.log(`🎫 Members: ${membersList.length} members-only, ${Object.keys(membershipByEmail).length} total memberships`);
 
+    // ── Pagination support ─────────────────────────────────────────────────
+    // Build a unified list in the same order the frontend expects:
+    //   activeStudentsList → hbStudentsList → pausedStudentsList → membersList
+    const unifiedList = [
+      ...activeStudentsList.map(s => ({ ...s, _listType: 'active' })),
+      ...hbStudentsList.map(s => ({ ...s, _listType: 'hb' })),
+      ...pausedStudentsList.map(s => ({ ...s, _listType: 'paused' })),
+      ...membersList.map(s => ({ ...s, _listType: 'member' })),
+    ];
+    const totalUnified = unifiedList.length;
+
+    const limitParam = req.query.limit;
+    const pageParam  = parseInt(req.query.page) || 1;
+    const returnAll  = !limitParam || limitParam === 'all';
+    const limit      = returnAll ? totalUnified : Math.max(1, parseInt(limitParam) || 20);
+    const page       = Math.max(1, pageParam);
+    const totalPages = returnAll ? 1 : Math.ceil(totalUnified / limit);
+    const startIdx   = (page - 1) * limit;
+    const paginatedSlice = returnAll ? unifiedList : unifiedList.slice(startIdx, startIdx + limit);
+
+    // Split the paginated slice back into the individual lists
+    const paginatedActive = paginatedSlice.filter(s => s._listType === 'active').map(({ _listType, ...rest }) => rest);
+    const paginatedHb     = paginatedSlice.filter(s => s._listType === 'hb').map(({ _listType, ...rest }) => rest);
+    const paginatedPaused = paginatedSlice.filter(s => s._listType === 'paused').map(({ _listType, ...rest }) => rest);
+    const paginatedMembers = paginatedSlice.filter(s => s._listType === 'member').map(({ _listType, ...rest }) => rest);
+
     res.json({
       stats: {
         totalStudents,
@@ -1158,13 +1184,19 @@ app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandl
         topActive,
         topBooked
       },
-      activeStudentsList,
-      pausedStudentsList,
+      activeStudentsList: paginatedActive,
+      pausedStudentsList: paginatedPaused,
       returningStudentsList,
       upcomingEnrollmentsList,
-      hbStudentsList,
-      membersList,
+      hbStudentsList: paginatedHb,
+      membersList: paginatedMembers,
       membershipByEmail,
+      pagination: {
+        page,
+        limit: returnAll ? totalUnified : limit,
+        total: totalUnified,
+        totalPages
+      },
       message: 'Student statistics calculated successfully'
     });
 

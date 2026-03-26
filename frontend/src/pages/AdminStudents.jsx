@@ -140,20 +140,65 @@ export default function AdminStudents() {
   const [pageSize, setPageSize] = useState(10); // 10 | 50 | 'all'
                                                    // member sorts: 'expiry'|'plan'|'name'|'recent'
 
+  // Server-side pagination
+  const [pagination, setPagination] = useState({ page: 0, total: 0, totalPages: 0 });
+  const [loadingMore, setLoadingMore] = useState(false);
+  const SERVER_PAGE_SIZE = 50;
+
   useEffect(() => {
     // Phase 1: instant summary
     api.get('/admin/students/stats/summary').then(({ data }) => {
       setSummaryStats(data);
     }).catch(() => {});
     // Phase 2: full data (existing loadStats call)
-    loadStats();
+    loadStats(1);
   }, []);
 
   // ─── Data loading ─────────────────────────────────────────────────────────
-  const loadStats = async () => {
+  const loadStats = async (page = 1, append = false) => {
     try {
-      setLoading(true);
-      const { data } = await api.get('/admin/students/stats');
+      if (append) setLoadingMore(true); else setLoading(true);
+      const { data } = await api.get('/admin/students/stats', {
+        params: { page, limit: SERVER_PAGE_SIZE }
+      });
+      setStats(data.stats);
+      setCourseStats(data.courseStats);
+      setTopPerformers(data.topPerformers);
+      if (append) {
+        setActiveStudentsList(prev => [...prev, ...(data.activeStudentsList || [])]);
+        setPausedStudentsList(prev => [...prev, ...(data.pausedStudentsList || [])]);
+        setHbStudentsList(prev => [...prev, ...(data.hbStudentsList || [])]);
+        setMembersList(prev => [...prev, ...(data.membersList || [])]);
+      } else {
+        setActiveStudentsList(data.activeStudentsList || []);
+        setPausedStudentsList(data.pausedStudentsList || []);
+        setHbStudentsList(data.hbStudentsList || []);
+        setMembersList(data.membersList || []);
+      }
+      setReturningStudentsList(data.returningStudentsList || []);
+      setUpcomingEnrollmentsList(data.upcomingEnrollmentsList || []);
+      setMembershipByEmail(prev => ({ ...(append ? prev : {}), ...(data.membershipByEmail || {}) }));
+      setPagination(data.pagination || { page: 1, total: 0, totalPages: 1 });
+    } catch (error) {
+      console.error('[AdminStudents] Failed to load stats:', error);
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  };
+
+  const loadMore = () => {
+    if (pagination.page < pagination.totalPages) {
+      loadStats(pagination.page + 1, true);
+    }
+  };
+
+  const loadAll = async () => {
+    try {
+      setLoadingMore(true);
+      const { data } = await api.get('/admin/students/stats', {
+        params: { limit: 'all' }
+      });
       setStats(data.stats);
       setCourseStats(data.courseStats);
       setTopPerformers(data.topPerformers);
@@ -164,10 +209,11 @@ export default function AdminStudents() {
       setHbStudentsList(data.hbStudentsList || []);
       setMembersList(data.membersList || []);
       setMembershipByEmail(data.membershipByEmail || {});
+      setPagination(data.pagination || { page: 1, total: 0, totalPages: 1 });
     } catch (error) {
-      console.error('[AdminStudents] Failed to load stats:', error);
+      console.error('[AdminStudents] Failed to load all:', error);
     } finally {
-      setLoading(false);
+      setLoadingMore(false);
     }
   };
 
@@ -859,23 +905,55 @@ export default function AdminStudents() {
           })}
         </div>
 
-        {/* ── Footer count + page size ──────────────────────────────────── */}
+        {/* ── Footer count + page size + load more ────────────────────── */}
         {!loading && visibleRows.length > 0 && (
-          <div style={{ padding: '14px 0', fontSize: '11px', color: MUTED, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '10px' }}>
-            <span>
-              {pageSize === 'all' ? visibleRows.length : Math.min(pageSize, visibleRows.length)} of {visibleRows.length} user{visibleRows.length !== 1 ? 's' : ''}
-            </span>
-            <span style={{ color: RULE }}>|</span>
-            <span>Show</span>
-            <select
-              value={pageSize}
-              onChange={e => setPageSize(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-              style={{ padding: '2px 6px', fontSize: '11px', border: `1px solid ${RULE}`, backgroundColor: '#FFF', color: INK, fontFamily: 'inherit', cursor: 'pointer' }}
-            >
-              <option value={10}>10</option>
-              <option value={50}>50</option>
-              <option value="all">All</option>
-            </select>
+          <div style={{ padding: '14px 0', fontSize: '11px', color: MUTED, display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' }}>
+            {/* Load more / pagination row */}
+            {pagination.page < pagination.totalPages && (
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <button
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  style={{
+                    padding: '6px 16px', fontSize: '12px', fontWeight: 600, fontFamily: 'inherit',
+                    border: `1px solid ${TC}`, backgroundColor: '#FFF', color: TC,
+                    cursor: loadingMore ? 'wait' : 'pointer', opacity: loadingMore ? 0.6 : 1,
+                  }}
+                >
+                  {loadingMore ? 'Loading...' : `Load more (page ${pagination.page + 1}/${pagination.totalPages})`}
+                </button>
+                <button
+                  onClick={loadAll}
+                  disabled={loadingMore}
+                  style={{
+                    padding: '6px 12px', fontSize: '11px', fontWeight: 600, fontFamily: 'inherit',
+                    border: `1px solid ${RULE}`, backgroundColor: '#FFF', color: MUTED,
+                    cursor: loadingMore ? 'wait' : 'pointer', opacity: loadingMore ? 0.6 : 1,
+                  }}
+                >
+                  Load all
+                </button>
+              </div>
+            )}
+
+            {/* Count + page size row */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span>
+                {pageSize === 'all' ? visibleRows.length : Math.min(pageSize, visibleRows.length)} of {visibleRows.length} loaded
+                {pagination.total > 0 && visibleRows.length < pagination.total ? ` (${pagination.total} total)` : ''}
+              </span>
+              <span style={{ color: RULE }}>|</span>
+              <span>Show</span>
+              <select
+                value={pageSize}
+                onChange={e => setPageSize(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                style={{ padding: '2px 6px', fontSize: '11px', border: `1px solid ${RULE}`, backgroundColor: '#FFF', color: INK, fontFamily: 'inherit', cursor: 'pointer' }}
+              >
+                <option value={10}>10</option>
+                <option value={50}>50</option>
+                <option value="all">All</option>
+              </select>
+            </div>
           </div>
         )}
 

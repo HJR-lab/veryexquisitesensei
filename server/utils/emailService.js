@@ -1,14 +1,30 @@
 const { Resend } = require('resend');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 const FROM_ADDRESS = 'VES Studio <info@ves.sg>';
+
+let _resend;
+function getResend() {
+  if (!_resend) {
+    if (!process.env.RESEND_API_KEY) {
+      console.warn('[Email] RESEND_API_KEY not set — emails will not be sent');
+      return null;
+    }
+    _resend = new Resend(process.env.RESEND_API_KEY);
+  }
+  return _resend;
+}
 
 /**
  * Send an email via Resend
  */
 async function sendEmail({ to, bcc, subject, html, replyTo }) {
   try {
+    const resend = getResend();
+    if (!resend) {
+      console.warn(`[Email] Skipping "${subject}" — no API key configured`);
+      return { success: false, error: 'RESEND_API_KEY not configured' };
+    }
+
     const payload = {
       from: FROM_ADDRESS,
       to: to || FROM_ADDRESS,

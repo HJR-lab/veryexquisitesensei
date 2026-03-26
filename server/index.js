@@ -7,7 +7,7 @@ const cookieParser = require('cookie-parser');
 const { shopifyApi, LATEST_API_VERSION } = require('@shopify/shopify-api');
 require('@shopify/shopify-api/adapters/node');
 const { upload, ensureBucketExists } = require('./utils/imageUpload');
-const { startAutomaticProcessing } = require('./utils/cohortAutoProcessor');
+const { startAutomaticProcessing, autoMarkPastBookingsAsAttended } = require('./utils/cohortAutoProcessor');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -186,6 +186,12 @@ require('./routes/membership')(app, deps);
 require('./routes/shopify')(app, deps);
 require('./routes/inventory')(app, deps);
 require('./routes/instructors')(app, deps);
+
+// Manual trigger: mark all past bookings as attended
+app.post('/api/admin/mark-past-attended', deps.authenticateToken, deps.requireAdmin, deps.asyncHandler(async (req, res) => {
+  const result = await autoMarkPastBookingsAsAttended();
+  res.json(result);
+}));
 
 // Health check
 app.get('/health', (req, res) => {

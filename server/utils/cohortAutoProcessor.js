@@ -124,6 +124,85 @@ async function processReadyCohorts() {
 }
 
 /**
+ * Auto-mark past bookings as attended.
+ * Finds all bookings with status='booked' whose class date has passed (before today)
+ * and transitions them to status='attended', attended=true.
+ *
+ * This does NOT deduct HB credits or increment forfeit counters — those side effects
+ * only happen when an admin explicitly marks attendance via the mark-attendance endpoint.
+ * The auto-mark simply reflects the default assumption: if a student was booked and
+ * the class happened, they attended.
+ */
+async function autoMarkPastBookingsAsAttended() {
+  console.log('[Auto-Processor] Checking for past bookings to mark as attended...');
+
+  try {
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    // Fetch past bookings still in 'booked' status, paginated to handle >1000 rows
+    let allPastBookings = [];
+    let offset = 0;
+    const pageSize = 1000;
+
+    while (true) {
+      const { data: page, error } = await supabase
+        .from('bookings')
+        .select('id, class_instance_id, class_instances!inner(class_date)')
+        .eq('status', 'booked')
+        .lt('class_instances.class_date', todayStr)
+        .range(offset, offset + pageSize - 1);
+
+      if (error) {
+        console.error('[Auto-Processor] Error fetching past bookings:', error);
+        return { success: false, error: error.message };
+      }
+
+      if (!page || page.length === 0) break;
+      allPastBookings = allPastBookings.concat(page);
+      if (page.length < pageSize) break;
+      offset += pageSize;
+    }
+
+    if (allPastBookings.length === 0) {
+      console.log('[Auto-Processor] ✅ No past bookings need status update');
+      return { success: true, updated: 0 };
+    }
+
+    const ids = allPastBookings.map(b => b.id);
+    console.log(`[Auto-Processor] Marking ${ids.length} past bookings as attended...`);
+
+    // Batch update in chunks of 200 (Supabase .in() limit)
+    const chunkSize = 200;
+    let totalUpdated = 0;
+
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      const { error: updateError } = await supabase
+        .from('bookings')
+        .update({
+          status: 'attended',
+          attended: true,
+          attendance_marked_at: new Date().toISOString()
+        })
+        .in('id', chunk);
+
+      if (updateError) {
+        console.error(`[Auto-Processor] Error updating batch ${i / chunkSize + 1}:`, updateError);
+      } else {
+        totalUpdated += chunk.length;
+      }
+    }
+
+    console.log(`[Auto-Processor] ✅ Marked ${totalUpdated} past bookings as attended`);
+    return { success: true, updated: totalUpdated };
+
+  } catch (error) {
+    console.error('[Auto-Processor] Error in autoMarkPastBookingsAsAttended:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Schedule automatic processing (call this on server startup)
  */
 function startAutomaticProcessing() {
@@ -131,6 +210,7 @@ function startAutomaticProcessing() {
   setTimeout(() => {
     console.log('[Auto-Processor] Running initial check...');
     processReadyCohorts().catch(console.error);
+    autoMarkPastBookingsAsAttended().catch(console.error);
   }, 5000);
 
   // Run daily at 2 AM
@@ -143,6 +223,7 @@ function startAutomaticProcessing() {
     if (hour === 2 && minute === 0) {
       console.log('[Auto-Processor] Running daily scheduled check...');
       processReadyCohorts().catch(console.error);
+      autoMarkPastBookingsAsAttended().catch(console.error);
     }
   };
 
@@ -154,5 +235,6 @@ function startAutomaticProcessing() {
 
 module.exports = {
   processReadyCohorts,
+  autoMarkPastBookingsAsAttended,
   startAutomaticProcessing
 };

@@ -193,6 +193,7 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
     };
 
     // Keep most recent enrollment per student, but track upcoming separately
+    // Priority: active/paused > completed (completed only used if no active/paused exists)
     if (!studentMap[sid]) {
       studentMap[sid] = { current: null, upcoming: null };
     }
@@ -201,8 +202,16 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
       if (!studentMap[sid].upcoming || new Date(enr.created_at) > new Date(studentMap[sid].upcoming.enrollmentCreatedAt)) {
         studentMap[sid].upcoming = entry;
       }
+    } else if (enr.status === 'completed') {
+      // Only use completed if no active/paused enrollment exists yet
+      if (!studentMap[sid].current || studentMap[sid].current.enrollmentStatus === 'completed') {
+        if (!studentMap[sid].current || new Date(enr.created_at) > new Date(studentMap[sid].current.enrollmentCreatedAt)) {
+          studentMap[sid].current = entry;
+        }
+      }
     } else {
-      if (!studentMap[sid].current || new Date(enr.created_at) > new Date(studentMap[sid].current.enrollmentCreatedAt)) {
+      // active or paused — always preferred over completed
+      if (!studentMap[sid].current || studentMap[sid].current.enrollmentStatus === 'completed' || new Date(enr.created_at) > new Date(studentMap[sid].current.enrollmentCreatedAt)) {
         studentMap[sid].current = entry;
       }
     }

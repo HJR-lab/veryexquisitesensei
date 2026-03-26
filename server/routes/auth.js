@@ -86,7 +86,8 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
         impersonatedBy: req.user.impersonatedBy,
         hasMembership,
         hasActiveEnrollments,
-        customerType: customer.customer_type || 'student'
+        customerType: customer.customer_type || 'student',
+        policiesAcceptedAt: customer.policies_accepted_at || null,
       }
     };
 
@@ -95,6 +96,28 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching user data:', error);
     res.json({ user: req.user });
+  }
+});
+
+// Accept studio policies
+app.post('/api/user/accept-policies', authenticateToken, async (req, res) => {
+  try {
+    const { dbCustomerId } = req.user;
+
+    const { error } = await supabaseDb.supabase
+      .from('customers')
+      .update({ policies_accepted_at: new Date().toISOString() })
+      .eq('id', dbCustomerId);
+
+    if (error) throw error;
+
+    // Invalidate auth cache so next /me call returns updated value
+    invalidateAuthCache();
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error accepting policies:', error);
+    res.status(500).json({ error: 'Failed to accept policies' });
   }
 });
 

@@ -311,36 +311,50 @@ export default function AdminStudentDetail() {
         classesAllocated:   studentData.classes_allocated  || 0,
       });
 
-      const { data: bookingsData } = await api.get(`/admin/students/${decodedEmail}/bookings`);
+      // Fetch bookings and student-id-dependent data in parallel
+      const parallelCalls = [
+        api.get(`/admin/students/${decodedEmail}/bookings`),
+      ];
+
+      if (studentData.id) {
+        parallelCalls.push(
+          api.get(`/admin/students/${studentData.id}/enrollment`).catch(() => null),
+          api.get(`/admin/students/${studentData.id}/fees`),
+          api.get(`/admin/students/${studentData.id}/studio-access`).catch(() => null),
+          studentData.role === 'instructor'
+            ? api.get(`/admin/instructors/${studentData.id}/teaching`).catch(() => null)
+            : Promise.resolve(null),
+        );
+      }
+
+      const results = await Promise.all(parallelCalls);
+
+      const bookingsData = results[0].data;
       console.log('Bookings data received:', bookingsData);
       setBookings(bookingsData.bookings || []);
 
       if (studentData.id) {
-        try {
-          const { data: enrollmentData } = await api.get(`/admin/students/${studentData.id}/enrollment`);
-          setEnrollment(enrollmentData);
-        } catch {
-          setEnrollment(null);
-        }
-        const { data: feesData } = await api.get(`/admin/students/${studentData.id}/fees`);
+        const enrollmentResult = results[1];
+        setEnrollment(enrollmentResult ? enrollmentResult.data : null);
+
+        const feesData = results[2].data;
         setFees(feesData.fees || []);
 
-        // Fetch studio access history
-        try {
-          const { data: studioData } = await api.get(`/admin/students/${studentData.id}/studio-access`);
-          setStudioBookings(studioData.bookings || []);
-          setStudioSummary(studioData.summary || null);
-        } catch { setStudioBookings([]); setStudioSummary(null); }
+        const studioResult = results[3];
+        if (studioResult) {
+          setStudioBookings(studioResult.data.bookings || []);
+          setStudioSummary(studioResult.data.summary || null);
+        } else {
+          setStudioBookings([]);
+          setStudioSummary(null);
+        }
 
-        // Fetch teaching data if instructor — uses same source as /admin/classes
-        if (studentData.role === 'instructor') {
-          try {
-            const { data: teaching } = await api.get(`/admin/instructors/${studentData.id}/teaching`);
-            setTeachingData(teaching);
-            setSection('teaching');
-          } catch {
-            setTeachingData(null);
-          }
+        const teachingResult = results[4];
+        if (studentData.role === 'instructor' && teachingResult) {
+          setTeachingData(teachingResult.data);
+          setSection('teaching');
+        } else if (studentData.role === 'instructor') {
+          setTeachingData(null);
         }
       }
     } catch (error) {

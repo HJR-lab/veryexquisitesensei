@@ -178,10 +178,11 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
   }).filter(Boolean);
 
   // Add members-only (no enrollment)
+  const emailSet = new Set(students.map(s => s.email));
   (memberships || []).forEach(m => {
     const email = m.customers?.email;
     if (!email) return;
-    const alreadyListed = students.some(s => s.email === email);
+    const alreadyListed = emailSet.has(email);
     if (!alreadyListed) {
       students.push({
         name: `${m.customers.first_name || ''} ${m.customers.last_name || ''}`.trim(),
@@ -234,23 +235,14 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
 // Get student statistics (heavy — used for full data export / detailed views)
 app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   console.log('📊 /api/admin/students/stats endpoint called');
-    // Get all students with pagination (Supabase default limit is 1000)
-    let allStudents = [];
-    let page = 0;
-    let hasMore = true;
-    while (hasMore) {
-      const { data, error } = await supabaseDb.supabase
-        .from('customers')
-        .select('id, email, first_name, last_name, customer_type, classes_allocated, classes_used, classes_forfeited, course_purchase_date, course_expiry_date, course_purchase_count, created_at, updated_at')
-        .in('customer_type', ['student', 'member', 'student & member'])
-        .order('created_at', { ascending: false })
-        .range(page * 1000, (page + 1) * 1000 - 1);
+    // Get all students in a single query (dataset is small, under 1000 customers)
+    const { data: allStudents, error: studentsError } = await supabaseDb.supabase
+      .from('customers')
+      .select('id, email, first_name, last_name, customer_type, classes_allocated, classes_used, classes_forfeited, course_purchase_date, course_expiry_date, course_purchase_count, created_at, updated_at')
+      .in('customer_type', ['student', 'member', 'student & member'])
+      .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      allStudents = allStudents.concat(data || []);
-      hasMore = (data?.length || 0) === 1000;
-      page++;
-    }
+    if (studentsError) throw studentsError;
 
     // Get all bookings for students with status 'booked' or 'completed'
     const { data: allBookings, error: bookingsError } = await supabaseDb.supabase
@@ -320,20 +312,7 @@ app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandl
     // Use the SAME grouping logic as course history to handle makeup classes correctly
     const studentCourseMap = {};
 
-    // First, get all bookings grouped by student and enrollment
-    const { data: allBookingsForCourseGrouping } = await supabaseDb.supabase
-      .from('bookings')
-      .select(`
-        student_id,
-        course_enrollment_id,
-        booking_type,
-        class_instances!bookings_class_instance_id_fkey (
-          class_type,
-          class_date
-        )
-      `)
-      .in('status', ['booked', 'completed', 'attended'])
-      .order('class_instances(class_date)', { ascending: false });
+    // Reuse allBookingsWithClasses (already fetched above) for course grouping
 
     // Helper function to extract base course identifier
     const extractCourseIdentifier = (classType) => {
@@ -376,7 +355,7 @@ app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandl
 
     // Group bookings by student, then by enrollment
     const studentEnrollmentBookings = {};
-    allBookingsForCourseGrouping?.forEach(booking => {
+    allBookingsWithClasses?.forEach(booking => {
       const studentId = booking.student_id;
       const enrollmentId = booking.course_enrollment_id;
 
@@ -1328,9 +1307,9 @@ app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandl
     const pageParam  = parseInt(req.query.page) || 1;
     const returnAll  = !limitParam || limitParam === 'all';
     const limit      = returnAll ? totalUnified : Math.max(1, parseInt(limitParam) || 20);
-    const page       = Math.max(1, pageParam);
+    const statsPage  = Math.max(1, pageParam);
     const totalPages = returnAll ? 1 : Math.ceil(totalUnified / limit);
-    const startIdx   = (page - 1) * limit;
+    const startIdx   = (statsPage - 1) * limit;
     const paginatedSlice = returnAll ? unifiedList : unifiedList.slice(startIdx, startIdx + limit);
 
     // Split the paginated slice back into the individual lists
@@ -1360,7 +1339,7 @@ app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandl
       membersList: paginatedMembers,
       membershipByEmail,
       pagination: {
-        page,
+        page: statsPage,
         limit: returnAll ? totalUnified : limit,
         total: totalUnified,
         totalPages

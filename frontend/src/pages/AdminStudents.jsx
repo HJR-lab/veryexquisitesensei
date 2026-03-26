@@ -304,9 +304,9 @@ export default function AdminStudents() {
     if (!confirm(`Mark ${selected.length} student(s) as fully completed?\n\n${selected.map(s => `${s.name}`).join('\n')}`)) return;
     try {
       setBulkProcessing(true);
-      for (const s of selected) {
-        await api.post(`/admin/hb-enrollments/${s.enrollmentId}/set-credits`, { allocated: s.creditsAllocated, used: s.creditsAllocated });
-      }
+      await Promise.all(selected.map(s =>
+        api.post(`/admin/hb-enrollments/${s.enrollmentId}/set-credits`, { allocated: s.creditsAllocated, used: s.creditsAllocated })
+      ));
       setSelectedHB(new Set());
       await loadStats();
     } catch (error) {
@@ -327,9 +327,9 @@ export default function AdminStudents() {
     if (!confirm(`Set ${selected.length} student(s) to ${used}/${allocated} credits?`)) return;
     try {
       setBulkProcessing(true);
-      for (const s of selected) {
-        await api.post(`/admin/hb-enrollments/${s.enrollmentId}/set-credits`, { allocated, used });
-      }
+      await Promise.all(selected.map(s =>
+        api.post(`/admin/hb-enrollments/${s.enrollmentId}/set-credits`, { allocated, used })
+      ));
       setSelectedHB(new Set());
       await loadStats();
     } catch (error) {
@@ -345,9 +345,9 @@ export default function AdminStudents() {
     if (!confirm(`Remove ${selected.length} student(s) from HB list?\n\n${selected.map(s => s.name).join('\n')}`)) return;
     try {
       setBulkProcessing(true);
-      for (const s of selected) {
-        await api.post(`/admin/hb-enrollments/${s.enrollmentId}/set-status`, { status: 'cancelled' });
-      }
+      await Promise.all(selected.map(s =>
+        api.post(`/admin/hb-enrollments/${s.enrollmentId}/set-status`, { status: 'cancelled' })
+      ));
       setSelectedHB(new Set());
       await loadStats();
     } catch (error) {

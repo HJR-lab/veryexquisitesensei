@@ -11,28 +11,29 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
   try {
     const { dbCustomerId } = req.user;
 
-    // Fetch latest user data from database to include course_purchase_count
-    const { data: customer, error } = await supabaseDb.supabase
-      .from('customers')
-      .select('*')
-      .eq('id', dbCustomerId)
-      .single();
+    // Fetch customer, membership, and enrollment info all in parallel
+    const [customerRes, hasMembership, activeEnrollmentRes] = await Promise.all([
+      supabaseDb.supabase
+        .from('customers')
+        .select('*')
+        .eq('id', dbCustomerId)
+        .single(),
+      supabaseDb.hasActiveMembership(dbCustomerId),
+      supabaseDb.supabase
+        .from('course_enrollments')
+        .select('id')
+        .eq('student_id', dbCustomerId)
+        .in('status', ['active', 'pending'])
+        .limit(1)
+    ]);
+
+    const { data: customer, error } = customerRes;
 
     if (error || !customer) {
       // Fallback to JWT data if database fetch fails
       return res.json({ user: req.user });
     }
 
-    // Fetch membership and enrollment info
-    const [hasMembership, activeEnrollmentRes] = await Promise.all([
-      supabaseDb.hasActiveMembership(customer.id),
-      supabaseDb.supabase
-        .from('course_enrollments')
-        .select('id')
-        .eq('student_id', customer.id)
-        .in('status', ['active', 'pending'])
-        .limit(1)
-    ]);
     const hasActiveEnrollments = (activeEnrollmentRes.data || []).length > 0;
 
     // Return user data with snake_case fields mapped to camelCase for frontend

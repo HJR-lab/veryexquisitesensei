@@ -592,6 +592,18 @@ export default function AdminStudentDetail() {
     }
   };
 
+  const handleCompleteCourse = async () => {
+    if (!enrollment) return;
+    if (!confirm(`Mark this enrollment as completed? All past bookings will be marked as attended.`)) return;
+    try {
+      await api.post(`/admin/enrollments/${enrollment.id}/complete`);
+      await loadStudentData();
+    } catch (error) {
+      console.error('Failed to complete course:', error);
+      alert('Failed to complete course');
+    }
+  };
+
   const handleResumeCourse = async () => {
     if (!enrollment || enrollment.status !== 'paused') return;
     if (!confirm(`Are you sure you want to resume this student's course?\n\nThey will need to book ${enrollment.weeks_remaining} more classes to complete their course.`)) return;
@@ -768,6 +780,7 @@ export default function AdminStudentDetail() {
             resuming={resuming}
             handleResumeCourse={handleResumeCourse}
             handleImpersonate={handleImpersonate}
+            handleCompleteCourse={handleCompleteCourse}
             setShowPauseModal={setShowPauseModal}
             teachingData={teachingData}
           />

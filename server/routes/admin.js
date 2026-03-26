@@ -1764,6 +1764,61 @@ app.post('/api/admin/enrollments/:id/pause', authenticateToken, requireAdmin, as
   });
 }));
 
+// Mark enrollment as completed — marks all past bookings as attended
+app.post('/api/admin/enrollments/:id/complete', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const enrollmentId = parseInt(req.params.id);
+
+  const { data: enrollment, error: fetchError } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('*')
+    .eq('id', enrollmentId)
+    .single();
+
+  if (fetchError || !enrollment) {
+    return res.status(404).json({ error: 'Enrollment not found' });
+  }
+
+  // Mark all past bookings as attended
+  const todayStr = new Date().toISOString().split('T')[0];
+  const { data: bookings } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id, status, class_instances!bookings_class_instance_id_fkey(class_date)')
+    .eq('course_enrollment_id', enrollmentId)
+    .in('status', ['booked']);
+
+  const pastBookingIds = (bookings || [])
+    .filter(b => b.class_instances?.class_date?.split('T')[0] <= todayStr)
+    .map(b => b.id);
+
+  if (pastBookingIds.length > 0) {
+    await supabaseDb.supabase
+      .from('bookings')
+      .update({ status: 'attended', updated_at: new Date().toISOString() })
+      .in('id', pastBookingIds);
+  }
+
+  // Count total attended
+  const { count: attendedCount } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id', { count: 'exact', head: true })
+    .eq('course_enrollment_id', enrollmentId)
+    .in('status', ['attended', 'completed']);
+
+  // Update enrollment to completed
+  const allocated = enrollment.class_credits_allocated || enrollment.number_of_weeks || 0;
+  await supabaseDb.supabase
+    .from('course_enrollments')
+    .update({
+      status: 'completed',
+      class_credits_used: attendedCount || 0,
+      class_credits_remaining: Math.max(0, allocated - (attendedCount || 0)),
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', enrollmentId);
+
+  res.json({ success: true, attendedCount, message: 'Enrollment marked as completed' });
+}));
+
 // Get dashboard stats summary (lightweight, count-only)
 app.get('/api/admin/dashboard/stats/summary', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const todayStr = new Date().toISOString().split('T')[0];

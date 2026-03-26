@@ -30,6 +30,7 @@ export default function StudentInfoCard({
   resuming,
   handleResumeCourse,
   handleImpersonate,
+  handleCompleteCourse,
   setShowPauseModal,
   teachingData,
 }) {
@@ -212,6 +213,14 @@ export default function StudentInfoCard({
             style={{ flex: 1, padding: '11px', backgroundColor: 'transparent', color: INK, border: `1px solid ${RULE}`, fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
           >
             Pause Course
+          </button>
+        )}
+        {(!isInstructor || isAlsoStudent) && enrollment && enrollment.status === 'active' && handleCompleteCourse && (
+          <button
+            onClick={handleCompleteCourse}
+            style={{ flex: 1, padding: '11px', backgroundColor: '#2E7D32', color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
+          >
+            Complete
           </button>
         )}
         {(!isInstructor || isAlsoStudent) && enrollment && enrollment.status === 'paused' && (

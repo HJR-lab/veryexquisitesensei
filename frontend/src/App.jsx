@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useState } from 'react';
+import PolicyPopup from './components/PolicyPopup';
 import ErrorBoundary from './components/ErrorBoundary';
 import AdminLayout from './components/AdminLayout';
 import StudentLayout from './components/StudentLayout';
@@ -39,6 +40,8 @@ const InstructorPortfolio = lazy(() => import('./pages/InstructorPortfolio'));
 const Contact = lazy(() => import('./pages/Contact'));
 const StudioAccess = lazy(() => import('./pages/StudioAccess'));
 const AdminStudioAccess = lazy(() => import('./pages/AdminStudioAccess'));
+const AdminCourseEmails = lazy(() => import('./pages/AdminCourseEmails'));
+const Policies = lazy(() => import('./pages/Policies'));
 
 // Test pages — lazy loaded
 const TestDash = lazy(() => import('./test-pages/TestDash'));
@@ -60,7 +63,8 @@ const PageLoader = () => (
 );
 
 function PrivateRoute({ children }) {
-  const { user, loading } = useAuth();
+  const { user, loading, refreshUser } = useAuth();
+  const [policiesJustAccepted, setPoliciesJustAccepted] = useState(false);
 
   if (loading) {
     return (
@@ -71,7 +75,22 @@ function PrivateRoute({ children }) {
     );
   }
 
-  return user ? children : <Navigate to="/login" />;
+  if (!user) return <Navigate to="/login" />;
+
+  // Show policy popup for users who haven't accepted yet (skip for admins)
+  if (!user.policiesAcceptedAt && !policiesJustAccepted && !user.isAdmin) {
+    return (
+      <>
+        {children}
+        <PolicyPopup onAccepted={() => {
+          setPoliciesJustAccepted(true);
+          if (refreshUser) refreshUser();
+        }} />
+      </>
+    );
+  }
+
+  return children;
 }
 
 function AdminRoute({ children }) {
@@ -153,6 +172,7 @@ function App() {
           <Route path="/contact" element={<Contact />} />
           <Route path="/instructor/:id" element={<InstructorProfile />} />
           <Route path="/instructor/:id/portfolio" element={<InstructorPortfolio />} />
+          <Route path="/policies" element={<Policies />} />
 
           {/* Student routes — persistent bottom nav via StudentLayout */}
           <Route element={<PrivateRoute><StudentLayout /></PrivateRoute>}>
@@ -185,6 +205,7 @@ function App() {
             <Route path="events" element={<AdminEvents />} />
             <Route path="instructors" element={<AdminInstructors />} />
             <Route path="studio-access" element={<AdminStudioAccess />} />
+            <Route path="emails" element={<AdminCourseEmails />} />
           </Route>
 
           {/* Test routes */}

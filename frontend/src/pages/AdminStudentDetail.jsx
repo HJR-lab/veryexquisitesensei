@@ -958,8 +958,8 @@ export default function AdminStudentDetail() {
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ fontSize: '11px', color: MUTED }}>
                           {isHBEnrollment
-                            ? `${hbCreditsUsed} attended · ${totalBooked - hbCreditsUsed} booked`
-                            : `${attendedCount} attended · ${totalBooked - attendedCount} booked`}
+                            ? `${hbCreditsUsed} attended · ${Math.max(0, allBookedCount - hbCreditsUsed)} booked`
+                            : `${attendedCount} attended · ${Math.max(0, allBookedCount - attendedCount)} booked`}
                         </span>
                         <span style={{ fontSize: '11px', color: TC_DARK, fontWeight: 700 }}>
                           {isHBEnrollment

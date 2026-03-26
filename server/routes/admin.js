@@ -4189,4 +4189,255 @@ app.get('/api/classes/my-bookings/calendar', authenticateToken, asyncHandler(asy
 
 // ============================================
 
+// ============================================
+// COURSE EMAIL ENDPOINTS
+// ============================================
+
+const { sendAndLogEmail, detectCourseTemplate } = require('../utils/emailService');
+
+// Helper: format date as "14 March" style
+function formatDateNice(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return `${d.getDate()} ${months[d.getMonth()]}`;
+}
+
+// Helper: get day of week from date string
+function getDayOfWeek(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  return days[d.getDay()];
+}
+
+// Helper: format time slot from start_time/end_time
+function formatTimeSlot(startTime, endTime) {
+  const fmt = (t) => {
+    const [h, m] = t.split(':').map(Number);
+    const ampm = h >= 12 ? 'pm' : 'am';
+    const hr = h % 12 || 12;
+    return m === 0 ? `${hr}${ampm}` : `${hr}:${String(m).padStart(2,'0')}${ampm}`;
+  };
+  return `${fmt(startTime)} - ${fmt(endTime)}`;
+}
+
+// 1. List upcoming courses with email send status
+app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const today = new Date().toISOString().split('T')[0];
+  const in14Days = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+  // Get class instances within the next 14 days
+  const { data: classes, error: classError } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('id, class_type, class_date, start_time, end_time')
+    .gte('class_date', today)
+    .lte('class_date', in14Days)
+    .order('class_date', { ascending: true });
+
+  if (classError) throw classError;
+
+  // Group by base course identifier
+  const courseMap = {};
+  for (const cls of (classes || [])) {
+    const baseId = cls.class_type.split('.')[0];
+    if (!courseMap[baseId]) {
+      courseMap[baseId] = {
+        courseIdentifier: baseId,
+        courseType: baseId.startsWith('HB') ? 'Handbuilding' : 'Wheelthrowing',
+        classDates: [],
+        startTime: cls.start_time,
+        endTime: cls.end_time,
+      };
+    }
+    courseMap[baseId].classDates.push(cls.class_date);
+  }
+
+  // For each course, get enrollment count and email send status
+  const courses = [];
+  for (const [courseId, course] of Object.entries(courseMap)) {
+    // Get student count
+    const { count: studentCount } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('*', { count: 'exact', head: true })
+      .like('course_identifier', `${courseId}%`)
+      .in('status', ['active', 'pending', 'upcoming']);
+
+    // Get enrollment for number_of_weeks
+    const { data: sampleEnrollment } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('number_of_weeks')
+      .like('course_identifier', `${courseId}%`)
+      .limit(1)
+      .single();
+
+    // Check if email was sent
+    const { data: sentEmail } = await supabaseDb.supabase
+      .from('sent_emails')
+      .select('sent_at')
+      .eq('email_type', 'course_details')
+      .eq('course_identifier', courseId)
+      .order('sent_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const sortedDates = course.classDates.sort();
+    courses.push({
+      courseIdentifier: courseId,
+      courseType: course.courseType,
+      numberOfWeeks: sampleEnrollment?.number_of_weeks || sortedDates.length,
+      startDate: sortedDates[0],
+      endDate: sortedDates[sortedDates.length - 1],
+      timeSlot: formatTimeSlot(course.startTime, course.endTime),
+      studentCount: studentCount || 0,
+      emailSentAt: sentEmail?.sent_at || null,
+    });
+  }
+
+  res.json({ courses });
+}));
+
+// 2. Generate email draft from template + DB data
+app.get('/api/admin/course-emails/:courseId/draft', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { courseId } = req.params;
+
+  // Get enrollments for this course
+  const { data: enrollments, error: enrollError } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('*, customers(id, first_name, last_name, email)')
+    .like('course_identifier', `${courseId}%`)
+    .in('status', ['active', 'pending', 'upcoming']);
+
+  if (enrollError) throw enrollError;
+  if (!enrollments || enrollments.length === 0) {
+    return res.status(404).json({ error: 'No enrollments found for this course' });
+  }
+
+  // Get class instances
+  const { data: classInstances, error: classError } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('id, class_type, class_date, start_time, end_time')
+    .like('class_type', `${courseId}%`)
+    .order('class_date', { ascending: true });
+
+  if (classError) throw classError;
+
+  const classDates = (classInstances || []).map(c => c.class_date).sort();
+  const startDate = classDates[0];
+  const endDate = classDates[classDates.length - 1];
+  const firstClass = classInstances[0];
+
+  // Calculate collection/disposal dates
+  const lastClassDate = new Date(endDate + 'T00:00:00');
+  const collectionStartDate = new Date(lastClassDate);
+  collectionStartDate.setMonth(collectionStartDate.getMonth() + 1);
+  const disposalDate = new Date(lastClassDate);
+  disposalDate.setMonth(disposalDate.getMonth() + 3);
+
+  // Detect template type from first enrollment
+  const templateType = detectCourseTemplate(enrollments[0]);
+
+  // Build students array
+  const students = enrollments
+    .filter(e => e.customers)
+    .map(e => ({
+      id: e.customers.id,
+      firstName: e.customers.first_name,
+      lastName: e.customers.last_name,
+      email: e.customers.email,
+      name: `${e.customers.first_name} ${e.customers.last_name}`.trim(),
+    }));
+
+  const timeSlot = firstClass ? formatTimeSlot(firstClass.start_time, firstClass.end_time) : '';
+  const dayOfWeek = startDate ? getDayOfWeek(startDate) : '';
+
+  res.json({
+    courseIdentifier: courseId,
+    templateType,
+    dayOfWeek,
+    startDate: formatDateNice(startDate),
+    endDate: formatDateNice(endDate),
+    timeSlot,
+    collectionStart: formatDateNice(collectionStartDate.toISOString().split('T')[0]),
+    collectionEnd: formatDateNice(collectionStartDate.toISOString().split('T')[0]),
+    disposalDate: formatDateNice(disposalDate.toISOString().split('T')[0]),
+    holidayExclusions: '',
+    specialNotes: '',
+    students,
+    classDates: classDates.map(d => formatDateNice(d)),
+  });
+}));
+
+// 3. Send course detail email
+app.post('/api/admin/course-emails/:courseId/send', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { courseId } = req.params;
+  const {
+    templateType,
+    dayOfWeek,
+    startDate,
+    endDate,
+    timeSlot,
+    holidayExclusions,
+    specialNotes,
+    collectionStart,
+    collectionEnd,
+    disposalDate,
+    recipientEmails,
+  } = req.body;
+
+  if (!templateType || !recipientEmails || recipientEmails.length === 0) {
+    return res.status(400).json({ error: 'templateType and recipientEmails are required' });
+  }
+
+  // Load the correct template
+  let template;
+  try {
+    template = require(`../email-templates/courses/${templateType}`);
+  } catch (err) {
+    return res.status(400).json({ error: `Unknown template type: ${templateType}` });
+  }
+
+  // Generate email HTML
+  const { subject, html } = template.generate({
+    dayOfWeek,
+    startDate,
+    endDate,
+    timeSlot,
+    holidayExclusions: holidayExclusions || '',
+    collectionStart,
+    collectionEnd,
+    disposalDate,
+    specialNotes: specialNotes || '',
+  });
+
+  // Send and log
+  const result = await sendAndLogEmail({
+    emailType: 'course_details',
+    courseIdentifier: courseId,
+    subject,
+    html,
+    recipientEmails,
+    sentBy: req.user.email,
+  });
+
+  if (!result.success) {
+    return res.status(500).json({ error: 'Failed to send email', details: result.error });
+  }
+
+  res.json({ success: true, messageId: result.messageId });
+}));
+
+// 4. Email send history
+app.get('/api/admin/course-emails/history', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { data: emails, error } = await supabaseDb.supabase
+    .from('sent_emails')
+    .select('*')
+    .order('sent_at', { ascending: false })
+    .limit(50);
+
+  if (error) throw error;
+
+  res.json({ emails: emails || [] });
+}));
+
+// ============================================
+
 };

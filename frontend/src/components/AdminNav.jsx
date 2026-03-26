@@ -39,7 +39,7 @@ export default function AdminNav({ active, onSyncComplete }) {
 
   return (
     <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: '#FFFFFF', borderBottom: `1px solid ${RULE}` }}>
-      <div style={{ maxWidth: '1140px', margin: '0 auto', padding: '0 24px', height: '52px', display: 'flex', alignItems: 'center', overflowX: 'auto' }}>
+      <div style={{ maxWidth: '1140px', margin: '0 auto', padding: '0 10px', height: '40px', display: 'flex', alignItems: 'center' }}>
         {/* Left: nav links */}
         <nav style={{ display: 'flex', flex: 1, gap: '0px' }}>
           {NAV_LINKS.map(link => (
@@ -47,8 +47,8 @@ export default function AdminNav({ active, onSyncComplete }) {
               key={link.id}
               href={link.href}
               style={{
-                padding: '0 14px', height: '52px', display: 'flex', alignItems: 'center',
-                fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+                padding: '0 8px', height: '40px', display: 'flex', alignItems: 'center',
+                fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
                 color: active === link.id ? TC : MUTED,
                 textDecoration: 'none', whiteSpace: 'nowrap',
                 borderBottom: `2px solid ${active === link.id ? TC : 'transparent'}`,
@@ -63,25 +63,25 @@ export default function AdminNav({ active, onSyncComplete }) {
           <img
             src="https://ves.sg/cdn/shop/files/logo_04a04687-57f4-4141-b0bc-ec30b527fd73.png?v=1686045719&width=600"
             alt="VES"
-            style={{ height: '22px', width: 'auto' }}
+            style={{ height: '16px', width: 'auto' }}
           />
         </a>
         {/* Right: sync + admin badge */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: 1, justifyContent: 'flex-end' }}>
           {syncMessage && (
-            <span style={{ fontSize: '11px', fontWeight: 600, color: syncMessage.type === 'ok' ? '#1E6B1E' : '#C0392B', flexShrink: 0 }}>
+            <span style={{ fontSize: '10px', fontWeight: 600, color: syncMessage.type === 'ok' ? '#1E6B1E' : '#C0392B', flexShrink: 0 }}>
               {syncMessage.text}
             </span>
           )}
           <button
             onClick={handleSync}
             disabled={syncing}
-            style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '3px 8px', backgroundColor: 'transparent', border: `1px solid ${RULE}`, color: syncing ? MUTED : INK, fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: syncing ? 'default' : 'pointer' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '3px', padding: '2px 6px', backgroundColor: 'transparent', border: `1px solid ${RULE}`, color: syncing ? MUTED : INK, fontSize: '8px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', cursor: syncing ? 'default' : 'pointer' }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: '11px' }}>sync</span>
+            <span className="material-symbols-outlined" style={{ fontSize: '10px' }}>sync</span>
             {syncing ? 'Syncing…' : 'Sync'}
           </button>
-          <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', backgroundColor: INK, color: '#FFF' }}>
+          <span style={{ fontSize: '8px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '3px 7px', backgroundColor: INK, color: '#FFF' }}>
             Admin
           </span>
         </div>

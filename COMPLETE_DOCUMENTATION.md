@@ -1,6 +1,6 @@
 # VES Pottery Gallery - Complete System Documentation
 
-> **Last Updated:** 2026-01-12
+> **Last Updated:** 2026-03-26
 > **Status:** ACTIVE - Complete system reference
 
 ---
@@ -14,7 +14,7 @@
 5. [Calendar and Enrollment System](#calendar-and-enrollment-system)
 6. [Handbuilding Credit System](#handbuilding-credit-system)
 7. [Automated Course Processing](#automated-course-processing)
-8. [Email Verification System](#email-verification-system)
+8. [Authentication System (Magic Link)](#authentication-system-magic-link)
 9. [Deployment Guide](#deployment-guide)
 10. [API Reference](#api-reference)
 11. [Troubleshooting](#troubleshooting)
@@ -31,18 +31,21 @@ A professional student pottery portfolio and class management system for VES Pot
 - **Class Management**: Full admin interface for managing classes, enrollments, and bookings
 - **Automated Course Creation**: Classes auto-create when enrollment thresholds are met
 - **Credit-Based Handbuilding**: Flexible drop-in system for handbuilding classes
-- **Email Verification**: Secure first-time student onboarding
+- **Magic Link Auth**: Passwordless sign-in via Supabase Auth + Resend SMTP
+- **Membership System**: Clay Club memberships with studio access tracking
 - **Reschedule System**: Students can reschedule within courses or makeup later
 - **Real-time Calendar**: Shared calendar component for both admin and student views
+- **Auto Attendance**: Past bookings automatically marked as attended daily
 
 ### Tech Stack
 
-- **Frontend**: React + Vite
+- **Frontend**: React 18 + Vite + Tailwind CSS
 - **Backend**: Express.js + Node.js
 - **Database**: Supabase (PostgreSQL)
-- **Authentication**: JWT + bcrypt
+- **Authentication**: Supabase Auth (magic link via email OTP)
+- **Email**: Resend SMTP (`noreply@mail.ves.sg`)
 - **Integration**: Shopify Admin API + Webhooks
-- **Deployment**: Vercel (recommended)
+- **Deployment**: Vercel (frontend) + Railway (backend)
 
 ---
 
@@ -110,12 +113,13 @@ SHOPIFY_API_SECRET=your_shopify_api_secret
 SHOPIFY_SHOP_DOMAIN=ves-sg.myshopify.com
 SHOPIFY_ACCESS_TOKEN=your_shopify_access_token
 
-# Supabase Database
+# Supabase Database + Auth
 SUPABASE_URL=https://fpdbfbxpthmaceuspcrf.supabase.co
+SUPABASE_SERVICE_KEY=your_supabase_service_key
 SUPABASE_ANON_KEY=your_supabase_anon_key
 
-# Authentication
-JWT_SECRET=your_jwt_secret_here
+# Impersonation cookie signing
+COOKIE_SECRET=your_cookie_secret_here
 
 # Configuration
 FRONTEND_URL=http://localhost:5173
@@ -123,9 +127,12 @@ PORT=3000
 NODE_ENV=development
 ```
 
-**Generate JWT Secret:**
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+Create `frontend/.env`:
+
+```env
+VITE_API_URL=http://localhost:3000/api
+VITE_SUPABASE_URL=https://fpdbfbxpthmaceuspcrf.supabase.co
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
 ### 3. Create Required Database Tables
@@ -197,12 +204,9 @@ VITE v5.0.8  ready in 500 ms
 ### 6. Test the Application
 
 1. Visit `http://localhost:5173/login`
-2. **Admin Login:**
-   - Email: `info@ves.sg`
-   - Password: Your admin password
-3. **Student Login:**
-   - Use any customer email from Shopify
-   - Default password: `pottery123` (or set via verification)
+2. Enter any email that exists in the `customers` table (e.g., `info@ves.sg` for admin)
+3. Click "Send Sign-In Link" — check email for magic link
+4. Click magic link → auto-redirects to appropriate dashboard
 
 ---
 
@@ -704,128 +708,49 @@ GROUP BY course_type, schedule_pattern, class_time, course_start_date;
 
 ---
 
-## Email Verification System
+## Authentication System (Magic Link)
 
 ### Overview
 
-A complete email verification and password setup flow for first-time student login.
+Passwordless authentication via Supabase Auth magic links. All users (students and admin) sign in by receiving an email link. No passwords stored or managed.
 
 ### User Flow
 
-#### 1. First-Time Student Access
-1. Student visits `/verify-email` (linked from login as "First time? Verify Your Email")
-2. Enters email address
-3. System sends 6-digit PIN code
+1. User visits `/login` (unified for all users)
+2. Enters email, clicks "Send Sign-In Link"
+3. Frontend calls `supabase.auth.signInWithOtp({ email })`
+4. Supabase sends magic link email via Resend SMTP (`noreply@mail.ves.sg`)
+5. User clicks link → redirected to `/auth/callback`
+6. `onAuthStateChange` fires → app calls `/api/auth/me` to look up `customers` table
+7. Smart redirect: admin → `/admin`, member → `/member`, student → `/gallery`
 
-#### 2. PIN Verification
-1. Student receives 6-digit PIN (e.g., 123456)
-2. Enters PIN on verification page
-3. System validates PIN and creates temporary token (valid 30 minutes)
+### Key Components
 
-#### 3. Password Setup
-1. Redirected to `/setup-password`
-2. Creates secure password (minimum 8 characters)
-3. Password strength indicator shows weak/medium/strong
-4. Password is hashed and stored
-5. Student automatically logged in
-6. Redirected to gallery
+- `frontend/src/utils/supabase.js` — Supabase client singleton
+- `frontend/src/hooks/useAuth.jsx` — Session management, `onAuthStateChange` listener
+- `frontend/src/pages/AuthCallback.jsx` — Magic link redirect handler
+- `frontend/src/pages/Login.jsx` — Email-only login form
+- `server/routes/auth.js` — `/api/auth/me` endpoint, impersonation
 
-#### 4. Subsequent Logins
-- Students log in at `/login` with email and password
-- No need to reverify email
+### Backend Auth Middleware
 
-### Backend Endpoints
+`authenticateToken` in `server/index.js` validates Supabase Auth sessions:
 
-#### POST `/api/auth/request-verification`
-Generate and send 6-digit PIN code
-
-**Request:**
-```json
-{
-  "email": "student@example.com"
-}
+```
+Authorization header → supabase.auth.getUser(token) → customers table lookup by email → req.user
 ```
 
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Verification code sent to your email",
-  "code": "123456"  // Only in development mode
-}
-```
+`req.user` shape: `{ customerId, dbCustomerId, email, firstName, lastName, isAdmin }`
 
-**Validations:**
-- Email must exist in customers table
-- Customer must not already have a password set
-- Previous unverified codes are deleted
-- Code expires in 15 minutes
+Admin is identified by email `info@ves.sg`.
 
-#### POST `/api/auth/verify-pin`
-Verify 6-digit PIN and issue temporary token
+### Email Delivery
 
-**Request:**
-```json
-{
-  "email": "student@example.com",
-  "code": "123456"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Email verified successfully",
-  "tempToken": "eyJhbGciOiJ...",
-  "customer": {
-    "id": 123,
-    "email": "student@example.com",
-    "firstName": "John",
-    "lastName": "Doe"
-  }
-}
-```
-
-#### POST `/api/auth/set-initial-password`
-Set initial password and log user in
-
-**Request:**
-```json
-{
-  "tempToken": "eyJhbGciOiJ...",
-  "newPassword": "SecurePassword123"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Password set successfully. You are now logged in.",
-  "user": { ... },
-  "token": "eyJhbGciOiJ..."
-}
-```
-
-### Security Features
-
-1. **PIN Code Expiration:** Codes expire after 15 minutes
-2. **Temporary Token:** Password setup token expires after 30 minutes
-3. **bcrypt Password Hashing:** Passwords hashed with 10 rounds
-4. **One-Time Verification:** PIN marked as verified after use
-5. **Previous Code Cleanup:** Old unverified codes deleted when new one requested
-6. **Password Validation:** Minimum 8 characters required
-7. **Session Management:** JWT tokens with 7-day expiration
-
-### Email Integration (Future)
-
-Currently, PIN codes are logged to console. To add email:
-
-1. Install email service: `npm install nodemailer` or `npm install @sendgrid/mail`
-2. Update `/api/auth/request-verification` endpoint
-3. Add email credentials to `.env`
-4. Design branded email template
+- **Provider**: Resend (free tier, 3k emails/month)
+- **Domain**: `mail.ves.sg` (DKIM + SPF verified)
+- **SMTP**: `smtp.resend.com:465`, configured in Supabase dashboard
+- **Template**: Branded HTML with VES logo and terracotta button (saved in Supabase Email Templates > Magic Link)
+- **Dashboard**: resend.com/emails for delivery monitoring
 
 ---
 
@@ -873,8 +798,9 @@ SHOPIFY_SHOP_DOMAIN=ves-sg.myshopify.com
 SHOPIFY_ACCESS_TOKEN=your_token
 SUPABASE_URL=https://fpdbfbxpthmaceuspcrf.supabase.co
 SUPABASE_ANON_KEY=your_key
-JWT_SECRET=your_generated_secret
-FRONTEND_URL=https://your-frontend.vercel.app
+SUPABASE_SERVICE_KEY=your_service_key
+COOKIE_SECRET=your_cookie_secret
+FRONTEND_URL=https://club.ves.sg
 NODE_ENV=production
 PORT=3000
 ```
@@ -940,15 +866,21 @@ Update backend `FRONTEND_URL` environment variable to match frontend URL.
    CNAME pottery your-frontend.vercel.app
    ```
 
+### Production URLs
+
+- **Frontend**: https://club.ves.sg (Vercel)
+- **Backend**: https://ves-pottery-api-production.up.railway.app (Railway)
+- **Database**: Supabase project `fpdbfbxpthmaceuspcrf`
+
 ### Post-Deployment Checklist
 
-- [ ] Test login (admin and student)
+- [ ] Test magic link login (admin and student)
 - [ ] Test class calendar display
 - [ ] Test enrollment creation via Shopify order
 - [ ] Test webhook is receiving orders
 - [ ] Test HB classes are visible
-- [ ] Test email verification flow
-- [ ] Monitor Vercel logs for errors
+- [ ] Check Resend dashboard for email delivery
+- [ ] Monitor Railway logs for errors
 - [ ] Check auto-processor is running (2am logs)
 
 ---
@@ -957,37 +889,12 @@ Update backend `FRONTEND_URL` environment variable to match frontend URL.
 
 ### Authentication Endpoints
 
-#### POST `/api/auth/login`
-Login for admin and students
-
-**Request:**
-```json
-{
-  "email": "user@example.com",
-  "password": "password123"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "user": {
-    "id": "123456789",
-    "dbId": 123,
-    "email": "user@example.com",
-    "firstName": "John",
-    "lastName": "Doe",
-    "isAdmin": false
-  },
-  "token": "eyJhbGciOiJ..."
-}
-```
+Authentication uses Supabase Auth tokens. The frontend obtains tokens via `supabase.auth.signInWithOtp()` and sends them in the `Authorization: Bearer <supabase_access_token>` header.
 
 #### GET `/api/auth/me`
-Get current user info
+Get current user info (looks up `customers` table by Supabase auth email)
 
-**Headers:** `Authorization: Bearer <token>`
+**Headers:** `Authorization: Bearer <supabase_access_token>`
 
 **Response:**
 ```json
@@ -1219,9 +1126,10 @@ node server/process-ready-cohorts.js
 
 **Check:**
 1. Backend server is running on port 3000
-2. Customer exists in Shopify
-3. Default password: `pottery123`
-4. Check browser console for errors
+2. Customer email exists in `customers` table
+3. Magic link email arrived (check spam/Resend dashboard)
+4. Supabase URL config has correct redirect URLs
+5. Check browser console for errors
 
 #### Port 3000 Already in Use
 

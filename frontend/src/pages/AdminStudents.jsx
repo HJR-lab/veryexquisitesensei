@@ -136,7 +136,7 @@ export default function AdminStudents() {
   const [tab,    setTab]    = useState('all');   // 'all' | 'students' | 'members' | 'student-member'
   const [search, setSearch] = useState('');
   const [uiFilter, setUiFilter] = useState('pkg-wt6'); // 'all'|'pkg-wt6'|'pkg-wt10'|'pkg-wt18'|'pkg-hb4'|'pkg-hb8'|'members'
-  const [uiSort, setUiSort] = useState('cohort'); // 'cohort'|'name'|'recent'|'expiry'|'plan'
+  const [uiSort, setUiSort] = useState('recent'); // 'cohort'|'name'|'recent'|'expiry'|'plan'
   const [pageSize, setPageSize] = useState(10); // 10 | 50 | 'all'
                                                    // member sorts: 'expiry'|'plan'|'name'|'recent'
 

@@ -162,7 +162,7 @@ export default function AdminStudents() {
 
       const students = data.students || [];
       // Split into categories for existing UI
-      const wt = students.filter(s => s.isWT && s.enrollmentStatus !== 'paused');
+      const wt = students.filter(s => s.isWT && s.enrollmentStatus !== 'paused' && s.enrollmentStatus !== 'completed');
       const hb = students.filter(s => s.isHB);
       const paused = students.filter(s => s.enrollmentStatus === 'paused');
       const members = students.filter(s => s.enrollmentStatus === 'member');
@@ -201,7 +201,7 @@ export default function AdminStudents() {
         params: { limit: 'all' }
       });
       const students = data.students || [];
-      setActiveStudentsList(students.filter(s => s.isWT && s.enrollmentStatus !== 'paused'));
+      setActiveStudentsList(students.filter(s => s.isWT && s.enrollmentStatus !== 'paused' && s.enrollmentStatus !== 'completed'));
       setHbStudentsList(students.filter(s => s.isHB));
       setPausedStudentsList(students.filter(s => s.enrollmentStatus === 'paused'));
       setMembersList(students.filter(s => s.enrollmentStatus === 'member'));

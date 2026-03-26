@@ -98,7 +98,7 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
         course_purchase_count, classes_allocated, created_at
       )
     `)
-    .in('status', ['active', 'paused', 'upcoming'])
+    .in('status', ['active', 'paused', 'upcoming', 'completed'])
     .order('created_at', { ascending: false });
 
   if (enrErr) throw enrErr;

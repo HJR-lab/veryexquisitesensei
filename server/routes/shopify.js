@@ -1,6 +1,9 @@
 const express = require('express');
 const { syncCustomer } = require('../utils/shopifySync');
 const supabaseDb = require('../utils/supabaseDb');
+const { sendAndLogEmail } = require('../utils/emailService');
+const { generateCohortConfirmedEmail } = require('../email-templates/cohort-confirmed');
+const { generateKidsOutreachEmail } = require('../email-templates/kids-outreach');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, getShopifyClient, shopify }) {
 
@@ -1115,11 +1118,77 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
             console.log(`✅ Course enrollment processed successfully`);
             if (result.thresholdMet) {
               console.log(`🎉 Threshold met! Created ${result.classInstancesCreated} class instances and ${result.bookingsCreated} bookings`);
+
+              // Send cohort confirmed email to all students
+              try {
+                const enrollment = result.enrollment;
+                if (enrollment && enrollment.course_identifier) {
+                  // Get all student emails in this cohort
+                  const { data: cohortEnrollments } = await supabaseDb.supabase
+                    .from('course_enrollments')
+                    .select('student_id, customers!inner(email)')
+                    .like('course_identifier', `${enrollment.course_identifier}%`)
+                    .in('status', ['active', 'pending']);
+
+                  const studentEmails = (cohortEnrollments || [])
+                    .map(e => e.customers?.email)
+                    .filter(Boolean);
+
+                  if (studentEmails.length > 0) {
+                    const { subject, html } = generateCohortConfirmedEmail({
+                      courseType: enrollment.course_type || 'Wheelthrowing',
+                      dayOfWeek: enrollment.schedule_pattern || '',
+                      startDate: enrollment.course_start_date || '',
+                      endDate: enrollment.course_end_date || '',
+                      timeSlot: enrollment.class_time || '',
+                    });
+                    await sendAndLogEmail({
+                      emailType: 'cohort_confirmed',
+                      courseIdentifier: enrollment.course_identifier,
+                      subject,
+                      html,
+                      recipientEmails: studentEmails,
+                      sentBy: 'system',
+                    });
+                    console.log(`📧 Cohort confirmed email sent to ${studentEmails.length} students`);
+                  }
+                }
+              } catch (emailErr) {
+                console.error('[Email] Failed to send cohort confirmed email:', emailErr);
+              }
             } else if (result.requiresThreshold) {
               console.log(`⏳ Waiting for more students (${result.studentCount}/${result.studentsNeeded + result.studentCount})`);
             }
           } else {
             console.error(`❌ Failed to process course enrollment: ${result.error}`);
+          }
+        }
+      }
+    }
+
+    // Check for kids course purchases and auto-send outreach email
+    if (orderData.line_items && orderData.line_items.length > 0) {
+      for (const item of orderData.line_items) {
+        const title = (item.title || '').toLowerCase();
+        if (title.includes('kids') || title.includes('play with clay')) {
+          try {
+            const parentEmail = customer.email;
+            if (parentEmail) {
+              const { subject, html } = generateKidsOutreachEmail({
+                parentName: customer.first_name || '',
+              });
+              await sendAndLogEmail({
+                emailType: 'kids_outreach',
+                courseIdentifier: 'KIDS',
+                subject,
+                html,
+                recipientEmails: [parentEmail],
+                sentBy: 'system',
+              });
+              console.log(`📧 Kids outreach email sent to ${parentEmail}`);
+            }
+          } catch (emailErr) {
+            console.error('[Email] Failed to send kids outreach:', emailErr);
           }
         }
       }

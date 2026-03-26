@@ -623,13 +623,13 @@ export default function AdminStudents() {
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <main style={{ maxWidth: '1140px', margin: '0 auto', padding: isMobile ? '20px 16px 60px' : '32px 24px 60px' }}>
+      <main style={{ maxWidth: '1140px', margin: '0 auto', padding: isMobile ? '12px 12px 60px' : '32px 24px 60px' }}>
 
         {/* ── Page header ──────────────────────────────────────────────── */}
-        <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+        <div style={{ marginBottom: isMobile ? '12px' : '24px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
           <div>
-            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>Admin</div>
-            <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Users</h1>
+            <div style={{ fontSize: isMobile ? '9px' : '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '2px' }}>Admin</div>
+            <h1 style={{ fontSize: isMobile ? '18px' : '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Users</h1>
           </div>
         </div>
 
@@ -647,21 +647,21 @@ export default function AdminStudents() {
                 onClick={() => handleTabChange(s.key)}
                 style={{
                   backgroundColor: tab === s.key ? INK : '#FFFFFF',
-                  padding: '16px 20px', border: 'none', cursor: 'pointer', textAlign: 'left',
+                  padding: isMobile ? '10px 12px' : '16px 20px', border: 'none', cursor: 'pointer', textAlign: 'left',
                   transition: 'background-color 0.1s',
                 }}
               >
-                <div style={{ fontSize: '28px', fontWeight: 700, color: tab === s.key ? '#FFF' : INK, lineHeight: 1 }}>
+                <div style={{ fontSize: isMobile ? '20px' : '28px', fontWeight: 700, color: tab === s.key ? '#FFF' : INK, lineHeight: 1 }}>
                   {loading ? (summaryStats ? (summaryStats[s.key === 'all' ? 'totalStudents' : s.key === 'students' ? 'activeStudents' : s.key === 'members' ? 'activeMembers' : 'studentMembers'] ?? '—') : '—') : s.value}
                 </div>
-                <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '4px', color: tab === s.key ? 'rgba(255,255,255,0.55)' : MUTED }}>
+                <div style={{ fontSize: isMobile ? '8px' : '10px', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '4px', color: tab === s.key ? 'rgba(255,255,255,0.55)' : MUTED }}>
                   {s.label}
                 </div>
               </button>
             ))}
           </div>
           {/* Sort row */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', borderTop: `1px solid ${RULE}`, backgroundColor: ALT }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: isMobile ? '6px 10px' : '8px 16px', borderTop: `1px solid ${RULE}`, backgroundColor: ALT }}>
             {!isOnMemberTab && (
               <>
                 <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED }}>Filter</span>
@@ -699,7 +699,7 @@ export default function AdminStudents() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search users…"
-            style={{ width: '100%', padding: '10px 14px', border: 'none', backgroundColor: '#FFFFFF', fontSize: '13px', color: INK, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
+            style={{ width: '100%', padding: isMobile ? '8px 10px' : '10px 14px', border: 'none', backgroundColor: '#FFFFFF', fontSize: isMobile ? '12px' : '13px', color: INK, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
           />
         </div>
 
@@ -722,7 +722,7 @@ export default function AdminStudents() {
         <div style={{ border: `1px solid ${RULE}`, borderTop: 'none', backgroundColor: '#FFFFFF', overflowX: 'auto' }}>
 
           {/* Table header */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px 100px 100px', minWidth: '600px', padding: '10px 16px', backgroundColor: ALT, borderBottom: `1px solid ${RULE}` }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px 100px 100px', minWidth: '600px', padding: isMobile ? '8px 10px' : '10px 16px', backgroundColor: ALT, borderBottom: `1px solid ${RULE}` }}>
             {['User', 'Course / Membership', 'Progress', 'Status'].map((h, i) => (
               <span key={i} style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED }}>{h}</span>
             ))}
@@ -760,7 +760,7 @@ export default function AdminStudents() {
                   display: 'grid',
                   gridTemplateColumns: '1fr 180px 100px 100px',
                   minWidth: '600px',
-                  padding: isDual ? '14px 16px' : '12px 16px',
+                  padding: isDual ? (isMobile ? '10px 10px' : '14px 16px') : (isMobile ? '8px 10px' : '12px 16px'),
                   borderBottom: i < visibleRows.length - 1 ? `1px solid ${RULE}` : 'none',
                   backgroundColor: isSelected ? TC_LIGHT : isDual ? '#FAFBFF' : hbAllUsed ? '#FAFAFA' : '#FFFFFF',
                   alignItems: isDual ? 'start' : 'center',
@@ -776,7 +776,7 @@ export default function AdminStudents() {
                 {/* Name + email + type badge */}
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 700 }}>{student.name}</span>
+                    <span style={{ fontSize: isMobile ? '12px' : '13px', fontWeight: 700 }}>{student.name}</span>
                     {isDual && (
                       <span style={{ fontSize: '8px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '1px 5px', backgroundColor: MEMBER_BG, color: MEMBER_COLOR }}>S+M</span>
                     )}
@@ -784,7 +784,7 @@ export default function AdminStudents() {
                       <span style={{ fontSize: '9px', fontWeight: 700, color: '#2E7D32' }}>&#10003; Done</span>
                     )}
                   </div>
-                  <div style={{ fontSize: '11px', color: MUTED }}>{student.email}</div>
+                  <div style={{ fontSize: isMobile ? '10px' : '11px', color: MUTED }}>{student.email}</div>
                 </div>
 
                 {/* Course / Membership info */}
@@ -902,7 +902,7 @@ export default function AdminStudents() {
 
         {/* ── Footer count + page size + load more ────────────────────── */}
         {!loading && visibleRows.length > 0 && (
-          <div style={{ padding: '14px 0', fontSize: '11px', color: MUTED, display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' }}>
+          <div style={{ padding: isMobile ? '10px 0' : '14px 0', fontSize: '11px', color: MUTED, display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' }}>
             {/* Load more / pagination row */}
             {pagination.page < pagination.totalPages && (
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>

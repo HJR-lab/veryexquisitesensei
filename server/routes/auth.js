@@ -166,16 +166,8 @@ app.post('/api/auth/impersonate/:email', authenticateToken, asyncHandler(async (
     return res.status(404).json({ error: 'Student not found' });
   }
 
-  // Set signed impersonation cookie
-  res.cookie('ves_impersonate', String(student.id), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 24 * 60 * 60 * 1000,
-    path: '/',
-    signed: true,
-  });
-
+  // Impersonation now uses X-Impersonate-Id header (set by frontend in localStorage)
+  // No cookie needed — cross-origin cookies are blocked by modern browsers
   res.json({
     success: true,
     student: {

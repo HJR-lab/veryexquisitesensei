@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { lazy, Suspense } from 'react';
+import ErrorBoundary from './components/ErrorBoundary';
 import AdminLayout from './components/AdminLayout';
 import StudentLayout from './components/StudentLayout';
 
@@ -143,6 +144,7 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <ErrorBoundary>
         <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/login" element={<Navigate to="/" replace />} />
@@ -201,6 +203,7 @@ function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         </Suspense>
+        </ErrorBoundary>
       </AuthProvider>
     </BrowserRouter>
   );

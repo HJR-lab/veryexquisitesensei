@@ -385,12 +385,12 @@ export default function GalleryNew() {
                         src={piece.images[0]}
                         alt={piece.title}
                         style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                        onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling && (e.target.nextSibling.style.display = 'flex'); }}
                       />
-                    ) : (
-                      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <span className="material-symbols-outlined" style={{ fontSize: '28px', color: MUTED }}>image_not_supported</span>
-                      </div>
-                    )}
+                    ) : null}
+                    <div style={{ width: '100%', height: '100%', display: piece.images?.[0] ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: '28px', color: MUTED }}>image_not_supported</span>
+                    </div>
                     {/* Public indicator badge */}
                     {piece.is_public && (
                       <div style={{

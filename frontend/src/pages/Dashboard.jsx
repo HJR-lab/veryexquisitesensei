@@ -612,12 +612,12 @@ export default function Dashboard() {
                       src={piece.imageUrl}
                       alt={piece.title || `Pottery piece ${i + 1}`}
                       style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                      onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling && (e.target.nextSibling.style.display = 'flex'); }}
                     />
-                  ) : (
-                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: '48px', color: '#CCC' }}>local_fire_department</span>
-                    </div>
-                  )}
+                  ) : null}
+                  <div style={{ width: '100%', height: '100%', display: piece.imageUrl ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: '48px', color: '#CCC' }}>local_fire_department</span>
+                  </div>
                   {piece.title && (
                     <div style={{
                       position: 'absolute', bottom: 0, left: 0, right: 0,

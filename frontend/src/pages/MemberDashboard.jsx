@@ -181,12 +181,11 @@ export default function MemberDashboard() {
               {data.gallery.map((piece, i) => (
                 <Link key={i} to="/gallery" style={{ position: 'relative', aspectRatio: '1', overflow: 'hidden', backgroundColor: '#F0EDE9', display: 'block', textDecoration: 'none' }}>
                   {piece.imageUrl ? (
-                    <img src={piece.imageUrl} alt={piece.title || ''} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                  ) : (
-                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: '48px', color: '#CCC' }}>local_fire_department</span>
-                    </div>
-                  )}
+                    <img src={piece.imageUrl} alt={piece.title || ''} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling && (e.target.nextSibling.style.display = 'flex'); }} />
+                  ) : null}
+                  <div style={{ width: '100%', height: '100%', display: piece.imageUrl ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: '48px', color: '#CCC' }}>local_fire_department</span>
+                  </div>
                   {piece.title && (
                     <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(to top, rgba(20,10,5,0.65) 0%, transparent 100%)', padding: '24px 10px 8px' }}>
                       <div style={{ fontSize: '11px', color: '#FFF', fontWeight: 600 }}>{piece.title}</div>

@@ -1,20 +1,75 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import supabase from '../utils/supabase';
 import { authAPI, setApiToken } from '../utils/api';
 
 const AuthContext = createContext(null);
 
+const AUTH_CACHE_KEY = 'ves_auth_cache';
+const AUTH_CACHE_TTL = 60_000; // 60 seconds
+
+function getImpersonateId() {
+  return localStorage.getItem('ves_impersonate_id') || '';
+}
+
+function getCachedAuth() {
+  try {
+    const raw = sessionStorage.getItem(AUTH_CACHE_KEY);
+    if (!raw) return null;
+    const { user, timestamp, impersonateId } = JSON.parse(raw);
+    // Invalidate if impersonation state changed
+    if ((impersonateId || '') !== getImpersonateId()) {
+      sessionStorage.removeItem(AUTH_CACHE_KEY);
+      return null;
+    }
+    if (Date.now() - timestamp < AUTH_CACHE_TTL && user) {
+      return user;
+    }
+    // Stale — remove it
+    sessionStorage.removeItem(AUTH_CACHE_KEY);
+    return null;
+  } catch {
+    sessionStorage.removeItem(AUTH_CACHE_KEY);
+    return null;
+  }
+}
+
+function setCachedAuth(user) {
+  try {
+    sessionStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({
+      user,
+      timestamp: Date.now(),
+      impersonateId: getImpersonateId(),
+    }));
+  } catch { /* ignore quota errors */ }
+}
+
+function clearCachedAuth() {
+  sessionStorage.removeItem(AUTH_CACHE_KEY);
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Track whether initAuth has fetched user to avoid duplicate call from onAuthStateChange
+  const initFetched = useRef(false);
 
-  const fetchUser = useCallback(async () => {
+  const fetchUser = useCallback(async ({ skipCache = false } = {}) => {
+    // Check sessionStorage cache first (unless explicitly skipping)
+    if (!skipCache) {
+      const cached = getCachedAuth();
+      if (cached) {
+        setUser(cached);
+        return;
+      }
+    }
     try {
       const data = await authAPI.getMe();
       setUser(data.user);
+      setCachedAuth(data.user);
     } catch (error) {
       console.error('Failed to fetch user:', error);
       setUser(null);
+      clearCachedAuth();
     }
   }, []);
 
@@ -25,6 +80,7 @@ export function AuthProvider({ children }) {
       setApiToken(session?.access_token || null);
       if (session) {
         await fetchUser();
+        initFetched.current = true;
       }
       setLoading(false);
     };
@@ -36,9 +92,20 @@ export function AuthProvider({ children }) {
       async (event, session) => {
         setApiToken(session?.access_token || null);
         if (event === 'SIGNED_IN' && session) {
-          await fetchUser();
+          // On mount, Supabase fires SIGNED_IN for existing sessions too.
+          // If initAuth already handled this, skip the duplicate call.
+          if (initFetched.current) {
+            initFetched.current = false; // Reset so future genuine sign-ins work
+            return;
+          }
+          // Fresh sign-in (magic link callback) — skip cache to get fresh data
+          await fetchUser({ skipCache: true });
         } else if (event === 'SIGNED_OUT') {
           setUser(null);
+          clearCachedAuth();
+        } else if (event === 'TOKEN_REFRESHED' && session) {
+          // Token refreshed — user data hasn't changed, use cache if available
+          await fetchUser();
         }
       }
     );
@@ -58,6 +125,7 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
+    clearCachedAuth();
     await supabase.auth.signOut();
     setApiToken(null);
     await authAPI.logout(); // Clear server-side impersonation cookie if any
@@ -66,10 +134,11 @@ export function AuthProvider({ children }) {
 
   const updateUser = (updatedUser) => {
     setUser(updatedUser);
+    setCachedAuth(updatedUser);
   };
 
   const refreshUser = async () => {
-    await fetchUser();
+    await fetchUser({ skipCache: true });
   };
 
   return (

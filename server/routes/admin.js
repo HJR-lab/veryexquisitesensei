@@ -1,6 +1,11 @@
 const supabaseDb = require('../utils/supabaseDb');
 const { generateICS, generateMultipleICS } = require('../utils/calendarGenerator');
 
+// In-memory cache for admin stats summary (30s TTL)
+let adminStatsSummaryCache = null;
+let adminStatsSummaryCacheTime = 0;
+const ADMIN_STATS_CACHE_TTL = 30 * 1000; // 30 seconds
+
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler }) {
 
 // ============================================
@@ -20,8 +25,13 @@ app.get('/api/admin/students/search', authenticateToken, requireAdmin, asyncHand
   res.json({ students: data || [] });
 }));
 
-// Get student statistics summary (lightweight, count-only)
+// Get student statistics summary (lightweight, count-only, cached 30s)
 app.get('/api/admin/students/stats/summary', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  // Return cached result if fresh
+  if (adminStatsSummaryCache && (Date.now() - adminStatsSummaryCacheTime < ADMIN_STATS_CACHE_TTL)) {
+    return res.json(adminStatsSummaryCache);
+  }
+
   const [
     { count: totalStudents, error: e1 },
     { count: activeStudents, error: e2 },
@@ -54,13 +64,19 @@ app.get('/api/admin/students/stats/summary', authenticateToken, requireAdmin, as
   const err = e1 || e2 || e3 || e4 || e5;
   if (err) throw err;
 
-  res.json({
+  const result = {
     totalStudents: totalStudents || 0,
     activeStudents: activeStudents || 0,
     pausedStudents: pausedStudents || 0,
     hbStudents: hbStudents || 0,
     activeMembers: activeMembers || 0
-  });
+  };
+
+  // Cache the result
+  adminStatsSummaryCache = result;
+  adminStatsSummaryCacheTime = Date.now();
+
+  res.json(result);
 }));
 
 // Lightweight student list — fast initial load (replaces heavy /stats for page render)

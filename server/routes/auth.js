@@ -1,6 +1,29 @@
 const supabaseDb = require('../utils/supabaseDb');
 const { getStudioAccessPasses } = require('../utils/studioAccess');
 
+// In-memory auth cache (60s TTL) - avoids 3 DB queries per page load
+const authCache = new Map();
+const AUTH_CACHE_TTL = 60 * 1000; // 60 seconds
+
+function getCachedAuth(key) {
+  const entry = authCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > AUTH_CACHE_TTL) {
+    authCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCachedAuth(key, data) {
+  authCache.set(key, { data, timestamp: Date.now() });
+}
+
+function invalidateAuthCache(key) {
+  if (key) authCache.delete(key);
+  else authCache.clear();
+}
+
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler }) {
 
 // ============================================
@@ -10,6 +33,13 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler }
 app.get('/api/auth/me', authenticateToken, async (req, res) => {
   try {
     const { dbCustomerId } = req.user;
+
+    // Check cache first (keyed by dbCustomerId + impersonation state)
+    const cacheKey = `${dbCustomerId}:${req.user.isImpersonating || false}`;
+    const cached = getCachedAuth(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
 
     // Fetch customer, membership, and enrollment info all in parallel
     const [customerRes, hasMembership, activeEnrollmentRes] = await Promise.all([
@@ -37,7 +67,7 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
     const hasActiveEnrollments = (activeEnrollmentRes.data || []).length > 0;
 
     // Return user data with snake_case fields mapped to camelCase for frontend
-    res.json({
+    const response = {
       user: {
         customerId: customer.shopify_customer_id,
         dbCustomerId: customer.id,
@@ -58,7 +88,10 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
         hasActiveEnrollments,
         customerType: customer.customer_type || 'student'
       }
-    });
+    };
+
+    setCachedAuth(cacheKey, response);
+    res.json(response);
   } catch (error) {
     console.error('Error fetching user data:', error);
     res.json({ user: req.user });
@@ -66,6 +99,8 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
 });
 
 app.post('/api/auth/logout', (req, res) => {
+  // Invalidate all auth caches on logout
+  invalidateAuthCache();
   // Clear old JWT cookie from pre-migration sessions
   res.clearCookie('token', {
     httpOnly: true,
@@ -135,6 +170,10 @@ app.put('/api/auth/profile', authenticateToken, asyncHandler(async (req, res) =>
     return res.status(500).json({ error: 'Failed to update profile' });
   }
 
+  // Invalidate auth cache since profile data changed
+  invalidateAuthCache(`${dbCustomerId}:false`);
+  invalidateAuthCache(`${dbCustomerId}:true`);
+
   res.json({
     user: {
       customerId: req.user.customerId,
@@ -183,6 +222,11 @@ app.post('/api/auth/impersonate/:email', authenticateToken, asyncHandler(async (
 
 // Stop impersonation — clear cookie and return admin user data
 app.post('/api/auth/stop-impersonation', authenticateToken, asyncHandler(async (req, res) => {
+  // Invalidate auth cache for the impersonated user and admin
+  if (req.user.dbCustomerId) {
+    invalidateAuthCache(`${req.user.dbCustomerId}:true`);
+    invalidateAuthCache(`${req.user.dbCustomerId}:false`);
+  }
   // Clear the impersonation cookie
   res.clearCookie('ves_impersonate', {
     httpOnly: true,

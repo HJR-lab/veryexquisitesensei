@@ -2258,13 +2258,10 @@ app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, requireAdm
     .in('status', ['booked', 'completed', 'attended'])
     .order('class_instances(class_date)', { ascending: false });
 
-  // Group bookings by course, then exclude fully-completed courses
-  const todayStr = new Date().toISOString().split('T')[0];
-
-  // First, exclude bookings from explicitly completed/cancelled enrollments
-  // BUT: if the enrollment still has future bookings, don't treat it as completed
-  // (protects against enrollments incorrectly marked as completed)
+  // Filter bookings: keep those from active/paused enrollments, or without enrollment link
+  // Only exclude bookings explicitly tied to completed/cancelled enrollments
   const enrollmentHasFutureBookings = {};
+  const todayStr = new Date().toISOString().split('T')[0];
   (allBookings || []).forEach(b => {
     if (b.course_enrollment_id) {
       const classDate = b.class_instances?.class_date?.split('T')[0];
@@ -2274,48 +2271,18 @@ app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, requireAdm
     }
   });
 
-  const nonCompletedBookings = (allBookings || []).filter(booking => {
-    if (booking.course_enrollment && ['completed', 'cancelled'].includes(booking.course_enrollment.status)) {
-      // If this enrollment still has future bookings, don't filter it out
-      if (enrollmentHasFutureBookings[booking.course_enrollment_id]) return true;
-      return false;
-    }
-    return true;
-  });
+  const bookings = (allBookings || []).filter(booking => {
+    // Keep bookings with no enrollment link (standalone/legacy)
+    if (!booking.course_enrollment) return true;
 
-  // Group remaining by base course identifier to find courses where ALL dates are past
-  const getBase = (classType) => {
-    if (!classType) return 'unknown';
-    const dot = classType.lastIndexOf('.');
-    return dot > 0 ? classType.substring(0, dot) : classType;
-  };
-  const groups = {};
-  nonCompletedBookings.forEach(b => {
-    const base = getBase(b.class_instances?.class_type);
-    if (!groups[base]) groups[base] = [];
-    groups[base].push(b);
-  });
-  // A course group is fully done if every booking's class_date is past
-  const completedGroups = new Set();
-  Object.entries(groups).forEach(([base, group]) => {
-    const allPast = group.every(b => {
-      const d = b.class_instances?.class_date?.split('T')[0];
-      return d && d < todayStr;
-    });
-    if (allPast) completedGroups.add(base);
-  });
+    // Keep bookings from active or paused enrollments
+    if (['active', 'paused', 'upcoming'].includes(booking.course_enrollment.status)) return true;
 
-  const bookings = nonCompletedBookings.filter(b => {
-    // Always keep bookings linked to an active/paused enrollment (e.g. rescheduled HB to a different day)
-    if (b.course_enrollment_id && b.course_enrollment && ['active', 'paused'].includes(b.course_enrollment.status)) {
-      return true;
-    }
-    // Also keep bookings with no enrollment link but that are makeup/rescheduled
-    if (b.booking_type === 'makeup' && b.course_enrollment_id) {
-      return true;
-    }
-    const base = getBase(b.class_instances?.class_type);
-    return !completedGroups.has(base);
+    // For completed/cancelled enrollments: keep if there are still future bookings
+    if (enrollmentHasFutureBookings[booking.course_enrollment_id]) return true;
+
+    // Otherwise exclude (completed enrollment, all dates past)
+    return false;
   });
 
   if (error) throw error;

@@ -18,6 +18,12 @@ export default function AdminLayout() {
   const location = useLocation();
   const active = getActiveNav(location.pathname);
 
+  // Always clear impersonation when viewing admin pages
+  if (localStorage.getItem('ves_impersonate_id')) {
+    localStorage.removeItem('ves_impersonate_id');
+    localStorage.removeItem('adminReturnPath');
+  }
+
   return (
     <>
       <AdminNav active={active} />

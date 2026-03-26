@@ -697,15 +697,35 @@ app.post('/api/classes/book-hb-schedule', authenticateToken, asyncHandler(async 
   }
 
   // Create bookings for all weeks, linked to existing enrollment
+  // Reactivate cancelled bookings if they exist (unique constraint on student_id + class_instance_id)
   const bookings = [];
   for (const cls of hbClasses) {
-    const booking = await supabaseDb.createBooking({
-      studentId: dbCustomerId,
-      classInstanceId: cls.id,
-      status: 'booked',
-      bookingType: 'regular',
-      courseEnrollmentId: enrollment.id
-    });
+    const { data: cancelled } = await supabaseDb.supabase
+      .from('bookings')
+      .select('id')
+      .eq('student_id', dbCustomerId)
+      .eq('class_instance_id', cls.id)
+      .eq('status', 'cancelled')
+      .maybeSingle();
+
+    let booking;
+    if (cancelled) {
+      const { data: reactivated } = await supabaseDb.supabase
+        .from('bookings')
+        .update({ status: 'booked', booking_type: 'regular', course_enrollment_id: enrollment.id, updated_at: new Date().toISOString() })
+        .eq('id', cancelled.id)
+        .select()
+        .single();
+      booking = reactivated;
+    } else {
+      booking = await supabaseDb.createBooking({
+        studentId: dbCustomerId,
+        classInstanceId: cls.id,
+        status: 'booked',
+        bookingType: 'regular',
+        courseEnrollmentId: enrollment.id
+      });
+    }
 
     await supabaseDb.updateClassEnrollment(cls.id, 1);
     bookings.push(booking);

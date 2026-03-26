@@ -3211,33 +3211,50 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
     return res.status(400).json({ error: 'Class is full' });
   }
 
-  // Create the booking
-  const { data: booking, error: bookingError } = await supabaseDb.supabase
+  // Check for existing cancelled booking — reactivate instead of creating duplicate
+  const { data: existingBooking } = await supabaseDb.supabase
     .from('bookings')
-    .insert([{
-      student_id: studentId,
-      class_instance_id: classInstanceId,
-      booking_type: bookingType || 'regular',
-      status: status || 'booked',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    }])
-    .select()
+    .select('id, status')
+    .eq('student_id', studentId)
+    .eq('class_instance_id', classInstanceId)
     .single();
 
-  if (bookingError) {
-    console.error('Error creating booking:', bookingError);
-
-    // Provide more specific error messages
-    if (bookingError.code === '23505') {
-      return res.status(409).json({
-        error: 'Student is already booked for this class. Please delete the existing booking first.'
-      });
+  let booking;
+  if (existingBooking && existingBooking.status === 'cancelled') {
+    // Reactivate the cancelled booking
+    const { data: reactivated, error: reactError } = await supabaseDb.supabase
+      .from('bookings')
+      .update({ status: status || 'booked', booking_type: bookingType || 'regular', updated_at: new Date().toISOString() })
+      .eq('id', existingBooking.id)
+      .select()
+      .single();
+    if (reactError) {
+      console.error('Error reactivating booking:', reactError);
+      return res.status(500).json({ error: reactError.message || 'Failed to reactivate booking' });
     }
+    booking = reactivated;
+  } else if (existingBooking) {
+    return res.status(409).json({ error: 'Student is already booked for this class.' });
+  } else {
+    // Create new booking
+    const { data: newBooking, error: bookingError } = await supabaseDb.supabase
+      .from('bookings')
+      .insert([{
+        student_id: studentId,
+        class_instance_id: classInstanceId,
+        booking_type: bookingType || 'regular',
+        status: status || 'booked',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }])
+      .select()
+      .single();
 
-    return res.status(500).json({
-      error: bookingError.message || 'Failed to create booking'
-    });
+    if (bookingError) {
+      console.error('Error creating booking:', bookingError);
+      return res.status(500).json({ error: bookingError.message || 'Failed to create booking' });
+    }
+    booking = newBooking;
   }
 
   // Update class capacity

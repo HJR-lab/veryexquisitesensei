@@ -103,11 +103,25 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
 
   if (enrErr) throw enrErr;
 
-  // Get memberships
-  const { data: memberships } = await supabaseDb.supabase
-    .from('memberships')
-    .select('id, customer_id, membership_type, status, start_date, end_date, customers!memberships_customer_id_fkey(email, first_name, last_name, customer_type)')
-    .in('status', ['active', 'expiring']);
+  // Get memberships + booking attendance counts in parallel
+  const [{ data: memberships }, { data: bookingRows }] = await Promise.all([
+    supabaseDb.supabase
+      .from('memberships')
+      .select('id, customer_id, membership_type, status, start_date, end_date, customers!memberships_customer_id_fkey(email, first_name, last_name, customer_type)')
+      .in('status', ['active', 'expiring']),
+    supabaseDb.supabase
+      .from('bookings')
+      .select('course_enrollment_id, status')
+      .in('status', ['attended', 'completed'])
+  ]);
+
+  // Build attended count per enrollment
+  const attendedByEnrollment = {};
+  (bookingRows || []).forEach(b => {
+    if (b.course_enrollment_id) {
+      attendedByEnrollment[b.course_enrollment_id] = (attendedByEnrollment[b.course_enrollment_id] || 0) + 1;
+    }
+  });
 
   // Build student map — pick most recent enrollment per student
   const studentMap = {};
@@ -155,6 +169,7 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
       creditsUsed: isHB ? enr.class_credits_used : null,
       creditsRemaining: isHB ? enr.class_credits_remaining : null,
       classesAllocated: isWT ? (enr.number_of_weeks || 6) : null,
+      classesAttended: attendedByEnrollment[enr.id] || 0,
       coursePurchaseCount: student.course_purchase_count || 1,
       customerType: student.customer_type,
       isHB,

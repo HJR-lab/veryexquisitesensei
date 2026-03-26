@@ -111,14 +111,17 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
       .in('status', ['active', 'expiring']),
     supabaseDb.supabase
       .from('bookings')
-      .select('course_enrollment_id, status')
-      .in('status', ['attended', 'completed'])
+      .select('course_enrollment_id, status, class_instances!bookings_class_instance_id_fkey(class_date)')
+      .in('status', ['booked', 'attended', 'completed'])
   ]);
 
-  // Build attended count per enrollment
+  // Build attended count per enrollment (attended/completed + past booked)
+  const todayStr = new Date().toISOString().split('T')[0];
   const attendedByEnrollment = {};
   (bookingRows || []).forEach(b => {
-    if (b.course_enrollment_id) {
+    if (!b.course_enrollment_id) return;
+    const isPast = b.class_instances?.class_date?.split('T')[0] < todayStr;
+    if (b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && isPast)) {
       attendedByEnrollment[b.course_enrollment_id] = (attendedByEnrollment[b.course_enrollment_id] || 0) + 1;
     }
   });

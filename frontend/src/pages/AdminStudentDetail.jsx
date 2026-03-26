@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
-import AdminNav from '../components/AdminNav';
 import StudentInfoCard from '../components/StudentInfoCard';
 import StudentBookingsTab from '../components/StudentBookingsTab';
 import StudentFeesTab from '../components/StudentFeesTab';
@@ -694,7 +693,6 @@ export default function AdminStudentDetail() {
   if (loading) {
     return (
       <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-        <AdminNav active="students" />
         <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '80px 24px', textAlign: 'center' }}>
           <span style={{ fontSize: '14px', color: MUTED }}>Loading…</span>
         </main>
@@ -705,7 +703,6 @@ export default function AdminStudentDetail() {
   if (!student) {
     return (
       <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-        <AdminNav active="students" />
         <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '80px 24px', textAlign: 'center' }}>
           <span style={{ fontSize: '14px', color: MUTED }}>Student not found.</span>
         </main>
@@ -716,8 +713,6 @@ export default function AdminStudentDetail() {
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <AdminNav active={isInstructor ? "instructors" : "students"} />
-
       <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '24px 24px 80px' }}>
 
         {/* Breadcrumb */}

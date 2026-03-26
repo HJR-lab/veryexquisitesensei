@@ -1,6 +1,7 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { lazy, Suspense } from 'react';
+import AdminLayout from './components/AdminLayout';
 
 // Critical path — loaded eagerly (student landing pages)
 import AuthCallback from './pages/AuthCallback';
@@ -195,22 +196,24 @@ function App() {
           <Route path="/instructor/:id" element={<InstructorProfile />} />
           <Route path="/instructor/:id/portfolio" element={<InstructorPortfolio />} />
 
-          {/* Admin routes */}
-          <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
-          <Route path="/admin/dashboard" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
-          <Route path="/admin/utility" element={<AdminRoute><UtilityDashboard /></AdminRoute>} />
-          <Route path="/admin/students" element={<AdminRoute><AdminStudents /></AdminRoute>} />
-          <Route path="/admin/students/paused" element={<AdminRoute><AdminPausedStudents /></AdminRoute>} />
-          <Route path="/admin/students/:email" element={<AdminRoute><AdminStudentDetail /></AdminRoute>} />
-          <Route path="/admin/memberships" element={<AdminRoute><AdminMemberships /></AdminRoute>} />
-          <Route path="/admin/gallery" element={<AdminRoute><AdminGallery /></AdminRoute>} />
-          <Route path="/admin/reference" element={<AdminRoute><AdminReference /></AdminRoute>} />
-          <Route path="/admin/classes" element={<AdminRoute><AdminClasses /></AdminRoute>} />
-          <Route path="/admin/courses" element={<AdminRoute><AdminCoursesNew /></AdminRoute>} />
-          <Route path="/admin/policy" element={<AdminRoute><AdminStudioPolicy /></AdminRoute>} />
-          <Route path="/admin/events" element={<AdminRoute><AdminEvents /></AdminRoute>} />
-          <Route path="/admin/instructors" element={<AdminRoute><AdminInstructors /></AdminRoute>} />
-          <Route path="/admin/studio-access" element={<AdminRoute><AdminStudioAccess /></AdminRoute>} />
+          {/* Admin routes — persistent nav via AdminLayout */}
+          <Route path="/admin" element={<AdminRoute><AdminLayout /></AdminRoute>}>
+            <Route index element={<AdminDashboard />} />
+            <Route path="dashboard" element={<AdminDashboard />} />
+            <Route path="utility" element={<UtilityDashboard />} />
+            <Route path="students" element={<AdminStudents />} />
+            <Route path="students/paused" element={<AdminPausedStudents />} />
+            <Route path="students/:email" element={<AdminStudentDetail />} />
+            <Route path="memberships" element={<AdminMemberships />} />
+            <Route path="gallery" element={<AdminGallery />} />
+            <Route path="reference" element={<AdminReference />} />
+            <Route path="classes" element={<AdminClasses />} />
+            <Route path="courses" element={<AdminCoursesNew />} />
+            <Route path="policy" element={<AdminStudioPolicy />} />
+            <Route path="events" element={<AdminEvents />} />
+            <Route path="instructors" element={<AdminInstructors />} />
+            <Route path="studio-access" element={<AdminStudioAccess />} />
+          </Route>
 
           {/* Test routes */}
           <Route path="/test" element={<PrivateRoute><TestDash /></PrivateRoute>} />

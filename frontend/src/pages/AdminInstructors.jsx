@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
-import AdminNav from '../components/AdminNav';
-
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
 const TC_DARK  = '#9E4A1E';
@@ -121,8 +119,6 @@ export default function AdminInstructors() {
 
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <AdminNav active="instructors" />
-
       <main style={{ maxWidth: '900px', margin: '0 auto', padding: '32px 24px 60px' }}>
         <div style={{ marginBottom: '28px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
           <div>

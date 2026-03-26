@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react';
 import api from '../utils/api';
-import AdminNav from '../components/AdminNav';
-
 const TC       = '#C4622D';
 const INK      = '#282828';
 const MUTED    = '#888888';
@@ -96,14 +94,12 @@ export default function AdminStudioPolicy() {
 
   if (loading) return (
     <div style={{ fontFamily: 'Atak, sans-serif' }}>
-      <AdminNav active="policy" />
       <div style={{ textAlign: 'center', padding: '60px', color: MUTED }}>Loading...</div>
     </div>
   );
 
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <AdminNav active="policy" />
 
       <main style={{ maxWidth: '800px', margin: '0 auto', padding: '32px 24px 80px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>

@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import AdminNav from '../components/AdminNav';
 import axios from 'axios';
 
 export default function AdminReference() {
@@ -185,8 +184,6 @@ export default function AdminReference() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <AdminNav active="reference" />
-
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-8">

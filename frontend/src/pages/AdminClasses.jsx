@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
-import AdminNav from '../components/AdminNav';
 import ClassCalendarGrid from '../components/ClassCalendarGrid';
 import ClassDayDetail from '../components/ClassDayDetail';
 import { AddSingleClassModal, CreateCourseModal, EditClassModal, RescheduleModal, AddStudentModal } from '../components/ClassModals';
@@ -1112,8 +1111,6 @@ export default function AdminClasses() {
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <AdminNav active="classes" onSyncComplete={loadCourses} />
-
       <main style={{ maxWidth: '1140px', margin: '0 auto', padding: isMobile ? '20px 16px 60px' : '32px 24px 60px' }}>
 
         {/* ── Page header ──────────────────────────────────────────────── */}

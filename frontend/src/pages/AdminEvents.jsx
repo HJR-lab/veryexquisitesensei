@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react';
 import api from '../utils/api';
-import AdminNav from '../components/AdminNav';
-
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
 const TC_DARK  = '#9E4A1E';
@@ -149,8 +147,6 @@ export default function AdminEvents() {
 
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <AdminNav active="events" />
-
       <main style={{ maxWidth: '900px', margin: '0 auto', padding: '32px 24px 60px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
           <div>

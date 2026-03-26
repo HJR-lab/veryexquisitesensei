@@ -1,0 +1,78 @@
+const { Resend } = require('resend');
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+const FROM_ADDRESS = 'VES Studio <info@ves.sg>';
+
+/**
+ * Send an email via Resend
+ */
+async function sendEmail({ to, bcc, subject, html, replyTo }) {
+  try {
+    const payload = {
+      from: FROM_ADDRESS,
+      to: to || FROM_ADDRESS,
+      subject,
+      html,
+    };
+    if (bcc && bcc.length > 0) payload.bcc = bcc;
+    if (replyTo) payload.reply_to = replyTo;
+
+    const { data, error } = await resend.emails.send(payload);
+
+    if (error) {
+      console.error('[Email] Send failed:', error);
+      return { success: false, error: error.message };
+    }
+
+    console.log(`[Email] Sent "${subject}" to ${bcc ? bcc.length + ' recipients' : to} (ID: ${data.id})`);
+    return { success: true, messageId: data.id };
+  } catch (err) {
+    console.error('[Email] Send error:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Send and log a course-related email
+ */
+async function sendAndLogEmail({ emailType, courseIdentifier, subject, html, recipientEmails, sentBy }) {
+  const result = await sendEmail({
+    to: FROM_ADDRESS,
+    bcc: recipientEmails,
+    subject,
+    html,
+  });
+
+  if (result.success) {
+    const { supabase } = require('./supabaseDb');
+    await supabase.from('sent_emails').insert({
+      email_type: emailType,
+      course_identifier: courseIdentifier,
+      subject,
+      recipient_count: recipientEmails.length,
+      recipient_emails: recipientEmails,
+      sent_by: sentBy || 'system',
+      resend_message_id: result.messageId,
+    });
+  }
+
+  return result;
+}
+
+/**
+ * Detect which email template to use for a course enrollment
+ */
+function detectCourseTemplate(enrollment) {
+  const { course_type, number_of_weeks, course_identifier } = enrollment;
+  const title = (enrollment.product_title || '').toLowerCase();
+
+  if (title.includes('kids') || title.includes('play with clay')) return 'kids-clay';
+  if (course_type && course_type.toLowerCase().includes('handbuilding')) return 'hb-8credit';
+  if (number_of_weeks === 10) return 'wt-10class';
+  if (number_of_weeks >= 18) return 'wt-3x6week';
+  if (number_of_weeks === 7) return 'wt-7week-inter';
+  return 'wt-6week';
+}
+
+module.exports = { sendEmail, sendAndLogEmail, detectCourseTemplate, FROM_ADDRESS };

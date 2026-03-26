@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import supabase from '../utils/supabase';
 import { useAuth } from '../hooks/useAuth';
@@ -8,14 +8,45 @@ export default function AuthCallback() {
   const [error, setError] = useState('');
   const navigate = useNavigate();
   const { user } = useAuth();
+  const handled = useRef(false);
 
   useEffect(() => {
+    if (handled.current) return;
+    handled.current = true;
+
     const handleCallback = async () => {
-      // Supabase client auto-detects the token fragment in the URL
-      const { error } = await supabase.auth.getSession();
-      if (error) {
-        console.error('Auth callback error:', error);
-        setError('Sign-in failed. Please try again.');
+      // Check for error params in URL (expired/invalid link)
+      const params = new URLSearchParams(window.location.search);
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const urlError = params.get('error_description') || hashParams.get('error_description');
+      if (urlError) {
+        setError(urlError.includes('expired')
+          ? 'This sign-in link has expired. Please request a new one.'
+          : `Sign-in failed: ${urlError}`
+        );
+        return;
+      }
+
+      // Exchange code for session (PKCE flow)
+      const code = params.get('code');
+      if (code) {
+        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+        if (exchangeError) {
+          console.error('Code exchange error:', exchangeError);
+          setError(exchangeError.message.includes('expired')
+            ? 'This sign-in link has expired. Please request a new one.'
+            : 'Sign-in failed. Please try again.'
+          );
+          return;
+        }
+      } else {
+        // Implicit flow — token in hash fragment, getSession() will pick it up
+        const { error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) {
+          console.error('Auth callback error:', sessionError);
+          setError('Sign-in failed. Please try again.');
+          return;
+        }
       }
       // onAuthStateChange in useAuth will handle the rest (fetch user, set state)
     };
@@ -25,7 +56,7 @@ export default function AuthCallback() {
     // Timeout if user never populates (e.g., no customers row for this email)
     const timeout = setTimeout(() => {
       setError('Unable to sign in. Your email may not be registered. Please contact VES staff.');
-    }, 15000);
+    }, 30000);
 
     return () => clearTimeout(timeout);
   }, []);

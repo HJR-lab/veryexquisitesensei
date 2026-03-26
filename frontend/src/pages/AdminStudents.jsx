@@ -146,41 +146,44 @@ export default function AdminStudents() {
   const SERVER_PAGE_SIZE = 50;
 
   useEffect(() => {
-    // Phase 1: instant summary
+    // Phase 1: instant summary counts
     api.get('/admin/students/stats/summary').then(({ data }) => {
       setSummaryStats(data);
     }).catch(() => {});
-    // Phase 2: full data (existing loadStats call)
-    loadStats(1);
+    // Phase 2: fast student list (2 queries instead of 10)
+    loadStudentList(1);
   }, []);
 
-  // ─── Data loading ─────────────────────────────────────────────────────────
-  const loadStats = async (page = 1, append = false) => {
+  // ─── Data loading (fast endpoint) ──────────────────────────────────────────
+  const loadStudentList = async (page = 1, append = false) => {
     try {
       if (append) setLoadingMore(true); else setLoading(true);
-      const { data } = await api.get('/admin/students/stats', {
+      const { data } = await api.get('/admin/students/list', {
         params: { page, limit: SERVER_PAGE_SIZE }
       });
-      setStats(data.stats);
-      setCourseStats(data.courseStats);
-      setTopPerformers(data.topPerformers);
+
+      const students = data.students || [];
+      // Split into categories for existing UI
+      const wt = students.filter(s => s.isWT && s.enrollmentStatus !== 'paused');
+      const hb = students.filter(s => s.isHB);
+      const paused = students.filter(s => s.enrollmentStatus === 'paused');
+      const members = students.filter(s => s.enrollmentStatus === 'member');
+
       if (append) {
-        setActiveStudentsList(prev => [...prev, ...(data.activeStudentsList || [])]);
-        setPausedStudentsList(prev => [...prev, ...(data.pausedStudentsList || [])]);
-        setHbStudentsList(prev => [...prev, ...(data.hbStudentsList || [])]);
-        setMembersList(prev => [...prev, ...(data.membersList || [])]);
+        setActiveStudentsList(prev => [...prev, ...wt]);
+        setHbStudentsList(prev => [...prev, ...hb]);
+        setPausedStudentsList(prev => [...prev, ...paused]);
+        setMembersList(prev => [...prev, ...members]);
       } else {
-        setActiveStudentsList(data.activeStudentsList || []);
-        setPausedStudentsList(data.pausedStudentsList || []);
-        setHbStudentsList(data.hbStudentsList || []);
-        setMembersList(data.membersList || []);
+        setActiveStudentsList(wt);
+        setHbStudentsList(hb);
+        setPausedStudentsList(paused);
+        setMembersList(members);
       }
-      setReturningStudentsList(data.returningStudentsList || []);
-      setUpcomingEnrollmentsList(data.upcomingEnrollmentsList || []);
       setMembershipByEmail(prev => ({ ...(append ? prev : {}), ...(data.membershipByEmail || {}) }));
       setPagination(data.pagination || { page: 1, total: 0, totalPages: 1 });
     } catch (error) {
-      console.error('[AdminStudents] Failed to load stats:', error);
+      console.error('[AdminStudents] Failed to load:', error);
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -189,25 +192,21 @@ export default function AdminStudents() {
 
   const loadMore = () => {
     if (pagination.page < pagination.totalPages) {
-      loadStats(pagination.page + 1, true);
+      loadStudentList(pagination.page + 1, true);
     }
   };
 
   const loadAll = async () => {
     try {
       setLoadingMore(true);
-      const { data } = await api.get('/admin/students/stats', {
+      const { data } = await api.get('/admin/students/list', {
         params: { limit: 'all' }
       });
-      setStats(data.stats);
-      setCourseStats(data.courseStats);
-      setTopPerformers(data.topPerformers);
-      setActiveStudentsList(data.activeStudentsList || []);
-      setPausedStudentsList(data.pausedStudentsList || []);
-      setReturningStudentsList(data.returningStudentsList || []);
-      setUpcomingEnrollmentsList(data.upcomingEnrollmentsList || []);
-      setHbStudentsList(data.hbStudentsList || []);
-      setMembersList(data.membersList || []);
+      const students = data.students || [];
+      setActiveStudentsList(students.filter(s => s.isWT && s.enrollmentStatus !== 'paused'));
+      setHbStudentsList(students.filter(s => s.isHB));
+      setPausedStudentsList(students.filter(s => s.enrollmentStatus === 'paused'));
+      setMembersList(students.filter(s => s.enrollmentStatus === 'member'));
       setMembershipByEmail(data.membershipByEmail || {});
       setPagination(data.pagination || { page: 1, total: 0, totalPages: 1 });
     } catch (error) {
@@ -453,7 +452,7 @@ export default function AdminStudents() {
         _wtUsed: null, _wtTotal: null,
         _hbUsed: s.creditsUsed || 0,
         _hbTotal: s.creditsAllocated || 0,
-        _purchaseCount: s.purchaseCount || 1,
+        _purchaseCount: s.coursePurchaseCount || s.purchaseCount || 1,
         _enrollmentId: s.enrollmentId,
         _variantTitle: s.variantTitle || s.courseTitle || 'HB',
         _lastClassDate: null,

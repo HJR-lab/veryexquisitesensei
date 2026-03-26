@@ -63,7 +63,175 @@ app.get('/api/admin/students/stats/summary', authenticateToken, requireAdmin, as
   });
 }));
 
-// Get student statistics
+// Lightweight student list — fast initial load (replaces heavy /stats for page render)
+app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = req.query.limit === 'all' ? null : (parseInt(req.query.limit) || 50);
+  const filter = req.query.filter || 'all'; // 'all'|'wt-all'|'pkg-wt6'|'hb-all'|'pkg-hb4'|'members'
+
+  // Single query: enrollments with customer data
+  const { data: enrollments, error: enrErr } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select(`
+      id, student_id, course_type, course_title, course_variant_title,
+      course_identifier, schedule_pattern, class_time, status,
+      number_of_weeks, class_credits_allocated, class_credits_used, class_credits_remaining,
+      course_start_date, course_end_date, created_at, package_total_courses,
+      customers!course_enrollments_student_id_fkey (
+        id, email, first_name, last_name, customer_type,
+        course_purchase_count, classes_allocated, created_at
+      )
+    `)
+    .in('status', ['active', 'paused', 'upcoming'])
+    .order('created_at', { ascending: false });
+
+  if (enrErr) throw enrErr;
+
+  // Get memberships
+  const { data: memberships } = await supabaseDb.supabase
+    .from('memberships')
+    .select('id, customer_id, membership_type, status, start_date, end_date, customers!memberships_customer_id_fkey(email, first_name, last_name, customer_type)')
+    .in('status', ['active', 'expiring']);
+
+  // Build student map — pick most recent enrollment per student
+  const studentMap = {};
+  const membershipByEmail = {};
+
+  (memberships || []).forEach(m => {
+    const email = m.customers?.email;
+    if (!email) return;
+    const now = new Date();
+    const end = m.end_date ? new Date(m.end_date) : null;
+    const daysRemaining = end ? Math.ceil((end - now) / (1000 * 60 * 60 * 24)) : null;
+    membershipByEmail[email] = {
+      membershipId: m.id,
+      membershipType: m.membership_type,
+      membershipStatus: m.status,
+      startDate: m.start_date,
+      endDate: m.end_date,
+      daysRemaining
+    };
+  });
+
+  for (const enr of (enrollments || [])) {
+    const student = enr.customers;
+    if (!student) continue;
+    const sid = student.id;
+
+    const isHB = (enr.course_type || '').toLowerCase().includes('handbuilding');
+    const isWT = !isHB;
+
+    const entry = {
+      name: `${student.first_name || ''} ${student.last_name || ''}`.trim() || 'Unknown',
+      email: student.email,
+      courseType: enr.course_type,
+      courseTitle: enr.course_title,
+      variantTitle: enr.course_variant_title,
+      courseIdentifier: enr.course_identifier,
+      enrollmentStatus: enr.status,
+      enrollmentId: enr.id,
+      enrollmentCreatedAt: enr.created_at,
+      schedulePattern: enr.schedule_pattern,
+      classTime: enr.class_time,
+      numberOfWeeks: enr.number_of_weeks,
+      packageTotalCourses: enr.package_total_courses,
+      creditsAllocated: isHB ? enr.class_credits_allocated : null,
+      creditsUsed: isHB ? enr.class_credits_used : null,
+      creditsRemaining: isHB ? enr.class_credits_remaining : null,
+      classesAllocated: isWT ? (enr.number_of_weeks || 6) : null,
+      coursePurchaseCount: student.course_purchase_count || 1,
+      customerType: student.customer_type,
+      isHB,
+      isWT,
+      membership: membershipByEmail[student.email] || null
+    };
+
+    // Keep most recent enrollment per student, but track upcoming separately
+    if (!studentMap[sid]) {
+      studentMap[sid] = { current: null, upcoming: null };
+    }
+
+    if (enr.status === 'upcoming' || (enr.course_start_date && new Date(enr.course_start_date) > new Date())) {
+      if (!studentMap[sid].upcoming || new Date(enr.created_at) > new Date(studentMap[sid].upcoming.enrollmentCreatedAt)) {
+        studentMap[sid].upcoming = entry;
+      }
+    } else {
+      if (!studentMap[sid].current || new Date(enr.created_at) > new Date(studentMap[sid].current.enrollmentCreatedAt)) {
+        studentMap[sid].current = entry;
+      }
+    }
+  }
+
+  // Build flat list
+  let students = Object.values(studentMap).map(({ current, upcoming }) => {
+    const primary = current || upcoming;
+    if (!primary) return null;
+    return {
+      ...primary,
+      upcomingCourse: upcoming && current ? {
+        courseIdentifier: upcoming.courseIdentifier,
+        variantTitle: upcoming.variantTitle
+      } : null,
+      // For sorting by most recent enrollment
+      latestEnrollmentDate: upcoming ? upcoming.enrollmentCreatedAt : primary.enrollmentCreatedAt
+    };
+  }).filter(Boolean);
+
+  // Add members-only (no enrollment)
+  (memberships || []).forEach(m => {
+    const email = m.customers?.email;
+    if (!email) return;
+    const alreadyListed = students.some(s => s.email === email);
+    if (!alreadyListed) {
+      students.push({
+        name: `${m.customers.first_name || ''} ${m.customers.last_name || ''}`.trim(),
+        email,
+        courseType: null, courseTitle: null, variantTitle: null, courseIdentifier: null,
+        enrollmentStatus: 'member', enrollmentId: null,
+        enrollmentCreatedAt: m.start_date,
+        isHB: false, isWT: false,
+        membership: membershipByEmail[email],
+        latestEnrollmentDate: m.start_date,
+        customerType: m.customers.customer_type
+      });
+    }
+  });
+
+  // Apply filter
+  if (filter !== 'all') {
+    students = students.filter(s => {
+      if (filter === 'wt-all') return s.isWT;
+      if (filter === 'hb-all') return s.isHB;
+      if (filter === 'members') return !!s.membership;
+      if (filter === 'pkg-wt6') return s.isWT && (s.numberOfWeeks || 6) <= 6 && !s.packageTotalCourses;
+      if (filter === 'pkg-wt7') return s.isWT && s.numberOfWeeks === 7;
+      if (filter === 'pkg-wt10') return s.isWT && (s.numberOfWeeks || 0) >= 8 && (s.numberOfWeeks || 0) <= 10;
+      if (filter === 'pkg-wt18') return s.isWT && (s.packageTotalCourses === 3 || (s.numberOfWeeks || 0) > 10);
+      if (filter === 'pkg-hb4') return s.isHB && (s.creditsAllocated || 4) <= 4;
+      if (filter === 'pkg-hb8') return s.isHB && (s.creditsAllocated || 0) > 4;
+      return true;
+    });
+  }
+
+  // Sort by most recent enrollment
+  students.sort((a, b) => new Date(b.latestEnrollmentDate || 0) - new Date(a.latestEnrollmentDate || 0));
+
+  const total = students.length;
+
+  // Paginate
+  if (limit) {
+    const start = (page - 1) * limit;
+    students = students.slice(start, start + limit);
+  }
+
+  res.json({
+    students,
+    membershipByEmail,
+    pagination: { page, limit: limit || total, total, totalPages: limit ? Math.ceil(total / limit) : 1 }
+  });
+}));
+
+// Get student statistics (heavy — used for full data export / detailed views)
 app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   console.log('📊 /api/admin/students/stats endpoint called');
     // Get all students with pagination (Supabase default limit is 1000)

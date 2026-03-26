@@ -781,7 +781,7 @@ export default function AdminStudentDetail() {
                 ...(isInstructor ? [{ id: 'teaching', label: `Teaching (${teachingData?.courses?.length || 0})` }] : []),
                 ...(!isInstructor || isAlsoStudent ? [
                   { id: 'enrollment', label: 'Enrollment' },
-                  { id: 'bookings',   label: `Bookings (${activeBookings.length + unbookedCount})` },
+                  { id: 'bookings',   label: `Bookings (${allBookedCount + unbookedCount})` },
                   { id: 'fees',       label: `Fees (${fees.length})` },
                   { id: 'access',     label: `Studio Access (${studioBookings.length})` },
                 ] : []),

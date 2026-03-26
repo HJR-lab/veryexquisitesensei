@@ -113,6 +113,8 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
       .from('bookings')
       .select('course_enrollment_id, status, class_instances!bookings_class_instance_id_fkey(class_date)')
       .in('status', ['booked', 'attended', 'completed'])
+      .not('course_enrollment_id', 'is', null)
+      .range(0, 4999)
   ]);
 
   // Build attended count per enrollment (attended/completed + past booked)

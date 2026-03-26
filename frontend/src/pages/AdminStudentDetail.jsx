@@ -617,19 +617,14 @@ export default function AdminStudentDetail() {
     }
   };
 
-  const handleImpersonate = async () => {
-    try {
-      const decodedEmail = decodeURIComponent(email);
-      const { data } = await api.post(`/auth/impersonate/${decodedEmail}`);
-      if (data.success && data.student) {
-        localStorage.setItem('adminReturnPath', window.location.pathname);
-        localStorage.setItem('ves_impersonate_id', String(data.student.dbId));
-        window.location.href = '/dashboard';
-      }
-    } catch (error) {
-      console.error('Impersonation failed:', error);
-      setSaveMessage('Failed to impersonate — try refreshing and logging in again.');
+  const handleImpersonate = () => {
+    if (!student?.id) {
+      setSaveMessage('Student data not loaded yet — try again.');
+      return;
     }
+    localStorage.setItem('adminReturnPath', window.location.pathname);
+    localStorage.setItem('ves_impersonate_id', String(student.id));
+    window.location.href = '/dashboard';
   };
 
   // ─── Derived values ───────────────────────────────────────────────────────

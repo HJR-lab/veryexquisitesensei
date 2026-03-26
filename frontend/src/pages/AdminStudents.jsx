@@ -133,7 +133,7 @@ export default function AdminStudents() {
   // UI: active tab, search, sort within unified view
   const [tab,    setTab]    = useState('all');   // 'all' | 'students' | 'members' | 'student-member'
   const [search, setSearch] = useState('');
-  const [uiFilter, setUiFilter] = useState('wt-all'); // 'all'|'wt-all'|'pkg-wt6'|'pkg-wt7'|'pkg-wt10'|'pkg-wt18'|'hb-all'|'pkg-hb4'|'pkg-hb8'|'members'
+  const [uiFilter, setUiFilter] = useState('all'); // 'all'|'wt-all'|'pkg-wt6'|'pkg-wt7'|'pkg-wt10'|'pkg-wt18'|'hb-all'|'pkg-hb4'|'pkg-hb8'|'members'
   const [uiSort, setUiSort] = useState('recent'); // 'cohort'|'name'|'recent'|'expiry'|'plan'
   const [pageSize, setPageSize] = useState(10); // 10 | 50 | 'all'
                                                    // member sorts: 'expiry'|'plan'|'name'|'recent'

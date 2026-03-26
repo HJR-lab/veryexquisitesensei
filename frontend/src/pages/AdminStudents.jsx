@@ -479,20 +479,23 @@ export default function AdminStudents() {
     });
 
     // Members-only (no student enrollment)
-    const membersOnly = membersList.map(m => ({
-      ...m,
-      _type: 'member',
-      _cardType: 'member',
-      _wtUsed: null, _wtTotal: null,
-      _hbUsed: null, _hbTotal: null,
-      _purchaseCount: 0,
-      _enrollmentId: null,
-      _variantTitle: getDisplayType(m.membershipType),
-      _lastClassDate: null,
-      _recentDate: m.startDate || null,
-      _membership: m,
-      _statusKey: m.membershipStatus || 'member',
-    }));
+    const membersOnly = membersList.map(m => {
+      const mem = m.membership || m; // membership data may be nested or flat
+      return {
+        ...m,
+        _type: 'member',
+        _cardType: 'member',
+        _wtUsed: null, _wtTotal: null,
+        _hbUsed: null, _hbTotal: null,
+        _purchaseCount: 0,
+        _enrollmentId: null,
+        _variantTitle: getDisplayType(mem.membershipType),
+        _lastClassDate: null,
+        _recentDate: mem.startDate || m.enrollmentCreatedAt || null,
+        _membership: mem,
+        _statusKey: mem.membershipStatus || 'member',
+      };
+    });
 
     return [...wtActive, ...hbAll, ...paused, ...membersOnly];
   };

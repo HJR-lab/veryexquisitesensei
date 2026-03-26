@@ -215,13 +215,18 @@ export default function StudentInfoCard({
             Pause Course
           </button>
         )}
-        {(!isInstructor || isAlsoStudent) && enrollment && enrollment.status === 'active' && handleCompleteCourse && (
+        {(!isInstructor || isAlsoStudent) && enrollment && enrollment.status !== 'completed' && handleCompleteCourse && (
           <button
             onClick={handleCompleteCourse}
             style={{ flex: 1, padding: '11px', backgroundColor: '#2E7D32', color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
           >
             Complete
           </button>
+        )}
+        {(!isInstructor || isAlsoStudent) && enrollment && enrollment.status === 'completed' && (
+          <div style={{ flex: 1, padding: '11px', backgroundColor: '#E8F5E9', color: '#2E7D32', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', textAlign: 'center' }}>
+            Completed
+          </div>
         )}
         {(!isInstructor || isAlsoStudent) && enrollment && enrollment.status === 'paused' && (
           <button

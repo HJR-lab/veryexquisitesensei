@@ -594,9 +594,12 @@ export default function AdminStudentDetail() {
 
   const handleCompleteCourse = async () => {
     if (!enrollment) return;
-    if (!confirm(`Mark this enrollment as completed? All past bookings will be marked as attended.`)) return;
+    const studentName = `${student?.first_name || ''} ${student?.last_name || ''}`.trim();
+    const courseInfo = enrollment.course_type || enrollment.course_title || 'this course';
+    if (!confirm(`⚠️ CONFIRM COMPLETION\n\nStudent: ${studentName}\nCourse: ${courseInfo}\n\nThis will:\n• Mark all past bookings as attended\n• Set enrollment status to completed\n• Update credits used\n\nAre you sure?`)) return;
     try {
       await api.post(`/admin/enrollments/${enrollment.id}/complete`);
+      alert('Course marked as completed successfully.');
       await loadStudentData();
     } catch (error) {
       console.error('Failed to complete course:', error);

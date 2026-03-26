@@ -135,7 +135,7 @@ export default function AdminStudents() {
   // UI: active tab, search, sort within unified view
   const [tab,    setTab]    = useState('all');   // 'all' | 'students' | 'members' | 'student-member'
   const [search, setSearch] = useState('');
-  const [uiFilter, setUiFilter] = useState('pkg-wt6'); // 'all'|'pkg-wt6'|'pkg-wt10'|'pkg-wt18'|'pkg-hb4'|'pkg-hb8'|'members'
+  const [uiFilter, setUiFilter] = useState('wt-all'); // 'all'|'wt-all'|'pkg-wt6'|'pkg-wt7'|'pkg-wt10'|'pkg-wt18'|'hb-all'|'pkg-hb4'|'pkg-hb8'|'members'
   const [uiSort, setUiSort] = useState('recent'); // 'cohort'|'name'|'recent'|'expiry'|'plan'
   const [pageSize, setPageSize] = useState(10); // 10 | 50 | 'all'
                                                    // member sorts: 'expiry'|'plan'|'name'|'recent'
@@ -506,6 +506,7 @@ export default function AdminStudents() {
     if (isWT && s._packageTotalCourses === 3) return 'pkg-wt18';
     const total = isWT ? (s._wtTotal || 6) : (s._hbTotal || 0);
     if (isWT && total <= 6) return 'pkg-wt6';
+    if (isWT && total === 7) return 'pkg-wt7';
     if (isWT && total <= 10) return 'pkg-wt10';
     if (isWT && total > 10) return 'pkg-wt18';
     if (isHB && total <= 4) return 'pkg-hb4';
@@ -520,6 +521,8 @@ export default function AdminStudents() {
       .filter(s => {
         if (uiFilter === 'all' || isOnMemberTab) return true;
         if (uiFilter === 'members') return s._type === 'member' || s._type === 'student-member';
+        if (uiFilter === 'wt-all') return getPackageKey(s).startsWith('pkg-wt');
+        if (uiFilter === 'hb-all') return getPackageKey(s).startsWith('pkg-hb');
         return getPackageKey(s) === uiFilter;
       })
       .filter(s =>
@@ -530,12 +533,15 @@ export default function AdminStudents() {
 
   // Sort options based on current tab
   const studentFilterOptions = [
-    { key: 'all',        label: 'All courses & memberships' },
-    { key: 'pkg-wt6',   label: 'Wheelthrowing 6 Weeks' },
-    { key: 'pkg-wt10',  label: 'Wheelthrowing 10 Class' },
-    { key: 'pkg-wt18',  label: 'Wheelthrowing 6 Weeks x3' },
-    { key: 'pkg-hb4',   label: 'Handbuilding 4 Weeks' },
-    { key: 'pkg-hb8',   label: 'Handbuilding 8 Weeks' },
+    { key: 'all',        label: 'All' },
+    { key: 'wt-all',    label: 'All WT' },
+    { key: 'pkg-wt6',   label: '  WT 6 Weeks' },
+    { key: 'pkg-wt7',   label: '  WT 7 Weeks' },
+    { key: 'pkg-wt10',  label: '  WT 10 Class' },
+    { key: 'pkg-wt18',  label: '  WT 6 Weeks x3' },
+    { key: 'hb-all',    label: 'All HB' },
+    { key: 'pkg-hb4',   label: '  HB 4 Weeks' },
+    { key: 'pkg-hb8',   label: '  HB 8 Weeks' },
     { key: 'members',   label: 'Memberships' },
   ];
 
@@ -568,7 +574,7 @@ export default function AdminStudents() {
         setUiSort('cohort');
       }
     }
-    setUiFilter(newIsOnMember ? 'all' : 'pkg-wt6');
+    setUiFilter(newIsOnMember ? 'all' : 'wt-all');
   };
 
   // ─── Render ───────────────────────────────────────────────────────────────

@@ -1624,6 +1624,8 @@ app.get('/api/admin/students/:id/enrollment', authenticateToken, requireAdmin, a
     currentEnrollment = packageCourses[0]; // Most recent package if no individual
   } else if (activeEnrollments.length > 0) {
     currentEnrollment = activeEnrollments[0]; // Fallback to most recent active
+  } else if (completedEnrollments.length > 0) {
+    currentEnrollment = completedEnrollments[0]; // Fallback to most recent completed
   } else {
     currentEnrollment = null;
   }
@@ -2405,13 +2407,13 @@ app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, requireAdm
     // Keep bookings with no enrollment link (standalone/legacy)
     if (!booking.course_enrollment) return true;
 
-    // Keep bookings from active or paused enrollments
-    if (['active', 'paused', 'upcoming'].includes(booking.course_enrollment.status)) return true;
+    // Keep bookings from active, paused, upcoming, or completed enrollments
+    if (['active', 'paused', 'upcoming', 'completed'].includes(booking.course_enrollment.status)) return true;
 
-    // For completed/cancelled enrollments: keep if there are still future bookings
+    // For cancelled enrollments: keep if there are still future bookings
     if (enrollmentHasFutureBookings[booking.course_enrollment_id]) return true;
 
-    // Otherwise exclude (completed enrollment, all dates past)
+    // Only exclude cancelled enrollment bookings with all dates past
     return false;
   });
 

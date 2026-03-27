@@ -28,12 +28,14 @@ function generateCohortConfirmedEmail({ courseType, courseTitle, dayOfWeek, star
       (<a href="https://maps.app.goo.gl/g84xejcaZbAsD2ze7" style="color: #C4622D;">Map</a>)
     </p>
     <p style="margin: 0 0 8px; font-size: 14px; line-height: 1.6; color: #282828;">
-      As a Ves Clay Club member, you can:
+      As a Ves &middot; Clay Club Member, you can:
     </p>
     <ul style="margin: 0 0 20px; padding-left: 20px; font-size: 14px; line-height: 1.8; color: #282828;">
-      <li>Manage your bookings</li>
+      <li>Manage all course bookings</li>
+      <li>Book additional unguided studio sessions</li>
+      <li>Keep a gallery of your completed works</li>
       <li>View detailed course information</li>
-      <li>Read our studio policies and rules</li>
+      <li>Read our studio policies and much more!</li>
     </ul>
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr>

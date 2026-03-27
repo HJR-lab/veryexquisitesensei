@@ -422,8 +422,6 @@ export default function Dashboard() {
           );
         })()}
 
-        {enrollmentsWithCounts.length > 0 && <Divider />}
-
         {/* ── 2. MY COURSES ── */}
         {enrollmentsWithCounts.length > 0 && (
           <section style={{ marginBottom: '28px' }}>

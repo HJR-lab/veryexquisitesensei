@@ -438,7 +438,7 @@ export default function Dashboard() {
                 const bookedPct = totalClasses > 0 ? Math.round((bookedCount / totalClasses) * 100) : 0;
                 return (
                   <div key={enrollment.id || i} style={{ border: `1px solid ${RULE}`, backgroundColor: ALT, overflow: 'hidden' }}>
-                    {/* Header row: title + status + stats + toggle */}
+                    {/* Header */}
                     <div style={{ padding: '12px 14px' }}>
                       {/* Row 1: Title + Status badge */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
@@ -454,36 +454,26 @@ export default function Dashboard() {
                           {statusLabel}
                         </span>
                       </div>
-                      {/* Row 2: Progress bars (compact) + toggle */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
-                          <div style={{ flex: 1, maxWidth: '120px' }}>
-                            <div style={{ fontSize: '11px', color: MUTED, marginBottom: '3px' }}>
-                              Booked <strong style={{ color: INK }}>{bookedCount}/{totalClasses}</strong>
-                            </div>
-                            <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.08)' }}>
-                              <div style={{ height: '2px', width: `${bookedPct}%`, backgroundColor: TC, transition: 'width 0.3s' }} />
-                            </div>
-                          </div>
-                          <div style={{ flex: 1, maxWidth: '120px' }}>
-                            <div style={{ fontSize: '11px', color: MUTED, marginBottom: '3px' }}>
-                              Attended <strong style={{ color: INK }}>{attendedCount}/{totalClasses}</strong>
-                            </div>
-                            <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.08)' }}>
-                              <div style={{ height: '2px', width: `${pct}%`, backgroundColor: TC, transition: 'width 0.3s' }} />
-                            </div>
-                          </div>
-                        </div>
+                      {/* Row 2: Course Details toggle (left) + Booked/Attended (right) */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <button
                           onClick={() => setExpandedCourse(isExpanded ? null : enrollment.id)}
                           style={{
                             background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                            fontSize: '11px', fontWeight: 600, color: TC, display: 'flex', alignItems: 'center', gap: '3px', flexShrink: 0,
+                            fontSize: '11px', fontWeight: 600, color: TC, display: 'flex', alignItems: 'center', gap: '3px',
                           }}
                         >
                           <span className="material-symbols-outlined" style={{ fontSize: '14px', transition: 'transform 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
-                          {isExpanded ? 'Hide' : 'Details'}
+                          {isExpanded ? 'Hide details' : 'Course details'}
                         </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                          <span style={{ fontSize: '11px', color: MUTED }}>
+                            Booked <strong style={{ color: INK }}>{bookedCount}/{totalClasses}</strong>
+                          </span>
+                          <span style={{ fontSize: '11px', color: MUTED }}>
+                            Attended <strong style={{ color: INK }}>{attendedCount}/{totalClasses}</strong>
+                          </span>
+                        </div>
                       </div>
                       {enrollment.package_total_courses === 3 && typeLabel.startsWith('Wheelthrowing') && (
                         <div style={{ fontSize: '11px', color: studentData?.wheel_preference ? TC_DARK : MUTED, fontWeight: 600, marginTop: '6px' }}>

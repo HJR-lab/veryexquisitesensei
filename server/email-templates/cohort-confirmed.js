@@ -8,10 +8,10 @@ function generateCohortConfirmedEmail({ courseType, dayOfWeek, startDate, endDat
 
   const body = `
     <h1 style="margin: 0 0 16px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">
-      Your Class is Confirmed!
+      Your ${courseType} course is confirmed!
     </h1>
     <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">
-      Great news — your <strong>${courseType}</strong> class has met the required number of students and is confirmed!
+      Great news – your <strong>${courseType}</strong> has met the requirements and is good to proceed.
     </p>
     <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #F9EDE6; border-radius: 8px; margin: 0 0 20px;">
       <tr>
@@ -27,7 +27,7 @@ function generateCohortConfirmedEmail({ courseType, dayOfWeek, startDate, endDat
       (<a href="https://maps.app.goo.gl/g84xejcaZbAsD2ze7" style="color: #C4622D;">Map</a>)
     </p>
     <p style="margin: 0 0 8px; font-size: 14px; line-height: 1.6; color: #282828;">
-      From the Ves Clay Club portal you can:
+      As a Ves Clay Club member, you can:
     </p>
     <ul style="margin: 0 0 20px; padding-left: 20px; font-size: 14px; line-height: 1.8; color: #282828;">
       <li>View detailed course information</li>
@@ -38,7 +38,7 @@ function generateCohortConfirmedEmail({ courseType, dayOfWeek, startDate, endDat
       <tr>
         <td align="center">
           <a href="https://club.ves.sg/dashboard" style="display: inline-block; padding: 14px 32px; background-color: #C4622D; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">
-            Ves Clay Club Portal
+            Enter Ves Clay Club
           </a>
         </td>
       </tr>

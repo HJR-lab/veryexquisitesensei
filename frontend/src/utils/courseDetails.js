@@ -6,28 +6,36 @@ const STUDIO_ADDRESS = '75 Jalan Kelabu Asap, Chip Bee Gardens 278268';
 const STUDIO_MAP_URL = 'https://maps.app.goo.gl/g84xejcaZbAsD2ze7';
 
 const COMMON_ITEMS = [
-  'Tools — available for purchase ($15, $12 for advanced trimming tool) or bring your own',
-  'Apron — required, not provided (available for $18)',
+  'Tools — available for purchase ($18, $12 for advanced trimming tool) or bring your own',
+  'Apron — required, not provided (available for $45)',
   'Carry bag — not provided (tote bags available for $12)',
 ];
 
 const COMMON_RULES = [
-  'Press the doorbell on the wall to enter',
+  'To enter, press the doorbell and someone will to attend to you',
   'Initial your work clearly in 3 text/numbers to avoid mix-ups',
-  'Clean up after yourself and wipe your seat and wheels',
-  'Wear a mask if you are unwell',
+  'Clean up after yourself, wipe your seat and wheels clean after use for the next user',
+  'If you are unwell, please wear a mask',
   'Wear comfortable clothes and closed-toe shoes',
   'Cut your nails appropriately',
   'Eating is not allowed in the studio',
   'If you are under 16, please notify us in advance',
+  'If you would like to make more than 7 pieces, each additional piece is $20',
+  'If you would like more practice time with unguided wheelthrowing, we offer studio access for current students at $20/hr min 2hrs, full hours only',
+  'NEW VES IS 10 2026: all RETURNING students will receive $20 in credits for each wheelthrowing course taken. Returning students have the option to use their credits to throw more pieces, book studio access, or receive a discount of their credit amount for their next course. Please email us directly for more info.'
 ];
 
 const COURSE_DETAILS = {
   'wt-6week': {
     title: '6-Week Beginner/Extension Wheelthrowing',
-    description: 'This 6-week course will teach you the fundamentals of wheel-throwing. You will learn how to throw cylinder and bowl forms, turn/trim bases, and apply glazing techniques using special VES glazes. By the end of the course, you will have your own set of glazed pots and bowls, which can be collected within one month after the final class.',
-    fees: 'Clay, bisque firing (up to 7 pieces), advanced tools and equipment use, decorating and glazing materials, and glaze firing. Additional tools and pieces will incur extra charges.',
-    classSize: 'To ensure individualised attention, class size is limited to 8, with 2 additional wheels for make-up classes only. Classes are non-refundable. If you are unable to attend the entire course, you may transfer your enrolment before course commencement.',
+    description: [
+      'The foundation of pottery wheelthrowing will be taught during this 6 week ceramics course (one 2.5 hour class per week). Students will be taught how to throw a cylinder form, after which they will work on forms such as bowls and cups, trimming and glazing using in-studio Ves glazes. After 6 weeks, students will have their own glazed vessels fired and may be collected 1 month after. This course is ideal for beginners with little or no experience at all and for the skilled intermediate seeking to challenge themselves.',
+      'This course includes unlimited usage of clay, up to 7 finished pieces, use of wheel and equipment, materials for decorating and glazing, and firing. Additional tools and pieces made are subject to additional costs. This course holds a maximum of 8 students and 2 makeup to provide close individual guidance.',
+      { heading: 'Weeks 1–5', text: 'Cylinder forms—the core fundamental before any other forms in wheel-throwing. Afterwhich, students progress to U-form and V-form bowls, S-form-pitchers, then joining handles. Instructors will guide students according to their different abilities and speed of progression from beginners to intermediate.' },
+      { heading: 'Week 6', text: 'Explore the fundamentals of glazing, learning how to prepare and apply made-in-studio glazes through dipping and pouring. Each student will get to glaze their own bisque-fired pieces for the final kiln firing.' },
+    ],
+    fees: null,
+    classSize: null,
     makeup: 'While we cannot guarantee make-up classes, each student may arrange ONE make-up class within weeks 1–5, and ONE for week 6 (glazing), subject to our schedule and availability.',
     items: COMMON_ITEMS,
     rules: COMMON_RULES,

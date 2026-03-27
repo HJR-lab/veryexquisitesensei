@@ -492,7 +492,16 @@ export default function Dashboard() {
                     {/* Expandable course details */}
                     {isExpanded && details && (
                       <div style={{ borderTop: `1px solid ${RULE}`, padding: '14px', fontSize: '12px', lineHeight: '1.7', color: INK }}>
-                        <p style={{ margin: '0 0 12px', color: '#555' }}>{details.description}</p>
+                        {Array.isArray(details.description) ? details.description.map((block, j) => (
+                          typeof block === 'string'
+                            ? <p key={j} style={{ margin: '0 0 12px', color: '#555' }}>{block}</p>
+                            : <div key={j} style={{ marginBottom: '12px' }}>
+                                <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, marginBottom: '4px' }}>{block.heading}</div>
+                                <p style={{ margin: 0, color: '#555' }}>{block.text}</p>
+                              </div>
+                        )) : (
+                          <p style={{ margin: '0 0 12px', color: '#555' }}>{details.description}</p>
+                        )}
 
                         {details.fees && (
                           <>

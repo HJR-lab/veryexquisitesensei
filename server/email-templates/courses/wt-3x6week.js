@@ -139,7 +139,7 @@ function generate({ dayOfWeek, startDate, endDate, timeSlot, holidayExclusions, 
     <p style="margin: 0 0 24px; font-size: 14px; line-height: 1.7; color: #282828;">
       Looking forward to seeing you in class!<br />
       <strong>Eve</strong><br />
-      VES Clay Studio
+      Ves Studio
     </p>
 
     <!-- CTA -->

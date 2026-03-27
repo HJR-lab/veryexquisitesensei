@@ -38,7 +38,7 @@ function generateKidsOutreachEmail({ parentName }) {
     <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #282828;">
       Best regards,<br/>
       <strong>Eve</strong><br/>
-      <span style="color: #888888;">VES Clay Studio</span>
+      <span style="color: #888888;">Ves Studio</span>
     </p>`;
 
   return { subject, html: wrapEmailTemplate(body) };

@@ -11,7 +11,7 @@ function generateCohortConfirmedEmail({ courseType, dayOfWeek, startDate, endDat
       Your Class is Confirmed!
     </h1>
     <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">
-      Great news — your <strong>${courseType}</strong> class has enough students and is confirmed!
+      Great news — your <strong>${courseType}</strong> class has met the required number of students and is confirmed!
     </p>
     <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #F9EDE6; border-radius: 8px; margin: 0 0 20px;">
       <tr>
@@ -26,14 +26,19 @@ function generateCohortConfirmedEmail({ courseType, dayOfWeek, startDate, endDat
       <strong>Address:</strong> 75 Jalan Kelabu Asap, Chip Bee Gardens 278268
       (<a href="https://maps.app.goo.gl/g84xejcaZbAsD2ze7" style="color: #C4622D;">Map</a>)
     </p>
-    <p style="margin: 0 0 24px; font-size: 14px; line-height: 1.5; color: #888888;">
-      You'll receive detailed course information closer to your start date.
+    <p style="margin: 0 0 8px; font-size: 14px; line-height: 1.6; color: #282828;">
+      From the Ves Clay Club portal you can:
     </p>
+    <ul style="margin: 0 0 20px; padding-left: 20px; font-size: 14px; line-height: 1.8; color: #282828;">
+      <li>View detailed course information</li>
+      <li>Read our studio policies and rules</li>
+      <li>Manage your bookings</li>
+    </ul>
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr>
         <td align="center">
-          <a href="https://club.ves.sg/classes" style="display: inline-block; padding: 14px 32px; background-color: #C4622D; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">
-            View Your Bookings
+          <a href="https://club.ves.sg/dashboard" style="display: inline-block; padding: 14px 32px; background-color: #C4622D; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">
+            Ves Clay Club Portal
           </a>
         </td>
       </tr>

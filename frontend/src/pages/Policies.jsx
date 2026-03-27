@@ -11,7 +11,7 @@ export default function Policies() {
           alt="VES" style={{ height: '48px', marginBottom: '16px' }}
         />
         <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 600, color: INK }}>Studio Policies</h1>
-        <p style={{ margin: '8px 0 0', fontSize: '14px', color: MUTED }}>VES Clay Studio &middot; 75 Jalan Kelabu Asap, Singapore 278268</p>
+        <p style={{ margin: '8px 0 0', fontSize: '14px', color: MUTED }}>Ves Studio &middot; 75 Jalan Kelabu Asap, Singapore 278268</p>
       </div>
 
       <div style={{ fontSize: '14px', lineHeight: '1.7', color: INK }}>

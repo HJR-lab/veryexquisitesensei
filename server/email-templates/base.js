@@ -17,7 +17,7 @@ function wrapEmailTemplate(bodyContent) {
           <!-- Logo -->
           <tr>
             <td align="center" style="padding: 36px 40px 24px;">
-              <img src="https://ves.sg/cdn/shop/files/logo_04a04687-57f4-4141-b0bc-ec30b527fd73.png?v=1686045719&width=600" alt="VES" width="120" style="display: block;" />
+              <img src="https://ves.sg/cdn/shop/files/logo_04a04687-57f4-4141-b0bc-ec30b527fd73.png?v=1686045719&width=600" alt="VES" width="72" style="display: block;" />
             </td>
           </tr>
           <!-- Content -->
@@ -36,7 +36,7 @@ function wrapEmailTemplate(bodyContent) {
           <tr>
             <td align="center" style="padding: 20px 40px 28px;">
               <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #888888;">
-                VES Clay Studio &middot; 75 Jalan Kelabu Asap, Singapore 278268
+                Ves Studio &middot; 75 Jalan Kelabu Asap, Singapore 278268
               </p>
               <p style="margin: 8px 0 0; font-size: 12px; color: #888888;">
                 <a href="https://www.ves.sg" style="color: #C4622D; text-decoration: none;">ves.sg</a> &middot;

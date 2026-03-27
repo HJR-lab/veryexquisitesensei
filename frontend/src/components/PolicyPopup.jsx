@@ -93,7 +93,7 @@ export default function PolicyPopup({ onAccepted }) {
               style={{ marginTop: '2px', accentColor: TC }}
             />
             <span style={{ fontSize: '13px', color: INK, lineHeight: '1.5' }}>
-              I have read and agree to the VES Clay Studio policies
+              I have read and agree to the Ves Studio policies
             </span>
           </label>
           <button

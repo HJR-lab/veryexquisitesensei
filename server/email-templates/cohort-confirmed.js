@@ -23,9 +23,12 @@ function generateCohortConfirmedEmail({ courseType, courseTitle, dayOfWeek, star
         </td>
       </tr>
     </table>
-    <p style="margin: 0 0 8px; font-size: 14px; line-height: 1.5; color: #282828;">
+    <p style="margin: 0 0 4px; font-size: 14px; line-height: 1.5; color: #282828;">
       <strong>Address:</strong> 75 Jalan Kelabu Asap, Chip Bee Gardens 278268
       (<a href="https://maps.app.goo.gl/g84xejcaZbAsD2ze7" style="color: #C4622D;">Map</a>)
+    </p>
+    <p style="margin: 0 0 16px; font-size: 13px; line-height: 1.5; color: #888888;">
+      Nearest MRT: Holland Village &middot; No on-site parking
     </p>
     <p style="margin: 0 0 8px; font-size: 14px; line-height: 1.6; color: #282828;">
       As a Ves &middot; Clay Club Member, you can:

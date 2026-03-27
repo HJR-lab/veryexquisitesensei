@@ -548,15 +548,9 @@ export default function Dashboard() {
                         {/* ── Section 3: Studio Rules & Location ── */}
                         <div style={{ borderTop: `1px solid ${RULE}`, padding: '14px' }}>
                           <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: TC, marginBottom: '10px' }}>Studio Rules</div>
-                          <ul style={{ margin: '0 0 12px', paddingLeft: '16px' }}>
+                          <ul style={{ margin: '0 0 0', paddingLeft: '16px' }}>
                             {details.rules.map((rule, j) => <li key={j} style={{ marginBottom: '1px', color: '#555' }}>{rule}</li>)}
                           </ul>
-
-                          <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, marginBottom: '3px' }}>Studio Location</div>
-                          <p style={{ margin: 0, color: '#555' }}>
-                            {STUDIO_ADDRESS} · <a href={STUDIO_MAP_URL} target="_blank" rel="noopener noreferrer" style={{ color: TC, textDecoration: 'none' }}>Google Maps</a>
-                            <br /><span style={{ color: MUTED }}>Nearest MRT: Holland Village · No on-site parking</span>
-                          </p>
                         </div>
                       </div>
                     )}

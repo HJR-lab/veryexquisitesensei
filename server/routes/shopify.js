@@ -5,6 +5,7 @@ const { sendAndLogEmail } = require('../utils/emailService');
 const { generateCohortConfirmedEmail } = require('../email-templates/cohort-confirmed');
 const { generateKidsOutreachEmail } = require('../email-templates/kids-outreach');
 const { generateMembershipConfirmedEmail } = require('../email-templates/membership-confirmed');
+const { generateVoucherOutreachEmail } = require('../email-templates/voucher-outreach');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, getShopifyClient, shopify }) {
 
@@ -1236,6 +1237,35 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
             }
           } catch (emailErr) {
             console.error('[Email] Failed to send membership confirmation:', emailErr);
+          }
+        }
+      }
+    }
+
+    // Check for voucher purchases and auto-send outreach email
+    if (orderData.line_items && orderData.line_items.length > 0) {
+      for (const item of orderData.line_items) {
+        const title = (item.title || '').toLowerCase();
+        if (title.includes('voucher') || title.includes('gift voucher')) {
+          try {
+            const buyerEmail = customer.email;
+            if (buyerEmail) {
+              const { subject, html } = generateVoucherOutreachEmail({
+                buyerName: customer.first_name || '',
+                courseVariant: item.variant_title || item.title || 'Pottery Course',
+              });
+              await sendAndLogEmail({
+                emailType: 'voucher_outreach',
+                courseIdentifier: 'VOUCHER',
+                subject,
+                html,
+                recipientEmails: [buyerEmail],
+                sentBy: 'system',
+              });
+              console.log(`📧 Voucher outreach email sent to ${buyerEmail}`);
+            }
+          } catch (emailErr) {
+            console.error('[Email] Failed to send voucher outreach:', emailErr);
           }
         }
       }

@@ -6,23 +6,23 @@ const STUDIO_ADDRESS = '75 Jalan Kelabu Asap, Chip Bee Gardens 278268';
 const STUDIO_MAP_URL = 'https://maps.app.goo.gl/g84xejcaZbAsD2ze7';
 
 const COMMON_ITEMS = [
-  'Tools — available for purchase ($18, $12 for advanced trimming tool) or bring your own',
-  'Apron — required, not provided (available for $45)',
-  'Carry bag — not provided (tote bags available for $12)',
+  'Tool Set — available at $18 ($12 for advanced trimming tool)',
+  'Ves Apron — required, not provided (available at $45)',
+  'Ves Tote bag — not provided (available at $12)',
 ];
 
 const COMMON_RULES = [
   'To enter, press the doorbell and someone will to attend to you',
   'Initial your work clearly in 3 text/numbers to avoid mix-ups',
-  'Clean up after yourself, wipe your seat and wheels clean after use for the next user',
+  'Wipe your seat and wheels clean after use for the next user',
   'If you are unwell, please wear a mask',
   'Wear comfortable clothes and closed-toe shoes',
   'Cut your nails appropriately',
   'Eating is not allowed in the studio',
   'If you are under 16, please notify us in advance',
-  'If you would like to make more than 7 pieces, each additional piece is $20',
-  'If you would like more practice time with unguided wheelthrowing, we offer studio access for current students at $20/hr min 2hrs, full hours only',
-  'NEW VES IS 10 2026: all RETURNING students will receive $20 in credits for each wheelthrowing course taken. Returning students have the option to use their credits to throw more pieces, book studio access, or receive a discount of their credit amount for their next course. Please email us directly for more info.'
+  'If you would like to make more than the allowed number of pieces, each additional piece is $20',
+  'If you would like more wheelthrowing practice time, we offer unguided studio access for current students at $20/hr min 2hrs, full hours only',
+  'NEW VES IS 10 2026: all RETURNING students will receive $20 in credits for each wheelthrowing course taken. Returning students have the option to use their credits to throw more pieces, book studio access, or receive a discount of their credit amount for their next course'
 ];
 
 const COURSE_DETAILS = {

@@ -39,9 +39,6 @@ function generateCohortConfirmedEmail({ courseType, courseTitle, dayOfWeek, star
     <p style="margin: 0 0 0; font-size: 15px; line-height: 1.6; color: #282828;">
       We look forward to seeing you at the studio!
     </p>
-    <p style="margin: 16px 0 0; font-size: 15px; line-height: 1.6; color: #282828;">
-      Best regards,<br/><strong>Eve</strong><br/><span style="color: #888888;">Ves Studio</span>
-    </p>
     <table width="100%" cellpadding="0" cellspacing="0" style="margin: 24px 0 0;">
       <tr>
         <td align="center">

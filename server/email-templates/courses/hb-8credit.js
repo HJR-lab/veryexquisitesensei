@@ -66,9 +66,6 @@ function generate({ specialNotes }) {
     <p style="margin: 16px 0 0; font-size: 15px; line-height: 1.6; color: #282828;">
       Please do not hesitate to contact us if you have any questions. We look forward to seeing you in class!
     </p>
-    <p style="margin: 16px 0 0; font-size: 15px; line-height: 1.6; color: #282828;">
-      Best regards,<br/><strong>Eve</strong><br/><span style="color: #888888;">Ves Studio</span>
-    </p>
     <table width="100%" cellpadding="0" cellspacing="0" style="margin: 24px 0 0;">
       <tr><td align="center">
         <a href="https://club.ves.sg/classes" style="display: inline-block; padding: 14px 32px; background-color: #C4622D; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">Book Your Classes</a>

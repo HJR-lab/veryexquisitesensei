@@ -169,7 +169,7 @@ const COURSE_DETAILS = {
     items: [
       'Comfortable clothes that can get dirty',
       'Closed-toe shoes',
-      'An apron (or purchase one for $45)',
+      'An apron (or purchase one at $45)',
     ],
     rules: [
       'To enter, press the doorbell and someone will attend to you',

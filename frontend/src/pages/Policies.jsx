@@ -29,7 +29,7 @@ export default function Policies() {
       <div style={{ textAlign: 'center', marginBottom: '32px' }}>
         <img
           src="https://ves.sg/cdn/shop/files/logo_04a04687-57f4-4141-b0bc-ec30b527fd73.png?v=1686045719&width=600"
-          alt="VES" style={{ height: '48px', marginBottom: '16px' }}
+          alt="VES" style={{ height: '29px', marginBottom: '16px' }}
         />
         <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 600, color: INK }}>Studio Policies</h1>
         <p style={{ margin: '8px 0 0', fontSize: '14px', color: MUTED }}>Ves Studio &middot; 75 Jalan Kelabu Asap, Singapore 278268</p>

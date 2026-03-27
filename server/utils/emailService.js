@@ -84,7 +84,9 @@ function detectCourseTemplate(enrollment) {
   const title = (enrollment.product_title || '').toLowerCase();
 
   if (title.includes('kids') || title.includes('play with clay')) return 'kids-clay';
-  if (course_type && course_type.toLowerCase().includes('handbuilding')) return 'hb-8credit';
+  if (course_type && course_type.toLowerCase().includes('handbuilding')) {
+    return number_of_weeks <= 4 ? 'hb-4credit' : 'hb-8credit';
+  }
   if (number_of_weeks === 10) return 'wt-10class';
   if (number_of_weeks >= 18) return 'wt-3x6week';
   if (number_of_weeks === 7) return 'wt-7week-inter';

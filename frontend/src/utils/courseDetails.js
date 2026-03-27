@@ -59,6 +59,26 @@ const COURSE_DETAILS = {
     items: COMMON_ITEMS,
     rules: COMMON_RULES,
   },
+  'hb-4credit': {
+    title: 'Handbuilding 4-Credit Package',
+    description: 'Your 4 credits can be used to book individual handbuilding sessions. Browse available classes and book at your convenience through the Ves Clay Club portal.',
+    fees: 'Clay, bisque firing, tools and equipment use, decorating and glazing materials, and glaze firing. Additional pieces will incur extra charges.',
+    classSize: null,
+    makeup: null,
+    items: [
+      'Apron — required, not provided (available for $18)',
+      'Carry bag — not provided (tote bags available for $12)',
+    ],
+    rules: [
+      'Press the doorbell on the wall to enter',
+      'Initial your work clearly in 3 text/numbers to avoid mix-ups',
+      'Clean up after yourself and wipe your work area',
+      'Wear a mask if you are unwell',
+      'Wear comfortable clothes and closed-toe shoes',
+      'Eating is not allowed in the studio',
+      'If you are under 16, please notify us in advance',
+    ],
+  },
   'hb-8credit': {
     title: 'Handbuilding 8-Credit Package',
     description: 'Your 8 credits can be used to book individual handbuilding sessions. Browse available classes and book at your convenience through the Ves Clay Club portal.',
@@ -107,7 +127,9 @@ export function getCourseDetails(enrollment) {
   const weeks = enrollment.number_of_weeks;
 
   if (title.includes('kids') || title.includes('play with clay')) return COURSE_DETAILS['kids-clay'];
-  if (courseType.includes('handbuilding')) return COURSE_DETAILS['hb-8credit'];
+  if (courseType.includes('handbuilding')) {
+    return weeks <= 4 ? COURSE_DETAILS['hb-4credit'] : COURSE_DETAILS['hb-8credit'];
+  }
   if (weeks === 10) return COURSE_DETAILS['wt-10class'];
   if (weeks >= 18 || title.includes('3 course')) return COURSE_DETAILS['wt-3x6week'];
   if (weeks === 7 || courseType.includes('intermediate')) return COURSE_DETAILS['wt-7week-inter'];

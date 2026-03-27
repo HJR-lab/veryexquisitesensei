@@ -29,7 +29,7 @@ const COURSE_DETAILS = {
   'wt-6week': {
     title: '6-Week Beginner/Extension Wheelthrowing',
     description: [
-      'The foundation of pottery wheelthrowing will be taught during this 6 week ceramics course (2.5hr/class/week). Students will be taught how to throw a cylinder, after which they will work on forms such as bowls and cups, then trimming and glazing using in-studio Ves glazes. After 6 weeks, students will have their own glazed vessels fired. This course is ideal for beginners with little or no experience at all or for the skilled seeking to challenge themselves.',
+      'The foundation of pottery wheelthrowing will be taught during this 6 week ceramics course (2.5hr/class/week). Students will be taught how to throw a cylinder form, after which they will work on forms such as bowls and cups, then trimming and glazing using in-studio Ves glazes. After 6 weeks, students will have their own glazed vessels fired. This course is ideal for beginners with little or no experience at all or for the skilled seeking to challenge themselves.',
       { heading: 'Weeks 1–5', text: 'We begin with cylinder forms—the core fundamental before any other forms in wheelthrowing. Afterwhich, students progress to U-form and V-form bowls, S-form-pitchers, then joining handles. Instructors will guide students according to their different abilities and speed of progression from beginners to intermediate.' },
       { heading: 'Week 6', text: 'Explore the fundamentals of glazing, learning how to prepare and apply made-in-studio glazes through dipping and pouring. Each student will get to glaze their own bisque-fired pieces for the final kiln firing.' },
     ],
@@ -63,7 +63,7 @@ const COURSE_DETAILS = {
         'Your preferred wheel RESERVED every class you attend',
       ]},
       'All other details follow our Wheelthrowing Beginner/Ext 6 Weeks course:',
-      'The foundation of pottery wheelthrowing will be taught during this 6 week ceramics course (one 2.5 hour class per week). Students will be taught how to throw a cylinder form, after which they will work on forms such as bowls and cups, trimming and glazing using in-studio Ves glazes. After 6 weeks, students will have their own glazed vessels fired and may be collected 1 month after. This course is ideal for beginners with little or no experience at all and for the skilled intermediate seeking to challenge themselves.',
+      'The foundation of pottery wheelthrowing will be taught during this 6 week ceramics course (one 2.5 hour/class/week). Students will be taught how to throw a cylinder form, after which they will work on forms such as bowls and cups, trimming and glazing using in-studio Ves glazes. After 6 weeks, students will have their own glazed vessels fired and may be collected 1 month after. This course is ideal for beginners with little or no experience at all and for the skilled intermediate seeking to challenge themselves.',
       { heading: 'Weeks 1–5', text: 'Cylinder forms—the core fundamental before any other forms in wheel-throwing. Afterwhich, students progress to U-form and V-form bowls, S-form-pitchers, then joining handles. Instructors will guide students according to their different abilities and speed of progression from beginners to intermediate.' },
       { heading: 'Week 6', text: 'Explore the fundamentals of glazing, learning how to prepare and apply made-in-studio glazes through dipping and pouring. Each student will get to glaze their own bisque-fired pieces for the final kiln firing.' },
     ],
@@ -75,8 +75,13 @@ const COURSE_DETAILS = {
   },
   'wt-7week-inter': {
     title: '7-Week Intermediate Wheelthrowing',
-    description: 'This 7-week intermediate course is designed for students who have completed the beginner course. You will advance your wheel-throwing skills with more complex forms, refined trimming techniques, and expanded glazing methods using special VES glazes.',
-    fees: 'Clay, bisque firing (up to 8 pieces), advanced tools and equipment use, decorating and glazing materials, and glaze firing. Additional tools and pieces will incur extra charges.',
+    description: [
+      { heading: 'Pre-requisite', text: 'Complete the 6-week Beginner/Extension Course with the ability to throw 700g S-forms comfortably.' },
+      'This course is for those who have done at least 3 Beginner/Extension classes. In this 7 week course, students will be introduced to heavier clay weights to improve on throwing bigger cylinders and bowls. In the subsequent weeks, they will also be introduced to making pieces in sets, bottle forms, vases and how to trim narrow-neck bottles. In the final week, students will learn how to glaze and decorate their pieces.',
+      { heading: 'Weeks 1–6', text: 'Focus on mastering 800g clay to create larger and more refined forms — wide bowls, narrow-neck vessels, and plates in three variations. Students will also craft a cohesive sake set, honing precision and consistency. Each project builds on control, proportion, and finishing techniques.' },
+      { heading: 'Week 7', text: 'Explore the fundamentals of glazing, learning how to prepare, wax, and apply made-in-studio glazes through dipping and pouring. Each student will get to glaze their own bisque-fired pieces for the final kiln firing.' },
+    ],
+    fees: 'Unlimited usage of clay, up to 8 finished pieces, use of wheel and equipment, materials for decorating and glazing, and firing. Additional tools and pieces made are subject to additional costs.',
     classSize: 'To ensure individualised attention, class size is limited to 8, with 2 additional wheels for make-up classes only. Classes are non-refundable. If you are unable to attend the entire course, you may transfer your enrolment before course commencement.',
     makeup: 'While we cannot guarantee make-up classes, each student may arrange ONE make-up class within weeks 1–6, and ONE for week 7 (glazing), subject to our schedule and availability.',
     items: COMMON_ITEMS,

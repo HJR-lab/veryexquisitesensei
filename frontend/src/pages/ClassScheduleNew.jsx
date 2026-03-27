@@ -881,7 +881,7 @@ export default function ClassScheduleNew() {
             <SectionLabel>Studio Policy</SectionLabel>
           </div>
           <div
-            onClick={() => navigate('/studio-policy')}
+            onClick={() => navigate('/policies')}
             style={{
               padding: '14px 16px',
               backgroundColor: TC_LIGHT,

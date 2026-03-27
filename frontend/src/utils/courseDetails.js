@@ -6,9 +6,10 @@ const STUDIO_ADDRESS = '75 Jalan Kelabu Asap, Chip Bee Gardens 278268';
 const STUDIO_MAP_URL = 'https://maps.app.goo.gl/g84xejcaZbAsD2ze7';
 
 const COMMON_ITEMS = [
-  'Tool Set — available at $18 ($12 for advanced trimming tool)',
-  'Ves Apron — required, not provided (available at $45)',
-  'Ves Tote bag — not provided (available at $12)',
+  'Pottery Tool Set — $18',
+  'Ves Apron — $45',
+  'Ves Tote bag — $12 not required',
+  'Advanced trimming tool — $12 (Intermediate)',
 ];
 
 const COMMON_RULES = [
@@ -108,12 +109,12 @@ const COURSE_DETAILS = {
         'Experience different glazing applications as a finishing touch',
       ]},
     ],
-    fees: 'Clay, bisque firing, tools and equipment use, decorating and glazing materials, and glaze firing. Additional pieces will incur extra charges.',
+    fees: 'Unlimited usage of clay, up to 5 finished pieces of 600g each or 3000g combined, use of tools and equipment, materials for decorating and glazing, and firing. Additional tools and pieces made are subject to additional costs.',
     classSize: null,
     makeup: null,
     items: [
-      'Ves Apron — required, not provided (available at $45)',
-      'Ves Tote bag — not provided (available at $12)',
+      'Ves Apron — $45, not required',
+      'Ves Tote bag — $12 not required',
     ],
     rules: COMMON_RULES,
   },
@@ -139,22 +140,14 @@ const COURSE_DETAILS = {
         'Experience different glazing applications as a finishing touch',
       ]},
     ],
-    fees: 'Clay, bisque firing, tools and equipment use, decorating and glazing materials, and glaze firing. Additional pieces will incur extra charges.',
+    fees: 'Unlimited usage of clay, up to 9 finished pieces of 600g each or 4500g combined, use of tools and equipment, materials for decorating and glazing, and firing. Additional tools and pieces made are subject to additional costs.',
     classSize: null,
     makeup: null,
     items: [
-      'Apron — required, not provided (available for $18)',
-      'Carry bag — not provided (tote bags available for $12)',
+      'Ves Apron — $45, not required',
+      'Ves Tote bag — $12 not required',
     ],
-    rules: [
-      'Press the doorbell on the wall to enter',
-      'Initial your work clearly in 3 text/numbers to avoid mix-ups',
-      'Clean up after yourself and wipe your work area',
-      'Wear a mask if you are unwell',
-      'Wear comfortable clothes and closed-toe shoes',
-      'Eating is not allowed in the studio',
-      'If you are under 16, please notify us in advance',
-    ],
+    rules: COMMON_RULES,
   },
   'kids-clay': {
     title: 'Kids Let\'s Play with Clay',
@@ -171,11 +164,7 @@ const COURSE_DETAILS = {
       'Closed-toe shoes',
       'An apron (or purchase one at $45)',
     ],
-    rules: [
-      'To enter, press the doorbell and someone will attend to you',
-      'A parent or guardian must accompany children under 12',
-      'Eating is not allowed in the studio',
-    ],
+    rules: COMMON_RULES,
   },
 };
 

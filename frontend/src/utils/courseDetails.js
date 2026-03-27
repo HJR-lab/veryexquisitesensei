@@ -83,28 +83,57 @@ const COURSE_DETAILS = {
     rules: COMMON_RULES,
   },
   'hb-4credit': {
-    title: 'Handbuilding 4-Credit Package',
-    description: 'Your 4 credits can be used to book individual handbuilding sessions. Browse available classes and book at your convenience through the Ves Clay Club portal.',
+    title: 'Handbuilding 4-Week Course',
+    description: [
+      'This 4-week handbuilding course introduces the fundamentals of working with clay by hand. Each class runs for 2.5 hours with instructor guidance throughout.',
+      { heading: 'Week 1 — Foundations of Pinching', items: [
+        'Explore the fundamentals of pinching techniques',
+        'Craft your first cups through the art of pinching',
+      ]},
+      { heading: 'Week 2 — Learning Coiling', items: [
+        'Progress to creating larger pieces using coiling',
+        'Learn the skill of connecting separate clay bodies',
+      ]},
+      { heading: 'Week 3 — Intro to Slab-Making', items: [
+        'Learn how to make flatware by making slabs',
+        'Experiment with decorating techniques like carving, drawing, and adding attachments',
+      ]},
+      { heading: 'Week 4 — Intro to Glazing', items: [
+        'Gain insights into the theory of glazing',
+        'Experience different glazing applications as a finishing touch',
+      ]},
+    ],
     fees: 'Clay, bisque firing, tools and equipment use, decorating and glazing materials, and glaze firing. Additional pieces will incur extra charges.',
     classSize: null,
     makeup: null,
     items: [
-      'Apron — required, not provided (available for $18)',
-      'Carry bag — not provided (tote bags available for $12)',
+      'Ves Apron — required, not provided (available at $45)',
+      'Ves Tote bag — not provided (available at $12)',
     ],
-    rules: [
-      'Press the doorbell on the wall to enter',
-      'Initial your work clearly in 3 text/numbers to avoid mix-ups',
-      'Clean up after yourself and wipe your work area',
-      'Wear a mask if you are unwell',
-      'Wear comfortable clothes and closed-toe shoes',
-      'Eating is not allowed in the studio',
-      'If you are under 16, please notify us in advance',
-    ],
+    rules: COMMON_RULES,
   },
   'hb-8credit': {
-    title: 'Handbuilding 8-Credit Package',
-    description: 'Your 8 credits can be used to book individual handbuilding sessions. Browse available classes and book at your convenience through the Ves Clay Club portal.',
+    title: 'Handbuilding 8-Week Course',
+    description: [
+      'This 8-week handbuilding course builds on the foundations of the 4-week programme, introducing sculpting, detailing, and advanced techniques. Each class runs for 2.5 hours with instructor guidance throughout.',
+      { heading: 'Weeks 1–3 — Foundations', items: [
+        'Week 1 — Foundations of Pinching',
+        'Week 2 — Learning Coiling',
+        'Week 3 — Intro to Slab-making',
+      ]},
+      { heading: 'Weeks 4/5 — Intro to Sculpting', items: [
+        'Understand the foundation of sculpture',
+        'Explore techniques for building form and structure',
+      ]},
+      { heading: 'Weeks 6/7 — Learn Detailing', items: [
+        'Learn how to shape facial forms',
+        'Experiment with how to bring personality and expression',
+      ]},
+      { heading: 'Week 8 — Intro to Glazing', items: [
+        'Gain insights into the theory of glazing',
+        'Experience different glazing applications as a finishing touch',
+      ]},
+    ],
     fees: 'Clay, bisque firing, tools and equipment use, decorating and glazing materials, and glaze firing. Additional pieces will incur extra charges.',
     classSize: null,
     makeup: null,

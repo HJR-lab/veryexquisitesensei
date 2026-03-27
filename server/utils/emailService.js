@@ -1,6 +1,6 @@
 const { Resend } = require('resend');
 
-const FROM_ADDRESS = 'VES Studio <info@ves.sg>';
+const FROM_ADDRESS = 'VES Studio <info@mail.ves.sg>';
 
 let _resend;
 function getResend() {

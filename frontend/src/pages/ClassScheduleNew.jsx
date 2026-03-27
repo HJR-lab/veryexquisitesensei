@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api, { classesAPI } from '../utils/api';
 import ImpersonationBanner from '../components/ImpersonationBanner';
+import { STUDIO_POLICIES } from '../utils/courseDetails';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const TC       = '#C4622D';
@@ -72,6 +73,7 @@ export default function ClassScheduleNew() {
   const [showBookSheet, setShowBookSheet]     = useState(null); // class item to confirm booking
   const [showDetailSheet, setShowDetailSheet] = useState(null); // class item to view details
   const [showFilterSheet, setShowFilterSheet] = useState(false);
+  const [showPolicyModal, setShowPolicyModal] = useState(false);
   const [filterType, setFilterType]           = useState('all'); // 'all' | 'wheelthrowing' | 'handbuilding'
   const [filterInstructor, setFilterInstructor] = useState('all');
   // ── Confirmation modal state ────────────────────────────────────────────────
@@ -881,7 +883,7 @@ export default function ClassScheduleNew() {
             <SectionLabel>Studio Policy</SectionLabel>
           </div>
           <div
-            onClick={() => navigate('/policies')}
+            onClick={() => setShowPolicyModal(true)}
             style={{
               padding: '14px 16px',
               backgroundColor: TC_LIGHT,
@@ -902,6 +904,40 @@ export default function ClassScheduleNew() {
 
         </div>
       </main>
+
+      {/* ── STUDIO POLICY MODAL ──────────────────────────────────────────────── */}
+      {showPolicyModal && (
+        <>
+          <div onClick={() => setShowPolicyModal(false)} style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 70 }} />
+          <div style={{
+            position: 'fixed', inset: '5vh 0', zIndex: 71,
+            maxWidth: '520px', margin: '0 auto', backgroundColor: '#fff',
+            borderRadius: '12px', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          }}>
+            {/* Header */}
+            <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${RULE}`, flexShrink: 0 }}>
+              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: INK }}>Rules and Regulations</h2>
+              <button onClick={() => setShowPolicyModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '20px', color: MUTED }}>close</span>
+              </button>
+            </div>
+            {/* Content */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', fontSize: '13px', lineHeight: '1.7', color: INK }}>
+              {Object.values(STUDIO_POLICIES).map((section, i) => (
+                <div key={i} style={{ marginBottom: '16px' }}>
+                  <h3 style={{ fontSize: '13px', fontWeight: 700, margin: '0 0 6px', color: INK }}>{section.title}</h3>
+                  {section.content && <p style={{ margin: 0, color: '#555' }}>{section.content}</p>}
+                  {section.items && (
+                    <ul style={{ margin: '4px 0 0', paddingLeft: '16px', listStyleType: 'disc' }}>
+                      {section.items.map((item, j) => <li key={j} style={{ marginBottom: '1px', color: '#555' }}>{item}</li>)}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ── CLASS DETAIL SHEET ───────────────────────────────────────────────── */}
       {showDetailSheet && (

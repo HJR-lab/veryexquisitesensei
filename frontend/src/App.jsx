@@ -77,8 +77,8 @@ function PrivateRoute({ children }) {
 
   if (!user) return <Navigate to="/login" />;
 
-  // Show policy popup for users who haven't accepted yet (skip for admins)
-  if (!user.policiesAcceptedAt && !policiesJustAccepted && !user.isAdmin) {
+  // Show policy popup for users who haven't accepted yet (skip for admins and impersonation)
+  if (!user.policiesAcceptedAt && !policiesJustAccepted && !user.isAdmin && !user.isImpersonating) {
     return (
       <>
         {children}

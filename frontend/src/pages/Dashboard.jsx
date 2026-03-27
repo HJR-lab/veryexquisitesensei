@@ -4,6 +4,7 @@ import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { potteryAPI } from '../utils/api';
 import { getCourseTypeInfo } from '../utils/courseTypes';
+import { getCourseDetails, STUDIO_ADDRESS, STUDIO_MAP_URL } from '../utils/courseDetails';
 import {
   TC, TC_LIGHT, TC_DARK, INK, MUTED, RULE, ALT,
   SectionLabel, Divider, TopBar, BottomTabBar, ScrollBody, PageShell,
@@ -67,6 +68,7 @@ export default function Dashboard() {
   const [showPastClasses, setShowPastClasses] = useState(false);
   const [upcomingEvents, setUpcomingEvents] = useState([]);
   const [membershipData, setMembershipData] = useState(null);
+  const [expandedCourse, setExpandedCourse] = useState(null);
 
   useEffect(() => {
     fetchDashboardData();
@@ -433,42 +435,101 @@ export default function Dashboard() {
                 return aWT === bWT ? 0 : aWT ? -1 : 1;
               }).map(({ enrollment, totalClasses, attendedCount, bookedCount, pct, typeLabel, statusLabel }, i) => {
                 const isActive = statusLabel === 'active';
+                const isExpanded = expandedCourse === enrollment.id;
+                const details = getCourseDetails(enrollment);
                 return (
-                  <div key={enrollment.id || i} style={{ padding: '14px', border: `1px solid ${RULE}`, backgroundColor: ALT, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                      <div style={{ fontSize: '12px', fontWeight: 700, color: INK, lineHeight: '1.3' }}>
-                        {enrollment.course_title || typeLabel}
+                  <div key={enrollment.id || i} style={{ border: `1px solid ${RULE}`, backgroundColor: ALT, overflow: 'hidden' }}>
+                    <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                        <div style={{ fontSize: '12px', fontWeight: 700, color: INK, lineHeight: '1.3' }}>
+                          {enrollment.course_title || typeLabel}
+                        </div>
+                        <span style={{
+                          fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                          padding: '3px 6px', flexShrink: 0,
+                          backgroundColor: isActive ? TC_LIGHT : '#EBEBEB',
+                          color: isActive ? TC_DARK : MUTED,
+                        }}>
+                          {statusLabel}
+                        </span>
                       </div>
-                      <span style={{
-                        fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-                        padding: '3px 6px', flexShrink: 0,
-                        backgroundColor: isActive ? TC_LIGHT : '#EBEBEB',
-                        color: isActive ? TC_DARK : MUTED,
-                      }}>
-                        {statusLabel}
-                      </span>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                        <div>
+                          <div style={{ fontSize: '13px', color: MUTED, marginBottom: '6px' }}>
+                            Booked: <strong style={{ color: INK }}>{bookedCount}/{totalClasses}</strong>
+                          </div>
+                          <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.1)', position: 'relative' }}>
+                            <div style={{ position: 'absolute', left: 0, top: 0, height: '2px', width: `${totalClasses > 0 ? Math.round((bookedCount / totalClasses) * 100) : 0}%`, backgroundColor: TC }} />
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '13px', color: MUTED, marginBottom: '6px' }}>
+                            Attended: <strong style={{ color: INK }}>{attendedCount}/{totalClasses}</strong>
+                          </div>
+                          <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.1)', position: 'relative' }}>
+                            <div style={{ position: 'absolute', left: 0, top: 0, height: '2px', width: `${pct}%`, backgroundColor: TC }} />
+                          </div>
+                        </div>
+                      </div>
+                      {enrollment.package_total_courses === 3 && typeLabel.startsWith('Wheelthrowing') && (
+                        <div style={{ fontSize: '11px', color: studentData?.wheel_preference ? TC_DARK : MUTED, fontWeight: 600 }}>
+                          Wheel #{studentData?.wheel_preference || '—'}
+                        </div>
+                      )}
+                      {/* Course details toggle */}
+                      <button
+                        onClick={() => setExpandedCourse(isExpanded ? null : enrollment.id)}
+                        style={{
+                          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                          fontSize: '11px', fontWeight: 600, color: TC, display: 'flex', alignItems: 'center', gap: '4px',
+                        }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: '14px', transition: 'transform 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
+                        {isExpanded ? 'Hide course details' : 'Course details'}
+                      </button>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                      <div>
-                        <div style={{ fontSize: '13px', color: MUTED, marginBottom: '6px' }}>
-                          Booked: <strong style={{ color: INK }}>{bookedCount}/{totalClasses}</strong>
-                        </div>
-                        <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.1)', position: 'relative' }}>
-                          <div style={{ position: 'absolute', left: 0, top: 0, height: '2px', width: `${totalClasses > 0 ? Math.round((bookedCount / totalClasses) * 100) : 0}%`, backgroundColor: TC }} />
-                        </div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '13px', color: MUTED, marginBottom: '6px' }}>
-                          Attended: <strong style={{ color: INK }}>{attendedCount}/{totalClasses}</strong>
-                        </div>
-                        <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.1)', position: 'relative' }}>
-                          <div style={{ position: 'absolute', left: 0, top: 0, height: '2px', width: `${pct}%`, backgroundColor: TC }} />
-                        </div>
-                      </div>
-                    </div>
-                    {enrollment.package_total_courses === 3 && typeLabel.startsWith('Wheelthrowing') && (
-                      <div style={{ fontSize: '11px', color: studentData?.wheel_preference ? TC_DARK : MUTED, fontWeight: 600 }}>
-                        Wheel #{studentData?.wheel_preference || '—'}
+
+                    {/* Expandable course details */}
+                    {isExpanded && details && (
+                      <div style={{ borderTop: `1px solid ${RULE}`, padding: '14px', fontSize: '12px', lineHeight: '1.7', color: INK }}>
+                        <p style={{ margin: '0 0 12px', color: '#555' }}>{details.description}</p>
+
+                        {details.fees && (
+                          <>
+                            <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, marginBottom: '4px' }}>Fees Include</div>
+                            <p style={{ margin: '0 0 12px' }}>{details.fees}</p>
+                          </>
+                        )}
+
+                        {details.classSize && (
+                          <>
+                            <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, marginBottom: '4px' }}>Class Size &amp; Policies</div>
+                            <p style={{ margin: '0 0 12px' }}>{details.classSize}</p>
+                          </>
+                        )}
+
+                        {details.makeup && (
+                          <>
+                            <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, marginBottom: '4px' }}>Make-Up</div>
+                            <p style={{ margin: '0 0 12px' }}>{details.makeup}</p>
+                          </>
+                        )}
+
+                        <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, marginBottom: '4px' }}>Items Required</div>
+                        <ul style={{ margin: '0 0 12px', paddingLeft: '16px' }}>
+                          {details.items.map((item, j) => <li key={j} style={{ marginBottom: '2px' }}>{item}</li>)}
+                        </ul>
+
+                        <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, marginBottom: '4px' }}>Studio Rules</div>
+                        <ul style={{ margin: '0 0 12px', paddingLeft: '16px' }}>
+                          {details.rules.map((rule, j) => <li key={j} style={{ marginBottom: '2px' }}>{rule}</li>)}
+                        </ul>
+
+                        <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, marginBottom: '4px' }}>Studio Location</div>
+                        <p style={{ margin: '0' }}>
+                          {STUDIO_ADDRESS} · <a href={STUDIO_MAP_URL} target="_blank" rel="noopener noreferrer" style={{ color: TC, textDecoration: 'none' }}>Google Maps</a>
+                          <br /><span style={{ color: MUTED }}>Nearest MRT: Holland Village · No on-site parking</span>
+                        </p>
                       </div>
                     )}
                   </div>

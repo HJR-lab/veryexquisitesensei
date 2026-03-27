@@ -6,24 +6,24 @@ const STUDIO_ADDRESS = '75 Jalan Kelabu Asap, Chip Bee Gardens 278268';
 const STUDIO_MAP_URL = 'https://maps.app.goo.gl/g84xejcaZbAsD2ze7';
 
 const COMMON_ITEMS = [
-  'Pottery Tool Set — $18',
-  'Ves Apron — $45',
-  'Ves Tote bag — $12 not required',
+  'Your own pottery tools or Ves Tool Set — $18',
+  'Your own apron or Ves Apron — $45',
+  'Not required, Ves Tote bag — $12',
   'Advanced trimming tool — $12 (Intermediate)',
 ];
 
 const COMMON_RULES = [
   'To enter, press the doorbell and someone will to attend to you',
-  'Initial your work clearly in 3 text/numbers to avoid mix-ups',
-  'Wipe your seat and wheels clean after use for the next user',
-  'If you are unwell, please wear a mask',
-  'Wear comfortable clothes and closed-toe shoes',
-  'Cut your nails appropriately',
-  'Eating is not allowed in the studio',
+  'To avoid mix-ups, please initial your work clearly in 3 text/numbers ',
+  'Please wipe your seat and wheels clean after use for the next user',
+  'Please wear a mask if you\'re unwell',
+  'Please wear comfortable clothes and closed-toe shoes',
+  'Please cut your nails appropriately',
+  'Eating and drinking is prohibited in the studio',
   'If you are under 16, please notify us in advance',
-  'If you would like to make more than the allowed number of pieces, each additional piece is $20',
-  'If you would like more wheelthrowing practice time, we offer unguided studio access for current students at $20/hr min 2hrs, full hours only',
-  'NEW VES IS 10 2026: all RETURNING students will receive $20 in credits for each wheelthrowing course taken. Returning students have the option to use their credits to throw more pieces, book studio access, or receive a discount of their credit amount for their next course'
+  'If you would like to fire more pieces than allowed, each additional piece is $20',
+  'If you would like more practice time, we offer unguided studio access for current students at $20/hr min 2hrs, full hours only',
+  'NEW VES IS 10 2026: all RETURNING students will receive $20 in credits for every course finished. Credits can be used to fire more pieces, book studio access, or offset their next course'
 ];
 
 const COURSE_DETAILS = {

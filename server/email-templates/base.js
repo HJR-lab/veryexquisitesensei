@@ -40,7 +40,7 @@ function wrapEmailTemplate(bodyContent) {
               </p>
               <p style="margin: 8px 0 0; font-size: 12px; color: #888888;">
                 <a href="https://www.ves.sg" style="color: #C4622D; text-decoration: none;">ves.sg</a> &middot;
-                <a href="https://club.ves.sg/policies" style="color: #C4622D; text-decoration: none;">Studio Policies</a>
+                <a href="https://club.ves.sg/policies" style="color: #C4622D; text-decoration: none;">Studio Policy</a>
               </p>
             </td>
           </tr>

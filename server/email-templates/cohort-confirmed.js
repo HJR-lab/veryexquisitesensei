@@ -36,7 +36,13 @@ function generateCohortConfirmedEmail({ courseType, courseTitle, dayOfWeek, star
       <li>Keep a gallery of your completed works</li>
       <li>Read our studio policies and much more!</li>
     </ul>
-    <table width="100%" cellpadding="0" cellspacing="0">
+    <p style="margin: 0 0 0; font-size: 15px; line-height: 1.6; color: #282828;">
+      We look forward to seeing you at the studio!
+    </p>
+    <p style="margin: 16px 0 0; font-size: 15px; line-height: 1.6; color: #282828;">
+      Best regards,<br/><strong>Eve</strong><br/><span style="color: #888888;">Ves Studio</span>
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin: 24px 0 0;">
       <tr>
         <td align="center">
           <a href="https://club.ves.sg/dashboard" style="display: inline-block; padding: 14px 32px; background-color: #C4622D; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">

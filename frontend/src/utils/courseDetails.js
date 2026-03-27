@@ -158,17 +158,21 @@ const COURSE_DETAILS = {
   },
   'kids-clay': {
     title: 'Kids Let\'s Play with Clay',
-    description: 'A fun hands-on clay session for kids! Your child will explore clay through handbuilding techniques in our studio.',
+    description: [
+      'Our kid\'s workshop is specially designed with our experienced early learning teacher, for kids ages 6 and up. In these workshops, they\'ll learn fundamental techniques to make functional pieces such as mugs, bowls and trays, and they can decorate their pieces with designs like animal faces, or engrave their names on them.',
+      'Every class will be catered to learning something new and every kid will be able to make a piece and have it fired after class. Parents are welcome to sign up and participate with their kids. This course will take in a maximum of 8 students to provide maximum guidance.',
+      '* Additional ticket (on top of purchased ticket for participating child) is required for any Parent/Guardian accompanying their child for the class.',
+    ],
     fees: null,
     classSize: null,
     makeup: null,
     items: [
       'Comfortable clothes that can get dirty',
       'Closed-toe shoes',
-      'An apron (or purchase one for $18)',
+      'An apron (or purchase one for $45)',
     ],
     rules: [
-      'Press the doorbell on the wall to enter',
+      'To enter, press the doorbell and someone will attend to you',
       'A parent or guardian must accompany children under 12',
       'Eating is not allowed in the studio',
     ],

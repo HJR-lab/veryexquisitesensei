@@ -497,7 +497,8 @@ export default function Dashboard() {
                             ? <p key={j} style={{ margin: '0 0 12px', color: '#555' }}>{block}</p>
                             : <div key={j} style={{ marginBottom: '12px' }}>
                                 <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, marginBottom: '4px' }}>{block.heading}</div>
-                                <p style={{ margin: 0, color: '#555' }}>{block.text}</p>
+                                {block.text && <p style={{ margin: 0, color: '#555' }}>{block.text}</p>}
+                                {block.items && <ul style={{ margin: '4px 0 0', paddingLeft: '16px' }}>{block.items.map((item, k) => <li key={k} style={{ marginBottom: '2px', color: '#555' }}>{item}</li>)}</ul>}
                               </div>
                         )) : (
                           <p style={{ margin: '0 0 12px', color: '#555' }}>{details.description}</p>

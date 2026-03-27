@@ -54,9 +54,20 @@ const COURSE_DETAILS = {
     rules: COMMON_RULES,
   },
   'wt-3x6week': {
-    title: '3-Course Wheelthrowing Package',
-    description: 'This package includes three consecutive 6-week wheelthrowing courses (18 weeks total). You will progressively build your skills from fundamentals through advanced techniques, including cylinder and bowl forms, turning/trimming, and glazing with special VES glazes.',
-    fees: 'Clay, bisque firing (up to 21 pieces — 7 per course), advanced tools and equipment use, decorating and glazing materials, and glaze firing. Additional tools and pieces will incur extra charges.',
+    title: '3-Course Wheelthrowing Package (3 x 6-Week)',
+    description: [
+      'This 3 Course Package (3 x 6-week Wheelthrowing) is exclusively for returning students. This package includes:',
+      { heading: 'Package Benefits', items: [
+        'FREE 3 studio access passes worth ~$50 each (Save $150!)',
+        'Option to swop classes 1 for 1 (e.g., swopping a glazing class for a handbuilding or wheelthrowing class)',
+        'Your preferred wheel RESERVED every class you attend',
+      ]},
+      'All other details follow our Wheelthrowing Beginner/Ext 6 Weeks course:',
+      'The foundation of pottery wheelthrowing will be taught during this 6 week ceramics course (one 2.5 hour class per week). Students will be taught how to throw a cylinder form, after which they will work on forms such as bowls and cups, trimming and glazing using in-studio Ves glazes. After 6 weeks, students will have their own glazed vessels fired and may be collected 1 month after. This course is ideal for beginners with little or no experience at all and for the skilled intermediate seeking to challenge themselves.',
+      { heading: 'Weeks 1–5', text: 'Cylinder forms—the core fundamental before any other forms in wheel-throwing. Afterwhich, students progress to U-form and V-form bowls, S-form-pitchers, then joining handles. Instructors will guide students according to their different abilities and speed of progression from beginners to intermediate.' },
+      { heading: 'Week 6', text: 'Explore the fundamentals of glazing, learning how to prepare and apply made-in-studio glazes through dipping and pouring. Each student will get to glaze their own bisque-fired pieces for the final kiln firing.' },
+    ],
+    fees: 'Unlimited usage of clay, up to 7 finished pieces per course (21 total), use of wheel and equipment, materials for decorating and glazing, and firing. Additional tools and pieces made are subject to additional costs.',
     classSize: 'To ensure individualised attention, class size is limited to 8, with 2 additional wheels for make-up classes only. Classes are non-refundable. If you are unable to attend the entire course, you may transfer your enrolment before course commencement.',
     makeup: 'While we cannot guarantee make-up classes, each student may arrange ONE make-up class within weeks 1–5, and ONE for week 6 (glazing) of each course cycle, subject to our schedule and availability.',
     items: COMMON_ITEMS,

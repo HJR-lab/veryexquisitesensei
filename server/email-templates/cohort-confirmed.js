@@ -31,15 +31,15 @@ function generateCohortConfirmedEmail({ courseType, courseTitle, dayOfWeek, star
       As a Ves Clay Club member, you can:
     </p>
     <ul style="margin: 0 0 20px; padding-left: 20px; font-size: 14px; line-height: 1.8; color: #282828;">
+      <li>Manage your bookings</li>
       <li>View detailed course information</li>
       <li>Read our studio policies and rules</li>
-      <li>Manage your bookings</li>
     </ul>
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr>
         <td align="center">
           <a href="https://club.ves.sg/dashboard" style="display: inline-block; padding: 14px 32px; background-color: #C4622D; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">
-            Enter Ves Clay Club
+            Sign in
           </a>
         </td>
       </tr>

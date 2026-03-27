@@ -36,7 +36,7 @@ function wrapEmailTemplate(bodyContent) {
           <tr>
             <td align="center" style="padding: 20px 40px 28px;">
               <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #888888;">
-                Ves &middot; Clay Club,75 Jalan Kelabu Asap, Singapore 278268
+                Ves &middot; Clay Club, 75 Jalan Kelabu Asap, Singapore 278268
               </p>
               <p style="margin: 8px 0 0; font-size: 12px; color: #888888;">
                 <a href="https://www.ves.sg" style="color: #C4622D; text-decoration: none;">ves.sg</a> &middot;

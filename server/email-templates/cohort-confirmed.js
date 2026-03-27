@@ -12,7 +12,7 @@ function generateCohortConfirmedEmail({ courseType, courseTitle, dayOfWeek, star
       Your ${displayTitle} course is confirmed!
     </h1>
     <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">
-      Great news – your <strong>${displayTitle}</strong> has met the requirements and is good to proceed.
+      Great news – your <strong>${displayTitle}</strong> has met all requirements and is good to proceed.
     </p>
     <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #F9EDE6; border-radius: 8px; margin: 0 0 20px;">
       <tr>
@@ -34,7 +34,6 @@ function generateCohortConfirmedEmail({ courseType, courseTitle, dayOfWeek, star
       <li>Manage all course bookings</li>
       <li>Book additional unguided studio sessions</li>
       <li>Keep a gallery of your completed works</li>
-      <li>View detailed course information</li>
       <li>Read our studio policies and much more!</li>
     </ul>
     <table width="100%" cellpadding="0" cellspacing="0">

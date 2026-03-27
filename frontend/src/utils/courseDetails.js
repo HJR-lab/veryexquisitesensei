@@ -174,9 +174,9 @@ const COURSE_DETAILS = {
  * Edit here to update everywhere.
  */
 export const STUDIO_POLICIES = {
-  classSizeAndPolicies: {
-    title: 'Class Size and Policies',
-    content: 'To ensure individualised attention, class size is limited to 8, with 2 additional wheels for make-up classes only. Classes are non-refundable. If you are unable to attend the entire course, you may transfer your enrolment before course commencement.',
+  coursePolicy: {
+    title: 'Course Policy',
+    content: 'Classes are non-refundable. If you are unable to attend the entire course, you may transfer your enrolment before course commencement.',
   },
   makeupClasses: {
     title: 'Make-Up Classes',

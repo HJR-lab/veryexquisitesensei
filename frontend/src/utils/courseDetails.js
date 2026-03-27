@@ -119,6 +119,42 @@ const COURSE_DETAILS = {
 };
 
 /**
+ * Studio policies — single source of truth
+ * Used by: PolicyPopup, Policies page, course detail cards
+ * Edit here to update everywhere.
+ */
+export const STUDIO_POLICIES = {
+  classSizeAndPolicies: {
+    title: 'Class Size and Policies',
+    content: 'To ensure individualised attention, class size is limited to 8, with 2 additional wheels for make-up classes only. Classes are non-refundable. If you are unable to attend the entire course, you may transfer your enrolment before course commencement.',
+  },
+  makeupClasses: {
+    title: 'Make-Up Classes',
+    content: 'While we cannot guarantee make-up classes, each student may arrange ONE make-up class within weeks 1–5, and ONE for the final week (glazing), subject to our schedule and availability. Please inform us in advance if you need to schedule a make-up class.',
+  },
+  punctuality: {
+    title: 'Punctuality',
+    content: 'As this is a structured course, please be punctual. The studio opens for entry 10 minutes before class begins. Class will begin and end on time.',
+  },
+  itemsRequired: {
+    title: 'Items Required',
+    items: COMMON_ITEMS,
+  },
+  studioRules: {
+    title: 'Studio Rules',
+    items: COMMON_RULES,
+  },
+  collectionAndDisposal: {
+    title: 'Collection & Disposal',
+    content: 'Collection of finished pieces is by appointment only, within 1 month after your final class. We reserve the right to dispose of uncollected pieces after 3 months. Please contact us to arrange collection.',
+  },
+  general: {
+    title: 'General',
+    content: 'We reserve the right to blacklist and ban students that do not comply with the rules or conduct any illegal or inappropriate activity in our premises.',
+  },
+};
+
+/**
  * Detect which course details to show based on enrollment data
  */
 export function getCourseDetails(enrollment) {

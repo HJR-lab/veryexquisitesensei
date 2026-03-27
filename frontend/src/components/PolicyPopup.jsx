@@ -1,9 +1,29 @@
 import { useState } from 'react';
 import api from '../utils/api';
+import { STUDIO_POLICIES } from '../utils/courseDetails';
 
 const TC = '#C4622D';
 const INK = '#282828';
 const MUTED = '#888888';
+
+function PolicySection({ section }) {
+  if (section.items) {
+    return (
+      <>
+        <h3 style={{ fontSize: '14px', fontWeight: 600, margin: '16px 0 8px', color: INK }}>{section.title}</h3>
+        <ul style={{ paddingLeft: '20px', margin: '0 0 8px' }}>
+          {section.items.map((item, i) => <li key={i}>{item}</li>)}
+        </ul>
+      </>
+    );
+  }
+  return (
+    <>
+      <h3 style={{ fontSize: '14px', fontWeight: 600, margin: '16px 0 8px', color: INK }}>{section.title}</h3>
+      <p>{section.content}</p>
+    </>
+  );
+}
 
 export default function PolicyPopup({ onAccepted }) {
   const [agreed, setAgreed] = useState(false);
@@ -46,39 +66,9 @@ export default function PolicyPopup({ onAccepted }) {
           flex: 1, overflowY: 'auto', padding: '0 32px 16px',
           fontSize: '13px', lineHeight: '1.7', color: INK,
         }}>
-          <h3 style={{ fontSize: '14px', fontWeight: 600, margin: '16px 0 8px', color: INK }}>Class Size and Policies</h3>
-          <p>To ensure individualised attention, class size is limited to 8, with 2 additional wheels for make-up classes only. Classes are non-refundable. If you are unable to attend the entire course, you may transfer your enrolment before course commencement.</p>
-
-          <h3 style={{ fontSize: '14px', fontWeight: 600, margin: '16px 0 8px', color: INK }}>Make-Up Classes</h3>
-          <p>While we cannot guarantee make-up classes, each student may arrange ONE make-up class within weeks 1–5, and ONE for the final week (glazing), subject to our schedule and availability. Please inform us in advance if you need to schedule a make-up class.</p>
-
-          <h3 style={{ fontSize: '14px', fontWeight: 600, margin: '16px 0 8px', color: INK }}>Punctuality</h3>
-          <p>As this is a structured course, please be punctual. The studio opens for entry 10 minutes before class begins. Class will begin and end on time.</p>
-
-          <h3 style={{ fontSize: '14px', fontWeight: 600, margin: '16px 0 8px', color: INK }}>Items Required</h3>
-          <ul style={{ paddingLeft: '20px', margin: '0 0 8px' }}>
-            <li>Tools — available for purchase ($15, $12 for advanced trimming tool) or bring your own</li>
-            <li>Apron — required, not provided (available for $18)</li>
-            <li>Carry bag — not provided (tote bags available for $12)</li>
-          </ul>
-
-          <h3 style={{ fontSize: '14px', fontWeight: 600, margin: '16px 0 8px', color: INK }}>Studio Rules</h3>
-          <ul style={{ paddingLeft: '20px', margin: '0 0 8px' }}>
-            <li>Press the doorbell on the wall to enter</li>
-            <li>Initial your work clearly in 3 text/numbers to avoid mix-ups</li>
-            <li>Clean up after yourself and wipe your seat and wheels</li>
-            <li>Wear a mask if you are unwell</li>
-            <li>Wear comfortable clothes and closed-toe shoes</li>
-            <li>Cut your nails appropriately</li>
-            <li>Eating is not allowed in the studio</li>
-            <li>If you are under 16, please notify us in advance</li>
-          </ul>
-
-          <h3 style={{ fontSize: '14px', fontWeight: 600, margin: '16px 0 8px', color: INK }}>Collection &amp; Disposal</h3>
-          <p>Collection of finished pieces is by appointment only, within 1 month after your final class. We reserve the right to dispose of uncollected pieces after 3 months. Please contact us to arrange collection.</p>
-
-          <h3 style={{ fontSize: '14px', fontWeight: 600, margin: '16px 0 8px', color: INK }}>General</h3>
-          <p>We reserve the right to blacklist and ban students that do not comply with the rules or conduct any illegal or inappropriate activity in our premises.</p>
+          {Object.values(STUDIO_POLICIES).map((section, i) => (
+            <PolicySection key={i} section={section} />
+          ))}
         </div>
 
         {/* Footer — Checkbox + Button */}

@@ -505,7 +505,7 @@ export default function Dashboard() {
                               : <div key={j} style={{ marginBottom: '10px' }}>
                                   <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, marginBottom: '3px' }}>{block.heading}</div>
                                   {block.text && <p style={{ margin: 0, color: '#555' }}>{block.text}</p>}
-                                  {block.items && <ul style={{ margin: '3px 0 0', paddingLeft: '16px' }}>{block.items.map((item, k) => <li key={k} style={{ marginBottom: '1px', color: '#555' }}>{item}</li>)}</ul>}
+                                  {block.items && <ul style={{ margin: '3px 0 0', paddingLeft: '16px', listStyleType: 'disc' }}>{block.items.map((item, k) => <li key={k} style={{ marginBottom: '1px', color: '#555', fontSize: '11px' }}>{item}</li>)}</ul>}
                                 </div>
                           )) : (
                             <p style={{ margin: '0 0 10px', color: '#555' }}>{details.description}</p>
@@ -539,7 +539,7 @@ export default function Dashboard() {
                             )}
 
                             <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, marginBottom: '3px' }}>Items Required</div>
-                            <ul style={{ margin: '0 0 0', paddingLeft: '16px' }}>
+                            <ul style={{ margin: '0 0 0', paddingLeft: '16px', listStyleType: 'disc' }}>
                               {details.items.map((item, j) => <li key={j} style={{ marginBottom: '1px', color: '#555' }}>{item}</li>)}
                             </ul>
                           </div>
@@ -548,7 +548,7 @@ export default function Dashboard() {
                         {/* ── Section 3: Studio Rules & Location ── */}
                         <div style={{ borderTop: `1px solid ${RULE}`, padding: '14px' }}>
                           <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: TC, marginBottom: '10px' }}>Studio Rules</div>
-                          <ul style={{ margin: '0 0 0', paddingLeft: '16px' }}>
+                          <ul style={{ margin: '0 0 0', paddingLeft: '16px', listStyleType: 'disc' }}>
                             {details.rules.map((rule, j) => <li key={j} style={{ marginBottom: '1px', color: '#555' }}>{rule}</li>)}
                           </ul>
                         </div>

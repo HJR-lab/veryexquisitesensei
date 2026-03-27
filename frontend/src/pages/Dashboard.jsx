@@ -467,12 +467,22 @@ export default function Dashboard() {
                           {isExpanded ? 'Hide details' : 'Course details'}
                         </button>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                          <span style={{ fontSize: '11px', color: MUTED }}>
-                            Booked <strong style={{ color: INK }}>{bookedCount}/{totalClasses}</strong>
-                          </span>
-                          <span style={{ fontSize: '11px', color: MUTED }}>
-                            Attended <strong style={{ color: INK }}>{attendedCount}/{totalClasses}</strong>
-                          </span>
+                          <div style={{ width: '90px' }}>
+                            <div style={{ fontSize: '11px', color: MUTED, marginBottom: '3px' }}>
+                              Booked <strong style={{ color: INK }}>{bookedCount}/{totalClasses}</strong>
+                            </div>
+                            <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.08)' }}>
+                              <div style={{ height: '2px', width: `${bookedPct}%`, backgroundColor: TC, transition: 'width 0.3s' }} />
+                            </div>
+                          </div>
+                          <div style={{ width: '90px' }}>
+                            <div style={{ fontSize: '11px', color: MUTED, marginBottom: '3px' }}>
+                              Attended <strong style={{ color: INK }}>{attendedCount}/{totalClasses}</strong>
+                            </div>
+                            <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.08)' }}>
+                              <div style={{ height: '2px', width: `${pct}%`, backgroundColor: TC, transition: 'width 0.3s' }} />
+                            </div>
+                          </div>
                         </div>
                       </div>
                       {enrollment.package_total_courses === 3 && typeLabel.startsWith('Wheelthrowing') && (

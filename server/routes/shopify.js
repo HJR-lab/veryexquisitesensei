@@ -4,6 +4,7 @@ const supabaseDb = require('../utils/supabaseDb');
 const { sendAndLogEmail } = require('../utils/emailService');
 const { generateCohortConfirmedEmail } = require('../email-templates/cohort-confirmed');
 const { generateKidsOutreachEmail } = require('../email-templates/kids-outreach');
+const { generateMembershipConfirmedEmail } = require('../email-templates/membership-confirmed');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, getShopifyClient, shopify }) {
 
@@ -1190,6 +1191,51 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
             }
           } catch (emailErr) {
             console.error('[Email] Failed to send kids outreach:', emailErr);
+          }
+        }
+      }
+    }
+
+    // Check for membership purchases and auto-send confirmation email
+    if (orderData.line_items && orderData.line_items.length > 0) {
+      for (const item of orderData.line_items) {
+        const title = (item.title || '').toLowerCase();
+        const variant = (item.variant_title || '').toLowerCase();
+        if (title.includes('clay club')) {
+          try {
+            const memberEmail = customer.email;
+            if (memberEmail) {
+              const combined = title + ' ' + variant;
+              let months = 6;
+              if (combined.includes('12 month')) months = 12;
+              else if (combined.includes('1 month')) months = 1;
+              else if (combined.includes('3 month')) months = 3;
+              else if (combined.includes('6 month')) months = 6;
+
+              const orderDate = new Date(orderData.created_at);
+              const endDate = new Date(orderDate);
+              endDate.setMonth(endDate.getMonth() + months);
+
+              const formatDate = (d) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+
+              const { subject, html } = generateMembershipConfirmedEmail({
+                firstName: customer.first_name || '',
+                months,
+                startDate: formatDate(orderDate),
+                endDate: formatDate(endDate),
+              });
+              await sendAndLogEmail({
+                emailType: 'membership_confirmed',
+                courseIdentifier: `MEMBERSHIP_${months}M`,
+                subject,
+                html,
+                recipientEmails: [memberEmail],
+                sentBy: 'system',
+              });
+              console.log(`📧 Membership confirmation email sent to ${memberEmail} (${months} months)`);
+            }
+          } catch (emailErr) {
+            console.error('[Email] Failed to send membership confirmation:', emailErr);
           }
         }
       }

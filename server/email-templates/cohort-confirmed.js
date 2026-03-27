@@ -3,15 +3,16 @@ const { wrapEmailTemplate } = require('./base');
 /**
  * Generate cohort confirmed email — sent when 4-student threshold is met
  */
-function generateCohortConfirmedEmail({ courseType, dayOfWeek, startDate, endDate, timeSlot }) {
-  const subject = `VES — Your ${courseType} Class is Confirmed!`;
+function generateCohortConfirmedEmail({ courseType, courseTitle, dayOfWeek, startDate, endDate, timeSlot }) {
+  const displayTitle = courseTitle || courseType || 'Wheelthrowing';
+  const subject = `VES — Your ${displayTitle} is Confirmed!`;
 
   const body = `
     <h1 style="margin: 0 0 16px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">
-      Your ${courseType} course is confirmed!
+      Your ${displayTitle} course is confirmed!
     </h1>
     <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">
-      Great news – your <strong>${courseType}</strong> has met the requirements and is good to proceed.
+      Great news – your <strong>${displayTitle}</strong> has met the requirements and is good to proceed.
     </p>
     <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #F9EDE6; border-radius: 8px; margin: 0 0 20px;">
       <tr>

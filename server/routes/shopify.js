@@ -1137,6 +1137,7 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
                   if (studentEmails.length > 0) {
                     const { subject, html } = generateCohortConfirmedEmail({
                       courseType: enrollment.course_type || 'Wheelthrowing',
+                      courseTitle: enrollment.course_title || '',
                       dayOfWeek: enrollment.schedule_pattern || '',
                       startDate: enrollment.course_start_date || '',
                       endDate: enrollment.course_end_date || '',

@@ -802,6 +802,34 @@ app.post('/api/classes/cancel', authenticateToken, asyncHandler(async (req, res)
 
   await supabaseDb.updateClassEnrollment(booking.class_instance_id, -1);
 
+  // Auto-offer spot to next person on waitlist
+  try {
+    const nextInLine = await supabaseDb.getNextInWaitlist(booking.class_instance_id);
+    if (nextInLine) {
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      await supabaseDb.updateWaitlistEntry(nextInLine.id, {
+        spotOfferedAt: now.toISOString(),
+        notificationSentAt: now.toISOString(),
+        expiresAt: expiresAt.toISOString()
+      });
+
+      // Send email notification
+      const { sendEmail } = require('../utils/emailService');
+      if (nextInLine.student?.email) {
+        const classDate = new Date(booking.class_instance?.class_date || '').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+        await sendEmail({
+          to: nextInLine.student.email,
+          subject: 'VES — A spot has opened up for your waitlisted class!',
+          html: `<p>Great news! A spot has opened up for the class on <strong>${classDate}</strong>.</p><p>You have <strong>24 hours</strong> to claim this spot before it is offered to the next student.</p><p><a href="https://club.ves.sg/classes">Claim your spot</a></p>`
+        });
+      }
+      console.log(`[Waitlist] Auto-offered spot to ${nextInLine.student?.email} for class ${booking.class_instance_id}`);
+    }
+  } catch (waitlistErr) {
+    console.error('[Waitlist] Error auto-offering spot:', waitlistErr);
+  }
+
   res.json({
     success: true,
     message: 'Booking cancelled successfully'
@@ -1159,6 +1187,33 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
 
   await supabaseDb.updateClassEnrollment(parseInt(newClassId), 1);
 
+  // Auto-offer spot on old class to next person on waitlist
+  try {
+    const nextInLine = await supabaseDb.getNextInWaitlist(parseInt(oldClassId));
+    if (nextInLine) {
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      await supabaseDb.updateWaitlistEntry(nextInLine.id, {
+        spotOfferedAt: now.toISOString(),
+        notificationSentAt: now.toISOString(),
+        expiresAt: expiresAt.toISOString()
+      });
+
+      const { sendEmail } = require('../utils/emailService');
+      if (nextInLine.student?.email) {
+        const classDate = new Date(oldClass.class_date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+        await sendEmail({
+          to: nextInLine.student.email,
+          subject: 'VES — A spot has opened up for your waitlisted class!',
+          html: `<p>Great news! A spot has opened up for the class on <strong>${classDate}</strong>.</p><p>You have <strong>24 hours</strong> to claim this spot before it is offered to the next student.</p><p><a href="https://club.ves.sg/classes">Claim your spot</a></p>`
+        });
+      }
+      console.log(`[Waitlist] Auto-offered spot to ${nextInLine.student?.email} for class ${oldClassId}`);
+    }
+  } catch (waitlistErr) {
+    console.error('[Waitlist] Error auto-offering spot after reschedule:', waitlistErr);
+  }
+
   res.json({
     success: true,
     booking: {
@@ -1439,6 +1494,21 @@ app.post('/api/classes/bookings/:bookingId/mark-attendance', authenticateToken, 
 
   if (incrementForfeit) {
     await supabaseDb.incrementClassesForfeited(booking.student.id);
+
+    // Add $20 no-show fee if this was a rescheduled booking
+    if (booking.original_class_instance_id || booking.rescheduled_from_date) {
+      const { error: feeError } = await supabaseDb.supabase
+        .from('reschedule_fees')
+        .insert({
+          student_id: booking.student.id,
+          booking_id: booking.id,
+          fee_type: 'no_show',
+          amount: 20,
+          payment_status: 'pending',
+          notes: `No-show fee for rescheduled class ${booking.class_instance?.class_type || ''} on ${booking.class_instance?.class_date || ''}`
+        });
+      if (feeError) console.error('Error creating no-show fee:', feeError);
+    }
   }
 
   // Update HB credits when attendance is marked

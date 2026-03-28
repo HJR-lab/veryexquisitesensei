@@ -191,7 +191,13 @@ export default function StudentRescheduleModal({
 
                       {/* Inline reschedule confirm */}
                       {isConfirming && (
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', backgroundColor: TC_LIGHT, borderTop: `1px solid ${TC}` }}>
+                        <div style={{ padding: '10px 16px', backgroundColor: TC_LIGHT, borderTop: `1px solid ${TC}` }}>
+                          {!selectedBookingForMakeup.isPlaceholder && (
+                            <div style={{ fontSize: '11px', color: TC_DARK, lineHeight: 1.5, marginBottom: '8px' }}>
+                              <strong>Please note:</strong> You must reschedule more than 24 hours before class. Missed makeup classes incur a <strong>$20 no-show fee</strong>. Makeup classes outside your cohort schedule incur a <strong>$40 fee</strong> (glazing classes excluded).
+                            </div>
+                          )}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                           <span style={{ fontSize: '12px', color: TC_DARK }}>
                             {selectedBookingForMakeup.isPlaceholder
                               ? 'Book this class using the flexible credit?'
@@ -207,6 +213,7 @@ export default function StudentRescheduleModal({
                               disabled={isReschedulingThis}
                               style={{ padding: '5px 12px', border: 'none', backgroundColor: TC, cursor: isReschedulingThis ? 'not-allowed' : 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: '#FFF', opacity: isReschedulingThis ? 0.7 : 1 }}
                             >{isReschedulingThis ? 'Saving…' : (selectedBookingForMakeup.isPlaceholder ? 'Yes, Book' : 'Yes, Reschedule')}</button>
+                          </div>
                           </div>
                         </div>
                       )}

@@ -2,7 +2,7 @@ const express = require('express');
 const { syncCustomer } = require('../utils/shopifySync');
 const supabaseDb = require('../utils/supabaseDb');
 const { sendAndLogEmail } = require('../utils/emailService');
-const { generateCohortConfirmedEmail } = require('../email-templates/cohort-confirmed');
+
 const { generateKidsOutreachEmail } = require('../email-templates/kids-outreach');
 const { generateMembershipConfirmedEmail } = require('../email-templates/membership-confirmed');
 const { generateVoucherOutreachEmail } = require('../email-templates/voucher-outreach');
@@ -822,6 +822,42 @@ app.post('/api/admin/sync-shopify-orders', authenticateToken, requireAdmin, asyn
                 skippedCount++;
               } else {
                 enrollmentsCreated++;
+
+                // Auto-send course details email for new HB enrollments
+                if (result.isHandbuilding && result.enrollment) {
+                  try {
+                    const enrollment = result.enrollment;
+                    const courseIdForEmail = enrollment.course_identifier || `HB_${enrollment.id}`;
+                    // Check if email was already sent (avoid duplicates during re-sync)
+                    const { data: alreadySent } = await supabase
+                      .from('sent_emails')
+                      .select('id')
+                      .eq('email_type', 'course_details')
+                      .eq('course_identifier', courseIdForEmail)
+                      .limit(1)
+                      .maybeSingle();
+
+                    if (!alreadySent && paxEmail) {
+                      const credits = enrollment.number_of_weeks || enrollment.class_credits_allocated || 4;
+                      const templateType = credits <= 4 ? 'hb-4credit' : 'hb-8credit';
+                      const template = require(`../email-templates/courses/${templateType}`);
+                      const { subject: emailSubject, html: emailHtml } = template.generate({ specialNotes: '' });
+
+                      await sendAndLogEmail({
+                        emailType: 'course_details',
+                        courseIdentifier: courseIdForEmail,
+                        subject: emailSubject,
+                        html: emailHtml,
+                        recipientEmails: [paxEmail],
+                        sentBy: 'system',
+                      });
+                      console.log(`📧 HB course details email auto-sent to ${paxEmail}`);
+                    }
+                  } catch (emailErr) {
+                    console.error('[Email] Failed to auto-send HB course details email:', emailErr);
+                  }
+                }
+
                 if (result.thresholdMet) {
                   console.log(`✅ Created classes and bookings for ${paxEmail}`);
                 } else if (result.requiresThreshold) {
@@ -1118,47 +1154,36 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
 
           if (result.success) {
             console.log(`✅ Course enrollment processed successfully`);
-            if (result.thresholdMet) {
-              console.log(`🎉 Threshold met! Created ${result.classInstancesCreated} class instances and ${result.bookingsCreated} bookings`);
 
-              // Send cohort confirmed email to all students
+            // Auto-send course details email for HB enrollments immediately
+            if (result.isHandbuilding && result.enrollment) {
               try {
                 const enrollment = result.enrollment;
-                if (enrollment && enrollment.course_identifier) {
-                  // Get all student emails in this cohort
-                  const { data: cohortEnrollments } = await supabaseDb.supabase
-                    .from('course_enrollments')
-                    .select('student_id, customers!inner(email)')
-                    .like('course_identifier', `${enrollment.course_identifier}%`)
-                    .in('status', ['active', 'pending']);
+                const studentEmail = customer.email;
+                if (studentEmail) {
+                  const credits = enrollment.number_of_weeks || enrollment.class_credits_allocated || 4;
+                  const templateType = credits <= 4 ? 'hb-4credit' : 'hb-8credit';
+                  const template = require(`../email-templates/courses/${templateType}`);
+                  const { subject: emailSubject, html: emailHtml } = template.generate({ specialNotes: '' });
 
-                  const studentEmails = (cohortEnrollments || [])
-                    .map(e => e.customers?.email)
-                    .filter(Boolean);
-
-                  if (studentEmails.length > 0) {
-                    const { subject, html } = generateCohortConfirmedEmail({
-                      courseType: enrollment.course_type || 'Wheelthrowing',
-                      courseTitle: enrollment.course_title || '',
-                      dayOfWeek: enrollment.schedule_pattern || '',
-                      startDate: enrollment.course_start_date || '',
-                      endDate: enrollment.course_end_date || '',
-                      timeSlot: enrollment.class_time || '',
-                    });
-                    await sendAndLogEmail({
-                      emailType: 'cohort_confirmed',
-                      courseIdentifier: enrollment.course_identifier,
-                      subject,
-                      html,
-                      recipientEmails: studentEmails,
-                      sentBy: 'system',
-                    });
-                    console.log(`📧 Cohort confirmed email sent to ${studentEmails.length} students`);
-                  }
+                  await sendAndLogEmail({
+                    emailType: 'course_details',
+                    courseIdentifier: enrollment.course_identifier || `HB_${enrollment.id}`,
+                    subject: emailSubject,
+                    html: emailHtml,
+                    recipientEmails: [studentEmail],
+                    sentBy: 'system',
+                  });
+                  console.log(`📧 HB course details email auto-sent to ${studentEmail}`);
                 }
               } catch (emailErr) {
-                console.error('[Email] Failed to send cohort confirmed email:', emailErr);
+                console.error('[Email] Failed to auto-send HB course details email:', emailErr);
               }
+            }
+
+            if (result.thresholdMet) {
+              console.log(`🎉 Threshold met! Created ${result.classInstancesCreated} class instances and ${result.bookingsCreated} bookings`);
+              // Course details email (which serves as confirmation) will be sent via admin compose flow
             } else if (result.requiresThreshold) {
               console.log(`⏳ Waiting for more students (${result.studentCount}/${result.studentsNeeded + result.studentCount})`);
             }

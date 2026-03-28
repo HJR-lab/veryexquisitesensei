@@ -4239,10 +4239,12 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
   const courseMap = {};
   for (const cls of (classes || [])) {
     const baseId = cls.class_type.split('.')[0];
+    // Skip HB courses — their emails are sent automatically on enrollment
+    if (baseId.startsWith('HB')) continue;
     if (!courseMap[baseId]) {
       courseMap[baseId] = {
         courseIdentifier: baseId,
-        courseType: baseId.startsWith('HB') ? 'Handbuilding' : 'Wheelthrowing',
+        courseType: 'Wheelthrowing',
         classDates: [],
         startTime: cls.start_time,
         endTime: cls.end_time,
@@ -4254,6 +4256,20 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
   // For each course, get enrollment count and email send status
   const courses = [];
   for (const [courseId, course] of Object.entries(courseMap)) {
+    // Get the actual first class date for this course to determine if it has started
+    const { data: firstClassData } = await supabaseDb.supabase
+      .from('class_instances')
+      .select('class_date')
+      .like('class_type', `${courseId}%`)
+      .order('class_date', { ascending: true })
+      .limit(1)
+      .single();
+
+    // Skip courses that have already started (first class is before today)
+    if (firstClassData && firstClassData.class_date < today) {
+      continue;
+    }
+
     // Get student count
     const { count: studentCount } = await supabaseDb.supabase
       .from('course_enrollments')

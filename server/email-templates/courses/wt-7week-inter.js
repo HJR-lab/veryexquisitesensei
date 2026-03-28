@@ -1,92 +1,104 @@
 const { wrapEmailTemplate } = require('../base');
 
-function generate({ dayOfWeek, startDate, endDate, timeSlot, holidayExclusions, collectionStart, collectionEnd, disposalDate, specialNotes }) {
+/**
+ * Generate course detail email for 7-Week Intermediate Wheelthrowing course
+ */
+function generate({ dayOfWeek, startDate, endDate, timeSlot, holidayExclusions, specialNotes }) {
   const subject = `VES Course Details: 7-Week Intermediate Wheelthrowing — ${dayOfWeek}s, ${startDate} - ${endDate} (${timeSlot})`;
 
-  const holidayLine = holidayExclusions ? `<p style="margin: 0 0 2px; font-size: 14px; color: #C4622D; font-weight: 600;">${holidayExclusions}</p>` : '';
-  const specialNotesBlock = specialNotes ? `<p style="margin: 16px 0 0; font-size: 14px; line-height: 1.5; color: #C4622D; font-weight: 600;">${specialNotes}</p>` : '';
+  const holidayLine = holidayExclusions
+    ? `<p style="margin: 0 0 2px; font-size: 14px; color: #282828;"><strong>Holiday exclusions:</strong> ${holidayExclusions}</p>`
+    : '';
+
+  const specialNotesBlock = specialNotes
+    ? `<table width="100%" cellpadding="0" cellspacing="0" style="background-color: #FFF8F5; border-left: 3px solid #C4622D; border-radius: 4px; margin: 0 0 20px;">
+        <tr>
+          <td style="padding: 12px 16px;">
+            <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #9E4A1E; text-transform: uppercase; letter-spacing: 0.05em;">Note</p>
+            <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #282828;">${specialNotes}</p>
+          </td>
+        </tr>
+      </table>`
+    : '';
 
   const body = `
-    <h1 style="margin: 0 0 16px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">Course Details</h1>
-    <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">Dear VES Student,</p>
     <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">
-      Thank you for signing up for our <strong>7-Week Intermediate Wheelthrowing</strong> course. Please find the course details below:
+      Great news – your <strong>7-Week Intermediate Wheelthrowing</strong> is confirmed!
     </p>
 
-    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #F9EDE6; border-radius: 8px; margin: 0 0 20px;">
-      <tr><td style="padding: 16px 20px;">
-        <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #9E4A1E; text-transform: uppercase; letter-spacing: 0.05em;">Schedule</p>
-        <p style="margin: 0 0 2px; font-size: 15px; color: #282828;"><strong>Dates:</strong> ${dayOfWeek}s, ${startDate} – ${endDate} (${timeSlot})</p>
-        ${holidayLine}
-        <p style="margin: 8px 0 0; font-size: 14px; color: #282828;"><strong>Address:</strong> 75 Jalan Kelabu Asap, Chip Bee Gardens 278268</p>
-        <p style="margin: 2px 0 0; font-size: 13px; color: #888888;">
-          <a href="https://maps.app.goo.gl/g84xejcaZbAsD2ze7" style="color: #C4622D;">Google Maps</a> &middot; Nearest MRT: Holland Village &middot; No on-site parking
-        </p>
-      </td></tr>
+    ${specialNotesBlock}
+
+    <!-- Schedule Box -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #F9EDE6; border-radius: 8px; margin: 0 0 24px;">
+      <tr>
+        <td style="padding: 16px 20px;">
+          <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #9E4A1E; text-transform: uppercase; letter-spacing: 0.05em;">Your Schedule</p>
+          <p style="margin: 0 0 2px; font-size: 15px; color: #282828;">${dayOfWeek}s, ${startDate} – ${endDate}</p>
+          <p style="margin: 0 0 2px; font-size: 15px; color: #282828;">${timeSlot}</p>
+          ${holidayLine}
+        </td>
+      </tr>
     </table>
 
-    <h2 style="margin: 0 0 8px; font-size: 16px; font-weight: 600; color: #282828;">Course Description</h2>
-    <p style="margin: 0 0 16px; font-size: 14px; line-height: 1.6; color: #282828;">
-      This 7-week intermediate course is designed for students who have completed the beginner course. You will advance your wheel-throwing skills with more complex forms, refined trimming techniques, and expanded glazing methods using special VES glazes.
+    <!-- Punctuality -->
+    <p style="margin: 0 0 6px; font-size: 16px; font-weight: 600; color: #282828;">Punctuality</p>
+    <p style="margin: 0 0 20px; font-size: 14px; line-height: 1.7; color: #282828;">
+      The studio opens for entry <strong>10 minutes before class begins</strong>. Please arrive on time as latecomers may miss important instructions.
     </p>
 
-    <h2 style="margin: 0 0 8px; font-size: 16px; font-weight: 600; color: #282828;">Course Fees Include</h2>
-    <p style="margin: 0 0 16px; font-size: 14px; line-height: 1.6; color: #282828;">
-      Clay, bisque firing (up to 8 pieces), advanced tools and equipment use, decorating and glazing materials, and glaze firing. Additional tools and pieces will incur extra charges.
+    <!-- Items Required -->
+    <p style="margin: 0 0 6px; font-size: 16px; font-weight: 600; color: #282828;">Items Required</p>
+    <p style="margin: 0 0 4px; font-size: 14px; line-height: 1.7; color: #282828;">The following items are required and available for purchase at the studio:</p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 20px;">
+      <tr>
+        <td style="padding: 4px 0; font-size: 14px; color: #282828;">Tool set</td>
+        <td style="padding: 4px 0; font-size: 14px; color: #282828; text-align: right;">$18</td>
+      </tr>
+      <tr>
+        <td style="padding: 4px 0; font-size: 14px; color: #282828;">Apron</td>
+        <td style="padding: 4px 0; font-size: 14px; color: #282828; text-align: right;">$45</td>
+      </tr>
+    </table>
+
+    <!-- Policies link -->
+    <p style="margin: 0 0 24px; font-size: 14px; line-height: 1.7; color: #282828;">
+      For make-up class policy, studio rules, and other information, visit <a href="https://club.ves.sg/policies" style="color: #C4622D;">club.ves.sg/policies</a>
     </p>
 
-    <h2 style="margin: 0 0 8px; font-size: 16px; font-weight: 600; color: #282828;">Class Size and Policies</h2>
-    <p style="margin: 0 0 16px; font-size: 14px; line-height: 1.6; color: #282828;">
-      To ensure individualised attention, class size is limited to 8, with 2 additional wheels for make-up classes only. Please note that classes are non-refundable. If you are unable to attend the entire course, you may transfer your enrolment before course commencement.
+    <!-- Address -->
+    <p style="margin: 0 0 4px; font-size: 14px; line-height: 1.5; color: #282828;">
+      <strong>Address:</strong> 75 Jalan Kelabu Asap, Chip Bee Gardens 278268
+      (<a href="https://maps.app.goo.gl/g84xejcaZbAsD2ze7" style="color: #C4622D;">Map</a>)
+    </p>
+    <p style="margin: 0 0 16px; font-size: 13px; line-height: 1.5; color: #888888;">
+      Nearest MRT: Holland Village &middot; No on-site parking
     </p>
 
-    <h2 style="margin: 0 0 8px; font-size: 16px; font-weight: 600; color: #282828;">Make-Up</h2>
-    <p style="margin: 0 0 16px; font-size: 14px; line-height: 1.6; color: #282828;">
-      While we cannot guarantee make-up classes, each student may arrange ONE make-up class within weeks 1–6, and ONE for week 7 (glazing), subject to our schedule and availability. Please inform us in advance if you need to schedule a make-up class.
-    </p>
-
-    <h2 style="margin: 0 0 8px; font-size: 16px; font-weight: 600; color: #282828;">Punctuality</h2>
-    <p style="margin: 0 0 16px; font-size: 14px; line-height: 1.6; color: #282828;">
-      As this is a structured course, please be punctual. The studio opens for entry 10 mins before class begins. Class will begin and end on time.
-    </p>
-
-    <h2 style="margin: 0 0 8px; font-size: 16px; font-weight: 600; color: #282828;">Items Required</h2>
-    <ul style="margin: 0 0 16px; padding-left: 20px; font-size: 14px; line-height: 1.8; color: #282828;">
-      <li>Tools are required and available for purchase at the start of the course for $15 ($12 for advanced trimming tool).</li>
-      <li>Aprons are required and not provided. Alternatively aprons can be purchased for $18.</li>
-      <li>Carry bags are not provided. Alternatively tote bags can be purchased for $12.</li>
-    </ul>
-
-    <h2 style="margin: 0 0 8px; font-size: 16px; font-weight: 600; color: #282828;">Additional Information</h2>
-    <ul style="margin: 0 0 16px; padding-left: 20px; font-size: 14px; line-height: 1.8; color: #282828;">
-      <li>To enter, please press the doorbell on the wall and someone will open the door for you.</li>
-      <li>Please initial your own work clearly in 3 text/numbers to avoid mix-ups.</li>
-      <li>Do clean up after yourself and wipe your seat and wheels clean after use.</li>
-      <li>If you are unwell, please wear a mask.</li>
-      <li>Wear comfortable clothes and closed-toe shoes.</li>
-      <li>Please cut your nails appropriately for the sessions.</li>
-      <li>Eating is not allowed in the studio.</li>
-      <li>If you are under 16, please notify us in advance.</li>
-    </ul>
-
-    <h2 style="margin: 0 0 8px; font-size: 16px; font-weight: 600; color: #282828;">Studio Policy</h2>
-    <ul style="margin: 0 0 16px; padding-left: 20px; font-size: 14px; line-height: 1.8; color: #282828;">
-      <li>Collection of finished pieces is by appointment only between ${collectionStart} and ${collectionEnd}.</li>
-      <li>We reserve the right to dispose of uncollected pieces after ${disposalDate}.</li>
-      <li>We reserve the right to blacklist and ban students that do not comply with the rules or conduct any illegal or inappropriate activity in our premises.</li>
-    </ul>
-
+    <!-- Clay Club -->
     <p style="margin: 0 0 8px; font-size: 14px; line-height: 1.6; color: #282828;">
-      For full studio policies, visit <a href="https://club.ves.sg/policies" style="color: #C4622D;">club.ves.sg/policies</a>.
+      As a Ves &middot; Clay Club Student, you can:
     </p>
-    ${specialNotesBlock}
-    <p style="margin: 16px 0 0; font-size: 15px; line-height: 1.6; color: #282828;">
-      Please do not hesitate to contact us if you have any questions. We look forward to seeing you in class!
+    <ul style="margin: 0 0 20px; padding-left: 20px; font-size: 14px; line-height: 1.8; color: #282828;">
+      <li>Manage all course bookings</li>
+      <li>Book additional unguided studio sessions</li>
+      <li>Keep a gallery of your completed works</li>
+      <li>Read our studio policies and much more!</li>
+    </ul>
+
+    <!-- Sign-off -->
+    <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #282828;">
+      We look forward to seeing you at the studio!
     </p>
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin: 24px 0 0;">
-      <tr><td align="center">
-        <a href="https://club.ves.sg/classes" style="display: inline-block; padding: 14px 32px; background-color: #C4622D; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">Manage Your Bookings</a>
-      </td></tr>
+
+    <!-- CTA -->
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td align="center">
+          <a href="https://club.ves.sg/dashboard" style="display: inline-block; padding: 14px 32px; background-color: #C4622D; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">
+            Sign in
+          </a>
+        </td>
+      </tr>
     </table>`;
 
   return { subject, html: wrapEmailTemplate(body) };

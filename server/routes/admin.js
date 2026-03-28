@@ -4231,11 +4231,13 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
   const today = sgtNow.toISOString().split('T')[0];
   const in14Days = new Date(sgtNow.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-  // Get class instances within the next 14 days
+  // Get class instances within the next 14 days — only courses that haven't started yet
+  // A course "hasn't started" if its first class is today or later
+  // We query classes in the window, then filter out courses whose first class is in the past
   const { data: classes, error: classError } = await supabaseDb.supabase
     .from('class_instances')
     .select('id, class_type, class_date, start_time, end_time')
-    .gte('class_date', today)
+    .gt('class_date', today)
     .lte('class_date', in14Days)
     .order('class_date', { ascending: true });
 
@@ -4284,8 +4286,8 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
 
     const enrollmentStartDate = earliestEnrollment?.course_start_date;
 
-    // Skip courses that have already started (first class is before today)
-    if ((firstClassDate && firstClassDate < today) || (enrollmentStartDate && enrollmentStartDate < today)) {
+    // Skip courses that have already started (first class is today or earlier)
+    if ((firstClassDate && firstClassDate <= today) || (enrollmentStartDate && enrollmentStartDate <= today)) {
       continue;
     }
 

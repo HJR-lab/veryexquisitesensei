@@ -688,13 +688,6 @@ export default function AdminStudentDetail() {
     return b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && classDate < today);
   }).length;
 
-  // Count attended from current enrollment bookings only
-  const allAttendedCount = currentEnrollmentBookings.filter(b => {
-    const classDate = new Date(b.class_date);
-    classDate.setHours(0, 0, 0, 0);
-    return b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && classDate < today);
-  }).length;
-
   const isHBEnrollment = enrollment && (enrollment.course_type || '').toLowerCase().includes('handbuilding');
   const hbCreditsAllocated = enrollment?.class_credits_allocated || enrollment?.number_of_weeks || 0;
   const hbCreditsUsed = enrollment?.class_credits_used || 0;
@@ -711,6 +704,13 @@ export default function AdminStudentDetail() {
       })
     : bookings;
   const allBookedCount = currentEnrollmentBookings.length;
+
+  // Count attended from current enrollment bookings only
+  const allAttendedCount = currentEnrollmentBookings.filter(b => {
+    const classDate = new Date(b.class_date);
+    classDate.setHours(0, 0, 0, 0);
+    return b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && classDate < today);
+  }).length;
   const enrollmentAllocated = isHBEnrollment ? hbCreditsAllocated : (enrollment?.number_of_weeks || 0);
   const totalAllocated = Math.max(allBookedCount, enrollmentAllocated);
   const unbookedCount  = isHBEnrollment

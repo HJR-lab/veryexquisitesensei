@@ -381,7 +381,7 @@ export default function ClassScheduleNew() {
   };
 
   const handleReschedule = (newClassId) => {
-    confirmAction('Confirm Reschedule', 'Are you sure you want to reschedule this class?', async () => {
+    confirmAction('Confirm Reschedule', 'Are you sure you want to reschedule this class? Please note: missed rescheduled classes incur a $20 no-show fee. Rescheduling must be done at least 24 hours before class.', async () => {
       try {
         await api.post('/classes/reschedule', { oldClassId: selectedClass.id, newClassId });
         alert('Successfully rescheduled your class!');

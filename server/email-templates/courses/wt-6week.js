@@ -22,10 +22,9 @@ function generate({ dayOfWeek, startDate, endDate, timeSlot, holidayExclusions, 
     : '';
 
   const body = `
-    <h1 style="margin: 0 0 8px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">
-      6-Week Beginner/Extension Wheelthrowing
-    </h1>
-    <p style="margin: 0 0 24px; font-size: 14px; color: #888888; text-align: center;">Course Details</p>
+    <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">
+      Great news – your <strong>6-Week Beginner/Extension Wheelthrowing</strong> is confirmed!
+    </p>
 
     ${specialNotesBlock}
 
@@ -77,7 +76,7 @@ function generate({ dayOfWeek, startDate, endDate, timeSlot, holidayExclusions, 
 
     <!-- Clay Club -->
     <p style="margin: 0 0 8px; font-size: 14px; line-height: 1.6; color: #282828;">
-      As a Ves &middot; Clay Club Member, you can:
+      As a Ves &middot; Clay Club Student, you can:
     </p>
     <ul style="margin: 0 0 20px; padding-left: 20px; font-size: 14px; line-height: 1.8; color: #282828;">
       <li>Manage all course bookings</li>

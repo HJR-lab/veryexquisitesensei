@@ -98,7 +98,7 @@ function generate({ specialNotes }) {
 
     <!-- Clay Club -->
     <p style="margin: 0 0 8px; font-size: 14px; line-height: 1.6; color: #282828;">
-      As a Ves &middot; Clay Club Member, you can:
+      As a Ves &middot; Clay Club Student, you can:
     </p>
     <ul style="margin: 0 0 20px; padding-left: 20px; font-size: 14px; line-height: 1.8; color: #282828;">
       <li>Manage all course bookings</li>

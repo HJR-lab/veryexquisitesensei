@@ -70,6 +70,7 @@ export default function Dashboard() {
   const [membershipData, setMembershipData] = useState(null);
   const [expandedCourse, setExpandedCourse] = useState(null);
   const [showPolicyModal, setShowPolicyModal] = useState(false);
+  const [showCompletedCourses, setShowCompletedCourses] = useState(false);
 
   useEffect(() => {
     fetchDashboardData();
@@ -424,15 +425,22 @@ export default function Dashboard() {
         })()}
 
         {/* ── 2. MY COURSES ── */}
-        {enrollmentsWithCounts.length > 0 && (
+        {enrollmentsWithCounts.length > 0 && (() => {
+          const currentCourses = enrollmentsWithCounts.filter(c => c.statusLabel !== 'completed');
+          const completedCourses = enrollmentsWithCounts.filter(c => c.statusLabel === 'completed');
+          const sortByType = (a, b) => {
+            const aWT = a.typeLabel.startsWith('Wheelthrowing');
+            const bWT = b.typeLabel.startsWith('Wheelthrowing');
+            return aWT === bWT ? 0 : aWT ? -1 : 1;
+          };
+          const coursesToShow = showCompletedCourses
+            ? [...currentCourses, ...completedCourses].sort(sortByType)
+            : [...currentCourses].sort(sortByType);
+          return (
           <section style={{ marginBottom: '28px' }}>
             <SectionLabel>My Courses</SectionLabel>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
-              {[...enrollmentsWithCounts].sort((a, b) => {
-                const aWT = a.typeLabel.startsWith('Wheelthrowing');
-                const bWT = b.typeLabel.startsWith('Wheelthrowing');
-                return aWT === bWT ? 0 : aWT ? -1 : 1;
-              }).map(({ enrollment, totalClasses, attendedCount, bookedCount, pct, typeLabel, statusLabel }, i) => {
+              {coursesToShow.map(({ enrollment, totalClasses, attendedCount, bookedCount, pct, typeLabel, statusLabel }, i) => {
                 const isActive = statusLabel === 'active';
                 const isExpanded = expandedCourse === enrollment.id;
                 const details = getCourseDetails(enrollment);
@@ -544,8 +552,18 @@ export default function Dashboard() {
                 </div>
               );
             })()}
+            {completedCourses.length > 0 && (
+              <button
+                onClick={() => setShowCompletedCourses(!showCompletedCourses)}
+                style={{ marginTop: '10px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', fontWeight: 600, color: MUTED, display: 'flex', alignItems: 'center', gap: '4px', padding: 0 }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>{showCompletedCourses ? 'expand_less' : 'expand_more'}</span>
+                {showCompletedCourses ? 'Hide' : 'Show'} {completedCourses.length} completed course{completedCourses.length !== 1 ? 's' : ''}
+              </button>
+            )}
           </section>
-        )}
+          );
+        })()}
 
         {/* ── STUDIO ACCESS PASSES ── */}
         {dashboardData?.studioAccessPasses?.total > 0 && (

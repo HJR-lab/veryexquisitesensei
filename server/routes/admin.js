@@ -4225,8 +4225,11 @@ function formatTimeSlot(startTime, endTime) {
 
 // 1. List upcoming courses with email send status
 app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
-  const today = new Date().toISOString().split('T')[0];
-  const in14Days = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  // Use Singapore timezone (UTC+8) for date calculations
+  const now = new Date();
+  const sgtNow = new Date(now.getTime() + (8 * 60 + now.getTimezoneOffset()) * 60000);
+  const today = sgtNow.toISOString().split('T')[0];
+  const in14Days = new Date(sgtNow.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   // Get class instances within the next 14 days
   const { data: classes, error: classError } = await supabaseDb.supabase
@@ -4268,8 +4271,21 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
 
     const firstClassDate = allCourseClasses?.[0]?.class_date;
 
+    // Also check enrollment course_start_date as a more reliable indicator
+    // (class instances may have been deleted for past weeks)
+    const { data: earliestEnrollment } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('course_start_date')
+      .like('course_identifier', `${courseId}%`)
+      .not('course_start_date', 'is', null)
+      .order('course_start_date', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    const enrollmentStartDate = earliestEnrollment?.course_start_date;
+
     // Skip courses that have already started (first class is before today)
-    if (firstClassDate && firstClassDate < today) {
+    if ((firstClassDate && firstClassDate < today) || (enrollmentStartDate && enrollmentStartDate < today)) {
       continue;
     }
 

@@ -283,6 +283,110 @@ async function checkCourseEmailReminders() {
 }
 
 /**
+ * Check for WT courses starting in 3 days that haven't met the threshold,
+ * and send students an unconfirmed/postponement email.
+ */
+async function checkUnconfirmedCourses() {
+  try {
+    const { sendAndLogEmail } = require('./emailService');
+    const { generateCourseUnconfirmedEmail } = require('../email-templates/course-unconfirmed');
+
+    const threeDaysFromNow = new Date();
+    threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3);
+    const targetDate = threeDaysFromNow.toISOString().split('T')[0];
+
+    // Find WT enrollments with course_start_date = 3 days from now
+    // that haven't met threshold (no bookings_created_at means no classes created as active)
+    const { data: enrollments } = await supabase
+      .from('course_enrollments')
+      .select('*, customers!inner(email, first_name, last_name)')
+      .eq('course_start_date', targetDate)
+      .in('status', ['active', 'pending', 'upcoming'])
+      .not('course_type', 'ilike', '%handbuilding%');
+
+    if (!enrollments || enrollments.length === 0) return;
+
+    // Group by cohort (course_type + schedule_pattern + class_time + start_date)
+    const cohortMap = {};
+    for (const enrollment of enrollments) {
+      const key = `${enrollment.course_type}_${enrollment.schedule_pattern}_${enrollment.class_time}_${enrollment.course_start_date}`;
+      if (!cohortMap[key]) {
+        cohortMap[key] = {
+          courseType: enrollment.course_type,
+          schedulePattern: enrollment.schedule_pattern,
+          classTime: enrollment.class_time,
+          startDate: enrollment.course_start_date,
+          enrollments: [],
+        };
+      }
+      cohortMap[key].enrollments.push(enrollment);
+    }
+
+    for (const [key, cohort] of Object.entries(cohortMap)) {
+      const studentCount = cohort.enrollments.length;
+
+      // Skip if threshold is already met
+      if (studentCount >= MINIMUM_STUDENTS_THRESHOLD) continue;
+
+      // Check if we already sent an unconfirmed email for this cohort + date
+      const cohortId = `${cohort.courseType}_${cohort.schedulePattern}_${cohort.startDate}`;
+      const { data: alreadySent } = await supabase
+        .from('sent_emails')
+        .select('id')
+        .eq('email_type', 'course_unconfirmed')
+        .eq('course_identifier', cohortId)
+        .limit(1)
+        .maybeSingle();
+
+      if (alreadySent) continue;
+
+      // Get student emails
+      const studentEmails = cohort.enrollments
+        .map(e => e.customers?.email)
+        .filter(Boolean);
+
+      if (studentEmails.length === 0) continue;
+
+      // Format day of week and time for the email
+      const dayOfWeek = (cohort.schedulePattern || '').charAt(0).toUpperCase() +
+        (cohort.schedulePattern || '').slice(1).toLowerCase();
+      const formattedStart = new Date(cohort.startDate + 'T00:00:00')
+        .toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+
+      const { subject, html } = generateCourseUnconfirmedEmail({
+        courseType: cohort.courseType || 'Wheelthrowing',
+        dayOfWeek,
+        startDate: formattedStart,
+        timeSlot: cohort.classTime || '',
+      });
+
+      await sendAndLogEmail({
+        emailType: 'course_unconfirmed',
+        courseIdentifier: cohortId,
+        subject,
+        html,
+        recipientEmails: studentEmails,
+        sentBy: 'system',
+      });
+
+      console.log(`[Auto-Processor] Sent unconfirmed course email to ${studentEmails.length} students for ${cohortId}`);
+
+      // Also notify admin
+      const { sendEmail } = require('./emailService');
+      await sendEmail({
+        to: 'info@ves.sg',
+        subject: `VES Admin: Course unconfirmed — ${cohortId} (${studentCount} students)`,
+        html: `<p>The following course starts in 3 days but only has ${studentCount} student(s) (minimum ${MINIMUM_STUDENTS_THRESHOLD} required):</p>
+          <p><strong>${cohort.courseType}</strong> — ${dayOfWeek}s, ${formattedStart} (${cohort.classTime})</p>
+          <p>An unconfirmed/postponement email has been sent to the enrolled students.</p>`,
+      });
+    }
+  } catch (error) {
+    console.error('[Auto-Processor] Unconfirmed course check failed:', error);
+  }
+}
+
+/**
  * Schedule automatic processing (call this on server startup)
  */
 function startAutomaticProcessing() {
@@ -305,6 +409,7 @@ function startAutomaticProcessing() {
       processReadyCohorts().catch(console.error);
       autoMarkPastBookingsAsAttended().catch(console.error);
       checkCourseEmailReminders().catch(console.error);
+      checkUnconfirmedCourses().catch(console.error);
     }
   };
 
@@ -318,5 +423,6 @@ module.exports = {
   processReadyCohorts,
   autoMarkPastBookingsAsAttended,
   checkCourseEmailReminders,
+  checkUnconfirmedCourses,
   startAutomaticProcessing
 };

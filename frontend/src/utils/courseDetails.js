@@ -202,9 +202,9 @@ export const STUDIO_POLICIES = {
   itemsRequired: {
     title: 'Required Items',
     items: [
-      'Pottery Tool Set — required; bring your own or purchase from VES ($18).',
-      'Apron — required; not provided by the studio. VES branded aprons available ($45).',
-      'Tote Bag — recommended for transporting finished work. VES totes available ($12).',
+      'Pottery Tool Set — required; bring your own or purchase from Ves ($18).',
+      'Apron — required; not provided by the studio. Ves branded aprons available ($45).',
+      'Tote Bag — recommended for transporting finished work. Ves totes available ($12).',
       'Advanced Trimming Tool — optional add-on for intermediate students ($12).',
     ],
   },
@@ -257,7 +257,7 @@ export const STUDIO_POLICIES = {
   general: {
     title: 'General Policy',
     items: [
-      'VES Pottery Studio reserves the right to refuse service, blacklist, or ban any individual who fails to comply with studio rules, or who engages in illegal, disruptive, or inappropriate conduct on the premises.',
+      'Ves Pottery Studio reserves the right to refuse service, blacklist, or ban any individual who fails to comply with studio rules, or who engages in illegal, disruptive, or inappropriate conduct on the premises.',
     ],
   },
 };

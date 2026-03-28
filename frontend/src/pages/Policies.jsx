@@ -22,27 +22,18 @@ export default function Policies() {
       }}>
         <img
           src="https://ves.sg/cdn/shop/files/logo_04a04687-57f4-4141-b0bc-ec30b527fd73.png?v=1686045719&width=600"
-          alt="VES Pottery Studio"
-          style={{ height: 30, marginBottom: 14 }}
+          alt="Ves Pottery Studio"
+          style={{ height: 30, marginBottom: 14, display: 'block', margin: '0 auto 14px' }}
         />
         <h1 style={{
           fontSize: 18,
           fontWeight: 700,
           letterSpacing: '0.02em',
           color: INK,
-          margin: '0 0 4px',
-        }}>
-          Studio Policies
-        </h1>
-        <p style={{
-          fontSize: 11,
-          color: MUTED,
-          letterSpacing: '0.06em',
-          textTransform: 'uppercase',
           margin: 0,
         }}>
-          VES Pottery Studio &middot; 75 Jalan Kelabu Asap, Singapore 278268
-        </p>
+          Rules and Regulations
+        </h1>
       </header>
 
       <main style={{ maxWidth: 560, margin: '0 auto', padding: '28px 16px 72px' }}>
@@ -79,7 +70,7 @@ export default function Policies() {
               Please Read Before Enrolling
             </div>
             <div style={{ fontSize: 13, color: INK, lineHeight: 1.6 }}>
-              By enrolling in any VES course, you acknowledge and agree to the following studio policies. Please review this document in full before your first session.
+              By enrolling in any Ves course, you acknowledge and agree to the following studio policies. Please review this document in full before your first session.
             </div>
           </div>
         </div>
@@ -240,7 +231,7 @@ export default function Policies() {
             <a href="https://www.facebook.com/ves.studio.sg/" style={{ color: TC, textDecoration: 'none' }} target="_blank" rel="noopener noreferrer">Facebook</a>
           </p>
           <p style={{ margin: '12px 0 0', fontSize: 11, color: '#BBBBBB' }}>
-            &copy; {new Date().getFullYear()} VES Pottery Studio. All rights reserved.
+            &copy; {new Date().getFullYear()} Ves Pottery Studio. All rights reserved.
           </p>
         </div>
       </main>

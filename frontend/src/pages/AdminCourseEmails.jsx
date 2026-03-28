@@ -21,7 +21,13 @@ export default function AdminCourseEmails() {
   const fetchCourses = async () => {
     try {
       const { data } = await api.get('/admin/course-emails');
-      setCourses(data.courses || []);
+      // Frontend safety filter: exclude courses that have already started
+      const today = new Date().toISOString().split('T')[0];
+      const filtered = (data.courses || []).filter(c => {
+        if (c.firstClassDate && c.firstClassDate <= today) return false;
+        return true;
+      });
+      setCourses(filtered);
     } catch (err) {
       console.error('Failed to fetch courses:', err);
     } finally {
@@ -37,6 +43,8 @@ export default function AdminCourseEmails() {
       setDraft(data);
     } catch (err) {
       console.error('Failed to load draft:', err);
+      alert('Failed to load draft: ' + (err.response?.data?.error || err.message));
+      setSelectedCourse(null);
     } finally {
       setDraftLoading(false);
     }

@@ -4328,6 +4328,7 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
       numberOfWeeks: sampleEnrollment?.number_of_weeks || sortedDates.length,
       startDate: fmtDate(sortedDates[0]),
       endDate: fmtDate(sortedDates[sortedDates.length - 1]),
+      firstClassDate: firstClassDate || enrollmentStartDate || sortedDates[0],
       timeSlot: formatTimeSlot(course.startTime, course.endTime),
       studentCount: studentCount || 0,
       emailSentAt: sentEmail?.sent_at || null,

@@ -21,10 +21,24 @@ export default function AdminCourseEmails() {
   const fetchCourses = async () => {
     try {
       const { data } = await api.get('/admin/course-emails');
-      // Frontend safety filter: exclude courses that have already started
-      const today = new Date().toISOString().split('T')[0];
+      // Frontend filter: exclude courses that have already started
+      // Parse course identifier (e.g. WT2802AM_DL6 = DDMM is positions 2-5 = Feb 28)
+      const now = new Date();
+      const sgtNow = new Date(now.getTime() + (8 * 60 + now.getTimezoneOffset()) * 60000);
+      const todayStr = sgtNow.toISOString().split('T')[0];
+      const currentYear = sgtNow.getFullYear();
+
       const filtered = (data.courses || []).filter(c => {
-        if (c.firstClassDate && c.firstClassDate <= today) return false;
+        // Use firstClassDate from backend if available
+        if (c.firstClassDate && c.firstClassDate <= todayStr) return false;
+        // Fallback: parse DDMM from course identifier (e.g. WT2802AM → day=28, month=02)
+        const id = c.courseIdentifier || '';
+        const match = id.match(/^(?:WT|HB)(\d{2})(\d{2})/);
+        if (match) {
+          const day = match[1], month = match[2];
+          const courseStart = `${currentYear}-${month}-${day}`;
+          if (courseStart <= todayStr) return false;
+        }
         return true;
       });
       setCourses(filtered);

@@ -194,7 +194,7 @@ export default function StudentRescheduleModal({
                         <div style={{ padding: '10px 16px', backgroundColor: TC_LIGHT, borderTop: `1px solid ${TC}` }}>
                           {!selectedBookingForMakeup.isPlaceholder && (
                             <div style={{ fontSize: '11px', color: TC_DARK, lineHeight: 1.5, marginBottom: '8px' }}>
-                              <strong>Please note:</strong> Missed rescheduled classes incur a <strong>$20 no-show fee</strong>. Rescheduling must be done at least 24 hours before class.
+                              <strong>Please note:</strong> You must reschedule more than 24 hours before class. Missed makeup classes incur a <strong>$20 no-show fee</strong>. Makeup classes outside your cohort schedule incur a <strong>$40 fee</strong> (glazing classes excluded).
                             </div>
                           )}
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

@@ -9,7 +9,7 @@ const RULE = 'rgba(40,40,40,0.09)';
 const NAV_LINKS = [
   { id: 'classes',     label: 'Classes',   href: '/admin/classes' },
   { id: 'students',    label: 'Users',     href: '/admin/students' },
-  { id: 'emails',      label: 'Emails',    href: '/admin/emails' },
+
   { id: 'studio-access', label: 'Studio',  href: '/admin/studio-access' },
 ];
 

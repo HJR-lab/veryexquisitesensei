@@ -40,7 +40,7 @@ const InstructorPortfolio = lazy(() => import('./pages/InstructorPortfolio'));
 const Contact = lazy(() => import('./pages/Contact'));
 const StudioAccess = lazy(() => import('./pages/StudioAccess'));
 const AdminStudioAccess = lazy(() => import('./pages/AdminStudioAccess'));
-const AdminCourseEmails = lazy(() => import('./pages/AdminCourseEmails'));
+
 const Policies = lazy(() => import('./pages/Policies'));
 
 // Test pages — lazy loaded
@@ -205,7 +205,7 @@ function App() {
             <Route path="events" element={<AdminEvents />} />
             <Route path="instructors" element={<AdminInstructors />} />
             <Route path="studio-access" element={<AdminStudioAccess />} />
-            <Route path="emails" element={<AdminCourseEmails />} />
+
           </Route>
 
           {/* Test routes */}

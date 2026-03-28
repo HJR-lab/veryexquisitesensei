@@ -190,6 +190,16 @@ export const STUDIO_POLICIES = {
     title: 'Items Required',
     items: COMMON_ITEMS,
   },
+  rescheduling: {
+    title: 'Rescheduling & Attendance',
+    items: [
+      'You are allowed to reschedule up to 3 makeup classes subject to cohort schedule and availability.',
+      'You must reschedule a makeup class more than 24 hours before it starts.',
+      'Missed course classes are forfeited — no credit will be given for unattended course classes.',
+      'A $20 no-show fee applies if you miss a rescheduled makeup class, as your makeup spot could have gone to another student.',
+      'A $40 fee applies per makeup class outside of your cohort schedule. There is no fee requirement to reschedule final glazing classes.',
+    ],
+  },
   studioRules: {
     title: 'Studio Rules',
     items: COMMON_RULES,

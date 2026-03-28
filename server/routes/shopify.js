@@ -822,6 +822,42 @@ app.post('/api/admin/sync-shopify-orders', authenticateToken, requireAdmin, asyn
                 skippedCount++;
               } else {
                 enrollmentsCreated++;
+
+                // Auto-send course details email for new HB enrollments
+                if (result.isHandbuilding && result.enrollment) {
+                  try {
+                    const enrollment = result.enrollment;
+                    const courseIdForEmail = enrollment.course_identifier || `HB_${enrollment.id}`;
+                    // Check if email was already sent (avoid duplicates during re-sync)
+                    const { data: alreadySent } = await supabase
+                      .from('sent_emails')
+                      .select('id')
+                      .eq('email_type', 'course_details')
+                      .eq('course_identifier', courseIdForEmail)
+                      .limit(1)
+                      .maybeSingle();
+
+                    if (!alreadySent && paxEmail) {
+                      const credits = enrollment.number_of_weeks || enrollment.class_credits_allocated || 4;
+                      const templateType = credits <= 4 ? 'hb-4credit' : 'hb-8credit';
+                      const template = require(`../email-templates/courses/${templateType}`);
+                      const { subject: emailSubject, html: emailHtml } = template.generate({ specialNotes: '' });
+
+                      await sendAndLogEmail({
+                        emailType: 'course_details',
+                        courseIdentifier: courseIdForEmail,
+                        subject: emailSubject,
+                        html: emailHtml,
+                        recipientEmails: [paxEmail],
+                        sentBy: 'system',
+                      });
+                      console.log(`📧 HB course details email auto-sent to ${paxEmail}`);
+                    }
+                  } catch (emailErr) {
+                    console.error('[Email] Failed to auto-send HB course details email:', emailErr);
+                  }
+                }
+
                 if (result.thresholdMet) {
                   console.log(`✅ Created classes and bookings for ${paxEmail}`);
                 } else if (result.requiresThreshold) {
@@ -1118,6 +1154,33 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
 
           if (result.success) {
             console.log(`✅ Course enrollment processed successfully`);
+
+            // Auto-send course details email for HB enrollments immediately
+            if (result.isHandbuilding && result.enrollment) {
+              try {
+                const enrollment = result.enrollment;
+                const studentEmail = customer.email;
+                if (studentEmail) {
+                  const credits = enrollment.number_of_weeks || enrollment.class_credits_allocated || 4;
+                  const templateType = credits <= 4 ? 'hb-4credit' : 'hb-8credit';
+                  const template = require(`../email-templates/courses/${templateType}`);
+                  const { subject: emailSubject, html: emailHtml } = template.generate({ specialNotes: '' });
+
+                  await sendAndLogEmail({
+                    emailType: 'course_details',
+                    courseIdentifier: enrollment.course_identifier || `HB_${enrollment.id}`,
+                    subject: emailSubject,
+                    html: emailHtml,
+                    recipientEmails: [studentEmail],
+                    sentBy: 'system',
+                  });
+                  console.log(`📧 HB course details email auto-sent to ${studentEmail}`);
+                }
+              } catch (emailErr) {
+                console.error('[Email] Failed to auto-send HB course details email:', emailErr);
+              }
+            }
+
             if (result.thresholdMet) {
               console.log(`🎉 Threshold met! Created ${result.classInstancesCreated} class instances and ${result.bookingsCreated} bookings`);
 

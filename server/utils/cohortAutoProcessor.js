@@ -222,8 +222,9 @@ async function checkCourseEmailReminders() {
 
     if (!classes || classes.length === 0) return;
 
-    // Get unique base course IDs
-    const candidateCourseIds = [...new Set(classes.map(c => c.class_type.split('.')[0]))];
+    // Get unique base course IDs (exclude HB — their emails are sent automatically on enrollment)
+    const candidateCourseIds = [...new Set(classes.map(c => c.class_type.split('.')[0]))]
+      .filter(id => !id.startsWith('HB'));
 
     // Only keep courses whose actual START date (first class) is on the target date
     const courseIds = [];

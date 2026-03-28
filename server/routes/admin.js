@@ -4239,10 +4239,12 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
   const courseMap = {};
   for (const cls of (classes || [])) {
     const baseId = cls.class_type.split('.')[0];
+    // Skip HB courses — their emails are sent automatically on enrollment
+    if (baseId.startsWith('HB')) continue;
     if (!courseMap[baseId]) {
       courseMap[baseId] = {
         courseIdentifier: baseId,
-        courseType: baseId.startsWith('HB') ? 'Handbuilding' : 'Wheelthrowing',
+        courseType: 'Wheelthrowing',
         classDates: [],
         startTime: cls.start_time,
         endTime: cls.end_time,

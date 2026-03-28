@@ -115,18 +115,20 @@ const COURSE_DETAILS = {
     description: [
       { heading: 'Pre-requisite', text: 'Completion of the 6-Week Beginner/Extension Course with the ability to throw 700g S-forms comfortably.' },
       'A seven-week course (2.5 hours per class per week) for students who have completed at least three beginner/extension courses. Students work with heavier clay weights to throw larger cylinders, bowls, bottle forms, vases, and sets, with a focus on precision, control, and consistency.',
-      { heading: 'Weeks 1–5 — Advanced Throwing & Trimming', items: [
-        'Master 800g clay to create larger and more refined forms — wide bowls, narrow-neck vessels, and plates.',
-        'Craft cohesive sets (e.g. sake sets), honing precision and consistency across pieces.',
-        'Learn to trim narrow-neck bottles and refine finishing techniques.',
+      { heading: 'Weeks 1–2 — Intro to Ramen Bowls', items: [
+        'Craft ramen bowls on the wheel by throwing.',
+        'In the second week, perfect your bowls by turning the feet.',
       ]},
-      { heading: 'Week 6 — Refinement & Decoration', items: [
-        'Focus on surface decoration and detailing techniques.',
-        'Prepare pieces for the final glazing session.',
+      { heading: 'Weeks 3–4 — Intro to Narrow Neck Forms', items: [
+        'Learn the techniques for creating narrow neck forms.',
+        'Master the art of trimming these pieces.',
+      ]},
+      { heading: 'Weeks 5–6 — Craft a Set', items: [
+        'Take on the challenge to craft identical pieces for a coordinated set.',
+        'Practise the intricacies of trimming.',
       ]},
       { heading: 'Week 7 — Glazing', items: [
-        'Learn to prepare, wax, and apply in-studio Ves glazes through dipping and pouring.',
-        'Each student glazes their own bisque-fired pieces for the final kiln firing.',
+        'Glaze your wares with Ves\'s in-house glazes.',
       ]},
     ],
     fees: 'Unlimited usage of clay, up to 8 finished pieces, use of wheel and equipment, materials for decorating and glazing, and firing. Additional tools and pieces made are subject to additional costs.',

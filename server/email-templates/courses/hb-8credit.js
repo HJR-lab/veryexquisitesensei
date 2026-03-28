@@ -82,6 +82,14 @@ function generate({ specialNotes }) {
       </tr>
     </table>
 
+    <!-- Rescheduling & Attendance -->
+    <p style="margin: 0 0 6px; font-size: 16px; font-weight: 600; color: #282828;">Rescheduling &amp; Attendance</p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 20px;">
+      <tr><td style="padding: 3px 0; font-size: 14px; line-height: 1.6; color: #282828;">• Rescheduling must be done at least <strong>24 hours</strong> before class starts.</td></tr>
+      <tr><td style="padding: 3px 0; font-size: 14px; line-height: 1.6; color: #282828;">• Missed classes are <strong>forfeited</strong> — no credit will be given for classes not attended.</td></tr>
+      <tr><td style="padding: 3px 0; font-size: 14px; line-height: 1.6; color: #282828;">• A <strong>$20 no-show fee</strong> applies if you miss a rescheduled class, as that spot could have gone to another student.</td></tr>
+    </table>
+
     <!-- Policies link -->
     <p style="margin: 0 0 24px; font-size: 14px; line-height: 1.7; color: #282828;">
       For studio rules and other information, visit <a href="https://club.ves.sg/policies" style="color: #C4622D;">club.ves.sg/policies</a>

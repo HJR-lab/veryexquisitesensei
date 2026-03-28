@@ -178,36 +178,41 @@ export const STUDIO_POLICIES = {
     title: 'Course Policy',
     items: [
       'All course fees are strictly non-refundable.',
-      'If you are unable to attend the entire course, you may transfer your enrolment before course commencement. Partial transfers are not permitted.',
+      'If you are unable to attend the entire course, you may transfer your enrolment to another individual before course commencement. Partial transfers are not permitted.',
     ],
   },
   rescheduling: {
     title: 'Rescheduling & Attendance',
     description: 'While we cannot guarantee make-up classes, each student may arrange make-up sessions subject to the following conditions.',
     items: [
-      'You are allowed to reschedule up to 3 makeup classes, subject to cohort schedule and availability.',
-      'You must reschedule a makeup class more than 24 hours before it starts.',
+      'Each student may reschedule up to three (3) make-up classes, subject to cohort schedule and availability.',
+      'Make-up classes must be rescheduled more than twenty-four (24) hours before the scheduled start time.',
       'Missed course classes are forfeited — no credit will be given for unattended course classes.',
-      'A $20 no-show fee applies if you miss a rescheduled makeup class, as your makeup spot could have gone to another student.',
-      'A $40 fee applies per makeup class outside of your cohort schedule. There is no fee requirement to reschedule final glazing classes.',
+      'A $20 no-show fee applies if you miss a rescheduled make-up class, as your spot could have gone to another student.',
+      'A $40 fee applies per make-up class outside of your cohort schedule. There is no fee to reschedule final glazing classes.',
     ],
   },
   punctuality: {
     title: 'Punctuality',
     items: [
       'As this is a structured course, punctuality is expected of all students.',
-      'The studio opens for entry 10 minutes before class begins. Classes will begin and end on time.',
+      'The studio opens for entry ten (10) minutes before class begins. Classes will begin and end on time.',
     ],
   },
   itemsRequired: {
     title: 'Required Items',
-    items: COMMON_ITEMS,
+    items: [
+      'Pottery Tool Set — required; bring your own or purchase from VES ($18).',
+      'Apron — required; not provided by the studio. VES branded aprons available ($45).',
+      'Tote Bag — recommended for transporting finished work. VES totes available ($12).',
+      'Advanced Trimming Tool — optional add-on for intermediate students ($12).',
+    ],
   },
   studioRules: {
     title: 'Studio Etiquette',
     items: [
       'Upon arrival, press the doorbell. A staff member will attend to you.',
-      'All work must be clearly initialled using 3 characters (letters or numbers) to prevent mix-ups.',
+      'All work must be clearly initialled using three (3) characters (letters or numbers) to prevent mix-ups.',
       'Please clean your workspace after each session, including wiping down your seat and wheel.',
       'Students who are unwell are asked to wear a mask while in the studio.',
       'Comfortable clothing and closed-toe shoes are required.',
@@ -220,7 +225,7 @@ export const STUDIO_POLICIES = {
     title: 'Additional Pieces & Studio Access',
     items: [
       'Students wishing to produce more than the included number of pieces may do so at $20 per additional piece.',
-      'Unguided studio access is available to current students at $20 per hour, with a minimum booking of 2 hours (full-hour increments only).',
+      'Unguided studio access is available to current students at $20 per hour, with a minimum booking of two (2) hours (full-hour increments only).',
     ],
   },
   returningCredits: {
@@ -234,8 +239,8 @@ export const STUDIO_POLICIES = {
   collectionAndDisposal: {
     title: 'Collection & Disposal',
     items: [
-      'Collection of finished pieces is by appointment only, within 1 month after your final class.',
-      'The studio reserves the right to dispose of uncollected pieces after 3 months.',
+      'Collection of finished pieces is by appointment only, within one (1) month after your final class.',
+      'The studio reserves the right to dispose of uncollected pieces after three (3) months.',
       'It is the student\'s responsibility to arrange timely collection. Please contact us to schedule.',
     ],
   },

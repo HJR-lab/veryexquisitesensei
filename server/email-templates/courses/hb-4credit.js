@@ -72,58 +72,52 @@ function generate({ specialNotes }) {
       The studio opens for entry <strong>10 minutes before class begins</strong>. Please arrive on time as latecomers may miss important instructions.
     </p>
 
-    <!-- What to Bring / Purchase -->
+    <!-- Items Required -->
     <p style="margin: 0 0 6px; font-size: 16px; font-weight: 600; color: #282828;">Items Required</p>
-    <p style="margin: 0 0 4px; font-size: 14px; line-height: 1.7; color: #282828;">The following items are available for purchase at the studio:</p>
+    <p style="margin: 0 0 4px; font-size: 14px; line-height: 1.7; color: #282828;">The following items are required and available for purchase at the studio:</p>
     <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 20px;">
       <tr>
-        <td style="padding: 4px 0; font-size: 14px; color: #282828;">Apron (required, not provided)</td>
-        <td style="padding: 4px 0; font-size: 14px; color: #282828; text-align: right;">$18</td>
-      </tr>
-      <tr>
-        <td style="padding: 4px 0; font-size: 14px; color: #282828;">Tote bag</td>
-        <td style="padding: 4px 0; font-size: 14px; color: #282828; text-align: right;">$12</td>
+        <td style="padding: 4px 0; font-size: 14px; color: #282828;">Apron</td>
+        <td style="padding: 4px 0; font-size: 14px; color: #282828; text-align: right;">$45</td>
       </tr>
     </table>
 
-    <!-- Additional Information -->
-    <p style="margin: 0 0 6px; font-size: 16px; font-weight: 600; color: #282828;">Additional Information</p>
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 20px;">
-      <tr><td style="padding: 3px 0; font-size: 14px; line-height: 1.6; color: #282828;">• Ring the doorbell upon arrival if the door is not open.</td></tr>
-      <tr><td style="padding: 3px 0; font-size: 14px; line-height: 1.6; color: #282828;">• Please initial your work using 3 characters (e.g. your initials) for identification.</td></tr>
-      <tr><td style="padding: 3px 0; font-size: 14px; line-height: 1.6; color: #282828;">• All students are responsible for cleaning up their workspace after each session.</td></tr>
-      <tr><td style="padding: 3px 0; font-size: 14px; line-height: 1.6; color: #282828;">• Please wear a mask if you are feeling unwell.</td></tr>
-      <tr><td style="padding: 3px 0; font-size: 14px; line-height: 1.6; color: #282828;">• Wear comfortable clothes and closed-toe shoes. Clay stains — please dress accordingly.</td></tr>
-      <tr><td style="padding: 3px 0; font-size: 14px; line-height: 1.6; color: #282828;">• No eating or drinking (other than water) in the studio.</td></tr>
-      <tr><td style="padding: 3px 0; font-size: 14px; line-height: 1.6; color: #282828;">• Students under 16 must notify us in advance.</td></tr>
-    </table>
-
-    <!-- Studio Policy -->
-    <p style="margin: 0 0 6px; font-size: 16px; font-weight: 600; color: #282828;">Studio Policy</p>
+    <!-- Policies link -->
     <p style="margin: 0 0 24px; font-size: 14px; line-height: 1.7; color: #282828;">
-      VES reserves the right to refuse entry to students who do not adhere to studio rules.
-      Full studio policies: <a href="https://club.ves.sg/policies" style="color: #C4622D;">club.ves.sg/policies</a>
+      For studio rules and other information, visit <a href="https://club.ves.sg/policies" style="color: #C4622D;">club.ves.sg/policies</a>
     </p>
 
     <!-- Address -->
-    <p style="margin: 0 0 8px; font-size: 14px; line-height: 1.5; color: #282828;">
-      <strong>Studio Address:</strong> 75 Jalan Kelabu Asap, Chip Bee Gardens, Singapore 278268
-      (<a href="https://maps.app.goo.gl/g84xejcaZbAsD2ze7" style="color: #C4622D;">Google Maps</a>)
+    <p style="margin: 0 0 4px; font-size: 14px; line-height: 1.5; color: #282828;">
+      <strong>Address:</strong> 75 Jalan Kelabu Asap, Chip Bee Gardens 278268
+      (<a href="https://maps.app.goo.gl/g84xejcaZbAsD2ze7" style="color: #C4622D;">Map</a>)
+    </p>
+    <p style="margin: 0 0 16px; font-size: 13px; line-height: 1.5; color: #888888;">
+      Nearest MRT: Holland Village &middot; No on-site parking
     </p>
 
+    <!-- Clay Club -->
+    <p style="margin: 0 0 8px; font-size: 14px; line-height: 1.6; color: #282828;">
+      As a Ves &middot; Clay Club Member, you can:
+    </p>
+    <ul style="margin: 0 0 20px; padding-left: 20px; font-size: 14px; line-height: 1.8; color: #282828;">
+      <li>Manage all course bookings</li>
+      <li>Book additional unguided studio sessions</li>
+      <li>Keep a gallery of your completed works</li>
+      <li>Read our studio policies and much more!</li>
+    </ul>
+
     <!-- Sign-off -->
-    <p style="margin: 0 0 24px; font-size: 14px; line-height: 1.7; color: #282828;">
-      Looking forward to seeing you in class!<br />
-      <strong>Eve</strong><br />
-      Ves Studio
+    <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #282828;">
+      We look forward to seeing you at the studio!
     </p>
 
     <!-- CTA -->
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr>
         <td align="center">
-          <a href="https://club.ves.sg/classes" style="display: inline-block; padding: 14px 32px; background-color: #C4622D; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">
-            Book Your Classes
+          <a href="https://club.ves.sg/dashboard" style="display: inline-block; padding: 14px 32px; background-color: #C4622D; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">
+            Sign in
           </a>
         </td>
       </tr>

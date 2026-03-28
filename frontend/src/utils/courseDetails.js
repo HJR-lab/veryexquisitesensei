@@ -30,9 +30,20 @@ const COURSE_DETAILS = {
   'wt-6week': {
     title: '6-Week Beginner/Extension Wheelthrowing',
     description: [
-      'The foundation of pottery wheelthrowing will be taught during this 6 week ceramics course (2.5hr/class/week). Students will be taught how to throw a cylinder form, after which they will work on forms such as bowls and cups, then trimming and glazing using in-studio Ves glazes. After 6 weeks, students will have their own glazed vessels fired. This course is ideal for beginners with little or no experience at all or for the skilled seeking to challenge themselves.',
-      { heading: 'Weeks 1–5', text: 'We begin with cylinder forms—the core fundamental before any other forms in wheelthrowing. Afterwhich, students progress to U-form and V-form bowls, S-form-pitchers, then joining handles. Instructors will guide students according to their different abilities and speed of progression from beginners to intermediate.' },
-      { heading: 'Week 6', text: 'Explore the fundamentals of glazing, learning how to prepare and apply made-in-studio glazes through dipping and pouring. Each student will get to glaze their own bisque-fired pieces for the final kiln firing.' },
+      'A structured six-week ceramics course (2.5 hours per class per week) covering the fundamentals of wheelthrowing. Students progress from centering and pulling clay into cylinder forms through to bowls, cups, trimming, and glazing using in-studio Ves glazes. By the end of the course, each student will have their own set of glazed vessels fired and ready for collection. Suitable for complete beginners and returning students looking to refine their skills.',
+      { heading: 'Weeks 1–4 — Centering & Pulling', items: [
+        'Beginners learn to centre clay and pull cylinder forms — the core foundation of all wheelthrowing.',
+        'Returning students refine their technique, progressing to larger bowls, pitchers, and vases.',
+        'Instructors guide each student according to their ability and pace.',
+      ]},
+      { heading: 'Week 5 — Trimming & Finishing', items: [
+        'Students learn to turn and trim the bases of their pieces for a clean, professional finish.',
+        'Techniques for foot rings, surface refinement, and preparing work for bisque firing.',
+      ]},
+      { heading: 'Week 6 — Glazing', items: [
+        'Introduction to the fundamentals of glazing — preparing, dipping, and pouring in-studio Ves glazes.',
+        'Each student glazes their own bisque-fired pieces for the final kiln firing.',
+      ]},
     ],
     fees: 'Unlimited usage of clay, up to 7 finished pieces, use of wheel and equipment, materials for decorating and glazing, and firing. Additional tools and pieces made are subject to additional costs.',
     classSize: 'To ensure individualised attention, class size is limited to eight (8) students, with two (2) additional wheels reserved for make-up classes only. All course fees are strictly non-refundable. Students may transfer their entire course enrolment to another individual before course commencement. Partial transfers are not permitted.',
@@ -43,10 +54,25 @@ const COURSE_DETAILS = {
   'wt-10class': {
     title: '10-Class Wheelthrowing',
     description: [
-      'For students who want more time on the wheel or experience handbuilding with our instructors, this extended 10-class course builds on our standard 6-week programme, offering 4 additional instructor-led classes before final glazing.',
-      { heading: 'Classes 1–5', text: 'Students begin with cylinder forms—the fundamental foundation of wheelthrowing—before progressing to U-form and V-form bowls, S-form pitchers, and handle joining. Instructors will guide each student according to individual ability and pace, from beginner to intermediate levels.' },
-      { heading: 'Classes 6–9 (New)', text: 'For your 4 additional classes, choose from either wheelthrowing or handbuilding to further deepen your practice, focusing on refining form, control, and technique. Students will explore a range of handbuilding methods including pinching, coiling, and slab-making, while continuing to build their understanding of clay, with guidance tailored to individual progress and interests.' },
-      { heading: 'Class 10', text: 'Students will be introduced to the fundamentals of glazing, learning how to prepare and apply made-in-studio glazes through dipping and pouring. Each student will glaze their own bisque-fired pieces, which will then undergo final kiln firing.' },
+      'An extended ten-class course (2.5 hours per class) that builds on the standard six-week programme with four additional instructor-led classes. Students gain extra time on the wheel or explore handbuilding before final glazing.',
+      { heading: 'Classes 1–4 — Centering & Pulling', items: [
+        'Beginners learn to centre clay and pull cylinder forms — the core foundation of all wheelthrowing.',
+        'Returning students refine their technique, progressing to larger bowls, pitchers, and vases.',
+        'Instructors guide each student according to their ability and pace.',
+      ]},
+      { heading: 'Class 5 — Trimming & Finishing', items: [
+        'Students learn to turn and trim the bases of their pieces for a clean, professional finish.',
+        'Techniques for foot rings, surface refinement, and preparing work for bisque firing.',
+      ]},
+      { heading: 'Classes 6–9 — Extended Practice', items: [
+        'Four additional classes to deepen your practice in wheelthrowing or handbuilding.',
+        'Handbuilding options include pinching, coiling, and slab-making techniques.',
+        'Guidance tailored to individual progress and interests.',
+      ]},
+      { heading: 'Class 10 — Glazing', items: [
+        'Introduction to the fundamentals of glazing — preparing, dipping, and pouring in-studio Ves glazes.',
+        'Each student glazes their own bisque-fired pieces for the final kiln firing.',
+      ]},
     ],
     fees: 'Unlimited use of clay, up to 11 finished pieces, access to wheels, equipment, glazing, decorating materials and firing. Additional tools and pieces made are subject to additional costs.',
     classSize: 'To ensure individualised attention, class size is limited to eight (8) students, with two (2) additional wheels reserved for make-up classes only. All course fees are strictly non-refundable. Students may transfer their entire course enrolment to another individual before course commencement. Partial transfers are not permitted.',
@@ -63,10 +89,20 @@ const COURSE_DETAILS = {
         'Option to swop classes 1 for 1 (e.g., swopping a glazing class for a handbuilding or wheelthrowing class)',
         'Your preferred wheel RESERVED every class you attend',
       ]},
-      'All other details follow our Wheelthrowing Beginner/Ext 6 Weeks course:',
-      'The foundation of pottery wheelthrowing will be taught during this 6 week ceramics course (one 2.5 hour/class/week). Students will be taught how to throw a cylinder form, after which they will work on forms such as bowls and cups, trimming and glazing using in-studio Ves glazes. After 6 weeks, students will have their own glazed vessels fired and may be collected 1 month after. This course is ideal for beginners with little or no experience at all and for the skilled intermediate seeking to challenge themselves.',
-      { heading: 'Weeks 1–5', text: 'Cylinder forms—the core fundamental before any other forms in wheel-throwing. Afterwhich, students progress to U-form and V-form bowls, S-form-pitchers, then joining handles. Instructors will guide students according to their different abilities and speed of progression from beginners to intermediate.' },
-      { heading: 'Week 6', text: 'Explore the fundamentals of glazing, learning how to prepare and apply made-in-studio glazes through dipping and pouring. Each student will get to glaze their own bisque-fired pieces for the final kiln firing.' },
+      'Each six-week cycle follows the same course structure:',
+      { heading: 'Weeks 1–4 — Centering & Pulling', items: [
+        'Beginners learn to centre clay and pull cylinder forms — the core foundation of all wheelthrowing.',
+        'Returning students refine their technique, progressing to larger bowls, pitchers, and vases.',
+        'Instructors guide each student according to their ability and pace.',
+      ]},
+      { heading: 'Week 5 — Trimming & Finishing', items: [
+        'Students learn to turn and trim the bases of their pieces for a clean, professional finish.',
+        'Techniques for foot rings, surface refinement, and preparing work for bisque firing.',
+      ]},
+      { heading: 'Week 6 — Glazing', items: [
+        'Introduction to the fundamentals of glazing — preparing, dipping, and pouring in-studio Ves glazes.',
+        'Each student glazes their own bisque-fired pieces for the final kiln firing.',
+      ]},
     ],
     fees: 'Unlimited usage of clay, up to 7 finished pieces per course (21 total), use of wheel and equipment, materials for decorating and glazing, and firing. Additional tools and pieces made are subject to additional costs.',
     classSize: 'To ensure individualised attention, class size is limited to eight (8) students, with two (2) additional wheels reserved for make-up classes only. All course fees are strictly non-refundable. Students may transfer their entire course enrolment to another individual before course commencement. Partial transfers are not permitted.',
@@ -77,10 +113,21 @@ const COURSE_DETAILS = {
   'wt-7week-inter': {
     title: '7-Week Intermediate Wheelthrowing',
     description: [
-      { heading: 'Pre-requisite', text: 'Complete the 6-week Beginner/Extension Course with the ability to throw 700g S-forms comfortably.' },
-      'This course is for those who have done at least 3 Beginner/Extension classes. In this 7 week course, students will be introduced to heavier clay weights to improve on throwing bigger cylinders and bowls. In the subsequent weeks, they will also be introduced to making pieces in sets, bottle forms, vases and how to trim narrow-neck bottles. In the final week, students will learn how to glaze and decorate their pieces.',
-      { heading: 'Weeks 1–6', text: 'Focus on mastering 800g clay to create larger and more refined forms — wide bowls, narrow-neck vessels, and plates in three variations. Students will also craft a cohesive sake set, honing precision and consistency. Each project builds on control, proportion, and finishing techniques.' },
-      { heading: 'Week 7', text: 'Explore the fundamentals of glazing, learning how to prepare, wax, and apply made-in-studio glazes through dipping and pouring. Each student will get to glaze their own bisque-fired pieces for the final kiln firing.' },
+      { heading: 'Pre-requisite', text: 'Completion of the 6-Week Beginner/Extension Course with the ability to throw 700g S-forms comfortably.' },
+      'A seven-week course (2.5 hours per class per week) for students who have completed at least three beginner/extension courses. Students work with heavier clay weights to throw larger cylinders, bowls, bottle forms, vases, and sets, with a focus on precision, control, and consistency.',
+      { heading: 'Weeks 1–5 — Advanced Throwing & Trimming', items: [
+        'Master 800g clay to create larger and more refined forms — wide bowls, narrow-neck vessels, and plates.',
+        'Craft cohesive sets (e.g. sake sets), honing precision and consistency across pieces.',
+        'Learn to trim narrow-neck bottles and refine finishing techniques.',
+      ]},
+      { heading: 'Week 6 — Refinement & Decoration', items: [
+        'Focus on surface decoration and detailing techniques.',
+        'Prepare pieces for the final glazing session.',
+      ]},
+      { heading: 'Week 7 — Glazing', items: [
+        'Learn to prepare, wax, and apply in-studio Ves glazes through dipping and pouring.',
+        'Each student glazes their own bisque-fired pieces for the final kiln firing.',
+      ]},
     ],
     fees: 'Unlimited usage of clay, up to 8 finished pieces, use of wheel and equipment, materials for decorating and glazing, and firing. Additional tools and pieces made are subject to additional costs.',
     classSize: 'To ensure individualised attention, class size is limited to eight (8) students, with two (2) additional wheels reserved for make-up classes only. All course fees are strictly non-refundable. Students may transfer their entire course enrolment to another individual before course commencement. Partial transfers are not permitted.',

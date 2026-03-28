@@ -4211,13 +4211,16 @@ function getDayOfWeek(dateStr) {
 
 // Helper: format time slot from start_time/end_time
 function formatTimeSlot(startTime, endTime) {
+  if (!startTime || !endTime) return '';
   const fmt = (t) => {
-    const [h, m] = t.split(':').map(Number);
+    const parts = String(t).split(':').map(Number);
+    const h = parts[0], m = parts[1] || 0;
+    if (isNaN(h)) return '';
     const ampm = h >= 12 ? 'pm' : 'am';
     const hr = h % 12 || 12;
     return m === 0 ? `${hr}${ampm}` : `${hr}:${String(m).padStart(2,'0')}${ampm}`;
   };
-  return `${fmt(startTime)} - ${fmt(endTime)}`;
+  return `${fmt(startTime)} – ${fmt(endTime)}`;
 }
 
 // 1. List upcoming courses with email send status
@@ -4296,12 +4299,17 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
       .maybeSingle();
 
     const sortedDates = course.classDates.sort();
+    const fmtDate = (d) => {
+      if (!d) return '';
+      const dt = new Date(d + 'T12:00:00');
+      return dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    };
     courses.push({
       courseIdentifier: courseId,
       courseType: course.courseType,
       numberOfWeeks: sampleEnrollment?.number_of_weeks || sortedDates.length,
-      startDate: sortedDates[0],
-      endDate: sortedDates[sortedDates.length - 1],
+      startDate: fmtDate(sortedDates[0]),
+      endDate: fmtDate(sortedDates[sortedDates.length - 1]),
       timeSlot: formatTimeSlot(course.startTime, course.endTime),
       studentCount: studentCount || 0,
       emailSentAt: sentEmail?.sent_at || null,

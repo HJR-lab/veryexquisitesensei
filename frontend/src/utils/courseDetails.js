@@ -176,41 +176,74 @@ const COURSE_DETAILS = {
 export const STUDIO_POLICIES = {
   coursePolicy: {
     title: 'Course Policy',
-    content: 'Classes are non-refundable. If you are unable to attend the entire course, you may transfer your enrolment before course commencement.',
-  },
-  makeupClasses: {
-    title: 'Make-Up Classes',
-    content: 'While we cannot guarantee make-up classes, each student may arrange ONE make-up class within weeks 1–5, and ONE for the final week (glazing), subject to our schedule and availability. Please inform us in advance if you need to schedule a make-up class.',
-  },
-  punctuality: {
-    title: 'Punctuality',
-    content: 'As this is a structured course, please be punctual. The studio opens for entry 10 minutes before class begins. Class will begin and end on time.',
-  },
-  itemsRequired: {
-    title: 'Items Required',
-    items: COMMON_ITEMS,
+    items: [
+      'All course fees are strictly non-refundable.',
+      'If you are unable to attend the entire course, you may transfer your enrolment before course commencement. Partial transfers are not permitted.',
+    ],
   },
   rescheduling: {
     title: 'Rescheduling & Attendance',
+    description: 'While we cannot guarantee make-up classes, each student may arrange make-up sessions subject to the following conditions.',
     items: [
-      'You are allowed to reschedule up to 3 makeup classes subject to cohort schedule and availability.',
+      'You are allowed to reschedule up to 3 makeup classes, subject to cohort schedule and availability.',
       'You must reschedule a makeup class more than 24 hours before it starts.',
       'Missed course classes are forfeited — no credit will be given for unattended course classes.',
       'A $20 no-show fee applies if you miss a rescheduled makeup class, as your makeup spot could have gone to another student.',
       'A $40 fee applies per makeup class outside of your cohort schedule. There is no fee requirement to reschedule final glazing classes.',
     ],
   },
+  punctuality: {
+    title: 'Punctuality',
+    items: [
+      'As this is a structured course, punctuality is expected of all students.',
+      'The studio opens for entry 10 minutes before class begins. Classes will begin and end on time.',
+    ],
+  },
+  itemsRequired: {
+    title: 'Required Items',
+    items: COMMON_ITEMS,
+  },
   studioRules: {
-    title: 'Studio Rules',
-    items: COMMON_RULES,
+    title: 'Studio Etiquette',
+    items: [
+      'Upon arrival, press the doorbell. A staff member will attend to you.',
+      'All work must be clearly initialled using 3 characters (letters or numbers) to prevent mix-ups.',
+      'Please clean your workspace after each session, including wiping down your seat and wheel.',
+      'Students who are unwell are asked to wear a mask while in the studio.',
+      'Comfortable clothing and closed-toe shoes are required.',
+      'Please ensure fingernails are trimmed appropriately for working with clay.',
+      'Food and beverages (other than water) are not permitted in the studio.',
+      'Students under the age of 16 must notify the studio in advance of enrolment.',
+    ],
+  },
+  additionalServices: {
+    title: 'Additional Pieces & Studio Access',
+    items: [
+      'Students wishing to produce more than the included number of pieces may do so at $20 per additional piece.',
+      'Unguided studio access is available to current students at $20 per hour, with a minimum booking of 2 hours (full-hour increments only).',
+    ],
+  },
+  returningCredits: {
+    title: 'Returning Student Credits',
+    highlight: true,
+    items: [
+      'All returning students receive $20 in studio credits for each wheelthrowing course completed.',
+      'Credits may be applied towards additional pieces, studio access bookings, or a discount on your next course enrolment.',
+    ],
   },
   collectionAndDisposal: {
     title: 'Collection & Disposal',
-    content: 'Collection of finished pieces is by appointment only, within 1 month after your final class. We reserve the right to dispose of uncollected pieces after 3 months. Please contact us to arrange collection.',
+    items: [
+      'Collection of finished pieces is by appointment only, within 1 month after your final class.',
+      'The studio reserves the right to dispose of uncollected pieces after 3 months.',
+      'It is the student\'s responsibility to arrange timely collection. Please contact us to schedule.',
+    ],
   },
   general: {
-    title: 'General',
-    content: 'We reserve the right to blacklist and ban students that do not comply with the rules or conduct any illegal or inappropriate activity in our premises.',
+    title: 'General Policy',
+    items: [
+      'VES Pottery Studio reserves the right to refuse service, blacklist, or ban any individual who fails to comply with studio rules, or who engages in illegal, disruptive, or inappropriate conduct on the premises.',
+    ],
   },
 };
 

@@ -4257,16 +4257,16 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
   const courses = [];
   for (const [courseId, course] of Object.entries(courseMap)) {
     // Get the actual first class date for this course to determine if it has started
-    const { data: firstClassData } = await supabaseDb.supabase
+    const { data: allCourseClasses } = await supabaseDb.supabase
       .from('class_instances')
       .select('class_date')
       .like('class_type', `${courseId}%`)
-      .order('class_date', { ascending: true })
-      .limit(1)
-      .single();
+      .order('class_date', { ascending: true });
+
+    const firstClassDate = allCourseClasses?.[0]?.class_date;
 
     // Skip courses that have already started (first class is before today)
-    if (firstClassData && firstClassData.class_date < today) {
+    if (firstClassDate && firstClassDate < today) {
       continue;
     }
 

@@ -6,7 +6,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://server-neon-six.vercel.app/api/$1"
+      "destination": "https://veryexquisitesensei.vercel.app/api/$1"
     },
     {
       "source": "/(.*)",

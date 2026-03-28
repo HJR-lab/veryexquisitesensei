@@ -688,8 +688,8 @@ export default function AdminStudentDetail() {
     return b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && classDate < today);
   }).length;
 
-  // Count attended from ALL bookings (including completed course groups) for accurate display
-  const allAttendedCount = bookings.filter(b => {
+  // Count attended from current enrollment bookings only
+  const allAttendedCount = currentEnrollmentBookings.filter(b => {
     const classDate = new Date(b.class_date);
     classDate.setHours(0, 0, 0, 0);
     return b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && classDate < today);
@@ -701,10 +701,18 @@ export default function AdminStudentDetail() {
   const hbCreditsRemaining = enrollment?.class_credits_remaining || 0;
 
   const totalBooked    = activeBookings.length;
-  const allBookedCount = bookings.length; // includes completed-course bookings
+  // Scope counts to current enrollment only (not all historical bookings)
+  const currentEnrollmentId = enrollment?.course_identifier;
+  const currentEnrollmentBookings = currentEnrollmentId
+    ? bookings.filter(b => {
+        const ci = b.course_identifier && b.course_identifier !== 'N/A' ? b.course_identifier : null;
+        const id = ci || b.class_type || '';
+        return id.startsWith(currentEnrollmentId.replace(/\.\d+$/, ''));
+      })
+    : bookings;
+  const allBookedCount = currentEnrollmentBookings.length;
   const enrollmentAllocated = isHBEnrollment ? hbCreditsAllocated : (enrollment?.number_of_weeks || 0);
   const totalAllocated = Math.max(allBookedCount, enrollmentAllocated);
-  // For HB: compute unbooked from ALL bookings (including completed courses) vs allocated
   const unbookedCount  = isHBEnrollment
     ? Math.max(0, hbCreditsAllocated - allBookedCount)
     : Math.max(0, totalAllocated - allBookedCount);
@@ -804,7 +812,7 @@ export default function AdminStudentDetail() {
                 ...(isInstructor ? [{ id: 'teaching', label: `Teaching (${teachingData?.courses?.length || 0})` }] : []),
                 ...(!isInstructor || isAlsoStudent ? [
                   { id: 'enrollment', label: 'Enrollment' },
-                  { id: 'bookings',   label: `Bookings (${allBookedCount + unbookedCount})` },
+                  { id: 'bookings',   label: `Bookings (${showCompletedCourses ? bookings.length : activeBookings.length})` },
                   { id: 'fees',       label: `Fees (${fees.length})` },
                   { id: 'access',     label: `Studio Access (${studioBookings.length})` },
                 ] : []),

@@ -12,19 +12,18 @@ const RULE     = 'rgba(40,40,40,0.09)';
 const ALT      = '#F5F3F0';
 
 const DEFAULT_SECTIONS = [
-  { title: 'Course Overview', description: 'This six-week course covers the fundamentals of wheel-throwing. Students will learn to throw cylinder and bowl forms, turn and trim bases, and apply glazing techniques using VES studio glazes. By the end of the course, each student will have produced a set of glazed cups and bowls, available for collection within one month following the final glaze firing.', rules: [] },
+  { title: 'Course Overview', description: 'This six-week course covers the fundamentals of wheel-throwing. Students will learn to throw cylinder and bowl forms, turn and trim bases, and apply glazing techniques using Ves studio glazes. By the end of the course, each student will have produced a set of glazed cups and bowls, available for collection within one month following the final glaze firing.', rules: [] },
   { title: 'What Your Course Fee Includes', rules: ['Clay, bisque firing for up to seven (7) pieces, and use of all advanced tools and equipment.', 'Decorating and glazing materials, including glaze firing.', 'Additional tools and supplementary pieces are available at extra cost.'] },
   { title: 'Refunds & Transfers', rules: ['All course fees are strictly non-refundable.', 'Students may transfer their entire course enrolment to another individual. Partial transfers are not permitted.'] },
-  { title: 'Attendance & Make-Up Sessions', rules: ['Each student is entitled to one (1) make-up session during Weeks 1\u20135, and one (1) additional make-up session for Week 6 (glazing), subject to scheduling and availability.', 'Students must notify the studio in advance to arrange a make-up session.'] },
-  { title: 'Rescheduling & Attendance', rules: ['You are allowed to reschedule up to three (3) makeup classes, subject to cohort schedule and availability.', 'You must reschedule a makeup class more than twenty-four (24) hours before it starts.', 'Missed course classes are forfeited — no credit will be given for unattended course classes.', 'A $20 no-show fee applies if you miss a rescheduled makeup class, as your makeup spot could have gone to another student.', 'A $40 fee applies per makeup class outside of your cohort schedule. There is no fee requirement to reschedule final glazing classes.'] },
+  { title: 'Rescheduling & Attendance', rules: ['You are allowed to reschedule up to three (3) make-up classes, subject to cohort schedule and availability.', 'You must reschedule a make-up class more than twenty-four (24) hours before it starts.', 'Missed course classes are forfeited — no credit will be given for unattended course classes.', 'A $20 no-show fee applies if you miss a rescheduled make-up class, as your make-up spot could have gone to another student.', 'A $40 fee applies per make-up class outside of your cohort schedule. There is no fee requirement to reschedule final glazing classes.', 'Students must notify the studio in advance to arrange a make-up session.'] },
   { title: 'Punctuality', rules: ['As this is a structured course, punctuality is expected of all students.', 'The studio doors will open ten (10) minutes prior to the scheduled start time. Classes will begin and end promptly as scheduled.'] },
-  { title: 'Required Items', rules: ['Pottery Tool Set \u2014 Required; bring your own or purchase ($18).', 'Advanced Trimming Tool \u2014 Optional add-on ($12).', 'Apron \u2014 Required; not provided by the studio. VES branded aprons available ($45).', 'Carry Bag / Tote \u2014 Required for transporting finished work. VES totes available ($12).'] },
+  { title: 'Required Items', rules: ['Pottery Tool Set \u2014 Required; bring your own or purchase ($18).', 'Advanced Trimming Tool \u2014 Optional add-on ($12).', 'Apron \u2014 Required; not provided by the studio. Ves branded aprons available ($45).', 'Carry Bag / Tote \u2014 Required for transporting finished work. Ves totes available ($12).'] },
   { title: 'Studio Etiquette', rules: ['Upon arrival, please press the doorbell located on the wall. A staff member will attend to you.', 'All work must be clearly initialled by the maker using three (3) characters (letters or numbers) to prevent any mix-ups.', 'Please clean your workspace after each session, including wiping down your seat and wheel for the next user.', 'Students who are unwell are asked to wear a mask while in the studio.', 'Comfortable clothing and closed-toe shoes are recommended.', 'Please ensure fingernails are trimmed appropriately for working with clay.', 'Food and beverages (other than water) are not permitted in the studio.', 'Students under the age of 16 must notify the studio in advance of enrolment.'] },
   { title: 'Additional Pieces & Studio Access', rules: ['Students wishing to produce more than seven (7) pieces may do so at a rate of $20 per additional piece.', 'Unguided wheel-throwing studio access is available to current students at $20 per hour, with a minimum booking of two (2) hours. Bookings are accepted in full-hour increments only.'] },
   { title: 'Returning Student Credits', highlight: true, rules: ['NEW FOR 2026 \u2014 All returning students will receive $20 in studio credits for each wheel-throwing course completed.', 'Credits may be applied towards additional pieces, studio access bookings, or a discount on your next course enrolment.', 'For enquiries, please email us at info@ves.sg.'] },
-  { title: 'Firing Policy', rules: ['All pieces submitted for firing must be clearly signed by the maker. Unsigned works will not be fired.', 'VES Pottery Studio accepts no responsibility for unsigned or unclaimed pieces.'] },
+  { title: 'Firing Policy', rules: ['All pieces submitted for firing must be clearly signed by the maker. Unsigned works will not be fired.', 'Ves Pottery Studio accepts no responsibility for unsigned or unclaimed pieces.'] },
   { title: 'Collection & Disposal', rules: ['Collection of finished pieces is by appointment only, beginning 9 May 2026.', 'The studio reserves the right to dispose of any uncollected pieces after 9 July 2026.', 'No reminder notifications will be issued. It is the student\u2019s responsibility to arrange timely collection.'] },
-  { title: 'General Policy', rules: ['VES Pottery Studio reserves the right to refuse service, blacklist, or ban any individual who fails to comply with studio rules, or who engages in illegal, disruptive, or inappropriate conduct on the premises.'] },
+  { title: 'General Policy', rules: ['Ves Pottery Studio reserves the right to refuse service, blacklist, or ban any individual who fails to comply with studio rules, or who engages in illegal, disruptive, or inappropriate conduct on the premises.'] },
 ];
 
 export default function StudioPolicy() {
@@ -49,8 +48,8 @@ export default function StudioPolicy() {
           <span className="material-symbols-outlined" style={{ fontSize: '20px', color: INK }}>arrow_back</span>
         </button>
         <div>
-          <div style={{ fontSize: '14px', fontWeight: 700, letterSpacing: '0.02em' }}>Studio Policy</div>
-          <div style={{ fontSize: '10px', color: MUTED, letterSpacing: '0.04em', textTransform: 'uppercase' }}>VES Pottery Studio</div>
+          <div style={{ fontSize: '14px', fontWeight: 700, letterSpacing: '0.02em' }}>Rules and Regulations</div>
+          <div style={{ fontSize: '10px', color: MUTED, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Ves Pottery Studio</div>
         </div>
       </header>
 
@@ -69,7 +68,7 @@ export default function StudioPolicy() {
           <div>
             <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: TC_DARK, marginBottom: '4px' }}>Important</div>
             <div style={{ fontSize: '12px', color: INK, lineHeight: 1.5 }}>
-              By enrolling in any VES course, you agree to the following studio policies. Please read this document carefully before your first session.
+              By enrolling in any Ves course, you agree to the following studio policies. Please read this document carefully before your first session.
             </div>
           </div>
         </div>

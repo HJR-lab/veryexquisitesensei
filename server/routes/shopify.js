@@ -2,7 +2,7 @@ const express = require('express');
 const { syncCustomer } = require('../utils/shopifySync');
 const supabaseDb = require('../utils/supabaseDb');
 const { sendAndLogEmail } = require('../utils/emailService');
-const { generateCohortConfirmedEmail } = require('../email-templates/cohort-confirmed');
+
 const { generateKidsOutreachEmail } = require('../email-templates/kids-outreach');
 const { generateMembershipConfirmedEmail } = require('../email-templates/membership-confirmed');
 const { generateVoucherOutreachEmail } = require('../email-templates/voucher-outreach');
@@ -1183,45 +1183,7 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
 
             if (result.thresholdMet) {
               console.log(`🎉 Threshold met! Created ${result.classInstancesCreated} class instances and ${result.bookingsCreated} bookings`);
-
-              // Send cohort confirmed email to all students
-              try {
-                const enrollment = result.enrollment;
-                if (enrollment && enrollment.course_identifier) {
-                  // Get all student emails in this cohort
-                  const { data: cohortEnrollments } = await supabaseDb.supabase
-                    .from('course_enrollments')
-                    .select('student_id, customers!inner(email)')
-                    .like('course_identifier', `${enrollment.course_identifier}%`)
-                    .in('status', ['active', 'pending']);
-
-                  const studentEmails = (cohortEnrollments || [])
-                    .map(e => e.customers?.email)
-                    .filter(Boolean);
-
-                  if (studentEmails.length > 0) {
-                    const { subject, html } = generateCohortConfirmedEmail({
-                      courseType: enrollment.course_type || 'Wheelthrowing',
-                      courseTitle: enrollment.course_title || '',
-                      dayOfWeek: enrollment.schedule_pattern || '',
-                      startDate: enrollment.course_start_date || '',
-                      endDate: enrollment.course_end_date || '',
-                      timeSlot: enrollment.class_time || '',
-                    });
-                    await sendAndLogEmail({
-                      emailType: 'cohort_confirmed',
-                      courseIdentifier: enrollment.course_identifier,
-                      subject,
-                      html,
-                      recipientEmails: studentEmails,
-                      sentBy: 'system',
-                    });
-                    console.log(`📧 Cohort confirmed email sent to ${studentEmails.length} students`);
-                  }
-                }
-              } catch (emailErr) {
-                console.error('[Email] Failed to send cohort confirmed email:', emailErr);
-              }
+              // Course details email (which serves as confirmation) will be sent via admin compose flow
             } else if (result.requiresThreshold) {
               console.log(`⏳ Waiting for more students (${result.studentCount}/${result.studentsNeeded + result.studentCount})`);
             }

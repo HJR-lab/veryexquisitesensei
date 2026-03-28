@@ -533,7 +533,7 @@ export default function Dashboard() {
 
                             {details.makeup && (
                               <>
-                                <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, marginBottom: '3px' }}>Make-Up</div>
+                                <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, marginBottom: '3px' }}>Rescheduling &amp; Attendance</div>
                                 <p style={{ margin: '0 0 10px', color: '#555' }}>{details.makeup}</p>
                               </>
                             )}

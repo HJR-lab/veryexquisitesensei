@@ -4,7 +4,7 @@ import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { potteryAPI } from '../utils/api';
 import { getCourseTypeInfo } from '../utils/courseTypes';
-import { getCourseDetails, STUDIO_ADDRESS, STUDIO_MAP_URL } from '../utils/courseDetails';
+import { getCourseDetails, STUDIO_ADDRESS, STUDIO_MAP_URL, STUDIO_POLICIES } from '../utils/courseDetails';
 import {
   TC, TC_LIGHT, TC_DARK, INK, MUTED, RULE, ALT,
   SectionLabel, Divider, TopBar, BottomTabBar, ScrollBody, PageShell,
@@ -69,6 +69,7 @@ export default function Dashboard() {
   const [upcomingEvents, setUpcomingEvents] = useState([]);
   const [membershipData, setMembershipData] = useState(null);
   const [expandedCourse, setExpandedCourse] = useState(null);
+  const [showPolicyModal, setShowPolicyModal] = useState(false);
 
   useEffect(() => {
     fetchDashboardData();
@@ -512,45 +513,18 @@ export default function Dashboard() {
                           )}
                         </div>
 
-                        {/* ── Section 2: Fees, Policies & Items ── */}
-                        {(details.fees || details.classSize || details.makeup) && (
-                          <div style={{ borderTop: `1px solid ${RULE}`, padding: '14px' }}>
-                            <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: TC, marginBottom: '10px' }}>Fees, Policies &amp; Items</div>
-
-                            {details.fees && (
-                              <>
-                                <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, marginBottom: '3px' }}>Fees Include</div>
-                                <p style={{ margin: '0 0 10px', color: '#555' }}>{details.fees}</p>
-                              </>
-                            )}
-
-                            {details.classSize && (
-                              <>
-                                <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, marginBottom: '3px' }}>Class Size &amp; Policies</div>
-                                <p style={{ margin: '0 0 10px', color: '#555' }}>{details.classSize}</p>
-                              </>
-                            )}
-
-                            {details.makeup && (
-                              <>
-                                <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, marginBottom: '3px' }}>Rescheduling &amp; Attendance</div>
-                                <p style={{ margin: '0 0 10px', color: '#555' }}>{details.makeup}</p>
-                              </>
-                            )}
-
-                            <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, marginBottom: '3px' }}>Items Required</div>
-                            <ul style={{ margin: '0 0 0', paddingLeft: '16px', listStyleType: 'disc' }}>
-                              {details.items.map((item, j) => <li key={j} style={{ marginBottom: '1px', color: '#555' }}>{item}</li>)}
-                            </ul>
+                        {/* ── Studio Policy Link ── */}
+                        <div style={{ borderTop: `1px solid ${RULE}`, padding: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: INK, marginBottom: '2px' }}>Studio Policy</div>
+                            <div style={{ fontSize: '11px', color: MUTED }}>Rules, fees, rescheduling &amp; attendance — must read</div>
                           </div>
-                        )}
-
-                        {/* ── Section 3: Studio Rules & Location ── */}
-                        <div style={{ borderTop: `1px solid ${RULE}`, padding: '14px' }}>
-                          <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: TC, marginBottom: '10px' }}>Studio Rules</div>
-                          <ul style={{ margin: '0 0 0', paddingLeft: '16px', listStyleType: 'disc' }}>
-                            {details.rules.map((rule, j) => <li key={j} style={{ marginBottom: '1px', color: '#555' }}>{rule}</li>)}
-                          </ul>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setShowPolicyModal(true); }}
+                            style={{ padding: '8px 16px', backgroundColor: TC_LIGHT, border: `1px solid ${TC}`, cursor: 'pointer', fontSize: '11px', fontWeight: 700, letterSpacing: '0.05em', color: TC_DARK, flexShrink: 0 }}
+                          >
+                            View
+                          </button>
                         </div>
                       </div>
                     )}
@@ -742,6 +716,38 @@ export default function Dashboard() {
       </ScrollBody>
 
       <BottomTabBar tabs={STUDENT_TABS} activeId="home" />
+
+      {/* ── STUDIO POLICY MODAL ── */}
+      {showPolicyModal && (
+        <>
+          <div onClick={() => setShowPolicyModal(false)} style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 70 }} />
+          <div style={{
+            position: 'fixed', inset: '5vh 0', zIndex: 71,
+            maxWidth: '520px', margin: '0 auto', backgroundColor: '#fff',
+            borderRadius: '12px', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          }}>
+            <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${RULE}`, flexShrink: 0 }}>
+              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: INK }}>Rules and Regulations</h2>
+              <button onClick={() => setShowPolicyModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '20px', color: MUTED }}>close</span>
+              </button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', fontSize: '13px', lineHeight: '1.7', color: INK }}>
+              {Object.values(STUDIO_POLICIES).map((section, i) => (
+                <div key={i} style={{ marginBottom: '16px' }}>
+                  <h3 style={{ fontSize: '13px', fontWeight: 700, margin: '0 0 6px', color: INK }}>{section.title}</h3>
+                  {section.content && <p style={{ margin: 0, color: '#555' }}>{section.content}</p>}
+                  {section.items && (
+                    <ul style={{ margin: '4px 0 0', paddingLeft: '16px', listStyleType: 'disc' }}>
+                      {section.items.map((item, j) => <li key={j} style={{ marginBottom: '1px', color: '#555' }}>{item}</li>)}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
     </PageShell>
   );

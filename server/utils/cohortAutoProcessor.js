@@ -223,7 +223,26 @@ async function checkCourseEmailReminders() {
     if (!classes || classes.length === 0) return;
 
     // Get unique base course IDs
-    const courseIds = [...new Set(classes.map(c => c.class_type.split('.')[0]))];
+    const candidateCourseIds = [...new Set(classes.map(c => c.class_type.split('.')[0]))];
+
+    // Only keep courses whose actual START date (first class) is on the target date
+    const courseIds = [];
+    for (const courseId of candidateCourseIds) {
+      const { data: firstClass } = await supabase
+        .from('class_instances')
+        .select('class_date')
+        .like('class_type', `${courseId}%`)
+        .order('class_date', { ascending: true })
+        .limit(1)
+        .single();
+
+      // Only include if the first class of this course is exactly on the target date
+      if (firstClass && firstClass.class_date === targetDate) {
+        courseIds.push(courseId);
+      }
+    }
+
+    if (courseIds.length === 0) return;
 
     // Check which have sent emails
     const { data: sentEmails } = await supabase

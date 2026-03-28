@@ -4254,6 +4254,20 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
   // For each course, get enrollment count and email send status
   const courses = [];
   for (const [courseId, course] of Object.entries(courseMap)) {
+    // Get the actual first class date for this course to determine if it has started
+    const { data: firstClassData } = await supabaseDb.supabase
+      .from('class_instances')
+      .select('class_date')
+      .like('class_type', `${courseId}%`)
+      .order('class_date', { ascending: true })
+      .limit(1)
+      .single();
+
+    // Skip courses that have already started (first class is before today)
+    if (firstClassData && firstClassData.class_date < today) {
+      continue;
+    }
+
     // Get student count
     const { count: studentCount } = await supabaseDb.supabase
       .from('course_enrollments')

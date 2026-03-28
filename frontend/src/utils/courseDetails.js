@@ -138,22 +138,22 @@ const COURSE_DETAILS = {
   'hb-4credit': {
     title: 'Handbuilding 4-Week Course',
     description: [
-      'This 4-week handbuilding course introduces the fundamentals of working with clay by hand. Each class runs for 2.5 hours with instructor guidance throughout.',
-      { heading: 'Week 1 — Foundations of Pinching', items: [
-        'Explore the fundamentals of pinching techniques',
-        'Craft your first cups through the art of pinching',
+      'A four-week handbuilding course (2.5 hours per class per week) introducing the fundamentals of working with clay by hand. Students progress through core techniques — pinching, coiling, and slab-making — before finishing with an introduction to glazing.',
+      { heading: 'Week 1 — Pinching', items: [
+        'Learn the fundamentals of pinching technique and form control.',
+        'Create your first functional pieces — cups and small vessels.',
       ]},
-      { heading: 'Week 2 — Learning Coiling', items: [
-        'Progress to creating larger pieces using coiling',
-        'Learn the skill of connecting separate clay bodies',
+      { heading: 'Week 2 — Coiling', items: [
+        'Build larger pieces using coiling techniques.',
+        'Learn to connect and blend separate clay bodies for seamless joins.',
       ]},
-      { heading: 'Week 3 — Intro to Slab-Making', items: [
-        'Learn how to make flatware by making slabs',
-        'Experiment with decorating techniques like carving, drawing, and adding attachments',
+      { heading: 'Week 3 — Slab-Making', items: [
+        'Create flatware and structured forms using rolled slabs.',
+        'Explore decorating techniques — carving, incising, and surface attachments.',
       ]},
-      { heading: 'Week 4 — Intro to Glazing', items: [
-        'Gain insights into the theory of glazing',
-        'Experience different glazing applications as a finishing touch',
+      { heading: 'Week 4 — Glazing', items: [
+        'Introduction to glaze theory and application methods.',
+        'Apply in-studio Ves glazes to your bisque-fired pieces for the final kiln firing.',
       ]},
     ],
     fees: 'Unlimited usage of clay, up to 5 finished pieces of 600g each or 3000g combined, use of tools and equipment, materials for decorating and glazing, and firing. Additional tools and pieces made are subject to additional costs.',
@@ -168,23 +168,23 @@ const COURSE_DETAILS = {
   'hb-8credit': {
     title: 'Handbuilding 8-Week Course',
     description: [
-      'This 8-week handbuilding course builds on the foundations of the 4-week programme, introducing sculpting, detailing, and advanced techniques. Each class runs for 2.5 hours with instructor guidance throughout.',
+      'An eight-week handbuilding course (2.5 hours per class per week) that builds on the four-week programme, introducing sculpting, detailing, and advanced techniques alongside the core foundations.',
       { heading: 'Weeks 1–3 — Foundations', items: [
-        'Week 1 — Foundations of Pinching',
-        'Week 2 — Learning Coiling',
-        'Week 3 — Intro to Slab-making',
+        'Week 1 — Pinching: learn form control and create cups and small vessels.',
+        'Week 2 — Coiling: build larger pieces and learn seamless joining techniques.',
+        'Week 3 — Slab-Making: create flatware and explore surface decoration.',
       ]},
-      { heading: 'Weeks 4/5 — Intro to Sculpting', items: [
-        'Understand the foundation of sculpture',
-        'Explore techniques for building form and structure',
+      { heading: 'Weeks 4–5 — Sculpting', items: [
+        'Introduction to the foundations of sculptural form and structure.',
+        'Explore techniques for building three-dimensional clay work.',
       ]},
-      { heading: 'Weeks 6/7 — Learn Detailing', items: [
-        'Learn how to shape facial forms',
-        'Experiment with how to bring personality and expression',
+      { heading: 'Weeks 6–7 — Detailing', items: [
+        'Learn to shape facial forms and figurative elements.',
+        'Develop expression and personality in sculptural pieces.',
       ]},
-      { heading: 'Week 8 — Intro to Glazing', items: [
-        'Gain insights into the theory of glazing',
-        'Experience different glazing applications as a finishing touch',
+      { heading: 'Week 8 — Glazing', items: [
+        'Introduction to glaze theory and application methods.',
+        'Apply in-studio Ves glazes to your bisque-fired pieces for the final kiln firing.',
       ]},
     ],
     fees: 'Unlimited usage of clay, up to 9 finished pieces of 600g each or 4500g combined, use of tools and equipment, materials for decorating and glazing, and firing. Additional tools and pieces made are subject to additional costs.',

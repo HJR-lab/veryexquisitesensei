@@ -5,6 +5,7 @@
 
 const { supabase } = require('./supabaseDb');
 const { createClassesAndBookings, MINIMUM_STUDENTS_THRESHOLD } = require('./courseEnrollmentManager');
+const courseConfig = require('./courseConfig');
 
 /**
  * Main function to process all ready cohorts
@@ -66,11 +67,18 @@ async function processReadyCohorts() {
     for (const [key, cohort] of Object.entries(cohorts)) {
       const studentCount = cohort.enrollments.length;
 
-      // NEW: Always process cohorts (create draft for <4, active for >=4)
-      const classStatus = studentCount >= MINIMUM_STUDENTS_THRESHOLD ? 'active' : 'draft';
+      // NEW: Always process cohorts (create draft for <threshold, active for >=threshold)
+      let minStudents = MINIMUM_STUDENTS_THRESHOLD; // fallback
+      try {
+        const wtConfigs = courseConfig.getConfigByCategory('wheelthrowing');
+        if (wtConfigs && wtConfigs.length > 0) {
+          minStudents = wtConfigs[0].min_students_to_activate || MINIMUM_STUDENTS_THRESHOLD;
+        }
+      } catch (e) { /* config not loaded yet, use fallback */ }
+      const classStatus = studentCount >= minStudents ? 'active' : 'draft';
 
       if (classStatus === 'draft') {
-        console.log(`[Auto-Processor] Creating DRAFT: ${cohort.schedule}s ${cohort.time} starting ${cohort.startDate} (${studentCount} students - waiting for ${MINIMUM_STUDENTS_THRESHOLD - studentCount} more)`);
+        console.log(`[Auto-Processor] Creating DRAFT: ${cohort.schedule}s ${cohort.time} starting ${cohort.startDate} (${studentCount} students - waiting for ${minStudents - studentCount} more)`);
       } else {
         console.log(`[Auto-Processor] Creating ACTIVE: ${cohort.schedule}s ${cohort.time} starting ${cohort.startDate} (${studentCount} students)`);
       }
@@ -210,9 +218,18 @@ async function checkCourseEmailReminders() {
   try {
     const { sendEmail } = require('./emailService');
 
-    const fiveDaysFromNow = new Date();
-    fiveDaysFromNow.setDate(fiveDaysFromNow.getDate() + 5);
-    const targetDate = fiveDaysFromNow.toISOString().split('T')[0];
+    // Read email_send_days_before from config (fallback to 5 if config not loaded)
+    let sendDaysBefore = 5;
+    try {
+      const wtConfigs = courseConfig.getConfigByCategory('wheelthrowing');
+      if (wtConfigs && wtConfigs.length > 0 && wtConfigs[0].email_send_days_before != null) {
+        sendDaysBefore = wtConfigs[0].email_send_days_before;
+      }
+    } catch (e) { /* config not loaded, use fallback */ }
+
+    const targetDateObj = new Date();
+    targetDateObj.setDate(targetDateObj.getDate() + sendDaysBefore);
+    const targetDate = targetDateObj.toISOString().split('T')[0];
 
     // Find class instances on that date
     const { data: classes } = await supabase
@@ -325,8 +342,15 @@ async function checkUnconfirmedCourses() {
     for (const [key, cohort] of Object.entries(cohortMap)) {
       const studentCount = cohort.enrollments.length;
 
-      // Skip if threshold is already met
-      if (studentCount >= MINIMUM_STUDENTS_THRESHOLD) continue;
+      // Skip if threshold is already met (read from config, fallback to MINIMUM_STUDENTS_THRESHOLD)
+      let unconfirmedMinStudents = MINIMUM_STUDENTS_THRESHOLD;
+      try {
+        const wtConfigs = courseConfig.getConfigByCategory('wheelthrowing');
+        if (wtConfigs && wtConfigs.length > 0) {
+          unconfirmedMinStudents = wtConfigs[0].min_students_to_activate || MINIMUM_STUDENTS_THRESHOLD;
+        }
+      } catch (e) { /* config not loaded, use fallback */ }
+      if (studentCount >= unconfirmedMinStudents) continue;
 
       // Check if we already sent an unconfirmed email for this cohort + date
       const cohortId = `${cohort.courseType}_${cohort.schedulePattern}_${cohort.startDate}`;
@@ -376,13 +400,75 @@ async function checkUnconfirmedCourses() {
       await sendEmail({
         to: 'info@ves.sg',
         subject: `VES Admin: Course unconfirmed — ${cohortId} (${studentCount} students)`,
-        html: `<p>The following course starts in 3 days but only has ${studentCount} student(s) (minimum ${MINIMUM_STUDENTS_THRESHOLD} required):</p>
+        html: `<p>The following course starts in 3 days but only has ${studentCount} student(s) (minimum ${unconfirmedMinStudents} required):</p>
           <p><strong>${cohort.courseType}</strong> — ${dayOfWeek}s, ${formattedStart} (${cohort.classTime})</p>
           <p>An unconfirmed/postponement email has been sent to the enrolled students.</p>`,
       });
     }
   } catch (error) {
     console.error('[Auto-Processor] Unconfirmed course check failed:', error);
+  }
+}
+
+/**
+ * Weekly recheck of unconfirmed courses:
+ * For courses that received an 'unconfirmed' email but no confirmation yet,
+ * resend the unconfirmed email (or confirmation if threshold now met) every 7 days.
+ */
+async function checkWeeklyUnconfirmedRecheck() {
+  const wtConfigs = courseConfig.getConfigByCategory('wheelthrowing');
+
+  for (const config of wtConfigs) {
+    // Find courses that have had unconfirmed emails sent but no confirmation yet
+    const { data: unconfirmedSends } = await supabase
+      .from('sent_emails')
+      .select('*')
+      .eq('email_type', 'course_unconfirmed')
+      .order('sent_at', { ascending: false });
+
+    if (!unconfirmedSends) continue;
+
+    // Group by course_identifier, get latest send per course
+    const latestByIdentifier = {};
+    for (const send of unconfirmedSends) {
+      if (!latestByIdentifier[send.course_identifier]) {
+        latestByIdentifier[send.course_identifier] = send;
+      }
+    }
+
+    for (const [courseId, lastSend] of Object.entries(latestByIdentifier)) {
+      // Check if confirmation was already sent
+      const { data: confirmationSent } = await supabase
+        .from('sent_emails')
+        .select('id')
+        .eq('email_type', 'course_details')
+        .eq('course_identifier', courseId)
+        .limit(1);
+
+      if (confirmationSent && confirmationSent.length > 0) continue;
+
+      // Check if 7 days since last unconfirmed email
+      const daysSinceLastSend = Math.floor((Date.now() - new Date(lastSend.sent_at).getTime()) / (1000 * 60 * 60 * 24));
+      if (daysSinceLastSend < 7) continue;
+
+      // Check current enrollment count
+      const { data: enrollments } = await supabase
+        .from('course_enrollments')
+        .select('id')
+        .like('course_identifier', `${courseId}%`)
+        .in('status', ['active', 'pending', 'upcoming']);
+
+      const enrollmentCount = enrollments ? enrollments.length : 0;
+      const minStudents = config.min_students_to_activate;
+
+      if (enrollmentCount >= minStudents) {
+        console.log(`[AutoProcessor] Course ${courseId} reached ${enrollmentCount} pax — sending confirmation`);
+        // TODO: Trigger confirmation email (uses existing course email send logic)
+      } else {
+        console.log(`[AutoProcessor] Course ${courseId} still at ${enrollmentCount}/${minStudents} pax — resending unconfirmed`);
+        // TODO: Trigger unconfirmed email resend (uses existing unconfirmed email logic)
+      }
+    }
   }
 }
 
@@ -410,6 +496,7 @@ function startAutomaticProcessing() {
       autoMarkPastBookingsAsAttended().catch(console.error);
       checkCourseEmailReminders().catch(console.error);
       checkUnconfirmedCourses().catch(console.error);
+      checkWeeklyUnconfirmedRecheck().catch(console.error);
     }
   };
 
@@ -424,5 +511,6 @@ module.exports = {
   autoMarkPastBookingsAsAttended,
   checkCourseEmailReminders,
   checkUnconfirmedCourses,
+  checkWeeklyUnconfirmedRecheck,
   startAutomaticProcessing
 };

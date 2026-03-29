@@ -14,8 +14,18 @@ const {
   findCustomerByEmail,
   updateCustomer
 } = require('./supabaseDb');
+const courseConfig = require('./courseConfig');
 
-const MINIMUM_STUDENTS_THRESHOLD = 4;
+const MINIMUM_STUDENTS_THRESHOLD = 4; // legacy export kept for backward compatibility
+
+function getMinStudentsThreshold(courseTypeKey) {
+  try {
+    const config = courseConfig.getConfig(courseTypeKey);
+    return config ? config.min_students_to_activate : 4;
+  } catch (e) {
+    return 4; // fallback if config not loaded
+  }
+}
 
 // Threshold only applies to Wheelthrowing courses
 const COURSES_WITH_THRESHOLD = ['Wheelthrowing', 'Wheelthrowing Beginner', 'Wheelthrowing Intermediate', 'Wheelthrowing Advanced'];
@@ -289,8 +299,9 @@ async function checkAndProcessThreshold(newEnrollment) {
       console.log(`✅ Cohort already has classes, adding student to existing classes`);
       const result = await addStudentToExistingCohort(newEnrollment, enrollmentWithBookings);
 
-      // If this is the 4th student, activate the draft classes
-      if (studentCount === MINIMUM_STUDENTS_THRESHOLD) {
+      // If this is the threshold student, activate the draft classes
+      const minThreshold = getMinStudentsThreshold(null);
+      if (studentCount === minThreshold) {
         console.log(`🎉 Threshold met! Activating draft classes...`);
         await activateDraftClasses(enrollmentWithBookings);
       }
@@ -300,10 +311,11 @@ async function checkAndProcessThreshold(newEnrollment) {
 
     // No peer has bookings — create new class instances for this cohort
     // Each cohort (course type + schedule + time) gets its own classes
-    const classStatus = studentCount >= MINIMUM_STUDENTS_THRESHOLD ? 'active' : 'draft';
+    const cohortMinThreshold = getMinStudentsThreshold(null);
+    const classStatus = studentCount >= cohortMinThreshold ? 'active' : 'draft';
 
     if (classStatus === 'draft') {
-      console.log(`📝 Creating DRAFT classes for ${studentCount} student(s) (waiting for ${MINIMUM_STUDENTS_THRESHOLD - studentCount} more to activate)`);
+      console.log(`📝 Creating DRAFT classes for ${studentCount} student(s) (waiting for ${cohortMinThreshold - studentCount} more to activate)`);
     } else {
       console.log(`🎉 Creating ACTIVE classes for ${studentCount} students (threshold met!)`);
     }
@@ -442,7 +454,7 @@ async function linkStudentsToExistingClasses(cohortEnrollments, classInstances) 
   }
 
   return {
-    thresholdMet: cohortEnrollments.length >= MINIMUM_STUDENTS_THRESHOLD,
+    thresholdMet: cohortEnrollments.length >= getMinStudentsThreshold(null),
     linkedToExisting: true,
     bookingsCreated: totalBookings,
     studentsEnrolled: cohortEnrollments.length,

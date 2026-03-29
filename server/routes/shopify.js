@@ -2,6 +2,7 @@ const express = require('express');
 const { syncCustomer } = require('../utils/shopifySync');
 const supabaseDb = require('../utils/supabaseDb');
 const { sendAndLogEmail } = require('../utils/emailService');
+const courseConfig = require('../utils/courseConfig');
 
 const { generateKidsOutreachEmail } = require('../email-templates/kids-outreach');
 const { generateMembershipConfirmedEmail } = require('../email-templates/membership-confirmed');
@@ -1163,18 +1164,32 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
                 if (studentEmail) {
                   const credits = enrollment.number_of_weeks || enrollment.class_credits_allocated || 4;
                   const templateType = credits <= 4 ? 'hb-4credit' : 'hb-8credit';
-                  const template = require(`../email-templates/courses/${templateType}`);
-                  const { subject: emailSubject, html: emailHtml } = template.generate({ specialNotes: '' });
 
-                  await sendAndLogEmail({
-                    emailType: 'course_details',
-                    courseIdentifier: enrollment.course_identifier || `HB_${enrollment.id}`,
-                    subject: emailSubject,
-                    html: emailHtml,
-                    recipientEmails: [studentEmail],
-                    sentBy: 'system',
-                  });
-                  console.log(`📧 HB course details email auto-sent to ${studentEmail}`);
+                  // Check config to see if auto-send is enabled for this course type
+                  let autoSendEnabled = true; // default to true for backward compatibility
+                  try {
+                    const hbConfig = courseConfig.getConfig(templateType);
+                    if (hbConfig && hbConfig.email_auto_send === false) {
+                      autoSendEnabled = false;
+                    }
+                  } catch (e) { /* config not loaded, default to sending */ }
+
+                  if (autoSendEnabled) {
+                    const template = require(`../email-templates/courses/${templateType}`);
+                    const { subject: emailSubject, html: emailHtml } = template.generate({ specialNotes: '' });
+
+                    await sendAndLogEmail({
+                      emailType: 'course_details',
+                      courseIdentifier: enrollment.course_identifier || `HB_${enrollment.id}`,
+                      subject: emailSubject,
+                      html: emailHtml,
+                      recipientEmails: [studentEmail],
+                      sentBy: 'system',
+                    });
+                    console.log(`📧 HB course details email auto-sent to ${studentEmail}`);
+                  } else {
+                    console.log(`[Shopify] Skipping auto-email for ${templateType} — auto-send disabled in config`);
+                  }
                 }
               } catch (emailErr) {
                 console.error('[Email] Failed to auto-send HB course details email:', emailErr);

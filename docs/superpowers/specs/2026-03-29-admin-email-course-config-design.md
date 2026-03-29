@@ -107,6 +107,15 @@ Config is cached in memory on server start and refreshed on any admin update (no
 5. Every send logged per student in `sent_emails`
 6. Late enrollments (after bulk send) show as "not sent" — admin can manually trigger for them
 
+**Wheelthrowing unconfirmed → weekly recheck loop:**
+If a course doesn't reach minimum pax by the initial send date:
+1. Unconfirmed/postponement email sent to all enrolled students
+2. Auto-processor rechecks every 7 days (on the daily 2 AM run, checks if 7 days since last unconfirmed email)
+3. If still below minimum pax → resend unconfirmed email to all enrolled students (including any new enrollments since last send)
+4. As soon as minimum pax is reached → automatically send the confirmation email with full class details
+5. Weekly recheck stops once confirmation email is sent
+6. All sends (unconfirmed repeats + final confirmation) logged per student in `sent_emails`
+
 **Admin override:** Regardless of auto-send setting, admin can always manually compose and send from the Emails page.
 
 ### UI — Two Sections

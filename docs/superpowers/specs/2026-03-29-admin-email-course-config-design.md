@@ -116,6 +116,13 @@ If a course doesn't reach minimum pax by the initial send date:
 5. Weekly recheck stops once confirmation email is sent
 6. All sends (unconfirmed repeats + final confirmation) logged per student in `sent_emails`
 
+**Reschedule confirmation email:**
+When a student reschedules a booked class to a makeup class:
+1. System automatically sends a confirmation email to the student
+2. Email includes: new makeup class date/time, original missed class date, and studio address
+3. Personalized ("Dear Sarah,") with the same base email template styling
+4. Logged in `sent_emails` with `email_type: 'reschedule_confirmation'`
+
 **Admin override:** Regardless of auto-send setting, admin can always manually compose and send from the Emails page.
 
 ### UI — Two Sections

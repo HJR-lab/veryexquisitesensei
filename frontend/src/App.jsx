@@ -40,6 +40,8 @@ const InstructorPortfolio = lazy(() => import('./pages/InstructorPortfolio'));
 const Contact = lazy(() => import('./pages/Contact'));
 const StudioAccess = lazy(() => import('./pages/StudioAccess'));
 const AdminStudioAccess = lazy(() => import('./pages/AdminStudioAccess'));
+const AdminEmails = lazy(() => import('./pages/AdminEmails'));
+const AdminCourseConfig = lazy(() => import('./pages/AdminCourseConfig'));
 
 const Policies = lazy(() => import('./pages/Policies'));
 
@@ -205,6 +207,8 @@ function App() {
             <Route path="events" element={<AdminEvents />} />
             <Route path="instructors" element={<AdminInstructors />} />
             <Route path="studio-access" element={<AdminStudioAccess />} />
+            <Route path="emails" element={<AdminEmails />} />
+            <Route path="course-config" element={<AdminCourseConfig />} />
 
           </Route>
 

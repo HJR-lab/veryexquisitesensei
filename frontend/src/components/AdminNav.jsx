@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import api from '../utils/api';
 
 const TC   = '#C4622D';
@@ -16,6 +16,18 @@ const NAV_LINKS = [
 export default function AdminNav({ active, onSyncComplete }) {
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setShowSettings(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleSync = async () => {
     try {
@@ -82,6 +94,34 @@ export default function AdminNav({ active, onSyncComplete }) {
             <span className="material-symbols-outlined" style={{ fontSize: '10px' }}>sync</span>
             {syncing ? 'Syncing…' : 'Sync'}
           </button>
+          <div ref={dropdownRef} style={{ position: 'relative' }}>
+            <button
+              onClick={() => setShowSettings(s => !s)}
+              style={{ display: 'flex', alignItems: 'center', padding: '2px 6px', backgroundColor: 'transparent', border: `1px solid ${RULE}`, color: INK, cursor: 'pointer' }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>settings</span>
+            </button>
+            {showSettings && (
+              <div style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, backgroundColor: '#FFF', border: `1px solid ${RULE}`, minWidth: '120px', zIndex: 100 }}>
+                <a
+                  href="/admin/emails"
+                  style={{ display: 'block', padding: '7px 12px', fontSize: '11px', fontWeight: 600, color: INK, textDecoration: 'none', borderBottom: `1px solid ${RULE}` }}
+                  onMouseEnter={e => e.currentTarget.style.backgroundColor = '#F5F5F5'}
+                  onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  Emails
+                </a>
+                <a
+                  href="/admin/course-config"
+                  style={{ display: 'block', padding: '7px 12px', fontSize: '11px', fontWeight: 600, color: INK, textDecoration: 'none' }}
+                  onMouseEnter={e => e.currentTarget.style.backgroundColor = '#F5F5F5'}
+                  onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  Courses
+                </a>
+              </div>
+            )}
+          </div>
           <span style={{ fontSize: '8px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '3px 7px', backgroundColor: INK, color: '#FFF' }}>
             Admin
           </span>

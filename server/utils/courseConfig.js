@@ -11,8 +11,13 @@ async function loadConfig() {
     .order('display_name', { ascending: true });
 
   if (error) {
-    console.error('Failed to load course config:', error);
-    throw error;
+    console.error('[CourseConfig] Failed to load course config:', error);
+    if (error.code === 'PGRST205') {
+      console.warn('[CourseConfig] Table not in PostgREST schema cache yet — this resolves automatically within a few minutes');
+      console.warn('[CourseConfig] Server will retry on next config access');
+    }
+    configCache = {};
+    return configCache;
   }
 
   configCache = {};
@@ -25,16 +30,18 @@ async function loadConfig() {
 }
 
 function getConfig(courseTypeKey) {
-  if (!configCache) {
-    throw new Error('Course config not loaded yet. Call loadConfig() on startup.');
-  }
+  if (!configCache) return null;
   return configCache[courseTypeKey] || null;
 }
 
-function getAllConfigs() {
-  if (!configCache) {
-    throw new Error('Course config not loaded yet. Call loadConfig() on startup.');
+async function ensureLoaded() {
+  if (!configCache || Object.keys(configCache).length === 0) {
+    await loadConfig();
   }
+}
+
+function getAllConfigs() {
+  if (!configCache) return [];
   return Object.values(configCache);
 }
 
@@ -52,4 +59,5 @@ module.exports = {
   getAllConfigs,
   getConfigByCategory,
   refreshConfig,
+  ensureLoaded,
 };

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import AdminNav from '../components/AdminNav';
+
 import api from '../utils/api';
 
 const TC       = '#C4622D';
@@ -142,8 +142,6 @@ export default function AdminCourseConfig() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#FAFAF9', fontFamily: 'Atak, sans-serif' }}>
-      <AdminNav active="course-config" />
-
       <div style={{ maxWidth: '1140px', margin: '0 auto', padding: '32px 10px' }}>
         {/* Page header */}
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: '24px' }}>

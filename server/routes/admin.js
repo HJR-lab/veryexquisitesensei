@@ -4530,6 +4530,7 @@ app.get('/api/admin/course-emails/history', authenticateToken, requireAdmin, asy
 
 // Course config CRUD
 app.get('/api/admin/course-config', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  await courseConfig.ensureLoaded();
   const configs = courseConfig.getAllConfigs();
   res.json(configs);
 }));

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import AdminNav from '../components/AdminNav';
+
 import api from '../utils/api';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -202,8 +202,6 @@ export default function AdminEmails() {
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <AdminNav active="emails" />
-
       <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '32px 24px 60px' }}>
 
         {/* ── Page header ── */}

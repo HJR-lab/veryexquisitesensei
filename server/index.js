@@ -8,6 +8,7 @@ const { shopifyApi, LATEST_API_VERSION } = require('@shopify/shopify-api');
 require('@shopify/shopify-api/adapters/node');
 const { upload, ensureBucketExists } = require('./utils/imageUpload');
 const { startAutomaticProcessing, autoMarkPastBookingsAsAttended } = require('./utils/cohortAutoProcessor');
+const courseConfig = require('./utils/courseConfig');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -219,6 +220,7 @@ module.exports = app;
 if (require.main === module) {
   const server = app.listen(PORT, async () => {
     console.log(`VES Pottery Gallery API running on port ${PORT}`);
+    await courseConfig.loadConfig();
     await ensureBucketExists();
     startAutomaticProcessing();
   });

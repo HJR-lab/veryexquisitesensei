@@ -1,5 +1,6 @@
 const supabaseDb = require('../utils/supabaseDb');
 const { generateICS, generateMultipleICS } = require('../utils/calendarGenerator');
+const courseConfig = require('../utils/courseConfig');
 
 // In-memory cache for admin stats summary (30s TTL)
 let adminStatsSummaryCache = null;
@@ -4482,5 +4483,55 @@ app.get('/api/admin/course-emails/history', authenticateToken, requireAdmin, asy
 }));
 
 // ============================================
+
+// Course config CRUD
+app.get('/api/admin/course-config', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const configs = courseConfig.getAllConfigs();
+  res.json(configs);
+}));
+
+app.put('/api/admin/course-config/:key', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { key } = req.params;
+  const updates = req.body;
+
+  delete updates.id;
+  delete updates.course_type_key;
+  delete updates.created_at;
+  updates.updated_at = new Date().toISOString();
+
+  const { data, error } = await supabaseDb.supabase
+    .from('course_config')
+    .update(updates)
+    .eq('course_type_key', key)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  await courseConfig.refreshConfig();
+  res.json(data);
+}));
+
+app.post('/api/admin/course-config', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const config = req.body;
+
+  if (!config.course_type_key || !config.display_name || !config.category) {
+    return res.status(400).json({ error: 'Missing required fields: course_type_key, display_name, category' });
+  }
+
+  config.created_at = new Date().toISOString();
+  config.updated_at = new Date().toISOString();
+
+  const { data, error } = await supabaseDb.supabase
+    .from('course_config')
+    .insert(config)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  await courseConfig.refreshConfig();
+  res.json(data);
+}));
 
 };

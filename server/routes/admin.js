@@ -3753,6 +3753,50 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
     if (feeError) console.error('Error creating fee record:', feeError);
   }
 
+  // Send reschedule confirmation email
+  try {
+    const { data: student } = await supabaseDb.supabase
+      .from('customers')
+      .select('first_name, email')
+      .eq('id', originalBooking.student_id)
+      .single();
+
+    const { data: newClassInstance } = await supabaseDb.supabase
+      .from('class_instances')
+      .select('class_date, start_time, end_time')
+      .eq('id', newClassInstanceId)
+      .single();
+
+    if (student?.email && newClassInstance) {
+      const rescheduleTemplate = require('../email-templates/reschedule-confirmation');
+      const { sendAndLogEmail } = require('../utils/emailService');
+      const originalDate = originalBooking.class_instances?.class_date
+        ? new Date(originalBooking.class_instances.class_date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
+        : 'your original class';
+      const newDate = new Date(newClassInstance.class_date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+      const newTime = `${newClassInstance.start_time} – ${newClassInstance.end_time}`;
+
+      const { subject, html } = rescheduleTemplate.generate({
+        firstName: student.first_name || 'Student',
+        originalDate,
+        newDate,
+        newTime,
+        courseIdentifier: originalBooking.course_enrollment_id || '',
+      });
+
+      await sendAndLogEmail({
+        emailType: 'reschedule_confirmation',
+        courseIdentifier: originalBooking.course_enrollment_id || 'N/A',
+        subject,
+        html,
+        recipientEmails: [student.email],
+        sentBy: 'system',
+      });
+    }
+  } catch (emailErr) {
+    console.error('Failed to send reschedule confirmation email:', emailErr);
+  }
+
   res.json({ message: 'Booking rescheduled successfully', newBooking });
 }));
 

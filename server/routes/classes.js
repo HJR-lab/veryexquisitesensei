@@ -1214,6 +1214,42 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
     console.error('[Waitlist] Error auto-offering spot after reschedule:', waitlistErr);
   }
 
+  // Send reschedule confirmation email
+  try {
+    const { data: student } = await supabaseDb.supabase
+      .from('customers')
+      .select('first_name, email')
+      .eq('id', dbCustomerId)
+      .single();
+
+    if (student?.email) {
+      const rescheduleTemplate = require('../email-templates/reschedule-confirmation');
+      const { sendAndLogEmail } = require('../utils/emailService');
+      const originalDate = new Date(oldClass.class_date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+      const newDate = new Date(newClass.class_date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+      const newTime = `${newClass.start_time} – ${newClass.end_time}`;
+
+      const { subject, html } = rescheduleTemplate.generate({
+        firstName: student.first_name || 'Student',
+        originalDate,
+        newDate,
+        newTime,
+        courseIdentifier: currentBooking.course_enrollment_id || '',
+      });
+
+      await sendAndLogEmail({
+        emailType: 'reschedule_confirmation',
+        courseIdentifier: currentBooking.course_enrollment_id || 'N/A',
+        subject,
+        html,
+        recipientEmails: [student.email],
+        sentBy: 'system',
+      });
+    }
+  } catch (emailErr) {
+    console.error('Failed to send reschedule confirmation email:', emailErr);
+  }
+
   res.json({
     success: true,
     booking: {

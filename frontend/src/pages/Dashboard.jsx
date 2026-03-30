@@ -233,9 +233,11 @@ export default function Dashboard() {
   });
 
   // Greeting course count line: unique types, sum remaining
-  const greetingCounts = enrollmentsWithCounts.reduce((acc, { typeLabel, remaining }) => {
-    if (!acc[typeLabel]) acc[typeLabel] = 0;
-    acc[typeLabel] += remaining;
+  const greetingCounts = enrollmentsWithCounts.reduce((acc, { typeLabel, remaining, enrollment }) => {
+    const isHB = (enrollment.course_type || '').toLowerCase().includes('handbuilding');
+    if (!acc[typeLabel]) acc[typeLabel] = { remaining: 0, isHB: false };
+    acc[typeLabel].remaining += remaining;
+    if (isHB) acc[typeLabel].isHB = true;
     return acc;
   }, {});
   const greetingEntries = Object.entries(greetingCounts);
@@ -307,10 +309,14 @@ export default function Dashboard() {
             </h1>
             {greetingEntries.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px', fontSize: '14px', color: MUTED, marginBottom: '4px' }}>
-                {greetingEntries.map(([label, remaining], i) => (
+                {greetingEntries.map(([label, info], i) => (
                   <span key={label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     {i > 0 && <span style={{ color: RULE }}>·</span>}
-                    <strong style={{ color: INK }}>{remaining}</strong>&nbsp;{label}
+                    {info.isHB ? (
+                      <span>{label}. <strong style={{ color: INK }}>{info.remaining}</strong> class credit{info.remaining !== 1 ? 's' : ''} remaining</span>
+                    ) : (
+                      <span><strong style={{ color: INK }}>{info.remaining}</strong>&nbsp;{label}</span>
+                    )}
                   </span>
                 ))}
               </div>

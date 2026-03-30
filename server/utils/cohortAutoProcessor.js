@@ -147,7 +147,7 @@ async function autoMarkPastBookingsAsAttended() {
   try {
     const todayStr = new Date().toISOString().split('T')[0];
 
-    // Fetch past bookings still in 'booked' status, paginated to handle >1000 rows
+    // Fetch all 'booked' bookings with class dates, then filter for past dates in JS
     let allPastBookings = [];
     let offset = 0;
     const pageSize = 1000;
@@ -155,9 +155,8 @@ async function autoMarkPastBookingsAsAttended() {
     while (true) {
       const { data: page, error } = await supabase
         .from('bookings')
-        .select('id, class_instance_id, class_instances!bookings_class_instance_id_fkey!inner(class_date)')
+        .select('id, class_instance_id, class_instances!bookings_class_instance_id_fkey(class_date)')
         .eq('status', 'booked')
-        .lt('class_instances!bookings_class_instance_id_fkey.class_date', todayStr)
         .range(offset, offset + pageSize - 1);
 
       if (error) {
@@ -166,7 +165,12 @@ async function autoMarkPastBookingsAsAttended() {
       }
 
       if (!page || page.length === 0) break;
-      allPastBookings = allPastBookings.concat(page);
+      // Filter for past class dates
+      const pastInPage = page.filter(b => {
+        const d = b.class_instances?.class_date?.split('T')[0];
+        return d && d < todayStr;
+      });
+      allPastBookings = allPastBookings.concat(pastInPage);
       if (page.length < pageSize) break;
       offset += pageSize;
     }

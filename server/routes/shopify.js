@@ -19,10 +19,10 @@ async function autoCompleteFinishedEnrollments() {
   try {
     const todayStr = new Date().toISOString().split('T')[0];
 
-    // Get all active/paused enrollments
+    // Get all active enrollments (include credit fields for HB check)
     const { data: activeEnrollments, error } = await supabaseDb.supabase
       .from('course_enrollments')
-      .select('id, student_id, course_identifier')
+      .select('id, student_id, course_identifier, course_type, class_credits_remaining')
       .in('status', ['active']);
 
     if (error || !activeEnrollments?.length) return 0;
@@ -46,6 +46,12 @@ async function autoCompleteFinishedEnrollments() {
       });
 
       if (allPast) {
+        // Skip HB credit-based enrollments that still have remaining credits
+        const isHB = enrollment.course_type && enrollment.course_type.toLowerCase().includes('handbuilding');
+        if (isHB && enrollment.class_credits_remaining > 0) {
+          continue; // Student still has credits to use
+        }
+
         await supabaseDb.supabase
           .from('course_enrollments')
           .update({ status: 'completed', updated_at: new Date().toISOString() })

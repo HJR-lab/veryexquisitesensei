@@ -642,6 +642,25 @@ export default function ClassScheduleNew() {
           );
         })()}
 
+        {/* ── HB CREDITS CARD ───────────────────────────────────────────── */}
+        {hbEnrollment && hbEnrollment.creditsRemaining > 0 && (
+          <div style={{ padding: '6px 20px 8px' }}>
+            <div style={{ padding: '14px', backgroundColor: '#FFF8F0', border: `1px solid ${RULE}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: TC_DARK, letterSpacing: '0.03em' }}>
+                  Handbuilding · {hbEnrollment.creditsUsed} of {hbEnrollment.creditsAllocated} used
+                </span>
+              </div>
+              <div style={{ height: '4px', backgroundColor: RULE, borderRadius: '2px', position: 'relative', marginBottom: '6px' }}>
+                <div style={{ position: 'absolute', left: 0, top: 0, height: '4px', borderRadius: '2px', width: `${Math.round((hbEnrollment.creditsUsed / hbEnrollment.creditsAllocated) * 100)}%`, backgroundColor: TC }} />
+              </div>
+              <div style={{ fontSize: '11px', color: MUTED }}>
+                {hbEnrollment.creditsRemaining} Class Credit{hbEnrollment.creditsRemaining !== 1 ? 's' : ''} remaining
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── DATE STRIP ────────────────────────────────────────────────────── */}
         <div>
           {/* Month label + nav arrows */}

@@ -135,13 +135,13 @@ export default function AdminStudents() {
   const [search, setSearch] = useState('');
   const [uiFilter, setUiFilter] = useState('all'); // 'all'|'wt-all'|'pkg-wt6'|'pkg-wt7'|'pkg-wt10'|'pkg-wt18'|'hb-all'|'pkg-hb4'|'pkg-hb8'|'members'
   const [uiSort, setUiSort] = useState('recent'); // 'cohort'|'name'|'recent'|'expiry'|'plan'
-  const [pageSize, setPageSize] = useState(10); // 10 | 50 | 'all'
+  const [pageSize, setPageSize] = useState('all'); // 10 | 50 | 'all'
                                                    // member sorts: 'expiry'|'plan'|'name'|'recent'
 
   // Server-side pagination
   const [pagination, setPagination] = useState({ page: 0, total: 0, totalPages: 0 });
   const [loadingMore, setLoadingMore] = useState(false);
-  const SERVER_PAGE_SIZE = 50;
+  const SERVER_PAGE_SIZE = 'all';
 
   useEffect(() => {
     // Phase 1: instant summary counts
@@ -433,7 +433,7 @@ export default function AdminStudents() {
         _enrollmentId: s.enrollmentId,
         _variantTitle: s.variantTitle || s.courseIdentifier || '',
         _lastClassDate: null,
-        _recentDate: s.enrollmentCreatedAt || s.coursePurchaseDate || null,
+        _recentDate: s.latestEnrollmentDate || s.enrollmentCreatedAt || s.coursePurchaseDate || null,
         _membership: membership || null,
         _statusKey: s.enrollmentStatus === 'upcoming' ? 'upcoming' : 'active',
         _packageTotalCourses: s.packageTotalCourses || null,
@@ -454,7 +454,7 @@ export default function AdminStudents() {
         _enrollmentId: s.enrollmentId,
         _variantTitle: s.variantTitle || s.courseTitle || 'HB',
         _lastClassDate: null,
-        _recentDate: s.enrollmentCreatedAt || s.createdAt || null,
+        _recentDate: s.latestEnrollmentDate || s.enrollmentCreatedAt || s.createdAt || null,
         _membership: membership || null,
         _statusKey: 'hb',
       };
@@ -472,7 +472,7 @@ export default function AdminStudents() {
         _enrollmentId: s.enrollmentId,
         _variantTitle: s.variantTitle || s.courseIdentifier || '',
         _lastClassDate: null,
-        _recentDate: s.enrollmentCreatedAt || s.coursePurchaseDate || null,
+        _recentDate: s.latestEnrollmentDate || s.enrollmentCreatedAt || s.coursePurchaseDate || null,
         _membership: membership || null,
         _statusKey: 'paused',
       };

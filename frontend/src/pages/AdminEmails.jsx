@@ -42,6 +42,12 @@ export default function AdminEmails() {
   const [history,        setHistory]        = useState([]);
   const [loading,        setLoading]        = useState(true);
   const [saveStatus,     setSaveStatus]     = useState(null); // null | 'saving' | 'saved' | 'error'
+  const [statusMsg,      setStatusMsg]      = useState(null); // { type: 'success'|'error', text }
+
+  const showStatus = (type, text) => {
+    setStatusMsg({ type, text });
+    setTimeout(() => setStatusMsg(null), 4000);
+  };
 
   // Compose state
   const [composeCourse,  setComposeCourse]  = useState(null); // courseIdentifier string
@@ -140,7 +146,7 @@ export default function AdminEmails() {
         disposalDate: data.disposalDate || '',
       });
     } catch (err) {
-      alert('Failed to load draft: ' + (err.response?.data?.error || err.message));
+      showStatus('error', err.response?.data?.error || 'Failed to load draft');
       setView('settings');
       setComposeCourse(null);
     } finally {
@@ -178,13 +184,13 @@ export default function AdminEmails() {
         disposalDate:      draft.disposalDate,
         recipientEmails,
       });
-      alert(`Email sent to ${recipientEmails.length} student${recipientEmails.length !== 1 ? 's' : ''}!`);
+      showStatus('success', `Email sent to ${recipientEmails.length} student${recipientEmails.length !== 1 ? 's' : ''}`);
       setDraft(null);
       setComposeCourse(null);
       setView('settings');
       loadAll();
     } catch (err) {
-      alert('Failed to send email: ' + (err.response?.data?.error || err.message));
+      showStatus('error', err.response?.data?.error || 'Failed to send email');
     } finally {
       setSending(false);
     }

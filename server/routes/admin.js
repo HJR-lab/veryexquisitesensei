@@ -2409,8 +2409,11 @@ app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, requireAdm
     // Keep bookings with no enrollment link (standalone/legacy)
     if (!booking.course_enrollment) return true;
 
-    // Keep bookings from active, paused, upcoming, or completed enrollments
-    if (['active', 'paused', 'upcoming', 'completed'].includes(booking.course_enrollment.status)) return true;
+    // Keep bookings from active, paused, or upcoming enrollments
+    if (['active', 'paused', 'upcoming'].includes(booking.course_enrollment.status)) return true;
+
+    // For completed enrollments: only keep if they have future bookings
+    if (booking.course_enrollment.status === 'completed' && enrollmentHasFutureBookings[booking.course_enrollment_id]) return true;
 
     // For cancelled enrollments: keep if there are still future bookings
     if (enrollmentHasFutureBookings[booking.course_enrollment_id]) return true;

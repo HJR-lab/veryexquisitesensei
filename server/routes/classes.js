@@ -125,15 +125,16 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
 
     // If enrollment has a course_identifier set, use that and group all bookings together
     if (enrollment.course_identifier) {
-      const hasUpcomingClasses = courseBookings.some(b =>
-        new Date(b.class_instance.class_date) >= today && b.status === 'booked'
-      );
-
       const sortedBookings = [...courseBookings].sort((a, b) =>
         new Date(a.class_instance.class_date) - new Date(b.class_instance.class_date)
       );
       const startDate = sortedBookings[0]?.class_instance.class_date;
       const endDate = sortedBookings[sortedBookings.length - 1]?.class_instance.class_date;
+
+      const hasUpcomingClasses = courseBookings.some(b =>
+        new Date(b.class_instance.class_date) >= today && b.status === 'booked'
+      );
+      const allClassesFuture = startDate && new Date(startDate) > today;
 
       const instructor = sortedBookings[0]?.class_instance.instructor ||
                         enrollment.instructor ||
@@ -149,7 +150,7 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
         startDate: startDate,
         endDate: endDate,
         instructor: instructor,
-        status: hasUpcomingClasses ? 'current' : 'completed',
+        status: allClassesFuture ? 'upcoming' : hasUpcomingClasses ? 'current' : 'completed',
         classes: sortedBookings.map(b => ({
           id: b.class_instance.id,
           date: b.class_instance.class_date,
@@ -202,6 +203,8 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
                         enrollment.instructor ||
                         'VES Instructor';
 
+      const allClassesFuture = startDate && new Date(startDate) > today;
+
       courseHistory.push({
         id: `${enrollment.id}-${primaryCourseId}`,
         type: 'course',
@@ -212,7 +215,7 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
         startDate: startDate,
         endDate: endDate,
         instructor: instructor,
-        status: hasUpcomingClasses ? 'current' : 'completed',
+        status: allClassesFuture ? 'upcoming' : hasUpcomingClasses ? 'current' : 'completed',
         classes: sortedBookings.map(b => ({
           id: b.class_instance.id,
           date: b.class_instance.class_date,
@@ -233,18 +236,21 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
         new Date(b.class_instance.class_date) >= today && b.status === 'booked'
       );
 
-      // Determine course status
-      let courseStatus = 'completed';
-      if (hasUpcomingClasses) {
-        courseStatus = 'current';
-      }
-
       // Calculate actual start and end dates from bookings
       const sortedBookings = [...courseBookings].sort((a, b) =>
         new Date(a.class_instance.class_date) - new Date(b.class_instance.class_date)
       );
       const startDate = sortedBookings[0]?.class_instance.class_date;
       const endDate = sortedBookings[sortedBookings.length - 1]?.class_instance.class_date;
+
+      // Determine course status
+      const allClassesFuture = startDate && new Date(startDate) > today;
+      let courseStatus = 'completed';
+      if (allClassesFuture) {
+        courseStatus = 'upcoming';
+      } else if (hasUpcomingClasses) {
+        courseStatus = 'current';
+      }
 
       // Get instructor from first booking or enrollment
       const instructor = sortedBookings[0]?.class_instance.instructor ||

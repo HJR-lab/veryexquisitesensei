@@ -671,6 +671,24 @@ export default function AdminClasses() {
     }
   };
 
+  const handleMoveStudent = async (studentId, studentName, fromCourseId, toCourseId) => {
+    if (!confirm(`Move ${studentName} from ${fromCourseId} to ${toCourseId}?`)) return;
+    try {
+      await api.post('/admin/course-emails/move-student', {
+        studentId, fromCourseId, toCourseId,
+      });
+      await loadCourses();
+      // Reload members for expanded course
+      if (expandedCourse) {
+        const targetCourse = courses.find(c => c.identifier === toCourseId);
+        if (targetCourse?.classes?.[0]) loadClassMembers(targetCourse.classes[0]);
+      }
+    } catch (error) {
+      console.error('Failed to move student:', error);
+      alert(error.response?.data?.error || 'Failed to move student.');
+    }
+  };
+
   const handleDeleteCourse = async (courseId, enrolled) => {
     if (enrolled > 0) {
       alert(`Cannot delete ${courseId} — ${enrolled} students enrolled. Remove all students first.`);
@@ -780,15 +798,28 @@ export default function AdminClasses() {
             <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: TC_DARK, marginBottom: '8px' }}>
               Enrolled — {enrolled}/{course.capacity}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px', marginBottom: '10px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '3px', marginBottom: '10px' }}>
               {allMembersForCourse.map((s, j) => (
                 <div
                   key={j}
-                  onClick={e => { e.stopPropagation(); navigate(`/admin/students/${encodeURIComponent(s.email)}`); }}
-                  style={{ fontSize: '10px', fontWeight: 600, padding: '5px 8px', backgroundColor: '#FFFFFF', border: `1px solid rgba(196,98,45,0.2)`, color: INK, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '3px', cursor: 'pointer' }}
+                  style={{ fontSize: '10px', fontWeight: 600, padding: '4px 8px', backgroundColor: '#FFFFFF', border: `1px solid rgba(196,98,45,0.2)`, color: INK, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '4px' }}
                 >
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortName(s.name)}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: TC, flexShrink: 0 }}>{s.orders}</span>
+                  <span
+                    onClick={e => { e.stopPropagation(); navigate(`/admin/students/${encodeURIComponent(s.email)}`); }}
+                    style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer', flex: 1 }}
+                  >
+                    {shortName(s.name)}
+                  </span>
+                  <select
+                    onClick={e => e.stopPropagation()}
+                    onChange={e => { if (e.target.value) { handleMoveStudent(s.studentId, shortName(s.name), course.id, e.target.value); e.target.value = ''; } }}
+                    style={{ fontSize: '9px', padding: '1px 2px', border: `1px solid ${RULE}`, color: MUTED, cursor: 'pointer', fontFamily: 'inherit', maxWidth: '80px' }}
+                  >
+                    <option value="">Move…</option>
+                    {wtCourses.filter(c => c.id !== course.id).map(c => (
+                      <option key={c.id} value={c.id}>{c.id}</option>
+                    ))}
+                  </select>
                 </div>
               ))}
               {Array.from({ length: openSlots }).map((_, j) => (

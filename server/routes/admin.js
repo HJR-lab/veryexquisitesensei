@@ -4245,14 +4245,20 @@ const { sendAndLogEmail, detectCourseTemplate } = require('../utils/emailService
 
 // Helper: format date as "14 March" style
 function formatDateNice(dateStr) {
-  const d = new Date(dateStr + 'T00:00:00');
+  if (!dateStr) return '—';
+  const cleaned = String(dateStr).split('T')[0];
+  const d = new Date(cleaned + 'T12:00:00');
+  if (isNaN(d.getTime())) return '—';
   const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   return `${d.getDate()} ${months[d.getMonth()]}`;
 }
 
 // Helper: get day of week from date string
 function getDayOfWeek(dateStr) {
-  const d = new Date(dateStr + 'T00:00:00');
+  if (!dateStr) return '';
+  const cleaned = String(dateStr).split('T')[0];
+  const d = new Date(cleaned + 'T12:00:00');
+  if (isNaN(d.getTime())) return '';
   const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   return days[d.getDay()];
 }

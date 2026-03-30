@@ -4440,17 +4440,21 @@ app.get('/api/admin/course-emails/:courseId/draft', authenticateToken, requireAd
 
   if (classError) throw classError;
 
-  const classDates = (classInstances || []).map(c => c.class_date).sort();
-  const startDate = classDates[0];
-  const endDate = classDates[classDates.length - 1];
-  const firstClass = classInstances[0];
+  const classDates = (classInstances || []).map(c => String(c.class_date).split('T')[0]).sort();
+  const startDate = classDates[0] || null;
+  const endDate = classDates[classDates.length - 1] || null;
+  const firstClass = (classInstances || [])[0] || null;
 
-  // Calculate collection/disposal dates
-  const lastClassDate = new Date(endDate + 'T00:00:00');
-  const collectionStartDate = new Date(lastClassDate);
-  collectionStartDate.setMonth(collectionStartDate.getMonth() + 1);
-  const disposalDate = new Date(lastClassDate);
-  disposalDate.setMonth(disposalDate.getMonth() + 3);
+  // Calculate collection/disposal dates (only if we have class dates)
+  let collectionStartDate = null;
+  let disposalDate = null;
+  if (endDate) {
+    const lastClassDate = new Date(endDate + 'T00:00:00');
+    collectionStartDate = new Date(lastClassDate);
+    collectionStartDate.setMonth(collectionStartDate.getMonth() + 1);
+    disposalDate = new Date(lastClassDate);
+    disposalDate.setMonth(disposalDate.getMonth() + 3);
+  }
 
   // Detect template type from first enrollment
   const templateType = detectCourseTemplate(enrollments[0]);
@@ -4466,19 +4470,24 @@ app.get('/api/admin/course-emails/:courseId/draft', authenticateToken, requireAd
       name: `${e.customers.first_name} ${e.customers.last_name}`.trim(),
     }));
 
-  const timeSlot = firstClass ? formatTimeSlot(firstClass.start_time, firstClass.end_time) : '';
+  const timeSlot = firstClass ? formatTimeSlot(firstClass.start_time, firstClass.end_time)
+    : (courseId.includes('PM') ? '1pm – 3:30pm' : courseId.includes('AM') ? '9:30am – 12pm' : courseId.includes('NT') ? '7pm – 9:30pm' : '');
   const dayOfWeek = startDate ? getDayOfWeek(startDate) : '';
+
+  // Use identifier-parsed date as fallback when no class instances exist
+  const displayStartDate = startDate ? formatDateNice(startDate) : parseStartDateFromIdentifier(courseId) || '—';
+  const displayEndDate = endDate ? formatDateNice(endDate) : '—';
 
   res.json({
     courseIdentifier: courseId,
     templateType,
     dayOfWeek,
-    startDate: formatDateNice(startDate),
-    endDate: formatDateNice(endDate),
+    startDate: displayStartDate,
+    endDate: displayEndDate,
     timeSlot,
-    collectionStart: formatDateNice(collectionStartDate.toISOString().split('T')[0]),
-    collectionEnd: formatDateNice(collectionStartDate.toISOString().split('T')[0]),
-    disposalDate: formatDateNice(disposalDate.toISOString().split('T')[0]),
+    collectionStart: collectionStartDate ? formatDateNice(collectionStartDate.toISOString().split('T')[0]) : '',
+    collectionEnd: collectionStartDate ? formatDateNice(collectionStartDate.toISOString().split('T')[0]) : '',
+    disposalDate: disposalDate ? formatDateNice(disposalDate.toISOString().split('T')[0]) : '',
     holidayExclusions: '',
     specialNotes: '',
     students,

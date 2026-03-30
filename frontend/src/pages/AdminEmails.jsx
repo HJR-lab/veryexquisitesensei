@@ -222,6 +222,11 @@ export default function AdminEmails() {
                 {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : 'Error saving'}
               </span>
             )}
+            {statusMsg && (
+              <span style={{ fontSize: '11px', fontWeight: 600, color: statusMsg.type === 'error' ? '#C0392B' : GREEN }}>
+                {statusMsg.text}
+              </span>
+            )}
             {view === 'settings' && (
               <button
                 onClick={() => setView('history')}

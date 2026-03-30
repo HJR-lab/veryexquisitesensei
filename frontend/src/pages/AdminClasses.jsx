@@ -1250,8 +1250,8 @@ export default function AdminClasses() {
               {hbCourses.length > 0 && (
                 <>
                   <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, margin: '16px 0 12px' }}>Handbuilding Classes</div>
-                  <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF', display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)' }}>
-                    {hbCourses.map((hb, i) => renderHBCard(hb, i))}
+                  <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF', display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)' }}>
+                    {[...hbCourses].sort((a, b) => ((a.dayOfWeek + 6) % 7) - ((b.dayOfWeek + 6) % 7)).map((hb, i) => renderHBCard(hb, i))}
                   </div>
                 </>
               )}

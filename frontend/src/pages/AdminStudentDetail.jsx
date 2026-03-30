@@ -179,6 +179,10 @@ export default function AdminStudentDetail() {
   const [teachingData, setTeachingData] = useState(null);
   const [expandedClassId, setExpandedClassId] = useState(null);
 
+  // ── Continue Package ─────────────────────────────────────────────────────
+  const [nextCourse, setNextCourse] = useState(null);
+  const [continuingPackage, setContinuingPackage] = useState(false);
+
   // ── Studio Access ────────────────────────────────────────────────────────
   const [studioBookings, setStudioBookings] = useState([]);
   const [studioSummary, setStudioSummary] = useState(null);
@@ -335,7 +339,17 @@ export default function AdminStudentDetail() {
 
       if (studentData.id) {
         const enrollmentResult = results[1];
-        setEnrollment(enrollmentResult ? enrollmentResult.data : null);
+        const enrollmentData = enrollmentResult ? enrollmentResult.data : null;
+        setEnrollment(enrollmentData);
+
+        // Check for next package course if student has remaining courses
+        if (enrollmentData?.package_total_courses > 1 && enrollmentData?.package_courses_remaining > 0) {
+          api.get(`/admin/students/${studentData.id}/next-package-course?enrollmentId=${enrollmentData.id}`)
+            .then(res => setNextCourse(res.data))
+            .catch(() => setNextCourse(null));
+        } else {
+          setNextCourse(null);
+        }
 
         const feesData = results[2].data;
         setFees(feesData.fees || []);
@@ -562,6 +576,22 @@ export default function AdminStudentDetail() {
       alert('Failed to convert to credit');
     } finally {
       setDeletingBookingId(null);
+    }
+  };
+
+  const handleContinuePackage = async () => {
+    if (!nextCourse?.available || !enrollment?.id || !student?.id) return;
+    setContinuingPackage(true);
+    try {
+      await api.post(`/admin/students/${student.id}/continue-package`, {
+        currentEnrollmentId: enrollment.id,
+      });
+      setSaveMessage({ type: 'ok', text: `Enrolled in next course: ${nextCourse.nextCourse?.identifier || ''}` });
+      await loadStudentData();
+    } catch (err) {
+      setSaveMessage({ type: 'err', text: err.response?.data?.error || 'Failed to continue package' });
+    } finally {
+      setContinuingPackage(false);
     }
   };
 
@@ -1063,6 +1093,32 @@ export default function AdminStudentDetail() {
                             <span> · <span style={{ color: TC_DARK, fontWeight: 600 }}>{enrollment.package_courses_remaining} more course{enrollment.package_courses_remaining > 1 ? 's' : ''} remaining ({enrollment.package_courses_remaining * (enrollment.number_of_weeks || 6)} classes)</span></span>
                           )}
                         </div>
+                        {nextCourse?.available && enrollment.package_courses_remaining > 0 && (
+                          <div style={{ marginTop: '12px' }}>
+                            <button
+                              onClick={handleContinuePackage}
+                              disabled={continuingPackage}
+                              style={{
+                                width: '100%', padding: '10px 16px',
+                                backgroundColor: TC, color: '#fff', border: 'none', borderRadius: '6px',
+                                fontSize: '12px', fontWeight: 700,
+                                cursor: continuingPackage ? 'not-allowed' : 'pointer',
+                                opacity: continuingPackage ? 0.6 : 1,
+                              }}
+                            >
+                              {continuingPackage ? 'Enrolling...' : `Enroll in Next Course → ${nextCourse.nextCourse?.identifier || ''}`}
+                            </button>
+                            <div style={{ fontSize: '10px', color: MUTED, marginTop: '4px', textAlign: 'center' }}>
+                              {nextCourse.nextCourse?.startDate && new Date(nextCourse.nextCourse.startDate).toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' })}
+                              {nextCourse.nextCourse?.instructor && ` · ${nextCourse.nextCourse.instructor}`}
+                            </div>
+                          </div>
+                        )}
+                        {enrollment.package_courses_remaining > 0 && nextCourse !== null && !nextCourse?.available && (
+                          <div style={{ fontSize: '10px', color: MUTED, marginTop: '8px', fontStyle: 'italic' }}>
+                            No matching upcoming course launched yet
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

@@ -665,10 +665,25 @@ export default function AdminClasses() {
     try {
       await api.delete(`/admin/classes/${classId}`);
       await loadCourses();
-      alert('Class deleted successfully!');
     } catch (error) {
       console.error('Failed to delete class:', error);
       alert(error.response?.data?.error || 'Failed to delete class. Please try again.');
+    }
+  };
+
+  const handleDeleteCourse = async (courseId, enrolled) => {
+    if (enrolled > 0) {
+      alert(`Cannot delete ${courseId} — ${enrolled} students enrolled. Remove all students first.`);
+      return;
+    }
+    if (!confirm(`Delete entire course ${courseId} and all its class instances? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/admin/courses/${courseId}`);
+      setExpandedCourse(null);
+      await loadCourses();
+    } catch (error) {
+      console.error('Failed to delete course:', error);
+      alert(error.response?.data?.error || 'Failed to delete course.');
     }
   };
 
@@ -732,7 +747,17 @@ export default function AdminClasses() {
         >
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '4px', marginBottom: '5px' }}>
             <span style={{ fontFamily: 'monospace', fontSize: '11px', fontWeight: 700, letterSpacing: '0.03em', lineHeight: 1.3 }}>{course.id}</span>
-            <span style={{ fontSize: '8px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '2px 5px', backgroundColor: course.enrolled < 4 ? '#FFF7E6' : TC_LIGHT, color: course.enrolled < 4 ? '#9E6200' : TC_DARK, flexShrink: 0 }}>{course.enrolled < 4 ? 'Standby' : 'On'}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+              <span style={{ fontSize: '8px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '2px 5px', backgroundColor: course.enrolled < 4 ? '#FFF7E6' : TC_LIGHT, color: course.enrolled < 4 ? '#9E6200' : TC_DARK }}>{course.enrolled < 4 ? 'Standby' : 'On'}</span>
+              {course.enrolled === 0 && (
+                <button
+                  onClick={e => { e.stopPropagation(); handleDeleteCourse(course.id, enrolled); }}
+                  style={{ fontSize: '8px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '2px 5px', backgroundColor: '#FDECEA', color: '#D93025', border: 'none', cursor: 'pointer' }}
+                >
+                  Delete
+                </button>
+              )}
+            </div>
           </div>
           <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '1px' }}>{course.dayName} · {course.timeLabel}</div>
           <div style={{ fontSize: '10px', color: MUTED, marginBottom: '10px' }}>{course.instructor}</div>

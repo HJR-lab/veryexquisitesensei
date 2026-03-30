@@ -117,7 +117,7 @@ export default function AdminCourseConfig() {
 
       // Update local state
       setConfigs(prev =>
-        prev.map(c => c.key === courseKey ? { ...c, [columnKey]: parsed } : c)
+        prev.map(c => c.course_type_key === courseKey ? { ...c, [columnKey]: parsed } : c)
       );
       showStatus('saved');
     } catch (err) {
@@ -194,16 +194,16 @@ export default function AdminCourseConfig() {
               <tbody>
                 {configs.map((course, rowIdx) => (
                   <tr
-                    key={course.key}
+                    key={course.course_type_key}
                     style={{
                       borderBottom: `1px solid ${RULE}`,
                       backgroundColor: rowIdx % 2 === 1 ? '#F9F8F7' : '#FFFFFF',
                     }}
                   >
                     {COLUMNS.map(col => {
-                      const editing = isEditing(course.key, col.key);
+                      const editing = isEditing(course.course_type_key, col.key);
                       const rawVal = course[col.key];
-                      const display = formatValue(rawVal, col, course.key);
+                      const display = formatValue(rawVal, col, course.course_type_key);
 
                       return (
                         <td
@@ -221,8 +221,8 @@ export default function AdminCourseConfig() {
                               type={col.type === 'text' ? 'text' : 'number'}
                               value={editValue}
                               onChange={e => setEditValue(e.target.value)}
-                              onBlur={() => saveEdit(course.key, col.key)}
-                              onKeyDown={e => handleKeyDown(e, course.key, col.key)}
+                              onBlur={() => saveEdit(course.course_type_key, col.key)}
+                              onKeyDown={e => handleKeyDown(e, course.course_type_key, col.key)}
                               style={{
                                 width: '100%',
                                 height: '36px',
@@ -238,7 +238,7 @@ export default function AdminCourseConfig() {
                             />
                           ) : (
                             <button
-                              onClick={() => startEdit(course.key, col, rawVal)}
+                              onClick={() => startEdit(course.course_type_key, col, rawVal)}
                               style={{
                                 display: 'flex',
                                 alignItems: 'center',

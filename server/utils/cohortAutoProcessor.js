@@ -155,9 +155,9 @@ async function autoMarkPastBookingsAsAttended() {
     while (true) {
       const { data: page, error } = await supabase
         .from('bookings')
-        .select('id, class_instance_id, class_instances!inner(class_date)')
+        .select('id, class_instance_id, class_instances!bookings_class_instance_id_fkey!inner(class_date)')
         .eq('status', 'booked')
-        .lt('class_instances.class_date', todayStr)
+        .lt('class_instances!bookings_class_instance_id_fkey.class_date', todayStr)
         .range(offset, offset + pageSize - 1);
 
       if (error) {

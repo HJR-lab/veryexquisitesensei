@@ -677,12 +677,9 @@ export default function AdminClasses() {
       await api.post('/admin/course-emails/move-student', {
         studentId, fromCourseId, toCourseId,
       });
+      // Clear member cache so it reloads fresh
+      setClassMembers({});
       await loadCourses();
-      // Reload members for expanded course
-      if (expandedCourse) {
-        const targetCourse = courses.find(c => c.identifier === toCourseId);
-        if (targetCourse?.classes?.[0]) loadClassMembers(targetCourse.classes[0]);
-      }
     } catch (error) {
       console.error('Failed to move student:', error);
       alert(error.response?.data?.error || 'Failed to move student.');
@@ -742,7 +739,7 @@ export default function AdminClasses() {
     const seenIds = new Set();
     course.classes.forEach(cls => {
       const members = classMembers[cls.id] || [];
-      members.filter(m => !m.isMakeup && m.courseEnrollmentId !== null).forEach(m => {
+      members.filter(m => !m.isMakeup).forEach(m => {
         if (!seenIds.has(m.studentId)) {
           seenIds.add(m.studentId);
           allMembersForCourse.push({ name: `${m.firstName} ${m.lastName}`, orders: m.returningCount || 1, studentId: m.studentId, email: m.email, bookingId: m.bookingId, classInstance: cls });

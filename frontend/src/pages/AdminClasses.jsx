@@ -749,7 +749,7 @@ export default function AdminClasses() {
             <span style={{ fontFamily: 'monospace', fontSize: '11px', fontWeight: 700, letterSpacing: '0.03em', lineHeight: 1.3 }}>{course.id}</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
               <span style={{ fontSize: '8px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '2px 5px', backgroundColor: course.enrolled < 4 ? '#FFF7E6' : TC_LIGHT, color: course.enrolled < 4 ? '#9E6200' : TC_DARK }}>{course.enrolled < 4 ? 'Standby' : 'On'}</span>
-              {course.enrolled === 0 && (
+              {course.enrolled < 4 && (
                 <button
                   onClick={e => { e.stopPropagation(); handleDeleteCourse(course.id, enrolled); }}
                   style={{ fontSize: '8px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '2px 5px', backgroundColor: '#FDECEA', color: '#D93025', border: 'none', cursor: 'pointer' }}

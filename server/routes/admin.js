@@ -1747,7 +1747,18 @@ app.get('/api/admin/students/:studentId/next-package-course', authenticateToken,
   const derived = deriveScheduleFromIdentifier(enrollment.course_identifier);
   const schedulePattern = enrollment.schedule_pattern || derived.schedulePattern;
   const classTime = enrollment.class_time || derived.classTime;
-  const currentEndDate = enrollment.course_end_date || new Date().toISOString().split('T')[0];
+
+  // Derive end date from bookings if missing
+  let currentEndDate = enrollment.course_end_date;
+  if (!currentEndDate) {
+    const { data: lastBooking } = await supabaseDb.supabase
+      .from('bookings')
+      .select('class_instances!bookings_class_instance_id_fkey(class_date)')
+      .eq('course_enrollment_id', enrollment.id)
+      .order('class_instances(class_date)', { ascending: false })
+      .limit(1);
+    currentEndDate = lastBooking?.[0]?.class_instances?.class_date?.split('T')[0] || new Date().toISOString().split('T')[0];
+  }
 
   if (!schedulePattern || !classTime) {
     return res.json({ available: false, reason: 'missing_schedule' });
@@ -1846,12 +1857,22 @@ app.post('/api/admin/students/:studentId/continue-package', authenticateToken, r
   }
 
   // 3. Find the next launched course matching same day/time
-  // Look for enrollments (launched courses) with same schedule_pattern and class_time
-  // that start after the current course ends
-  const schedulePattern = currentEnrollment.schedule_pattern;
-  const classTime = currentEnrollment.class_time;
+  const derived = deriveScheduleFromIdentifier(currentEnrollment.course_identifier);
+  const schedulePattern = currentEnrollment.schedule_pattern || derived.schedulePattern;
+  const classTime = currentEnrollment.class_time || derived.classTime;
   const courseType = currentEnrollment.course_type || 'Wheelthrowing Beginner';
-  const currentEndDate = currentEnrollment.course_end_date || new Date().toISOString().split('T')[0];
+
+  // Derive end date from bookings if missing
+  let currentEndDate = currentEnrollment.course_end_date;
+  if (!currentEndDate) {
+    const { data: lastBooking } = await supabaseDb.supabase
+      .from('bookings')
+      .select('class_instances!bookings_class_instance_id_fkey(class_date)')
+      .eq('course_enrollment_id', currentEnrollment.id)
+      .order('class_instances(class_date)', { ascending: false })
+      .limit(1);
+    currentEndDate = lastBooking?.[0]?.class_instances?.class_date?.split('T')[0] || new Date().toISOString().split('T')[0];
+  }
 
   if (!schedulePattern || !classTime) {
     return res.status(400).json({ error: 'Current enrollment missing schedule pattern or class time' });

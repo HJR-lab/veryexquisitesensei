@@ -465,7 +465,7 @@ export default function Dashboard() {
                       {/* Row 1: Title + Status badge */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                         <div style={{ fontSize: '12px', fontWeight: 700, color: INK, lineHeight: '1.3', flex: 1, minWidth: 0 }}>
-                          {enrollment.course_title || typeLabel}
+                          {typeLabel}
                         </div>
                         <span style={{
                           fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',

@@ -4371,12 +4371,32 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
       continue;
     }
 
-    // Get student count
-    const { count: studentCount } = await supabaseDb.supabase
-      .from('course_enrollments')
-      .select('*', { count: 'exact', head: true })
-      .like('course_identifier', `${courseId}%`)
-      .in('status', ['active', 'pending', 'upcoming']);
+    // Get student count from BOOKINGS on first class instance (most accurate — catches 3x6wk students too)
+    let studentCount = 0;
+    const { data: firstInst } = await supabaseDb.supabase
+      .from('class_instances')
+      .select('id')
+      .eq('class_type', `${courseId}.1`)
+      .limit(1)
+      .maybeSingle();
+
+    if (firstInst) {
+      const { count } = await supabaseDb.supabase
+        .from('bookings')
+        .select('*', { count: 'exact', head: true })
+        .eq('class_instance_id', firstInst.id)
+        .in('status', ['booked', 'attended']);
+      studentCount = count || 0;
+    }
+    // Fallback to enrollment count if no class instances yet
+    if (studentCount === 0) {
+      const { count } = await supabaseDb.supabase
+        .from('course_enrollments')
+        .select('*', { count: 'exact', head: true })
+        .like('course_identifier', `${courseId}%`)
+        .in('status', ['active', 'pending', 'upcoming']);
+      studentCount = count || 0;
+    }
 
     // Get enrollment for number_of_weeks
     const { data: sampleEnrollment } = await supabaseDb.supabase
@@ -4425,17 +4445,66 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
 app.get('/api/admin/course-emails/:courseId/draft', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { courseId } = req.params;
 
-  // Get enrollments for this course
-  const { data: enrollments, error: enrollError } = await supabaseDb.supabase
-    .from('course_enrollments')
-    .select('*, customers(id, first_name, last_name, email)')
-    .like('course_identifier', `${courseId}%`)
-    .in('status', ['active', 'pending', 'upcoming']);
+  // Get students from bookings on first class instance (most accurate)
+  // This catches 3x6wk students whose enrollment identifier differs from class identifier
+  let students = [];
+  const { data: firstInst } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('id')
+    .like('class_type', `${courseId}.1`)
+    .limit(1)
+    .maybeSingle();
 
-  if (enrollError) throw enrollError;
-  if (!enrollments || enrollments.length === 0) {
-    return res.status(404).json({ error: 'No enrollments found for this course' });
+  if (firstInst) {
+    const { data: bookings } = await supabaseDb.supabase
+      .from('bookings')
+      .select('student_id, customers(id, first_name, last_name, email)')
+      .eq('class_instance_id', firstInst.id)
+      .in('status', ['booked', 'attended']);
+
+    if (bookings && bookings.length > 0) {
+      // Dedupe by student_id
+      const seen = new Set();
+      students = bookings.filter(b => b.customers && !seen.has(b.student_id) && seen.add(b.student_id))
+        .map(b => ({
+          id: b.customers.id,
+          firstName: b.customers.first_name,
+          lastName: b.customers.last_name,
+          email: b.customers.email,
+          name: `${b.customers.first_name} ${b.customers.last_name}`.trim(),
+        }));
+    }
   }
+
+  // Fallback: get from enrollments if no bookings found
+  if (students.length === 0) {
+    const { data: enrollments, error: enrollError } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('*, customers(id, first_name, last_name, email)')
+      .like('course_identifier', `${courseId}%`)
+      .in('status', ['active', 'pending', 'upcoming']);
+
+    if (enrollError) throw enrollError;
+    if (!enrollments || enrollments.length === 0) {
+      return res.status(404).json({ error: 'No students found for this course' });
+    }
+
+    students = enrollments.filter(e => e.customers).map(e => ({
+      id: e.customers.id,
+      firstName: e.customers.first_name,
+      lastName: e.customers.last_name,
+      email: e.customers.email,
+      name: `${e.customers.first_name} ${e.customers.last_name}`.trim(),
+    }));
+  }
+
+  // Get a sample enrollment for template detection
+  const { data: enrollments } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('*')
+    .like('course_identifier', `${courseId}%`)
+    .limit(1)
+    .maybeSingle();
 
   // Get class instances
   const { data: classInstances, error: classError } = await supabaseDb.supabase
@@ -4462,19 +4531,8 @@ app.get('/api/admin/course-emails/:courseId/draft', authenticateToken, requireAd
     disposalDate.setMonth(disposalDate.getMonth() + 3);
   }
 
-  // Detect template type from first enrollment
-  const templateType = detectCourseTemplate(enrollments[0]);
-
-  // Build students array
-  const students = enrollments
-    .filter(e => e.customers)
-    .map(e => ({
-      id: e.customers.id,
-      firstName: e.customers.first_name,
-      lastName: e.customers.last_name,
-      email: e.customers.email,
-      name: `${e.customers.first_name} ${e.customers.last_name}`.trim(),
-    }));
+  // Detect template type from sample enrollment (enrollments is a single object from maybeSingle)
+  const templateType = enrollments ? detectCourseTemplate(enrollments) : 'wt-6week';
 
   const timeSlot = firstClass ? formatTimeSlot(firstClass.start_time, firstClass.end_time)
     : (courseId.includes('PM') ? '1pm – 3:30pm' : courseId.includes('AM') ? '9:30am – 12pm' : courseId.includes('NT') ? '7pm – 9:30pm' : '');

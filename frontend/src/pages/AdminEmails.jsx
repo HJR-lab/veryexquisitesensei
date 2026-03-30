@@ -55,6 +55,11 @@ export default function AdminEmails() {
   const [draftLoading,   setDraftLoading]   = useState(false);
   const [sending,        setSending]        = useState(false);
 
+  // Manage students state
+  const [manageCourse,   setManageCourse]   = useState(null); // courseIdentifier
+  const [manageStudents, setManageStudents] = useState([]);
+  const [movingStudent,  setMovingStudent]  = useState(null); // studentId being moved
+
   // ── Load all data on mount ──────────────────────────────────────────────────
   useEffect(() => { loadAll(); }, []);
 
@@ -196,6 +201,36 @@ export default function AdminEmails() {
     }
   };
 
+  // ── Manage Students ────────────────────────────────────────────────────────
+  const openManageStudents = async (courseIdentifier) => {
+    setManageCourse(courseIdentifier);
+    setView('manage');
+    try {
+      const { data } = await api.get(`/admin/course-emails/${courseIdentifier}/students`);
+      setManageStudents(data.students || []);
+    } catch (err) {
+      showStatus('error', 'Failed to load students');
+      setView('settings');
+    }
+  };
+
+  const moveStudent = async (studentId, fromCourse, toCourse) => {
+    setMovingStudent(studentId);
+    try {
+      const { data } = await api.post('/admin/course-emails/move-student', {
+        studentId, fromCourseId: fromCourse, toCourseId: toCourse,
+      });
+      showStatus('success', data.message);
+      // Refresh both views
+      await openManageStudents(toCourse);
+      loadAll();
+    } catch (err) {
+      showStatus('error', err.response?.data?.error || 'Failed to move student');
+    } finally {
+      setMovingStudent(null);
+    }
+  };
+
   // ── Last sent lookup ────────────────────────────────────────────────────────
   function lastSentFor(cfg) {
     const match = history.filter(h => h.course_identifier && h.course_identifier.startsWith(cfg.course_type_key));
@@ -235,7 +270,7 @@ export default function AdminEmails() {
                 View History
               </button>
             )}
-            {(view === 'compose' || view === 'history') && (
+            {(view === 'compose' || view === 'history' || view === 'manage') && (
               <button
                 onClick={() => { setView('settings'); setDraft(null); setComposeCourse(null); }}
                 style={{ background: 'none', border: 'none', color: TC, cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}
@@ -364,7 +399,12 @@ export default function AdminEmails() {
                           <div style={{ fontSize: '12px', color: INK }}>{course.startDate || '—'}</div>
 
                           {/* Students */}
-                          <div style={{ fontSize: '12px', color: INK }}>{course.studentCount ?? '—'}</div>
+                          <button
+                            onClick={() => openManageStudents(course.courseIdentifier)}
+                            style={{ fontSize: '12px', color: TC, fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', fontFamily: 'inherit' }}
+                          >
+                            {course.studentCount ?? '—'}
+                          </button>
 
                           {/* Email Sent */}
                           <div>
@@ -578,6 +618,64 @@ export default function AdminEmails() {
                   </>
                 ) : (
                   <div style={{ padding: '48px', textAlign: 'center', color: MUTED }}>No draft available.</div>
+                )}
+              </div>
+            )}
+
+            {/* ────────────────────────── MANAGE STUDENTS VIEW ────────────────── */}
+            {view === 'manage' && manageCourse && (
+              <div>
+                <h2 style={{ fontSize: '16px', fontWeight: 700, color: INK, marginBottom: '16px' }}>
+                  Students in {manageCourse}
+                </h2>
+
+                {manageStudents.length === 0 ? (
+                  <p style={{ fontSize: '12px', color: MUTED }}>No students booked in this course.</p>
+                ) : (
+                  <div style={{ border: `1px solid ${RULE}`, borderRadius: '4px', overflow: 'hidden' }}>
+                    {manageStudents.map((student, idx) => (
+                      <div
+                        key={student.id}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          padding: '10px 14px', fontSize: '13px', color: INK,
+                          borderBottom: idx < manageStudents.length - 1 ? `1px solid ${RULE}` : 'none',
+                        }}
+                      >
+                        <div>
+                          <span style={{ fontWeight: 600 }}>{student.firstName} {student.lastName}</span>
+                          <span style={{ color: MUTED, marginLeft: '8px', fontSize: '11px' }}>{student.email}</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontSize: '10px', color: MUTED, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Move to</span>
+                          <select
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                moveStudent(student.id, manageCourse, e.target.value);
+                                e.target.value = '';
+                              }
+                            }}
+                            disabled={movingStudent === student.id}
+                            style={{
+                              fontSize: '11px', padding: '4px 8px', border: `1px solid ${RULE}`,
+                              fontFamily: 'inherit', cursor: 'pointer', color: INK,
+                              backgroundColor: movingStudent === student.id ? '#F5F5F5' : '#FFF',
+                            }}
+                          >
+                            <option value="">Select course…</option>
+                            {courses
+                              .filter(c => c.courseIdentifier !== manageCourse)
+                              .map(c => (
+                                <option key={c.courseIdentifier} value={c.courseIdentifier}>
+                                  {c.courseIdentifier} ({c.studentCount} students)
+                                </option>
+                              ))
+                            }
+                          </select>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             )}

@@ -4684,4 +4684,113 @@ app.post('/api/admin/course-config', authenticateToken, requireAdmin, asyncHandl
   res.json(data);
 }));
 
+// ── Student Management for Upcoming Courses ─────────────────────────────
+
+// Get students booked in a course (from bookings on first class instance)
+app.get('/api/admin/course-emails/:courseId/students', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { courseId } = req.params;
+
+  const { data: firstInst } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('id')
+    .eq('class_type', `${courseId}.1`)
+    .limit(1)
+    .maybeSingle();
+
+  if (!firstInst) {
+    return res.json({ students: [] });
+  }
+
+  const { data: bookings } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id, student_id, status, booking_type, customers(id, first_name, last_name, email)')
+    .eq('class_instance_id', firstInst.id)
+    .in('status', ['booked', 'attended']);
+
+  const seen = new Set();
+  const students = (bookings || [])
+    .filter(b => b.customers && !seen.has(b.student_id) && seen.add(b.student_id))
+    .map(b => ({
+      id: b.customers.id,
+      firstName: b.customers.first_name,
+      lastName: b.customers.last_name,
+      email: b.customers.email,
+    }));
+
+  res.json({ students });
+}));
+
+// Move a student from one course to another (transfers all bookings)
+app.post('/api/admin/course-emails/move-student', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { studentId, fromCourseId, toCourseId } = req.body;
+
+  if (!studentId || !fromCourseId || !toCourseId) {
+    return res.status(400).json({ error: 'Missing studentId, fromCourseId, or toCourseId' });
+  }
+
+  // Get all class instances for source course
+  const { data: fromClasses } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('id, class_type, class_date')
+    .like('class_type', `${fromCourseId}%`)
+    .order('class_date', { ascending: true });
+
+  // Get all class instances for target course
+  const { data: toClasses } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('id, class_type, class_date')
+    .like('class_type', `${toCourseId}%`)
+    .order('class_date', { ascending: true });
+
+  if (!toClasses || toClasses.length === 0) {
+    return res.status(400).json({ error: `Target course ${toCourseId} has no class instances` });
+  }
+
+  // Delete student's bookings from source course
+  if (fromClasses && fromClasses.length > 0) {
+    const fromIds = fromClasses.map(c => c.id);
+    await supabaseDb.supabase
+      .from('bookings')
+      .delete()
+      .eq('student_id', studentId)
+      .in('class_instance_id', fromIds);
+  }
+
+  // Create bookings in target course
+  const newBookings = toClasses.map(cls => ({
+    student_id: studentId,
+    class_instance_id: cls.id,
+    status: 'booked',
+    booking_type: 'regular',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }));
+
+  // Insert, skipping duplicates
+  for (const booking of newBookings) {
+    const { data: existing } = await supabaseDb.supabase
+      .from('bookings')
+      .select('id')
+      .eq('student_id', booking.student_id)
+      .eq('class_instance_id', booking.class_instance_id)
+      .maybeSingle();
+
+    if (!existing) {
+      await supabaseDb.supabase.from('bookings').insert(booking);
+    }
+  }
+
+  // Get student name for response
+  const { data: student } = await supabaseDb.supabase
+    .from('customers')
+    .select('first_name, last_name')
+    .eq('id', studentId)
+    .single();
+
+  res.json({
+    message: `Moved ${student?.first_name} ${student?.last_name} from ${fromCourseId} to ${toCourseId}`,
+    bookingsCreated: newBookings.length,
+  });
+}));
+
 };

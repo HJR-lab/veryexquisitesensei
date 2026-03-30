@@ -5075,19 +5075,26 @@ app.post('/api/admin/course-emails/move-student', authenticateToken, requireAdmi
     updated_at: new Date().toISOString(),
   }));
 
-  // Insert, skipping duplicates
+  // Insert bookings, skipping duplicates
+  let created = 0;
   for (const booking of newBookings) {
     const { data: existing } = await supabaseDb.supabase
       .from('bookings')
       .select('id')
       .eq('student_id', booking.student_id)
       .eq('class_instance_id', booking.class_instance_id)
-      .maybeSingle();
+      .limit(1);
 
-    if (!existing) {
-      await supabaseDb.supabase.from('bookings').insert(booking);
+    if (!existing || existing.length === 0) {
+      const { error: insertErr } = await supabaseDb.supabase.from('bookings').insert(booking);
+      if (insertErr) {
+        console.error(`Failed to create booking for class ${booking.class_instance_id}:`, insertErr);
+      } else {
+        created++;
+      }
     }
   }
+  console.log(`[MoveStudent] Created ${created}/${newBookings.length} bookings for student ${studentId} in ${toCourseId}`);
 
   // Get student name for response
   const { data: student } = await supabaseDb.supabase

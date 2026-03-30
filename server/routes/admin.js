@@ -4254,11 +4254,37 @@ function getDayOfWeek(dateStr) {
   return days[d.getDay()];
 }
 
+// Helper: parse start date from course identifier
+// e.g. WT1104PM_DL6 → 11 Apr (day=11, month=04), WT0503NT_JL6 → 05 Mar
+function parseStartDateFromIdentifier(courseId) {
+  const match = courseId.match(/^(?:WT|HB)(\d{2})(\d{2})/);
+  if (!match) return null;
+  const day = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10);
+  const year = new Date().getFullYear();
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${day} ${months[month - 1]} ${year}`;
+}
+
 // Helper: format time slot from start_time/end_time
 function formatTimeSlot(startTime, endTime) {
   if (!startTime || !endTime) return '';
   const fmt = (t) => {
-    const parts = String(t).split(':').map(Number);
+    const s = String(t).trim();
+    // Handle "1:00 PM" / "9:30 AM" format
+    const ampmMatch = s.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (ampmMatch) {
+      let h = parseInt(ampmMatch[1], 10);
+      const m = parseInt(ampmMatch[2], 10);
+      const isPM = ampmMatch[3].toUpperCase() === 'PM';
+      if (isPM && h < 12) h += 12;
+      if (!isPM && h === 12) h = 0;
+      const ampm = h >= 12 ? 'pm' : 'am';
+      const hr = h % 12 || 12;
+      return m === 0 ? `${hr}${ampm}` : `${hr}:${String(m).padStart(2,'0')}${ampm}`;
+    }
+    // Handle "13:00:00" / "13:00" 24h format
+    const parts = s.split(':').map(Number);
     const h = parts[0], m = parts[1] || 0;
     if (isNaN(h)) return '';
     const ampm = h >= 12 ? 'pm' : 'am';
@@ -4364,17 +4390,20 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
     const sortedDates = course.classDates.sort();
     const fmtDate = (d) => {
       if (!d) return '';
-      const dt = new Date(d + 'T12:00:00');
+      // Handle both "2026-04-11" and "2026-04-11T00:00:00" formats
+      const dateStr = String(d).split('T')[0];
+      const dt = new Date(dateStr + 'T12:00:00');
+      if (isNaN(dt.getTime())) return '';
       return dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
     };
     courses.push({
       courseIdentifier: courseId,
       courseType: course.courseType,
       numberOfWeeks: sampleEnrollment?.number_of_weeks || sortedDates.length,
-      startDate: fmtDate(sortedDates[0]),
-      endDate: fmtDate(sortedDates[sortedDates.length - 1]),
+      startDate: sortedDates.length > 0 ? fmtDate(sortedDates[0]) : parseStartDateFromIdentifier(courseId) || '—',
+      endDate: sortedDates.length > 0 ? fmtDate(sortedDates[sortedDates.length - 1]) : '—',
       firstClassDate: firstClassDate || enrollmentStartDate || sortedDates[0],
-      timeSlot: formatTimeSlot(course.startTime, course.endTime),
+      timeSlot: formatTimeSlot(course.startTime, course.endTime) || (courseId.includes('PM') ? '1pm – 3pm' : courseId.includes('AM') ? '9:30am – 12pm' : courseId.includes('NT') ? '7pm – 9:30pm' : ''),
       studentCount: studentCount || 0,
       emailSentAt: sentEmail?.sent_at || null,
     });

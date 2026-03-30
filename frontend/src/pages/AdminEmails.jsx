@@ -350,7 +350,7 @@ export default function AdminEmails() {
                           </div>
 
                           {/* Start Date */}
-                          <div style={{ fontSize: '12px', color: INK }}>{course.startDate ? fmtDate(course.startDate) : '—'}</div>
+                          <div style={{ fontSize: '12px', color: INK }}>{course.startDate || '—'}</div>
 
                           {/* Students */}
                           <div style={{ fontSize: '12px', color: INK }}>{course.studentCount ?? '—'}</div>

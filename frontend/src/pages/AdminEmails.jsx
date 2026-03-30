@@ -286,15 +286,15 @@ export default function AdminEmails() {
 
                             {/* Days Before */}
                             <div>
-                              {!cfg.email_auto_send ? (
-                                <span style={{ fontSize: '12px', color: MUTED, fontStyle: 'italic' }}>manual</span>
-                              ) : isHB ? (
+                              {isHB && cfg.email_auto_send ? (
                                 <span style={{ fontSize: '12px', color: MUTED, fontStyle: 'italic' }}>on purchase</span>
+                              ) : isHB ? (
+                                <span style={{ fontSize: '12px', color: MUTED, fontStyle: 'italic' }}>manual</span>
                               ) : (
                                 <input
                                   type="number"
                                   min={0}
-                                  defaultValue={cfg.email_send_days_before ?? 3}
+                                  defaultValue={cfg.email_send_days_before ?? 5}
                                   onBlur={e => updateDaysBefore(cfg, e.target.value)}
                                   style={{ ...inputSt, width: '64px', padding: '5px 8px', textAlign: 'center' }}
                                 />

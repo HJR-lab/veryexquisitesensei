@@ -25,9 +25,9 @@ const COLUMNS = [
 function formatValue(value, col, courseKey) {
   if (value === null || value === undefined) return '—';
 
-  // Weight shows dash for wheelthrowing courses
+  // Weight shows dash only when null/undefined (any course type can have a weight)
   if (col.key === 'clay_weight_limit_g') {
-    if (value === null || value === undefined || (typeof courseKey === 'string' && courseKey.toLowerCase().startsWith('wt'))) {
+    if (value === null || value === undefined || value === 0) {
       return '—';
     }
   }

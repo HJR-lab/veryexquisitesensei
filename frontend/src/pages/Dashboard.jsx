@@ -197,7 +197,11 @@ export default function Dashboard() {
       return false;
     }).length;
     const attendedCount = enrollmentBookings.length > 0 ? bookingAttendedCount : (enrollment.class_credits_used || 0);
-    const bookedCount = enrollmentBookings.filter(b => b.status === 'booked').length;
+    // For HB credit courses, "booked" = credits used (attended + currently booked)
+    const isHBCredit = (enrollment.course_type || '').toLowerCase().includes('handbuilding');
+    const bookedCount = isHBCredit
+      ? (enrollment.class_credits_used || attendedCount)
+      : enrollmentBookings.filter(b => b.status === 'booked').length;
     const remaining = Math.max(totalClasses - attendedCount, 0);
     const pct = totalClasses > 0 ? Math.min(Math.round((attendedCount / totalClasses) * 100), 100) : 0;
 

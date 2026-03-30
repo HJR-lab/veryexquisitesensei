@@ -313,7 +313,10 @@ export default function Dashboard() {
                   <span key={label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     {i > 0 && <span style={{ color: RULE }}>·</span>}
                     {info.isHB ? (
-                      <span>{label}. <strong style={{ color: INK }}>{info.remaining}</strong> class credit{info.remaining !== 1 ? 's' : ''} remaining</span>
+                      <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <span>{label}</span>
+                        <span><strong style={{ color: INK }}>{info.remaining}</strong> class credit{info.remaining !== 1 ? 's' : ''} remaining</span>
+                      </span>
                     ) : (
                       <span><strong style={{ color: INK }}>{info.remaining}</strong>&nbsp;{label}</span>
                     )}

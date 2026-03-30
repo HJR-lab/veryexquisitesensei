@@ -810,6 +810,7 @@ export default function AdminClasses() {
                   >
                     {shortName(s.name)}
                   </span>
+                  <span style={{ fontSize: '10px', fontWeight: 700, color: TC, flexShrink: 0 }}>{s.orders}</span>
                   <select
                     onClick={e => e.stopPropagation()}
                     onChange={e => { if (e.target.value) { handleMoveStudent(s.studentId, shortName(s.name), course.id, e.target.value); e.target.value = ''; } }}

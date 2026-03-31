@@ -126,10 +126,11 @@ export default function Dashboard() {
           ? sorted[sorted.length - 1].id
           : null;
 
+        const displayTitle = isHB ? 'Handbuilding' : enrollment.course_title;
         enrollment.bookings.forEach(booking => {
           all.push({
             ...booking,
-            _courseTitle: enrollment.course_title,
+            _courseTitle: displayTitle,
             _isHBGlazing: booking.id === lastBookingId,
           });
         });

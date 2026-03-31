@@ -52,6 +52,15 @@ export default function StudentInfoCard({
             </div>
             <div style={{ fontSize: '18px', fontWeight: 700, marginBottom: '3px' }}>{studentName}</div>
             <div style={{ fontSize: '12px', color: MUTED }}>Member since {memberSince}</div>
+            {student.last_login_at && (
+              <div style={{ fontSize: '11px', color: MUTED, marginTop: '2px' }}>
+                Last login: {new Date(student.last_login_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                {student.login_count > 0 && ` (${student.login_count} total)`}
+              </div>
+            )}
+            {!student.last_login_at && (
+              <div style={{ fontSize: '11px', color: '#D97706', marginTop: '2px' }}>Never logged in</div>
+            )}
           </div>
 
           {/* Membership badge */}

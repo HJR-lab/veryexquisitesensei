@@ -113,11 +113,19 @@ export default function AdminNav({ active, onSyncComplete }) {
                 </a>
                 <a
                   href="/admin/course-config"
-                  style={{ display: 'block', padding: '7px 12px', fontSize: '11px', fontWeight: 600, color: INK, textDecoration: 'none' }}
+                  style={{ display: 'block', padding: '7px 12px', fontSize: '11px', fontWeight: 600, color: INK, textDecoration: 'none', borderBottom: `1px solid ${RULE}` }}
                   onMouseEnter={e => e.currentTarget.style.backgroundColor = '#F5F5F5'}
                   onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
                 >
                   Courses
+                </a>
+                <a
+                  href="/admin/platform-stats"
+                  style={{ display: 'block', padding: '7px 12px', fontSize: '11px', fontWeight: 600, color: INK, textDecoration: 'none' }}
+                  onMouseEnter={e => e.currentTarget.style.backgroundColor = '#F5F5F5'}
+                  onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  Platform Stats
                 </a>
               </div>
             )}

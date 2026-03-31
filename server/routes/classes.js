@@ -737,11 +737,19 @@ app.post('/api/classes/book-hb-schedule', authenticateToken, asyncHandler(async 
     bookings.push(booking);
   }
 
-  // Don't decrement credits on booking — credits are only "used" when student attends.
-  // Just mark that bookings have been created.
+  // Decrement credits on booking
+  const creditsUsed = bookings.length;
+  const { data: currentEnrollment } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('class_credits_used, class_credits_remaining')
+    .eq('id', enrollmentId)
+    .single();
+
   await supabaseDb.supabase
     .from('course_enrollments')
     .update({
+      class_credits_used: (currentEnrollment?.class_credits_used || 0) + creditsUsed,
+      class_credits_remaining: Math.max(0, (currentEnrollment?.class_credits_remaining || 0) - creditsUsed),
       bookings_created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     })

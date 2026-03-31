@@ -725,15 +725,18 @@ export default function AdminStudentDetail() {
 
   const totalBooked    = activeBookings.length;
   // Scope counts to current enrollment only (not all historical bookings)
+  // HB credit students can book into different class types, so match by enrollment ID
   const currentEnrollmentId = enrollment?.course_identifier;
-  const currentEnrollmentBookings = currentEnrollmentId
-    ? bookings.filter(b => {
-        const ci = b.course_identifier && b.course_identifier !== 'N/A' ? b.course_identifier : null;
-        const id = ci || b.class_type || '';
-        return id.startsWith(currentEnrollmentId.replace(/\.\d+$/, ''));
-      })
-    : bookings;
-  const allBookedCount = currentEnrollmentBookings.length;
+  const currentEnrollmentBookings = isHBEnrollment && enrollment?.id
+    ? bookings.filter(b => b.course_enrollment_id === enrollment.id)
+    : currentEnrollmentId
+      ? bookings.filter(b => {
+          const ci = b.course_identifier && b.course_identifier !== 'N/A' ? b.course_identifier : null;
+          const id = ci || b.class_type || '';
+          return id.startsWith(currentEnrollmentId.replace(/\.\d+$/, ''));
+        })
+      : bookings;
+  const allBookedCount = isHBEnrollment ? hbCreditsUsed : currentEnrollmentBookings.length;
 
   // Count attended from current enrollment bookings only
   const allAttendedCount = currentEnrollmentBookings.filter(b => {
@@ -744,7 +747,7 @@ export default function AdminStudentDetail() {
   const enrollmentAllocated = isHBEnrollment ? hbCreditsAllocated : (enrollment?.number_of_weeks || 0);
   const totalAllocated = Math.max(allBookedCount, enrollmentAllocated);
   const unbookedCount  = isHBEnrollment
-    ? Math.max(0, hbCreditsAllocated - allBookedCount)
+    ? Math.max(0, hbCreditsRemaining)
     : Math.max(0, totalAllocated - allBookedCount);
 
   const filteredBookings = [...(showCompletedCourses ? bookings : activeBookings)]

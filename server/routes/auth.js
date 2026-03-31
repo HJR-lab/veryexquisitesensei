@@ -1,6 +1,21 @@
 const supabaseDb = require('../utils/supabaseDb');
 const { getStudioAccessPasses } = require('../utils/studioAccess');
 
+// One-time migration: add login tracking columns if they don't exist
+(async () => {
+  try {
+    await supabaseDb.supabase.rpc('exec_sql', {
+      sql: `
+        ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_login_at timestamptz;
+        ALTER TABLE customers ADD COLUMN IF NOT EXISTS login_count integer DEFAULT 0;
+      `
+    });
+  } catch (err) {
+    // rpc may not exist — try a direct query approach as fallback
+    // Columns may already exist; ignore errors silently
+  }
+})();
+
 // In-memory auth cache (60s TTL) - avoids 3 DB queries per page load
 const authCache = new Map();
 const AUTH_CACHE_TTL = 60 * 1000; // 60 seconds
@@ -66,6 +81,25 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
 
     const hasActiveEnrollments = (activeEnrollmentRes.data || []).length > 0;
 
+    // Login tracking — fire-and-forget, non-blocking (1-hour deduplication)
+    // Do NOT track impersonation sessions
+    if (!req.user.isImpersonating) {
+      const now = new Date();
+      const lastLogin = customer.last_login_at ? new Date(customer.last_login_at) : null;
+      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+      if (!lastLogin || lastLogin < oneHourAgo) {
+        supabaseDb.supabase
+          .from('customers')
+          .update({
+            last_login_at: now.toISOString(),
+            login_count: (customer.login_count || 0) + 1
+          })
+          .eq('id', dbCustomerId)
+          .then(() => {})
+          .catch(err => console.error('Login tracking error:', err));
+      }
+    }
+
     // Return user data with snake_case fields mapped to camelCase for frontend
     const response = {
       user: {
@@ -88,6 +122,8 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
         hasActiveEnrollments,
         customerType: customer.customer_type || 'student',
         policiesAcceptedAt: customer.policies_accepted_at || null,
+        lastLoginAt: customer.last_login_at || null,
+        loginCount: customer.login_count || 0,
       }
     };
 

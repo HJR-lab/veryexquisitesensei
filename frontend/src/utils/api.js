@@ -103,6 +103,10 @@ export const instructorAPI = {
     const { data } = await api.post(`/classes/bookings/${bookingId}/mark-attendance`, { attended, notes });
     return data;
   },
+  cancelClass: async (classId, reason) => {
+    const { data } = await api.post(`/instructor/classes/${classId}/cancel`, { reason });
+    return data;
+  },
 };
 
 // Classes API

@@ -367,6 +367,7 @@ app.get('/api/instructor/dashboard', authenticateToken, asyncHandler(async (req,
     .select('*')
     .eq('instructor', instructorName)
     .gte('class_date', today)
+    .neq('status', 'cancelled')
     .order('class_date', { ascending: true })
     .limit(20);
 
@@ -379,8 +380,24 @@ app.get('/api/instructor/dashboard', authenticateToken, asyncHandler(async (req,
     .eq('instructor', instructorName)
     .lt('class_date', today)
     .gte('class_date', fourWeeksAgo.toISOString().split('T')[0])
+    .neq('status', 'cancelled')
     .order('class_date', { ascending: false })
     .limit(20);
+
+  // Get ALL classes for calendar view (-1 month to +3 months, including cancelled)
+  const calStart = new Date();
+  calStart.setMonth(calStart.getMonth() - 1);
+  calStart.setDate(1);
+  const calEnd = new Date();
+  calEnd.setMonth(calEnd.getMonth() + 4);
+  calEnd.setDate(0);
+  const { data: allClasses } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('id, class_date, class_type, start_time, end_time, status, cancellation_reason, current_enrollment')
+    .eq('instructor', instructorName)
+    .gte('class_date', calStart.toISOString().split('T')[0])
+    .lte('class_date', calEnd.toISOString().split('T')[0])
+    .order('class_date', { ascending: true });
 
   // Get bookings for upcoming classes with student info, booking type, enrollment
   const upcomingIds = (upcomingClasses || []).map(c => c.id);
@@ -483,9 +500,98 @@ app.get('/api/instructor/dashboard', authenticateToken, asyncHandler(async (req,
     },
     upcomingClasses: upcomingClasses || [],
     recentClasses: recentClasses || [],
+    allClasses: allClasses || [],
     studentsByClass,
     recentStudentsByClass,
     portfolio: portfolio || []
+  });
+}));
+
+// POST /api/instructor/classes/:classId/cancel - Instructor cancels their own class
+app.post('/api/instructor/classes/:classId/cancel', authenticateToken, asyncHandler(async (req, res) => {
+  const { dbCustomerId } = req.user;
+  const { classId } = req.params;
+  const { reason } = req.body;
+
+  if (!reason || !reason.trim()) {
+    return res.status(400).json({ error: 'Cancellation reason is required' });
+  }
+
+  // Get instructor profile
+  const { data: instructor, error: instrError } = await supabaseDb.supabase
+    .from('customers')
+    .select('id, first_name, last_name, role')
+    .eq('id', dbCustomerId)
+    .single();
+
+  if (instrError || !instructor || instructor.role !== 'instructor') {
+    return res.status(403).json({ error: 'Instructor access required' });
+  }
+
+  const instructorName = `${instructor.first_name} ${instructor.last_name}`;
+
+  // Verify class belongs to this instructor and is in the future
+  const today = new Date().toISOString().split('T')[0];
+  const { data: classInstance, error: classError } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('*')
+    .eq('id', classId)
+    .eq('instructor', instructorName)
+    .single();
+
+  if (classError || !classInstance) {
+    return res.status(404).json({ error: 'Class not found or not assigned to you' });
+  }
+
+  if (classInstance.class_date < today) {
+    return res.status(400).json({ error: 'Cannot cancel a class that has already passed' });
+  }
+
+  if (classInstance.status === 'cancelled') {
+    return res.status(400).json({ error: 'Class is already cancelled' });
+  }
+
+  // Cancel the class instance
+  const { error: updateError } = await supabaseDb.supabase
+    .from('class_instances')
+    .update({
+      status: 'cancelled',
+      cancellation_reason: reason.trim(),
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', classId);
+
+  if (updateError) throw updateError;
+
+  // Get affected bookings count
+  const { data: affectedBookings } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id, student_id')
+    .eq('class_instance_id', classId)
+    .eq('status', 'booked');
+
+  const affectedCount = (affectedBookings || []).length;
+
+  // Mark all booked students' bookings as cancelled
+  if (affectedCount > 0) {
+    const { error: bookingError } = await supabaseDb.supabase
+      .from('bookings')
+      .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+      .eq('class_instance_id', classId)
+      .eq('status', 'booked');
+
+    if (bookingError) {
+      console.error('Error cancelling bookings:', bookingError);
+    }
+  }
+
+  console.log(`🚫 Instructor ${instructorName} cancelled class ${classId} (${classInstance.class_type} on ${classInstance.class_date}). Reason: ${reason.trim()}. ${affectedCount} bookings affected.`);
+
+  res.json({
+    success: true,
+    classId,
+    affectedStudents: affectedCount,
+    message: `Class cancelled. ${affectedCount} student${affectedCount !== 1 ? 's' : ''} affected.`
   });
 }));
 

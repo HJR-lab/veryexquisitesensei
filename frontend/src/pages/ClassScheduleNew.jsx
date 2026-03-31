@@ -512,8 +512,25 @@ export default function ClassScheduleNew() {
   const bookedOrAttended = myBookings?.filter(b => b.status === 'booked' || b.status === 'attended').length || 0;
   const extraCreditsUsed = is10ClassPackage ? Math.max(0, bookedOrAttended - 6) : 0;
 
+  // Detect last HB booking as glazing (when all credits are booked)
+  const hbLastBookingId = (() => {
+    if (!hbEnrollment || hbEnrollment.creditsRemaining > 0) return null;
+    const hbUpcoming = myUpcomingBookings
+      .filter(b => {
+        const ct = b.class?.classType || b.classInstance?.classType || b.class_type || '';
+        return ct.startsWith('HB');
+      })
+      .sort((a, b) => {
+        const da = new Date(a.class?.classDate || a.classInstance?.classDate || a.class_date);
+        const db = new Date(b.class?.classDate || b.classInstance?.classDate || b.class_date);
+        return da - db;
+      });
+    return hbUpcoming.length > 0 ? (hbUpcoming[hbUpcoming.length - 1].id || hbUpcoming[hbUpcoming.length - 1].bookingId) : null;
+  })();
+
   // ── Helper: display label for class type ───────────────────────────────────
-  const displayClassType = (classType, classTitle) => {
+  const displayClassType = (classType, classTitle, bookingId) => {
+    if (bookingId && bookingId === hbLastBookingId) return 'Glazing';
     if (classTitle) return classTitle;
     if (!classType) return 'Class';
     if (classType.includes('6.6') || classType.includes('7.7')) return 'Glazing';
@@ -859,7 +876,7 @@ export default function ClassScheduleNew() {
                       <div style={{ width: '1px', height: '42px', backgroundColor: 'rgba(196,98,45,0.2)', flexShrink: 0 }} />
 
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: '13px', fontWeight: 700 }}>{displayClassType(f.classType, f.classTitle)}</div>
+                        <div style={{ fontSize: '13px', fontWeight: 700 }}>{displayClassType(f.classType, f.classTitle, booking.id || booking.bookingId)}</div>
                         <div style={{ fontSize: '11px', color: MUTED }}>{f.startTime} – {f.endTime} · {f.instructor}</div>
                       </div>
 

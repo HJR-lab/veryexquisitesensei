@@ -619,11 +619,10 @@ app.get('/api/students/me/dashboard', authenticateToken, asyncHandler(async (req
     };
   }
 
-  // HB enrollments with remaining credits (for HB booking section)
+  // HB enrollments (for HB booking section and glazing detection)
   const hbEnrollments = enrollments
     .filter(e =>
-      (e.course_type || '').toLowerCase().includes('handbuilding') &&
-      (e.class_credits_remaining || 0) > 0
+      (e.course_type || '').toLowerCase().includes('handbuilding')
     )
     .map(e => ({
       id: e.id,

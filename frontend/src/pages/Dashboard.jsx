@@ -126,7 +126,8 @@ export default function Dashboard() {
           ? sorted[sorted.length - 1].id
           : null;
 
-        const displayTitle = isHB ? 'Handbuilding' : enrollment.course_title;
+        const hbWeeks = enrollment.number_of_weeks || enrollment.class_credits_allocated || '';
+        const displayTitle = isHB ? `Handbuilding ${hbWeeks} Weeks` : enrollment.course_title;
         enrollment.bookings.forEach(booking => {
           all.push({
             ...booking,

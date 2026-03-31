@@ -20,12 +20,18 @@ export default function AdminDashboard() {
   const [hoveredModule, setHoveredModule] = useState(null);
   const [alerts, setAlerts] = useState([]);
   const [activity, setActivity] = useState([]);
+  const [engagement, setEngagement] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   useEffect(() => {
     // Phase 1: instant summary counts
     api.get('/admin/dashboard/stats/summary').then(({ data }) => {
       setSummaryStats(data);
+    }).catch(() => {});
+
+    // Engagement metrics (parallel, independent)
+    api.get('/admin/dashboard/engagement').then(({ data }) => {
+      setEngagement(data);
     }).catch(() => {});
 
     // Phase 2: full stats + activity
@@ -219,6 +225,53 @@ export default function AdminDashboard() {
                 })}
               </div>
             </div>
+
+            {/* Engagement */}
+            {engagement && (
+              <div>
+                <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, marginBottom: '12px' }}>
+                  Engagement
+                </div>
+                <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
+                  {[
+                    {
+                      label: 'Active (7 days)',
+                      value: engagement.activeLastWeek,
+                      pct: engagement.totalStudents > 0 ? Math.round((engagement.activeLastWeek / engagement.totalStudents) * 100) : 0,
+                      color: TC,
+                    },
+                    {
+                      label: 'Active (30 days)',
+                      value: engagement.activeLastMonth,
+                      pct: engagement.totalStudents > 0 ? Math.round((engagement.activeLastMonth / engagement.totalStudents) * 100) : 0,
+                      color: TC,
+                    },
+                    {
+                      label: 'Never logged in',
+                      value: engagement.neverLoggedIn,
+                      pct: null,
+                      color: MUTED,
+                    },
+                  ].map((row, i, arr) => (
+                    <div
+                      key={row.label}
+                      style={{
+                        padding: '10px 14px',
+                        borderBottom: i < arr.length - 1 ? `1px solid ${RULE}` : 'none',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <span style={{ fontSize: '12px', color: INK }}>{row.label}</span>
+                      <span style={{ fontSize: '13px', fontWeight: 700, color: row.color }}>
+                        {row.value}{row.pct !== null ? ` (${row.pct}%)` : ''}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
           </div>
         </div>

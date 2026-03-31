@@ -99,6 +99,7 @@ export default function StudentRescheduleModal({
   handleRescheduleToMakeup,
   handleConvertToCredit,
   deletingBookingId,
+  isHBEnrollment,
 }) {
   const classes = getMakeupClassesForDate(makeupSelectedDate);
 
@@ -192,7 +193,7 @@ export default function StudentRescheduleModal({
                       {/* Inline reschedule confirm */}
                       {isConfirming && (
                         <div style={{ padding: '10px 16px', backgroundColor: TC_LIGHT, borderTop: `1px solid ${TC}` }}>
-                          {!selectedBookingForMakeup.isPlaceholder && (
+                          {!selectedBookingForMakeup.isPlaceholder && !isHBEnrollment && (
                             <div style={{ fontSize: '11px', color: TC_DARK, lineHeight: 1.5, marginBottom: '8px' }}>
                               <strong>Please note:</strong> You must reschedule more than 24 hours before class. Missed makeup classes incur a <strong>$20 no-show fee</strong>. Makeup classes outside your cohort schedule incur a <strong>$40 fee</strong> (glazing classes excluded).
                             </div>

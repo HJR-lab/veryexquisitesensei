@@ -1328,6 +1328,7 @@ export default function AdminStudentDetail() {
           handleRescheduleToMakeup={handleRescheduleToMakeup}
           handleConvertToCredit={handleConvertToCredit}
           deletingBookingId={deletingBookingId}
+          isHBEnrollment={isHBEnrollment}
         />
       )}
 

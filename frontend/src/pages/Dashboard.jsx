@@ -115,8 +115,23 @@ export default function Dashboard() {
     const all = [];
     enrollments.forEach(enrollment => {
       if (enrollment.bookings && Array.isArray(enrollment.bookings)) {
+        const isHB = (enrollment.course_type || '').toLowerCase().includes('handbuilding');
+        const totalCredits = enrollment.class_credits_allocated || enrollment.number_of_weeks || 0;
+        // Sort this enrollment's bookings by date to find the last one
+        const sorted = [...enrollment.bookings].sort((a, b) => {
+          return new Date(a.class_instances?.class_date) - new Date(b.class_instances?.class_date);
+        });
+        // For HB students: last class is always glazing (when all credits are booked)
+        const lastBookingId = (isHB && sorted.length >= totalCredits && sorted.length > 0)
+          ? sorted[sorted.length - 1].id
+          : null;
+
         enrollment.bookings.forEach(booking => {
-          all.push({ ...booking, _courseTitle: enrollment.course_title });
+          all.push({
+            ...booking,
+            _courseTitle: enrollment.course_title,
+            _isHBGlazing: booking.id === lastBookingId,
+          });
         });
       }
     });
@@ -625,12 +640,13 @@ export default function Dashboard() {
               {upcoming.map((booking, i) => {
                 const ci = booking.class_instances || {};
                 const ct = ci.class_type || booking.class_type || '';
-                const isGlazing = ct.includes('6.6') || ct.includes('7.7');
+                const isWTGlazing = ct.includes('6.6') || ct.includes('7.7');
+                const isGlazing = isWTGlazing || booking._isHBGlazing;
                 return (
                   <ClassRow
                     key={i}
                     dateStr={ci.class_date || booking.class_date}
-                    classType={isGlazing ? ct : (booking._courseTitle || ct)}
+                    classType={isGlazing ? 'Glazing' : (booking._courseTitle || ct)}
                     startTime={ci.start_time}
                     endTime={ci.end_time}
                     subtitle={ci.instructor}
@@ -660,12 +676,13 @@ export default function Dashboard() {
                   {past.map((booking, i) => {
                     const ci = booking.class_instances || {};
                     const ct = ci.class_type || booking.class_type || '';
-                    const isGlazing = ct.includes('6.6') || ct.includes('7.7');
+                    const isWTGlazing = ct.includes('6.6') || ct.includes('7.7');
+                    const isGlazing = isWTGlazing || booking._isHBGlazing;
                     return (
                       <ClassRow
                         key={i}
                         dateStr={ci.class_date || booking.class_date}
-                        classType={isGlazing ? ct : (booking._courseTitle || ct)}
+                        classType={isGlazing ? 'Glazing' : (booking._courseTitle || ct)}
                         startTime={ci.start_time}
                         endTime={ci.end_time}
                         subtitle={ci.instructor}

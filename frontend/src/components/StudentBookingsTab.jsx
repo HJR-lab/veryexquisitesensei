@@ -32,7 +32,16 @@ export default function StudentBookingsTab({
   setDeleteConfirmId,
   deletingBookingId,
   handleDeleteBooking,
+  isHBEnrollment = false,
+  hbCreditsAllocated = 0,
 }) {
+  // For HB students: determine which booking is the last (glazing) class
+  // If all credits booked, last booking by date = glazing
+  // If not all booked, the last unbooked placeholder = glazing
+  const allHBBooked = isHBEnrollment && filteredBookings.length >= hbCreditsAllocated && hbCreditsAllocated > 0;
+  const lastHBBookingId = (isHBEnrollment && allHBBooked && filteredBookings.length > 0)
+    ? filteredBookings[filteredBookings.length - 1]?.id
+    : null;
   return (
     <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
 
@@ -80,7 +89,8 @@ export default function StudentBookingsTab({
             classDate.setHours(0, 0, 0, 0);
             const isPast = classDate < today;
             const displayStatus = (isPast && booking.status === 'booked') ? 'attended' : booking.status;
-            const courseName = parseCourseName(booking.course_identifier, booking.class_type);
+            const isHBGlazing = isHBEnrollment && booking.id === lastHBBookingId;
+            const courseName = isHBGlazing ? 'Glazing' : parseCourseName(booking.course_identifier, booking.class_type);
             const timeStr = booking.start_time && booking.end_time ? `${booking.start_time} – ${booking.end_time}` : booking.start_time || '—';
             const dateStr = new Date(booking.class_date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
             const isDeleting = deletingBookingId === booking.id;
@@ -141,6 +151,7 @@ export default function StudentBookingsTab({
           {/* Unbooked credit placeholder rows */}
           {statusFilter === 'all' && Array.from({ length: unbookedCount }).map((_, i) => {
             const placeholderBooking = { id: `unbooked-${i}`, isPlaceholder: true };
+            const isLastUnbooked = isHBEnrollment && i === unbookedCount - 1;
             return (
               <div key={`unbooked-${i}`} style={{ borderBottom: `1px solid ${RULE}` }}>
                 <div style={{
@@ -148,7 +159,7 @@ export default function StudentBookingsTab({
                   padding: '11px 16px', alignItems: 'center',
                   backgroundColor: '#FFFBEA',
                 }}>
-                  <span style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 700, color: MUTED }}>—</span>
+                  <span style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 700, color: isLastUnbooked ? TC_DARK : MUTED }}>{isLastUnbooked ? 'Glazing' : '—'}</span>
                   <div style={{ fontSize: '13px', color: MUTED }}>—</div>
                   <span style={{ fontSize: '12px', color: MUTED }}>—</span>
                   <span style={{

@@ -196,55 +196,15 @@ async function processCoursePurchase(order, lineItem) {
         glazing_class_used: false
       });
 
-      console.log(`🎨 Handbuilding enrollment: ${credits} credits allocated`);
-
-      // Book into upcoming HB class instances for the student's chosen day
-      let hbBookingsCreated = 0;
-      if (courseInfo.schedulePattern) {
-        const dayMap = { MONDAY: 'MON', TUESDAY: 'TUE', WEDNESDAY: 'WED', THURSDAY: 'THU', FRIDAY: 'FRI', SATURDAY: 'SAT', SUNDAY: 'SUN' };
-        const dayCode = dayMap[courseInfo.schedulePattern.toUpperCase()] || '';
-
-        if (dayCode) {
-          // Find upcoming HB class instances for this day (e.g., HBMONNT_LT, HBSATEV_LT)
-          const today = new Date().toISOString().split('T')[0];
-          const { data: hbClasses } = await supabase
-            .from('class_instances')
-            .select('id, class_date, class_type')
-            .ilike('class_type', `HB${dayCode}%`)
-            .gte('class_date', today)
-            .order('class_date', { ascending: true })
-            .limit(credits);
-
-          if (hbClasses && hbClasses.length > 0) {
-            const bookingNow = new Date().toISOString();
-            const hbBookings = hbClasses.map(ci => ({
-              student_id: student.id,
-              class_instance_id: ci.id,
-              status: 'booked',
-              booking_type: 'regular',
-              course_enrollment_id: enrollment.id,
-              booking_date: bookingNow,
-              created_at: bookingNow,
-              updated_at: bookingNow
-            }));
-
-            const created = await createMultipleBookings(hbBookings);
-            hbBookingsCreated = created.length;
-
-            console.log(`📅 Booked ${hbBookingsCreated} HB classes on ${courseInfo.schedulePattern}s`);
-          } else {
-            console.log(`⚠️  No upcoming HB class instances found for ${dayCode}`);
-          }
-        }
-      }
+      console.log(`🎨 Handbuilding enrollment: ${credits} credits allocated (student self-books)`);
 
       return {
         success: true,
         enrollment,
         isHandbuilding: true,
         creditsAllocated: credits,
-        bookingsCreated: hbBookingsCreated,
-        message: `${credits} class credits allocated, ${hbBookingsCreated} classes booked.`
+        bookingsCreated: 0,
+        message: `${credits} class credits allocated. Student will book their own classes.`
       };
     }
 

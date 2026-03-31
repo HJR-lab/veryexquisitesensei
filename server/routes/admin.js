@@ -3622,10 +3622,26 @@ app.put('/api/admin/bookings/:bookingId/attended', authenticateToken, requireAdm
 
 // Create a booking for a student (admin only)
 app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
-  const { studentId, classInstanceId, bookingType, status } = req.body;
+  const { studentId, classInstanceId, bookingType, status, courseEnrollmentId } = req.body;
 
   if (!studentId || !classInstanceId) {
     return res.status(400).json({ error: 'Student ID and class instance ID are required' });
+  }
+
+  // If no enrollment ID provided, try to find the active HB enrollment for this student
+  let enrollmentId = courseEnrollmentId || null;
+  if (!enrollmentId) {
+    const { data: activeEnrollment } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('id, course_type, class_credits_remaining')
+      .eq('student_id', studentId)
+      .eq('status', 'active')
+      .ilike('course_type', '%handbuilding%')
+      .gt('class_credits_remaining', 0)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (activeEnrollment) enrollmentId = activeEnrollment.id;
   }
 
   // Get class instance details
@@ -3657,7 +3673,7 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
     // Reactivate the cancelled booking
     const { data: reactivated, error: reactError } = await supabaseDb.supabase
       .from('bookings')
-      .update({ status: status || 'booked', booking_type: bookingType || 'regular', updated_at: new Date().toISOString() })
+      .update({ status: status || 'booked', booking_type: bookingType || 'regular', course_enrollment_id: enrollmentId, updated_at: new Date().toISOString() })
       .eq('id', existingBooking.id)
       .select()
       .single();
@@ -3677,6 +3693,7 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
         class_instance_id: classInstanceId,
         booking_type: bookingType || 'regular',
         status: status || 'booked',
+        course_enrollment_id: enrollmentId,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       }])
@@ -3701,6 +3718,26 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
 
   if (capacityError) {
     console.error('Error updating class capacity:', capacityError);
+  }
+
+  // Decrement HB credits if linked to an enrollment
+  if (enrollmentId) {
+    const { data: enr } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('course_type, class_credits_used, class_credits_remaining')
+      .eq('id', enrollmentId)
+      .single();
+
+    if (enr && (enr.course_type || '').toLowerCase().includes('handbuilding')) {
+      await supabaseDb.supabase
+        .from('course_enrollments')
+        .update({
+          class_credits_used: (enr.class_credits_used || 0) + 1,
+          class_credits_remaining: Math.max(0, (enr.class_credits_remaining || 0) - 1),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', enrollmentId);
+    }
   }
 
   res.json({

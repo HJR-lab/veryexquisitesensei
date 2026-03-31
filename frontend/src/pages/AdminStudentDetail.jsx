@@ -537,8 +537,9 @@ export default function AdminStudentDetail() {
         await api.post('/admin/bookings', {
           studentId:       student.id,
           classInstanceId: newClassId,
-          bookingType:     'makeup',
+          bookingType:     'regular',
           status:          'booked',
+          courseEnrollmentId: enrollment?.id,
         });
         alert('Student booked successfully!');
       } else {
@@ -1149,6 +1150,8 @@ export default function AdminStudentDetail() {
                 setDeleteConfirmId={setDeleteConfirmId}
                 deletingBookingId={deletingBookingId}
                 handleDeleteBooking={handleDeleteBooking}
+                isHBEnrollment={isHBEnrollment}
+                hbCreditsAllocated={hbCreditsAllocated}
               />
             )}
 

@@ -107,6 +107,10 @@ export const instructorAPI = {
     const { data } = await api.post(`/instructor/classes/${classId}/cancel`, { reason });
     return data;
   },
+  reinstateClass: async (classId) => {
+    const { data } = await api.post(`/instructor/classes/${classId}/reinstate`);
+    return data;
+  },
   getClassStudents: async (classId) => {
     const { data } = await api.get(`/instructor/classes/${classId}/students`);
     return data;

@@ -431,7 +431,26 @@ export default function InstructorDashboard() {
                                   </button>
                                 )}
                                 {isCancelled ? (
-                                  <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 8px', backgroundColor: '#FDEAEA', color: '#C03030' }}>Cancelled</span>
+                                  isFuture ? (
+                                    <button
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        if (!confirm('Reinstate this class?')) return;
+                                        try {
+                                          await instructorAPI.reinstateClass(cls.id);
+                                          const result = await instructorAPI.getDashboard();
+                                          setData(result);
+                                          setDayStudents({});
+                                          setExpandedDayClass(null);
+                                        } catch (err) {
+                                          alert(err.response?.data?.error || 'Failed to reinstate');
+                                        }
+                                      }}
+                                      style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', padding: '5px 10px', border: `1px solid ${TC}`, backgroundColor: TC_LIGHT, color: TC_DARK, cursor: 'pointer' }}
+                                    >Reinstate</button>
+                                  ) : (
+                                    <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 8px', backgroundColor: '#FDEAEA', color: '#C03030' }}>Cancelled</span>
+                                  )
                                 ) : (
                                   <span className="material-symbols-outlined" style={{ fontSize: '16px', color: MUTED, transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>expand_more</span>
                                 )}

@@ -824,6 +824,70 @@ app.post('/api/instructor/classes/:classId/cancel', authenticateToken, asyncHand
   });
 }));
 
+// POST /api/instructor/classes/:classId/reinstate - Reinstate a cancelled class
+app.post('/api/instructor/classes/:classId/reinstate', authenticateToken, asyncHandler(async (req, res) => {
+  const { dbCustomerId } = req.user;
+  const { classId } = req.params;
+
+  const { data: instructor } = await supabaseDb.supabase
+    .from('customers')
+    .select('id, first_name, last_name, role')
+    .eq('id', dbCustomerId)
+    .single();
+
+  if (!instructor || instructor.role !== 'instructor') {
+    return res.status(403).json({ error: 'Instructor access required' });
+  }
+
+  const instructorName = `${instructor.first_name} ${instructor.last_name}`;
+
+  const { data: classInstance } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('*')
+    .eq('id', classId)
+    .eq('instructor', instructorName)
+    .single();
+
+  if (!classInstance) {
+    return res.status(404).json({ error: 'Class not found or not assigned to you' });
+  }
+
+  if (classInstance.status !== 'cancelled') {
+    return res.status(400).json({ error: 'Class is not cancelled' });
+  }
+
+  const today = new Date().toISOString().split('T')[0];
+  if (classInstance.class_date < today) {
+    return res.status(400).json({ error: 'Cannot reinstate a past class' });
+  }
+
+  // Reinstate the class
+  await supabaseDb.supabase
+    .from('class_instances')
+    .update({ status: 'scheduled', cancellation_reason: null, updated_at: new Date().toISOString() })
+    .eq('id', classId);
+
+  // Reinstate cancelled bookings for this class
+  const { data: cancelledBookings } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id')
+    .eq('class_instance_id', classId)
+    .eq('status', 'cancelled');
+
+  const reinstatedCount = (cancelledBookings || []).length;
+  if (reinstatedCount > 0) {
+    await supabaseDb.supabase
+      .from('bookings')
+      .update({ status: 'booked', updated_at: new Date().toISOString() })
+      .eq('class_instance_id', classId)
+      .eq('status', 'cancelled');
+  }
+
+  console.log(`✅ Instructor ${instructorName} reinstated class ${classId} (${classInstance.class_type} on ${classInstance.class_date}). ${reinstatedCount} bookings restored.`);
+
+  res.json({ success: true, reinstatedBookings: reinstatedCount, message: `Class reinstated. ${reinstatedCount} booking${reinstatedCount !== 1 ? 's' : ''} restored.` });
+}));
+
 // POST /api/admin/instructors - Create a new instructor
 app.post('/api/admin/instructors', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { first_name, last_name, email, bio } = req.body;

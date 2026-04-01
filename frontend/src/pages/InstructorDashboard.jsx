@@ -66,8 +66,6 @@ export default function InstructorDashboard() {
   const [cancelReason, setCancelReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
 
-  // Unavailability toggle
-  const [togglingUnavail, setTogglingUnavail] = useState(null);
 
   const handleMarkAttendance = useCallback(async (bookingId, attended) => {
     setMarkingAttendance(prev => ({ ...prev, [bookingId]: true }));
@@ -166,23 +164,6 @@ export default function InstructorDashboard() {
     }
   };
 
-  const handleToggleUnavailable = async (dateStr) => {
-    setTogglingUnavail(dateStr);
-    try {
-      const unavailableDates = data?.unavailableDates || [];
-      if (unavailableDates.includes(dateStr)) {
-        await instructorAPI.removeUnavailable(dateStr);
-      } else {
-        await instructorAPI.markUnavailable(dateStr);
-      }
-      const result = await instructorAPI.getDashboard();
-      setData(result);
-    } catch (error) {
-      console.error('Error toggling unavailability:', error);
-    } finally {
-      setTogglingUnavail(null);
-    }
-  };
 
   if (loading) {
     return (
@@ -231,13 +212,11 @@ export default function InstructorDashboard() {
     const events     = getEventsForDay(day);
     const hasEvents  = events.length > 0;
     const dayStr = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
-    const isUnavailable = (data?.unavailableDates || []).includes(dayStr);
-
     return (
       <div
         key={day.toISOString()}
         onClick={() => {
-          if (hasEvents || isSelected || isUnavailable) {
+          if (hasEvents || isSelected) {
             setSelectedDate(isSelected ? null : day);
             setExpandedDayClass(null);
           }
@@ -247,8 +226,8 @@ export default function InstructorDashboard() {
           borderRight: idx % 7 < 6 ? `1px solid ${RULE}` : 'none',
           borderBottom: `1px solid ${RULE}`,
           padding: '4px 3px',
-          cursor: hasEvents || isUnavailable ? 'pointer' : 'default',
-          backgroundColor: isSelected ? TC_LIGHT : isUnavailable ? '#FFF0F0' : isToday ? '#FFFDF4' : '#FFFFFF',
+          cursor: hasEvents ? 'pointer' : 'default',
+          backgroundColor: isSelected ? TC_LIGHT : isToday ? '#FFFDF4' : '#FFFFFF',
           transition: 'background-color 0.1s',
         }}
       >
@@ -268,9 +247,6 @@ export default function InstructorDashboard() {
             <span key={j} style={{ width: '7px', height: '7px', display: 'inline-block', backgroundColor: ev.status === 'cancelled' ? '#C03030' : ev.class_type?.startsWith('HB') ? '#B8B3AB' : TC }} />
           ))}
         </div>
-        {isUnavailable && (
-          <div style={{ fontSize: '7px', fontWeight: 700, color: '#C03030', textTransform: 'uppercase', marginTop: '1px' }}>N/A</div>
-        )}
       </div>
     );
   }
@@ -411,29 +387,10 @@ export default function InstructorDashboard() {
               const todayStr = toLocalStr(new Date());
               const { dayAbbr, dayNum, month } = formatDateParts(selectedStr);
               const isFuture = selectedStr >= todayStr;
-              const isUnavailableDay = (data?.unavailableDates || []).includes(selectedStr);
 
               return (
                 <section style={{ marginBottom: '28px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <SectionLabel style={{ marginBottom: 0 }}>{dayAbbr} {dayNum} {month}</SectionLabel>
-                    {isFuture && (
-                      <button
-                        onClick={() => handleToggleUnavailable(selectedStr)}
-                        disabled={togglingUnavail === selectedStr}
-                        style={{
-                          fontSize: '9px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
-                          padding: '5px 10px', border: `1px solid ${isUnavailableDay ? '#C03030' : RULE}`,
-                          backgroundColor: isUnavailableDay ? '#FFF0F0' : '#FFFFFF',
-                          color: isUnavailableDay ? '#C03030' : MUTED,
-                          cursor: 'pointer', opacity: togglingUnavail ? 0.6 : 1,
-                          fontFamily: 'inherit',
-                        }}
-                      >
-                        {isUnavailableDay ? 'AVAILABLE' : 'NOT AVAILABLE'}
-                      </button>
-                    )}
-                  </div>
+                  <SectionLabel>{dayAbbr} {dayNum} {month}</SectionLabel>
                   {dayClasses.length === 0 ? (
                     <p style={{ fontSize: '13px', color: MUTED }}>No classes on this day.</p>
                   ) : (

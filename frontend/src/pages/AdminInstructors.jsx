@@ -31,10 +31,7 @@ export default function AdminInstructors() {
   const [creating, setCreating] = useState(false);
   const [formMsg, setFormMsg] = useState(null);
 
-  // Unavailability
-  const [unavailability, setUnavailability] = useState([]);
-
-  useEffect(() => { loadData(); loadUnavailability(); }, []);
+  useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
     try {
@@ -56,14 +53,6 @@ export default function AdminInstructors() {
     }
   };
 
-  const loadUnavailability = async () => {
-    try {
-      const { data } = await api.get('/admin/instructor-unavailability');
-      setUnavailability(data.unavailability || []);
-    } catch (err) {
-      console.error('Failed to load unavailability:', err);
-    }
-  };
 
   const setRole = async (id, role) => {
     try {
@@ -313,53 +302,6 @@ export default function AdminInstructors() {
           </div>
         </section>
 
-        {/* Upcoming Unavailable Dates */}
-        {(() => {
-          const today = new Date().toISOString().split('T')[0];
-          const upcoming = unavailability.filter(u => u.unavailable_date >= today);
-          if (upcoming.length === 0) return null;
-
-          // Group by instructor
-          const grouped = {};
-          upcoming.forEach(u => {
-            const name = u.customers ? `${u.customers.first_name} ${u.customers.last_name}` : `Instructor #${u.instructor_id}`;
-            if (!grouped[name]) grouped[name] = [];
-            grouped[name].push(u.unavailable_date);
-          });
-
-          return (
-            <section style={{ marginTop: '32px' }}>
-              <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED, marginBottom: '12px' }}>
-                Upcoming Unavailable Dates
-              </div>
-              <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
-                {Object.entries(grouped).map(([name, dates], i) => (
-                  <div key={name} style={{
-                    padding: '14px 16px',
-                    borderBottom: i < Object.keys(grouped).length - 1 ? `1px solid ${RULE}` : 'none',
-                  }}>
-                    <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>{name}</div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                      {dates.map(date => {
-                        const d = new Date(date + 'T00:00:00');
-                        const label = d.toLocaleDateString('en-SG', { weekday: 'short', day: 'numeric', month: 'short' });
-                        return (
-                          <span key={date} style={{
-                            fontSize: '11px', padding: '4px 10px',
-                            backgroundColor: '#FFF0F0', color: '#C03030',
-                            border: '1px solid #F0C0C0', fontWeight: 500,
-                          }}>
-                            {label}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          );
-        })()}
       </main>
     </div>
   );

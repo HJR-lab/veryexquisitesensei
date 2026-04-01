@@ -111,14 +111,6 @@ export const instructorAPI = {
     const { data } = await api.get(`/instructor/classes/${classId}/students`);
     return data;
   },
-  markUnavailable: async (date) => {
-    const { data } = await api.post('/instructor/unavailability', { date });
-    return data;
-  },
-  removeUnavailable: async (date) => {
-    const { data } = await api.delete('/instructor/unavailability', { data: { date } });
-    return data;
-  },
   addNote: async (data) => {
     const { data: res } = await api.post('/instructor/notes', data);
     return res;

@@ -842,7 +842,7 @@ export default function AdminStudents() {
                     <AllocBar label="WT" used={student._wtUsed} total={student._wtTotal} color={TC} />
                   )}
                   {student._hbTotal != null && (
-                    <AllocBar label="HB" used={student._hbUsed} total={student._hbTotal} color={isHB && hbAllUsed ? '#2E7D32' : '#E65100'} />
+                    <AllocBar label="HB" used={student.classesAttended || 0} total={student._hbTotal} color={isHB && hbAllUsed ? '#2E7D32' : '#E65100'} />
                   )}
                   {/* Member expiry progress bar */}
                   {isMember && membership && (

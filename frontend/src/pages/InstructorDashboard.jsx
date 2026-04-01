@@ -406,9 +406,10 @@ export default function InstructorDashboard() {
             {/* Day detail — classes + expandable student lists + cancel */}
             {selectedDate && (() => {
               const dayClasses = getEventsForDay(selectedDate);
-              const { dayAbbr, dayNum, month } = formatDateParts(selectedDate.toISOString().split('T')[0]);
-              const todayStr = new Date().toISOString().split('T')[0];
-              const selectedStr = selectedDate.toISOString().split('T')[0];
+              const toLocalStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+              const selectedStr = toLocalStr(selectedDate);
+              const todayStr = toLocalStr(new Date());
+              const { dayAbbr, dayNum, month } = formatDateParts(selectedStr);
               const isFuture = selectedStr >= todayStr;
               const isUnavailableDay = (data?.unavailableDates || []).includes(selectedStr);
 

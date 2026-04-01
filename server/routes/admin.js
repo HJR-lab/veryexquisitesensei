@@ -194,7 +194,9 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
       email: student.email,
       courseType: enr.course_type,
       courseTitle: enr.course_title,
-      variantTitle: enr.course_variant_title,
+      variantTitle: enr.course_variant_title || (enr.schedule_pattern && enr.course_start_date && enr.course_end_date
+        ? `${enr.schedule_pattern} • ${new Date(enr.course_start_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}–${new Date(enr.course_end_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} • ${enr.class_time || ''}`
+        : null),
       courseIdentifier: enr.course_identifier,
       enrollmentStatus: enr.status,
       enrollmentId: enr.id,

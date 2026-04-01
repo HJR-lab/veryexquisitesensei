@@ -832,6 +832,26 @@ app.post('/api/classes/cancel', authenticateToken, asyncHandler(async (req, res)
 
   await supabaseDb.updateClassEnrollment(booking.class_instance_id, -1);
 
+  // Restore HB credit when booking is cancelled
+  if (booking.course_enrollment_id) {
+    const { data: enr } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('id, course_type, class_credits_used, class_credits_remaining')
+      .eq('id', booking.course_enrollment_id)
+      .single();
+
+    if (enr && (enr.course_type || '').toLowerCase().includes('handbuilding')) {
+      await supabaseDb.supabase
+        .from('course_enrollments')
+        .update({
+          class_credits_used: Math.max(0, (enr.class_credits_used || 0) - 1),
+          class_credits_remaining: (enr.class_credits_remaining || 0) + 1,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', enr.id);
+    }
+  }
+
   // Auto-offer spot to next person on waitlist
   try {
     const nextInLine = await supabaseDb.getNextInWaitlist(booking.class_instance_id);
@@ -1599,17 +1619,8 @@ app.post('/api/classes/bookings/:bookingId/mark-attendance', authenticateToken, 
     if (enrollment) {
       const isHB = (enrollment.course_type || '').toLowerCase().includes('handbuilding');
       if (isHB) {
-        if (attended || (!attended && !booking.advance_notice_given)) {
-          await supabaseDb.supabase
-            .from('course_enrollments')
-            .update({
-              class_credits_used: (enrollment.class_credits_used || 0) + 1,
-              class_credits_remaining: Math.max(0, (enrollment.class_credits_remaining || 0) - 1),
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', enrollment.id);
-        }
-        // No-show WITH notice: credit is not consumed, student can rebook
+        // HB credits are decremented at booking time, not at attendance time.
+        // No additional credit update needed here.
       } else {
         // WT courses: increment weeks_completed on attended or forfeited (no-show)
         if (attended || (!attended && !booking.advance_notice_given)) {

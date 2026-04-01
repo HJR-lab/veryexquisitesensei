@@ -3475,7 +3475,7 @@ app.delete('/api/admin/bookings/:bookingId', authenticateToken, requireAdmin, as
   // Check if booking exists
   const { data: booking, error: fetchError } = await supabaseDb.supabase
     .from('bookings')
-    .select('id, status')
+    .select('id, status, course_enrollment_id')
     .eq('id', bookingId)
     .single();
 
@@ -3511,6 +3511,26 @@ app.delete('/api/admin/bookings/:bookingId', authenticateToken, requireAdmin, as
   if (updateError) {
     console.error('Error cancelling booking:', updateError);
     return res.status(500).json({ error: 'Failed to cancel booking' });
+  }
+
+  // Restore HB credit when booking is cancelled
+  if (booking.course_enrollment_id) {
+    const { data: enr } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('id, course_type, class_credits_used, class_credits_remaining')
+      .eq('id', booking.course_enrollment_id)
+      .single();
+
+    if (enr && (enr.course_type || '').toLowerCase().includes('handbuilding')) {
+      await supabaseDb.supabase
+        .from('course_enrollments')
+        .update({
+          class_credits_used: Math.max(0, (enr.class_credits_used || 0) - 1),
+          class_credits_remaining: (enr.class_credits_remaining || 0) + 1,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', enr.id);
+    }
   }
 
   res.json({ message: 'Student removed successfully' });

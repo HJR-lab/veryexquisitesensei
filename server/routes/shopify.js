@@ -568,10 +568,18 @@ app.post('/api/admin/hb-enrollments/:enrollmentId/book-classes', authenticateTok
     }
   }
 
-  // Update enrollment booking timestamp
+  // Update enrollment booking timestamp and decrement credits
+  const { data: currentEnr } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('class_credits_used, class_credits_remaining')
+    .eq('id', enrollmentId)
+    .single();
+
   await supabaseDb.supabase
     .from('course_enrollments')
     .update({
+      class_credits_used: (currentEnr?.class_credits_used || 0) + newBookings.length,
+      class_credits_remaining: Math.max(0, (currentEnr?.class_credits_remaining || 0) - newBookings.length),
       bookings_created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     })

@@ -749,7 +749,7 @@ export default function AdminStudents() {
             const isDual         = student._type === 'student-member';
             const isHB           = student._cardType === 'hb';
             const isSelected     = isHB && selectedHB.has(student._enrollmentId);
-            const hbAllUsed      = isHB && student._hbTotal > 0 && student._hbUsed >= student._hbTotal;
+            const hbAllUsed      = isHB && student._hbTotal > 0 && (student.classesAttended || 0) >= student._hbTotal;
             const membership     = student._membership;
 
             // Determine status key for badge

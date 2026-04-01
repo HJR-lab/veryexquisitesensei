@@ -5198,6 +5198,7 @@ app.post('/api/admin/enrollments/:enrollmentId/switch-type', authenticateToken, 
   const updateData = {
     course_type: newCourseType,
     course_identifier: toCourseId || null,
+    course_title: isToHB ? 'Handbuilding Beginner/Ext 4-8 Weeks' : 'Wheelthrowing Beginner/Ext 6 Weeks',
     updated_at: new Date().toISOString(),
   };
 
@@ -5212,6 +5213,54 @@ app.post('/api/admin/enrollments/:enrollmentId/switch-type', authenticateToken, 
     updateData.class_credits_remaining = null;
     updateData.class_credits_used = null;
   }
+
+  // If toCourseId specified, derive schedule info from target course classes
+  if (toCourseId) {
+    const today = new Date().toISOString().split('T')[0];
+    const { data: targetInfo } = await supabaseDb.supabase
+      .from('class_instances')
+      .select('class_date, start_time, end_time, instructor')
+      .like('class_type', `${toCourseId}%`)
+      .order('class_date', { ascending: true })
+      .limit(1);
+
+    if (targetInfo && targetInfo.length > 0) {
+      const first = targetInfo[0];
+      // Derive day of week from first class date
+      const dayNames = ['SUNDAYS', 'MONDAYS', 'TUESDAYS', 'WEDNESDAYS', 'THURSDAYS', 'FRIDAYS', 'SATURDAYS'];
+      const classDate = new Date(first.class_date + 'T00:00:00');
+      updateData.schedule_pattern = dayNames[classDate.getDay()];
+      updateData.class_time = first.start_time && first.end_time
+        ? `${first.start_time}-${first.end_time}`
+        : first.start_time || null;
+      updateData.course_start_date = first.class_date;
+    }
+
+    // Count total classes for this course to set number_of_weeks
+    const { data: allTarget } = await supabaseDb.supabase
+      .from('class_instances')
+      .select('id', { count: 'exact' })
+      .like('class_type', `${toCourseId}%`)
+      .neq('status', 'cancelled');
+
+    if (allTarget) {
+      updateData.number_of_weeks = allTarget.length;
+      // Set end date from last class
+      const { data: lastClass } = await supabaseDb.supabase
+        .from('class_instances')
+        .select('class_date')
+        .like('class_type', `${toCourseId}%`)
+        .neq('status', 'cancelled')
+        .order('class_date', { ascending: false })
+        .limit(1);
+      if (lastClass && lastClass.length > 0) {
+        updateData.course_end_date = lastClass[0].class_date;
+      }
+    }
+  }
+
+  // Clear variant title since it came from original Shopify order
+  updateData.course_variant_title = null;
 
   await supabaseDb.supabase
     .from('course_enrollments')

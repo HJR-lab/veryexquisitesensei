@@ -248,7 +248,8 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
       ...primary,
       upcomingCourse: upcoming && current ? {
         courseIdentifier: upcoming.courseIdentifier,
-        variantTitle: upcoming.variantTitle
+        variantTitle: upcoming.variantTitle,
+        numberOfWeeks: upcoming.numberOfWeeks || 6
       } : null,
       // For sorting by most recent enrollment
       latestEnrollmentDate: upcoming ? upcoming.enrollmentCreatedAt : primary.enrollmentCreatedAt

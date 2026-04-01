@@ -1260,6 +1260,7 @@ async function updateCourseEnrollment(enrollmentId, updates) {
   if (updates.pendingStudentCount !== undefined) dbUpdates.pending_student_count = updates.pendingStudentCount;
   if (updates.thresholdMetAt !== undefined) dbUpdates.threshold_met_at = updates.thresholdMetAt;
   if (updates.bookingsCreatedAt !== undefined) dbUpdates.bookings_created_at = updates.bookingsCreatedAt;
+  if (updates.course_identifier !== undefined) dbUpdates.course_identifier = updates.course_identifier;
 
   // HB credit fields
   if (updates.class_credits_allocated !== undefined) dbUpdates.class_credits_allocated = updates.class_credits_allocated;

@@ -183,6 +183,14 @@ export default function AdminStudentDetail() {
   const [nextCourse, setNextCourse] = useState(null);
   const [continuingPackage, setContinuingPackage] = useState(false);
 
+  // ── Move / Switch Course ────────────────────────────────────────────────
+  const [showMoveModal, setShowMoveModal] = useState(false);
+  const [movingCourse, setMovingCourse] = useState(false);
+  const [availableCourses, setAvailableCourses] = useState([]);
+  const [loadingCourses, setLoadingCourses] = useState(false);
+  const [moveTarget, setMoveTarget] = useState(null);
+  const [moveType, setMoveType] = useState('same'); // 'same' or 'switch'
+
   // ── Studio Access ────────────────────────────────────────────────────────
   const [studioBookings, setStudioBookings] = useState([]);
   const [studioSummary, setStudioSummary] = useState(null);
@@ -654,6 +662,71 @@ export default function AdminStudentDetail() {
     }
   };
 
+  const handleOpenMoveModal = async () => {
+    setShowMoveModal(true);
+    setMoveType('same');
+    setMoveTarget(null);
+    setLoadingCourses(true);
+    try {
+      const isWT = (enrollment.course_type || '').toLowerCase().includes('wheelthrowing');
+      const type = isWT ? 'WT' : 'HB';
+      const baseId = enrollment.course_identifier?.replace(/\.\d+$/, '') || '';
+      const res = await api.get(`/admin/available-courses?type=${type}&excludeCourse=${baseId}`);
+      setAvailableCourses(res.data.courses || []);
+    } catch (err) {
+      console.error('Failed to load courses:', err);
+    } finally {
+      setLoadingCourses(false);
+    }
+  };
+
+  const handleLoadSwitchCourses = async () => {
+    setMoveType('switch');
+    setMoveTarget(null);
+    setLoadingCourses(true);
+    try {
+      const isWT = (enrollment.course_type || '').toLowerCase().includes('wheelthrowing');
+      const type = isWT ? 'HB' : 'WT'; // opposite type
+      const res = await api.get(`/admin/available-courses?type=${type}`);
+      setAvailableCourses(res.data.courses || []);
+    } catch (err) {
+      console.error('Failed to load courses:', err);
+    } finally {
+      setLoadingCourses(false);
+    }
+  };
+
+  const handleMoveCourse = async () => {
+    if (!moveTarget || !enrollment) return;
+    setMovingCourse(true);
+    try {
+      if (moveType === 'switch') {
+        const isWT = (enrollment.course_type || '').toLowerCase().includes('wheelthrowing');
+        const newType = isWT ? 'Handbuilding Beginner' : 'Wheelthrowing Beginner';
+        await api.post(`/admin/enrollments/${enrollment.id}/switch-type`, {
+          newCourseType: newType,
+          toCourseId: moveTarget.courseId,
+        });
+      } else {
+        // Same type move — use existing move-student endpoint
+        const baseId = enrollment.course_identifier?.replace(/\.\d+$/, '') || '';
+        await api.post('/admin/course-emails/move-student', {
+          studentId: student.id,
+          fromCourseId: baseId,
+          toCourseId: moveTarget.courseId,
+        });
+      }
+      setShowMoveModal(false);
+      alert('Student moved successfully!');
+      await loadStudentData();
+    } catch (error) {
+      console.error('Failed to move student:', error);
+      alert(error.response?.data?.error || 'Failed to move student');
+    } finally {
+      setMovingCourse(false);
+    }
+  };
+
   const handleProfilePictureUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -676,14 +749,14 @@ export default function AdminStudentDetail() {
     }
   };
 
-  const handleImpersonate = () => {
+  const handleImpersonate = (target = 'student') => {
     if (!student?.id) {
       setSaveMessage('Student data not loaded yet — try again.');
       return;
     }
     localStorage.setItem('adminReturnPath', window.location.pathname);
     localStorage.setItem('ves_impersonate_id', String(student.id));
-    window.location.href = '/dashboard';
+    window.location.href = target === 'instructor' ? '/' : '/dashboard';
   };
 
   // ─── Derived values ───────────────────────────────────────────────────────
@@ -1129,6 +1202,23 @@ export default function AdminStudentDetail() {
                 )}
 
                 {/* Course history removed — shown in student history tab instead */}
+
+                {/* Move Course button */}
+                {enrollment && enrollment.status === 'active' && (
+                  <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: `1px solid ${RULE}` }}>
+                    <button
+                      onClick={handleOpenMoveModal}
+                      style={{
+                        width: '100%', padding: '10px 16px',
+                        backgroundColor: '#FFFFFF', color: INK, border: `1px solid ${RULE}`,
+                        fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+                        cursor: 'pointer', fontFamily: 'inherit',
+                      }}
+                    >
+                      Move / Switch Course
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1302,6 +1392,92 @@ export default function AdminStudentDetail() {
                 disabled={pausing}
                 style={{ flex: 1, padding: '12px', backgroundColor: TC, color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: pausing ? 'not-allowed' : 'pointer', opacity: pausing ? 0.7 : 1 }}
               >{pausing ? 'Pausing…' : 'Confirm Pause'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MOVE / SWITCH COURSE MODAL ── */}
+      {showMoveModal && enrollment && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.4)' }} onClick={() => !movingCourse && setShowMoveModal(false)}>
+          <div style={{ backgroundColor: '#FFFFFF', width: '90%', maxWidth: '500px', maxHeight: '80vh', overflow: 'auto', padding: '24px', boxShadow: '0 8px 32px rgba(0,0,0,0.15)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC_DARK, marginBottom: '16px' }}>Move / Switch Course</div>
+
+            <div style={{ fontSize: '12px', color: MUTED, marginBottom: '16px' }}>
+              Current: <strong style={{ color: INK }}>{enrollment.course_identifier || enrollment.course_type}</strong>
+            </div>
+
+            {/* Tab toggle: Same type vs Switch type */}
+            <div style={{ display: 'flex', gap: '0', marginBottom: '16px', border: `1px solid ${RULE}` }}>
+              <button
+                onClick={() => { handleOpenMoveModal(); }}
+                style={{
+                  flex: 1, padding: '8px', border: 'none', fontSize: '11px', fontWeight: 700, cursor: 'pointer',
+                  backgroundColor: moveType === 'same' ? TC : '#FFFFFF',
+                  color: moveType === 'same' ? '#FFF' : MUTED,
+                }}
+              >
+                Same Type
+              </button>
+              <button
+                onClick={handleLoadSwitchCourses}
+                style={{
+                  flex: 1, padding: '8px', border: 'none', borderLeft: `1px solid ${RULE}`, fontSize: '11px', fontWeight: 700, cursor: 'pointer',
+                  backgroundColor: moveType === 'switch' ? TC : '#FFFFFF',
+                  color: moveType === 'switch' ? '#FFF' : MUTED,
+                }}
+              >
+                {(enrollment.course_type || '').toLowerCase().includes('wheelthrowing') ? 'Switch to HB' : 'Switch to WT'}
+              </button>
+            </div>
+
+            {loadingCourses ? (
+              <div style={{ padding: '20px', textAlign: 'center', color: MUTED, fontSize: '12px' }}>Loading courses...</div>
+            ) : availableCourses.length === 0 ? (
+              <div style={{ padding: '20px', textAlign: 'center', color: MUTED, fontSize: '12px' }}>No available courses found.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '300px', overflow: 'auto' }}>
+                {availableCourses.map(c => (
+                  <div
+                    key={c.courseId}
+                    onClick={() => setMoveTarget(c)}
+                    style={{
+                      padding: '10px 12px', border: `1px solid ${moveTarget?.courseId === c.courseId ? TC : RULE}`,
+                      backgroundColor: moveTarget?.courseId === c.courseId ? TC_LIGHT : '#FFF',
+                      cursor: 'pointer', transition: 'all 0.15s',
+                    }}
+                  >
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: INK }}>{c.courseId}</div>
+                    <div style={{ fontSize: '11px', color: MUTED, marginTop: '2px' }}>
+                      {c.instructor} · {c.totalClasses} classes · Starts {new Date(c.startDate).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })}
+                      {c.startTime && ` · ${c.startTime.slice(0,5)}`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '8px', marginTop: '16px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowMoveModal(false)}
+                disabled={movingCourse}
+                style={{ padding: '10px 20px', border: `1px solid ${RULE}`, backgroundColor: '#FFF', cursor: 'pointer', fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: MUTED }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleMoveCourse}
+                disabled={!moveTarget || movingCourse}
+                style={{
+                  padding: '10px 20px', border: 'none',
+                  backgroundColor: moveTarget && !movingCourse ? TC : '#DDD',
+                  cursor: moveTarget && !movingCourse ? 'pointer' : 'not-allowed',
+                  fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#FFF',
+                  opacity: movingCourse ? 0.7 : 1,
+                }}
+              >
+                {movingCourse ? 'Moving...' : 'Move Student'}
+              </button>
             </div>
           </div>
         </div>

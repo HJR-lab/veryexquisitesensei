@@ -5138,6 +5138,157 @@ app.get('/api/admin/course-emails/:courseId/students', authenticateToken, requir
   res.json({ students });
 }));
 
+// Get available courses for moving a student
+app.get('/api/admin/available-courses', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { type, excludeCourse } = req.query;
+
+  // Get future class instances grouped by base course identifier
+  const today = new Date().toISOString().split('T')[0];
+  const { data: classes } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('id, class_type, class_date, start_time, end_time, instructor, current_enrollment, max_capacity, status')
+    .gte('class_date', today)
+    .neq('status', 'cancelled')
+    .order('class_date', { ascending: true });
+
+  // Group by base course identifier (strip .N suffix)
+  const courseMap = {};
+  (classes || []).forEach(c => {
+    const base = c.class_type.replace(/\.\d+$/, '');
+    // Filter by type if specified
+    if (type === 'WT' && !base.startsWith('WT')) return;
+    if (type === 'HB' && !base.startsWith('HB')) return;
+    // Exclude current course
+    if (excludeCourse && base === excludeCourse) return;
+
+    if (!courseMap[base]) {
+      courseMap[base] = {
+        courseId: base,
+        classType: base.startsWith('WT') ? 'Wheelthrowing' : 'Handbuilding',
+        instructor: c.instructor,
+        startDate: c.class_date,
+        startTime: c.start_time,
+        endTime: c.end_time,
+        totalClasses: 0,
+        availableSpots: 0,
+      };
+    }
+    courseMap[base].totalClasses++;
+    courseMap[base].availableSpots = Math.max(0, (c.max_capacity || 8) - (c.current_enrollment || 0));
+  });
+
+  res.json({ courses: Object.values(courseMap) });
+}));
+
+// Switch enrollment type (HB↔WT) — updates enrollment and reboks classes
+app.post('/api/admin/enrollments/:enrollmentId/switch-type', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { enrollmentId } = req.params;
+  const { newCourseType, toCourseId } = req.body;
+
+  const { data: enrollment } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('*')
+    .eq('id', parseInt(enrollmentId))
+    .single();
+
+  if (!enrollment) return res.status(404).json({ error: 'Enrollment not found' });
+
+  // Update enrollment type and course identifier
+  const isToHB = newCourseType.toLowerCase().includes('handbuilding');
+  const updateData = {
+    course_type: newCourseType,
+    course_identifier: toCourseId || null,
+    updated_at: new Date().toISOString(),
+  };
+
+  // If switching to HB, set credit-based fields
+  if (isToHB) {
+    updateData.class_credits_allocated = enrollment.number_of_weeks || 4;
+    updateData.class_credits_remaining = (enrollment.number_of_weeks || 4) - (enrollment.weeks_completed || 0);
+    updateData.class_credits_used = enrollment.weeks_completed || 0;
+  } else {
+    // If switching to WT, clear HB credit fields
+    updateData.class_credits_allocated = null;
+    updateData.class_credits_remaining = null;
+    updateData.class_credits_used = null;
+  }
+
+  await supabaseDb.supabase
+    .from('course_enrollments')
+    .update(updateData)
+    .eq('id', parseInt(enrollmentId));
+
+  // If toCourseId specified, delete old bookings and create new ones
+  if (toCourseId) {
+    // Delete ALL future booked bookings for this student on this enrollment
+    const today = new Date().toISOString().split('T')[0];
+
+    // Get all booked bookings for this enrollment
+    const { data: existingBookings } = await supabaseDb.supabase
+      .from('bookings')
+      .select('id, class_instance_id')
+      .eq('course_enrollment_id', parseInt(enrollmentId))
+      .eq('status', 'booked');
+
+    // Also get the class dates to filter future ones
+    if (existingBookings && existingBookings.length > 0) {
+      const classIds = existingBookings.map(b => b.class_instance_id);
+      const { data: classes } = await supabaseDb.supabase
+        .from('class_instances')
+        .select('id, class_date')
+        .in('id', classIds);
+
+      const futureClassIds = new Set((classes || []).filter(c => c.class_date >= today).map(c => c.id));
+      const futureBookingIds = existingBookings.filter(b => futureClassIds.has(b.class_instance_id)).map(b => b.id);
+
+      if (futureBookingIds.length > 0) {
+        await supabaseDb.supabase
+          .from('bookings')
+          .delete()
+          .in('id', futureBookingIds);
+      }
+    }
+
+    // Create bookings for target course
+    const { data: targetClasses } = await supabaseDb.supabase
+      .from('class_instances')
+      .select('id, class_type, class_date')
+      .like('class_type', `${toCourseId}%`)
+      .gte('class_date', today)
+      .neq('status', 'cancelled')
+      .order('class_date', { ascending: true });
+
+    if (targetClasses && targetClasses.length > 0) {
+      const now = new Date().toISOString();
+      for (const cls of targetClasses) {
+        // Check for existing booking
+        const { data: existing } = await supabaseDb.supabase
+          .from('bookings')
+          .select('id')
+          .eq('student_id', enrollment.student_id)
+          .eq('class_instance_id', cls.id)
+          .limit(1);
+
+        if (!existing || existing.length === 0) {
+          await supabaseDb.supabase
+            .from('bookings')
+            .insert({
+              student_id: enrollment.student_id,
+              class_instance_id: cls.id,
+              status: 'booked',
+              booking_type: 'regular',
+              course_enrollment_id: parseInt(enrollmentId),
+              created_at: now,
+              updated_at: now,
+            });
+        }
+      }
+    }
+  }
+
+  res.json({ success: true, message: `Course type switched to ${newCourseType}` });
+}));
+
 // Move a student from one course to another (transfers all bookings)
 app.post('/api/admin/course-emails/move-student', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { studentId, fromCourseId, toCourseId } = req.body;
@@ -5164,6 +5315,27 @@ app.post('/api/admin/course-emails/move-student', authenticateToken, requireAdmi
     return res.status(400).json({ error: `Target course ${toCourseId} has no class instances` });
   }
 
+  // Find student's enrollment for the source course and update it to target
+  const { data: enrollment } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('id, course_identifier')
+    .eq('student_id', studentId)
+    .or(`course_identifier.like.${fromCourseId}%,course_identifier.is.null`)
+    .eq('status', 'active')
+    .order('id', { ascending: false })
+    .limit(1)
+    .single();
+
+  const enrollmentId = enrollment?.id || null;
+
+  // Update enrollment course_identifier to target course
+  if (enrollmentId) {
+    await supabaseDb.supabase
+      .from('course_enrollments')
+      .update({ course_identifier: toCourseId, updated_at: new Date().toISOString() })
+      .eq('id', enrollmentId);
+  }
+
   // Delete student's bookings from source course
   if (fromClasses && fromClasses.length > 0) {
     const fromIds = fromClasses.map(c => c.id);
@@ -5174,12 +5346,13 @@ app.post('/api/admin/course-emails/move-student', authenticateToken, requireAdmi
       .in('class_instance_id', fromIds);
   }
 
-  // Create bookings in target course
+  // Create bookings in target course — linked to enrollment
   const newBookings = toClasses.map(cls => ({
     student_id: studentId,
     class_instance_id: cls.id,
     status: 'booked',
     booking_type: 'regular',
+    course_enrollment_id: enrollmentId,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }));

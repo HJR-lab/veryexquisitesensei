@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api, { classesAPI } from '../utils/api';
 import ImpersonationBanner from '../components/ImpersonationBanner';
@@ -49,6 +49,9 @@ function SectionLabel({ children, action, actionLabel, onAction }) {
 export default function ClassScheduleNew() {
   const navigate = useNavigate();
   const { user } = useAuth();
+
+  // Instructors see their own calendar at /my-classes, not the student booking page
+  if (user?.role === 'instructor') return <Navigate to="/my-classes" replace />;
 
   // ── API state (preserved from production) ──────────────────────────────────
   const [classes, setClasses] = useState([]);

@@ -248,7 +248,7 @@ export default function StudentInfoCard({
         )}
         {isInstructor && (
           <button
-            onClick={handleImpersonate}
+            onClick={() => handleImpersonate('instructor')}
             style={{ flex: 1, padding: '11px', backgroundColor: TC_LIGHT, color: TC_DARK, border: `1px solid ${TC}`, fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
           >
             View as Instructor
@@ -256,7 +256,7 @@ export default function StudentInfoCard({
         )}
         {(!isInstructor || isAlsoStudent) && (
           <button
-            onClick={handleImpersonate}
+            onClick={() => handleImpersonate('student')}
             style={{ flex: 1, padding: '11px', backgroundColor: student.membership ? TC_LIGHT : 'transparent', color: student.membership ? TC_DARK : MUTED, border: `1px solid ${student.membership ? TC : RULE}`, fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
           >
             View as User

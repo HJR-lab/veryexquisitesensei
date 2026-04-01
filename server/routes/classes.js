@@ -348,10 +348,26 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
     return res.status(400).json({ error: 'You are already booked for this class' });
   }
 
+  // Try to find a matching enrollment for this student + class type
+  let enrollmentId = null;
+  if (classInstance.class_type) {
+    const baseId = classInstance.class_type.replace(/\.\d+$/, '');
+    const { data: enr } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('id')
+      .eq('student_id', dbCustomerId)
+      .eq('status', 'active')
+      .or(`course_identifier.eq.${baseId},course_identifier.like.${baseId}%`)
+      .limit(1)
+      .single();
+    if (enr) enrollmentId = enr.id;
+  }
+
   const booking = await supabaseDb.createBooking({
     studentId: dbCustomerId,
     classInstanceId: parseInt(classInstanceId),
-    status: 'booked'
+    status: 'booked',
+    courseEnrollmentId: enrollmentId
   });
 
   await supabaseDb.updateClassEnrollment(parseInt(classInstanceId), 1);
@@ -1505,10 +1521,19 @@ app.get('/api/classes/:classInstanceId/bookings', authenticateToken, asyncHandle
   res.json({ bookings });
 }));
 
-app.post('/api/classes/bookings/:bookingId/mark-attendance', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+app.post('/api/classes/bookings/:bookingId/mark-attendance', authenticateToken, asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const { attended, notes } = req.body;
   const { dbCustomerId } = req.user;
+
+  // Allow admin or instructor
+  if (!req.user.isAdmin) {
+    const { data: caller } = await supabaseDb.supabase
+      .from('customers').select('role').eq('id', dbCustomerId).single();
+    if (!caller || caller.role !== 'instructor') {
+      return res.status(403).json({ error: 'Admin or instructor access required' });
+    }
+  }
 
   if (typeof attended !== 'boolean') {
     return res.status(400).json({ error: 'Attended status required (true/false)' });
@@ -1561,37 +1586,42 @@ app.post('/api/classes/bookings/:bookingId/mark-attendance', authenticateToken, 
     }
   }
 
-  // Update HB credits when attendance is marked
-  if (booking.course_enrollment_id) {
+  // Update enrollment progress when attendance is marked
+  // Only update when transitioning FROM 'booked' (first mark), not when toggling between attended/forfeited
+  const wasBooked = booking.status === 'booked';
+  if (booking.course_enrollment_id && wasBooked) {
     const { data: enrollment } = await supabaseDb.supabase
       .from('course_enrollments')
-      .select('id, course_type, class_credits_used, class_credits_remaining')
+      .select('id, course_type, class_credits_used, class_credits_remaining, weeks_completed')
       .eq('id', booking.course_enrollment_id)
       .single();
 
-    if (enrollment && (enrollment.course_type || '').toLowerCase().includes('handbuilding')) {
-      if (attended) {
-        // Credit used on attendance
-        await supabaseDb.supabase
-          .from('course_enrollments')
-          .update({
-            class_credits_used: (enrollment.class_credits_used || 0) + 1,
-            class_credits_remaining: Math.max(0, (enrollment.class_credits_remaining || 0) - 1),
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', enrollment.id);
-      } else if (!attended && !booking.advance_notice_given) {
-        // No-show without notice also uses a credit (forfeited)
-        await supabaseDb.supabase
-          .from('course_enrollments')
-          .update({
-            class_credits_used: (enrollment.class_credits_used || 0) + 1,
-            class_credits_remaining: Math.max(0, (enrollment.class_credits_remaining || 0) - 1),
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', enrollment.id);
+    if (enrollment) {
+      const isHB = (enrollment.course_type || '').toLowerCase().includes('handbuilding');
+      if (isHB) {
+        if (attended || (!attended && !booking.advance_notice_given)) {
+          await supabaseDb.supabase
+            .from('course_enrollments')
+            .update({
+              class_credits_used: (enrollment.class_credits_used || 0) + 1,
+              class_credits_remaining: Math.max(0, (enrollment.class_credits_remaining || 0) - 1),
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', enrollment.id);
+        }
+        // No-show WITH notice: credit is not consumed, student can rebook
+      } else {
+        // WT courses: increment weeks_completed on attended or forfeited (no-show)
+        if (attended || (!attended && !booking.advance_notice_given)) {
+          await supabaseDb.supabase
+            .from('course_enrollments')
+            .update({
+              weeks_completed: (enrollment.weeks_completed || 0) + 1,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', enrollment.id);
+        }
       }
-      // No-show WITH notice: credit is not consumed, student can rebook
     }
   }
 
@@ -1835,10 +1865,26 @@ app.post('/api/classes/waitlist/claim', authenticateToken, asyncHandler(async (r
     return res.status(400).json({ error: 'Class is now full' });
   }
 
+  // Try to find a matching enrollment for this student + class
+  let waitlistEnrollmentId = null;
+  if (waitlistEntry.class_instance?.class_type) {
+    const baseId = waitlistEntry.class_instance.class_type.replace(/\.\d+$/, '');
+    const { data: enr } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('id')
+      .eq('student_id', dbCustomerId)
+      .eq('status', 'active')
+      .or(`course_identifier.eq.${baseId},course_identifier.like.${baseId}%`)
+      .limit(1)
+      .single();
+    if (enr) waitlistEnrollmentId = enr.id;
+  }
+
   const booking = await supabaseDb.createBooking({
     studentId: dbCustomerId,
     classInstanceId: waitlistEntry.class_instance_id,
-    status: 'booked'
+    status: 'booked',
+    courseEnrollmentId: waitlistEnrollmentId
   });
 
   await supabaseDb.updateWaitlistEntry(waitlistEntry.id, {

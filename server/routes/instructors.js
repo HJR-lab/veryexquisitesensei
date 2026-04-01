@@ -435,6 +435,18 @@ app.get('/api/instructor/dashboard', authenticateToken, asyncHandler(async (req,
       });
     }
 
+    // Get student notes for upcoming bookings
+    const allBookingIds = (bookings || []).map(b => b.id);
+    let dashStudentNotesMap = {};
+    if (allBookingIds.length > 0) {
+      const { data: sNotes } = await supabaseDb.supabase
+        .from('instructor_notes')
+        .select('id, booking_id, content')
+        .in('booking_id', allBookingIds)
+        .eq('note_type', 'student');
+      (sNotes || []).forEach(n => { dashStudentNotesMap[n.booking_id] = { id: n.id, content: n.content }; });
+    }
+
     (bookings || []).forEach(b => {
       if (!studentsByClass[b.class_instance_id]) {
         studentsByClass[b.class_instance_id] = [];
@@ -453,6 +465,7 @@ app.get('/api/instructor/dashboard', authenticateToken, asyncHandler(async (req,
           orderCount: orderCountMap[b.customers.id] || 0,
           wheelPreference: wheelPrefMap[b.customers.id] || null,
           isWt3Course: enr.package_total_courses === 3 && ((enr.course_identifier || '').toUpperCase().startsWith('WT') || (enr.course_type || '').toLowerCase().includes('wheelthrowing')),
+          note: dashStudentNotesMap[b.id] || null,
         });
       }
     });
@@ -491,6 +504,12 @@ app.get('/api/instructor/dashboard', authenticateToken, asyncHandler(async (req,
     .eq('instructor_id', dbCustomerId)
     .order('created_at', { ascending: false });
 
+  // Get unavailable dates
+  const { data: unavailDates } = await supabaseDb.supabase
+    .from('instructor_unavailability')
+    .select('unavailable_date')
+    .eq('instructor_id', dbCustomerId);
+
   res.json({
     instructor: {
       name: instructorName,
@@ -503,8 +522,218 @@ app.get('/api/instructor/dashboard', authenticateToken, asyncHandler(async (req,
     allClasses: allClasses || [],
     studentsByClass,
     recentStudentsByClass,
-    portfolio: portfolio || []
+    portfolio: portfolio || [],
+    unavailableDates: (unavailDates || []).map(d => d.unavailable_date)
   });
+}));
+
+// GET /api/instructor/classes/:classId/students - Get students for a specific class
+app.get('/api/instructor/classes/:classId/students', authenticateToken, asyncHandler(async (req, res) => {
+  const { dbCustomerId } = req.user;
+  const { classId } = req.params;
+
+  const { data: instructor } = await supabaseDb.supabase
+    .from('customers')
+    .select('id, first_name, last_name, role')
+    .eq('id', dbCustomerId)
+    .single();
+
+  if (!instructor || instructor.role !== 'instructor') {
+    return res.status(403).json({ error: 'Instructor access required' });
+  }
+
+  const instructorName = `${instructor.first_name} ${instructor.last_name}`;
+
+  // Verify class belongs to this instructor
+  const { data: classInstance } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('id, instructor')
+    .eq('id', classId)
+    .eq('instructor', instructorName)
+    .single();
+
+  if (!classInstance) {
+    return res.status(404).json({ error: 'Class not found' });
+  }
+
+  const { data: bookings } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id, status, booking_type, is_makeup_class, attended, course_enrollment_id, customers:student_id(id, first_name, last_name, email, profile_image)')
+    .eq('class_instance_id', classId)
+    .in('status', ['booked', 'completed', 'attended', 'forfeited']);
+
+  const enrollmentIds = [...new Set((bookings || []).filter(b => b.course_enrollment_id).map(b => b.course_enrollment_id))];
+  let enrollmentMap = {};
+  if (enrollmentIds.length > 0) {
+    const { data: enrollments } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('id, course_identifier, course_type, class_credits_used, class_credits_allocated, number_of_weeks, weeks_completed, package_total_courses')
+      .in('id', enrollmentIds);
+    (enrollments || []).forEach(e => { enrollmentMap[e.id] = e; });
+  }
+
+  const allStudentIds = [...new Set((bookings || []).filter(b => b.customers).map(b => b.customers.id))];
+  let orderCountMap = {};
+  let wheelPrefMap = {};
+  if (allStudentIds.length > 0) {
+    const { data: customerCounts } = await supabaseDb.supabase
+      .from('customers')
+      .select('id, course_purchase_count, wheel_preference')
+      .in('id', allStudentIds);
+    (customerCounts || []).forEach(c => {
+      orderCountMap[c.id] = c.course_purchase_count || 0;
+      if (c.wheel_preference) wheelPrefMap[c.id] = c.wheel_preference;
+    });
+  }
+
+  // Get student notes for this class
+  const bookingIds = (bookings || []).map(b => b.id);
+  let studentNotesMap = {};
+  if (bookingIds.length > 0) {
+    const { data: sNotes } = await supabaseDb.supabase
+      .from('instructor_notes')
+      .select('id, booking_id, content')
+      .in('booking_id', bookingIds)
+      .eq('note_type', 'student');
+    (sNotes || []).forEach(n => { studentNotesMap[n.booking_id] = { id: n.id, content: n.content }; });
+  }
+
+  const students = (bookings || []).filter(b => b.customers).map(b => {
+    const enr = enrollmentMap[b.course_enrollment_id] || {};
+    return {
+      ...b.customers,
+      bookingId: b.id,
+      bookingStatus: b.status,
+      bookingType: b.is_makeup_class ? 'makeup' : 'enrolled',
+      attended: b.attended,
+      courseIdentifier: enr.course_identifier || null,
+      classesAttended: enr.weeks_completed || enr.class_credits_used || 0,
+      totalClasses: enr.number_of_weeks || enr.class_credits_allocated || 6,
+      orderCount: orderCountMap[b.customers.id] || 0,
+      wheelPreference: wheelPrefMap[b.customers.id] || null,
+      isWt3Course: enr.package_total_courses === 3 && ((enr.course_identifier || '').toUpperCase().startsWith('WT') || (enr.course_type || '').toLowerCase().includes('wheelthrowing')),
+      note: studentNotesMap[b.id] || null,
+    };
+  });
+
+  res.json({ students });
+}));
+
+// POST /api/instructor/unavailability - Mark date as unavailable
+app.post('/api/instructor/unavailability', authenticateToken, asyncHandler(async (req, res) => {
+  const { dbCustomerId } = req.user;
+  const { date } = req.body;
+
+  if (!date) return res.status(400).json({ error: 'Date required' });
+
+  // Verify instructor
+  const { data: instructor } = await supabaseDb.supabase
+    .from('customers')
+    .select('id, role')
+    .eq('id', dbCustomerId)
+    .single();
+  if (!instructor || instructor.role !== 'instructor') {
+    return res.status(403).json({ error: 'Instructor access required' });
+  }
+
+  // Upsert - ignore if already exists
+  const { error } = await supabaseDb.supabase
+    .from('instructor_unavailability')
+    .upsert({ instructor_id: dbCustomerId, unavailable_date: date }, { onConflict: 'instructor_id,unavailable_date' });
+
+  if (error) return res.status(500).json({ error: 'Failed to save' });
+  res.json({ success: true });
+}));
+
+// DELETE /api/instructor/unavailability - Remove unavailability
+app.delete('/api/instructor/unavailability', authenticateToken, asyncHandler(async (req, res) => {
+  const { dbCustomerId } = req.user;
+  const { date } = req.body;
+
+  if (!date) return res.status(400).json({ error: 'Date required' });
+
+  await supabaseDb.supabase
+    .from('instructor_unavailability')
+    .delete()
+    .eq('instructor_id', dbCustomerId)
+    .eq('unavailable_date', date);
+
+  res.json({ success: true });
+}));
+
+// POST /api/instructor/notes - Add a note
+app.post('/api/instructor/notes', authenticateToken, asyncHandler(async (req, res) => {
+  const { dbCustomerId } = req.user;
+  const { studentId, bookingId, classInstanceId, noteType, content } = req.body;
+
+  if (!content?.trim()) return res.status(400).json({ error: 'Note content required' });
+
+  const { data, error } = await supabaseDb.supabase
+    .from('instructor_notes')
+    .insert({
+      instructor_id: dbCustomerId,
+      student_id: studentId || null,
+      booking_id: bookingId || null,
+      class_instance_id: classInstanceId || null,
+      note_type: noteType || 'student',
+      content: content.trim()
+    })
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: 'Failed to save note' });
+  res.json({ note: data });
+}));
+
+// GET /api/instructor/notes/class/:classId - Get notes for a class
+app.get('/api/instructor/notes/class/:classId', authenticateToken, asyncHandler(async (req, res) => {
+  const { classId } = req.params;
+
+  const { data } = await supabaseDb.supabase
+    .from('instructor_notes')
+    .select('*')
+    .eq('class_instance_id', parseInt(classId))
+    .order('created_at', { ascending: false });
+
+  res.json({ notes: data || [] });
+}));
+
+// PUT /api/instructor/notes/:noteId - Update a note
+app.put('/api/instructor/notes/:noteId', authenticateToken, asyncHandler(async (req, res) => {
+  const { noteId } = req.params;
+  const { content } = req.body;
+
+  const { data, error } = await supabaseDb.supabase
+    .from('instructor_notes')
+    .update({ content: content.trim(), updated_at: new Date().toISOString() })
+    .eq('id', parseInt(noteId))
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: 'Failed to update note' });
+  res.json({ note: data });
+}));
+
+// DELETE /api/instructor/notes/:noteId - Delete a note
+app.delete('/api/instructor/notes/:noteId', authenticateToken, asyncHandler(async (req, res) => {
+  const { noteId } = req.params;
+
+  await supabaseDb.supabase
+    .from('instructor_notes')
+    .delete()
+    .eq('id', parseInt(noteId));
+
+  res.json({ success: true });
+}));
+
+// GET /api/admin/instructor-unavailability - Get all instructor unavailability dates
+app.get('/api/admin/instructor-unavailability', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { data } = await supabaseDb.supabase
+    .from('instructor_unavailability')
+    .select('id, instructor_id, unavailable_date, customers:instructor_id(first_name, last_name)')
+    .order('unavailable_date', { ascending: true });
+
+  res.json({ unavailability: data || [] });
 }));
 
 // POST /api/instructor/classes/:classId/cancel - Instructor cancels their own class

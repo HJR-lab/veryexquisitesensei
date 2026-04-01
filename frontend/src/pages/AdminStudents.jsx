@@ -408,7 +408,7 @@ export default function AdminStudents() {
 
   const getSortedHbStudents = () => {
     let filtered = [...hbStudentsList];
-    if (!showCompleted) filtered = filtered.filter(s => s.creditsRemaining > 0 || s.creditsAllocated === 0);
+    if (!showCompleted) filtered = filtered.filter(s => s.creditsRemaining > 0 || s.creditsAllocated === 0 || s.enrollmentStatus === 'active');
     switch (hbSortBy) {
       case 'name':     return filtered.sort((a, b) => a.name.localeCompare(b.name));
       case 'credits':  return filtered.sort((a, b) => { const d = (b.creditsRemaining||0)-(a.creditsRemaining||0); return d !== 0 ? d : (b.creditsAllocated||0)-(a.creditsAllocated||0); });

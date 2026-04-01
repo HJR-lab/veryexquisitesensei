@@ -177,6 +177,10 @@ function App() {
           <Route path="/instructor/:id/portfolio" element={<InstructorPortfolio />} />
           <Route path="/policies" element={<Policies />} />
 
+          {/* Instructor routes — no StudentLayout, uses own bottom nav */}
+          <Route path="/my-classes" element={<PrivateRoute><Suspense fallback={<PageLoader />}><InstructorDashboard /></Suspense></PrivateRoute>} />
+          <Route path="/my-portfolio" element={<PrivateRoute><Suspense fallback={<PageLoader />}><InstructorPortfolio /></Suspense></PrivateRoute>} />
+
           {/* Student routes — persistent bottom nav via StudentLayout */}
           <Route element={<PrivateRoute><StudentLayout /></PrivateRoute>}>
             <Route path="/gallery" element={<GalleryNew />} />

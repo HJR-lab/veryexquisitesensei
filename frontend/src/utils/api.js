@@ -107,6 +107,34 @@ export const instructorAPI = {
     const { data } = await api.post(`/instructor/classes/${classId}/cancel`, { reason });
     return data;
   },
+  getClassStudents: async (classId) => {
+    const { data } = await api.get(`/instructor/classes/${classId}/students`);
+    return data;
+  },
+  markUnavailable: async (date) => {
+    const { data } = await api.post('/instructor/unavailability', { date });
+    return data;
+  },
+  removeUnavailable: async (date) => {
+    const { data } = await api.delete('/instructor/unavailability', { data: { date } });
+    return data;
+  },
+  addNote: async (data) => {
+    const { data: res } = await api.post('/instructor/notes', data);
+    return res;
+  },
+  getClassNotes: async (classId) => {
+    const { data } = await api.get(`/instructor/notes/class/${classId}`);
+    return data;
+  },
+  updateNote: async (noteId, content) => {
+    const { data } = await api.put(`/instructor/notes/${noteId}`, { content });
+    return data;
+  },
+  deleteNote: async (noteId) => {
+    const { data } = await api.delete(`/instructor/notes/${noteId}`);
+    return data;
+  },
 };
 
 // Classes API

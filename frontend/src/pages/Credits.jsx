@@ -30,15 +30,16 @@ export default function Credits() {
   const [error, setError]         = useState('');
 
   useEffect(() => {
-    if (!user?.id) return;
+    const customerId = user?.dbCustomerId;
+    if (!customerId) return;
     let cancelled = false;
 
     async function load() {
       try {
         setLoading(true);
         const [balRes, histRes] = await Promise.all([
-          api.get(`/credits/balance/${user.id}`),
-          api.get(`/credits/history/${user.id}`),
+          api.get(`/credits/balance/${customerId}`),
+          api.get(`/credits/history/${customerId}`),
         ]);
         if (!cancelled) {
           setBalance(balRes.data);
@@ -55,7 +56,7 @@ export default function Credits() {
 
     load();
     return () => { cancelled = true; };
-  }, [user?.id]);
+  }, [user?.dbCustomerId]);
 
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#FFFFFF', minHeight: '100vh' }}>

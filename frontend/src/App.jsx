@@ -39,6 +39,7 @@ const InstructorProfile = lazy(() => import('./pages/InstructorProfile'));
 const InstructorPortfolio = lazy(() => import('./pages/InstructorPortfolio'));
 const Contact = lazy(() => import('./pages/Contact'));
 const StudioAccess = lazy(() => import('./pages/StudioAccess'));
+const Credits = lazy(() => import('./pages/Credits'));
 const AdminStudioAccess = lazy(() => import('./pages/AdminStudioAccess'));
 const AdminEmails = lazy(() => import('./pages/AdminEmails'));
 const AdminCourseConfig = lazy(() => import('./pages/AdminCourseConfig'));
@@ -192,6 +193,7 @@ function App() {
             <Route path="/dashboard" element={<DashboardRoute />} />
             <Route path="/account" element={<Account />} />
             <Route path="/studio-access" element={<StudioAccess />} />
+            <Route path="/credits" element={<Credits />} />
             <Route path="/policy" element={<StudioPolicy />} />
           </Route>
 

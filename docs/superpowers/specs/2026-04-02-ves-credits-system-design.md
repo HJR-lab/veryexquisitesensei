@@ -5,14 +5,14 @@
 
 ## Overview
 
-A loyalty credit system for VES pottery studio. Returning students earn $20 in VES Credits per course purchase (from their 2nd course onward). Credits can be used to offset studio access fees, firing fees (extra pieces beyond allowance), and reschedule fees. Credits can also be applied to new course purchases on request (admin manually applies Shopify discount).
+A loyalty credit system for VES pottery studio. Returning students earn $20 in VES Credits per course purchase (from their 2nd course onward). Credits can be used to offset studio access fees, firing fees (extra pieces beyond allowance), piece delivery fees ($10 flat), and reschedule fees. Credits can also be applied to new course purchases on request (admin manually applies Shopify discount).
 
 ## Key Decisions
 
 - **Earn rate**: $20 per course purchase, starting from 2nd course
 - **Stacking**: Credits stack indefinitely
 - **Expiry**: All credits expire 31 Dec 2026
-- **Auto-offset**: Studio access, firing fees, reschedule fees are automatically offset
+- **Auto-offset**: Studio access, firing fees, delivery fees, reschedule fees are automatically offset
 - **Course discount**: Manual only — student must request, admin applies in Shopify and logs redemption
 - **Retroactive grant**: Active/upcoming students with 2+ orders get `(course_purchase_count - 1) × $20` on launch
 - **Extensible**: New earn/spend methods and denominations can be added later
@@ -40,6 +40,7 @@ A loyalty credit system for VES pottery studio. Returning students earn $20 in V
 - `firing_fee` — spent on extra firing pieces
 - `reschedule_fee` — spent on reschedule fee
 - `course_discount` — spent on course discount (admin-applied)
+- `delivery_fee` — spent on piece delivery
 
 **Balance calculation:**
 ```sql
@@ -64,6 +65,19 @@ WHERE customer_id = ?
 | `pieces` | int | Number of extra pieces (beyond 7 for WT) |
 | `amount` | decimal | Total charge (pieces × $20) |
 | `credit_applied` | decimal | Amount offset by VES Credits |
+| `created_at` | timestamp | Auto-set |
+
+### New table: `delivery_orders`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | serial PK | Auto-increment |
+| `customer_id` | int FK → customers | Student reference |
+| `course_enrollment_id` | int FK → course_enrollments (nullable) | Which course the pieces are from |
+| `pieces` | int | Number of pieces to deliver |
+| `amount` | decimal | Flat $10 delivery fee |
+| `credit_applied` | decimal | Amount offset by VES Credits |
+| `status` | text | `pending`, `delivered` |
 | `created_at` | timestamp | Auto-set |
 
 ### Modified table: `studio_access_bookings`
@@ -127,6 +141,15 @@ WHERE customer_id = ?
 4. Insert `spend` transaction with `source: 'reschedule_fee'`
 5. Send "credit spent" email
 
+### Delivery fee (piece delivery after glazing)
+
+1. After glazing is complete, student requests delivery of their fired pieces
+2. Flat $10 delivery fee regardless of number of pieces
+3. Create `delivery_orders` record
+4. Check credit balance, auto-offset
+5. Insert `spend` transaction with `source: 'delivery_fee'`, `reference_id`: delivery order ID
+6. Send "credit spent" email
+
 ### Course discount (manual, on request)
 
 1. Student requests credit applied to their next course
@@ -164,6 +187,7 @@ WHERE customer_id = ?
 - **"What can I use credits for?" section**: Simple list:
   - Studio access fee offset (automatic)
   - Extra firing pieces offset (automatic)
+  - Piece delivery fee offset (automatic)
   - Reschedule fee offset (automatic)
   - Course discount (contact us to request)
 

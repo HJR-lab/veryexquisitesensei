@@ -6,6 +6,7 @@ const RULE = 'rgba(40,40,40,0.09)';
 const TABS = [
   { id: 'home',    label: 'Home',    icon: 'home',           href: '/dashboard' },
   { id: 'classes', label: 'Classes', icon: 'calendar_month', href: '/classes' },
+  { id: 'credits', label: 'Credits', icon: 'toll',           href: '/credits' },
   { id: 'studio',  label: 'Studio',  icon: 'door_open',      href: '/studio-access' },
   { id: 'gallery', label: 'Gallery', icon: 'photo_library',  href: '/gallery' },
   { id: 'account', label: 'Account', icon: 'person',         href: '/account' },
@@ -13,6 +14,7 @@ const TABS = [
 
 const getActiveTab = (pathname) => {
   if (pathname.startsWith('/classes')) return 'classes';
+  if (pathname.startsWith('/credits')) return 'credits';
   if (pathname.startsWith('/studio')) return 'studio';
   if (pathname.startsWith('/gallery')) return 'gallery';
   if (pathname.startsWith('/account')) return 'account';

@@ -243,6 +243,13 @@ export default function Navigation() {
                   Membership
                 </Link>
                 <Link
+                  ref={el => linksRef.current['/credits'] = el}
+                  className={`text-sm font-normal uppercase tracking-wide relative pb-1 ${isActive('/credits') ? 'text-text' : 'text-text-muted hover:text-text'}`}
+                  to="/credits"
+                >
+                  Credits
+                </Link>
+                <Link
                   ref={el => linksRef.current['/contact'] = el}
                   className={`text-sm font-normal uppercase tracking-wide relative pb-1 ${isActive('/contact') ? 'text-text' : 'text-text-muted hover:text-text'}`}
                   to="/contact"

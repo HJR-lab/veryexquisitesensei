@@ -112,6 +112,34 @@ async function spendCredits({ customerId, maxAmount, source, referenceId, descri
 
   if (error) throw error;
 
+  // Send credit spent email (non-blocking)
+  try {
+    const { sendEmail } = require('./emailService');
+    const { generate: generateCreditSpent } = require('../email-templates/credits-spent');
+
+    // Fetch customer email
+    const { data: customer } = await supabase
+      .from('customers')
+      .select('email, first_name')
+      .eq('id', customerId)
+      .single();
+
+    if (customer?.email) {
+      const newBalance = await getCreditBalance(customerId);
+      const { subject, html } = generateCreditSpent({
+        firstName: customer.first_name,
+        amountSpent: spent,
+        appliedTo: description,
+        remainingBalance: newBalance,
+      });
+      sendEmail({ to: customer.email, subject, html }).catch(err =>
+        console.error('[Credits] Failed to send credit spent email:', err)
+      );
+    }
+  } catch (emailErr) {
+    console.error('[Credits] Failed to send credit spent email:', emailErr);
+  }
+
   return { spent, transaction: data };
 }
 

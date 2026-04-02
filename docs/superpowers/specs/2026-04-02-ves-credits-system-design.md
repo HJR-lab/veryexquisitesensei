@@ -74,10 +74,15 @@ WHERE customer_id = ?
 | `id` | serial PK | Auto-increment |
 | `customer_id` | int FK → customers | Student reference |
 | `course_enrollment_id` | int FK → course_enrollments (nullable) | Which course the pieces are from |
+| `delivery_type` | text | `self` or `gift` |
+| `recipient_name` | text (nullable) | Gift recipient name (null for self-delivery) |
+| `recipient_address` | text (nullable) | Delivery address (student's own or gift recipient's) |
+| `recipient_phone` | text (nullable) | Contact number for delivery |
+| `gift_message` | text (nullable) | Optional message to include with gift |
 | `pieces` | int | Number of pieces to deliver |
 | `amount` | decimal | Flat $10 delivery fee |
 | `credit_applied` | decimal | Amount offset by VES Credits |
-| `status` | text | `pending`, `delivered` |
+| `status` | text | `pending`, `packed`, `shipped`, `delivered` |
 | `created_at` | timestamp | Auto-set |
 
 ### Modified table: `studio_access_bookings`
@@ -143,12 +148,13 @@ WHERE customer_id = ?
 
 ### Delivery fee (piece delivery after glazing)
 
-1. After glazing is complete, student requests delivery of their fired pieces
-2. Flat $10 delivery fee regardless of number of pieces
-3. Create `delivery_orders` record
-4. Check credit balance, auto-offset
-5. Insert `spend` transaction with `source: 'delivery_fee'`, `reference_id`: delivery order ID
-6. Send "credit spent" email
+1. After glazing is complete, student requests delivery — either to themselves or as a gift to a friend (local Singapore only)
+2. Flat $10 delivery fee regardless of number of pieces or delivery type
+3. For gift delivery: student provides recipient name, address, phone, and optional gift message
+4. Create `delivery_orders` record with `delivery_type: 'self'` or `'gift'`
+5. Check credit balance, auto-offset
+6. Insert `spend` transaction with `source: 'delivery_fee'`, `reference_id`: delivery order ID
+7. Send "credit spent" email
 
 ### Course discount (manual, on request)
 
@@ -187,7 +193,7 @@ WHERE customer_id = ?
 - **"What can I use credits for?" section**: Simple list:
   - Studio access fee offset (automatic)
   - Extra firing pieces offset (automatic)
-  - Piece delivery fee offset (automatic)
+  - Piece delivery fee offset — self or gift to a friend (automatic)
   - Reschedule fee offset (automatic)
   - Course discount (contact us to request)
 

@@ -1236,6 +1236,31 @@ app.post('/api/studio-access/book', authenticateToken, asyncHandler(async (req, 
     .single();
 
   if (error) throw error;
+
+  // Auto-offset studio access with VES Credits
+  try {
+    const { spendCredits } = require('../utils/creditManager');
+    const bookingAmount = parseFloat(data.amount_sgd);
+    if (bookingAmount > 0) {
+      const { spent } = await spendCredits({
+        customerId: data.customer_id,
+        maxAmount: bookingAmount,
+        source: 'studio_access',
+        referenceId: data.id.toString(),
+        description: `Studio access — ${data.hours}hrs`,
+      });
+      if (spent > 0) {
+        await supabaseDb.supabase
+          .from('studio_access_bookings')
+          .update({ credit_applied: spent })
+          .eq('id', data.id);
+        console.log(`💰 Applied $${spent} VES Credit to studio access booking ${data.id}`);
+      }
+    }
+  } catch (creditErr) {
+    console.error('[Credits] Failed to offset studio access:', creditErr);
+  }
+
   res.json({ booking: data, message: status === 'pending' ? 'Booking submitted — awaiting confirmation' : 'Booking confirmed', passUsed: isPassBooking });
 }));
 
@@ -1370,6 +1395,31 @@ app.post('/api/admin/studio-access/bookings', authenticateToken, requireAdmin, a
     .single();
 
   if (error) throw error;
+
+  // Auto-offset studio access with VES Credits
+  try {
+    const { spendCredits } = require('../utils/creditManager');
+    const bookingAmount = parseFloat(data.amount_sgd);
+    if (bookingAmount > 0) {
+      const { spent } = await spendCredits({
+        customerId: data.customer_id,
+        maxAmount: bookingAmount,
+        source: 'studio_access',
+        referenceId: data.id.toString(),
+        description: `Studio access — ${data.hours}hrs`,
+      });
+      if (spent > 0) {
+        await supabaseDb.supabase
+          .from('studio_access_bookings')
+          .update({ credit_applied: spent })
+          .eq('id', data.id);
+        console.log(`💰 Applied $${spent} VES Credit to studio access booking ${data.id}`);
+      }
+    }
+  } catch (creditErr) {
+    console.error('[Credits] Failed to offset studio access:', creditErr);
+  }
+
   res.json({ booking: data });
 }));
 

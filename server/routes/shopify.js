@@ -855,18 +855,32 @@ app.post('/api/admin/sync-shopify-orders', authenticateToken, requireAdmin, asyn
                     if (!alreadySent && paxEmail) {
                       const credits = enrollment.number_of_weeks || enrollment.class_credits_allocated || 4;
                       const templateType = credits <= 4 ? 'hb-4credit' : 'hb-8credit';
-                      const template = require(`../email-templates/courses/${templateType}`);
-                      const { subject: emailSubject, html: emailHtml } = template.generate({ specialNotes: '' });
 
-                      await sendAndLogEmail({
-                        emailType: 'course_details',
-                        courseIdentifier: courseIdForEmail,
-                        subject: emailSubject,
-                        html: emailHtml,
-                        recipientEmails: [paxEmail],
-                        sentBy: 'system',
-                      });
-                      console.log(`📧 HB course details email auto-sent to ${paxEmail}`);
+                      // Check config to see if auto-send is enabled
+                      let autoSendEnabled = true;
+                      try {
+                        const hbConfig = courseConfig.getConfig(templateType);
+                        if (hbConfig && hbConfig.email_auto_send === false) {
+                          autoSendEnabled = false;
+                        }
+                      } catch (e) { /* config not loaded, default to sending */ }
+
+                      if (autoSendEnabled) {
+                        const template = require(`../email-templates/courses/${templateType}`);
+                        const { subject: emailSubject, html: emailHtml } = template.generate({ specialNotes: '' });
+
+                        await sendAndLogEmail({
+                          emailType: 'course_details',
+                          courseIdentifier: courseIdForEmail,
+                          subject: emailSubject,
+                          html: emailHtml,
+                          recipientEmails: [paxEmail],
+                          sentBy: 'system',
+                        });
+                        console.log(`📧 HB course details email auto-sent to ${paxEmail}`);
+                      } else {
+                        console.log(`[Shopify] Skipping auto-email for ${templateType} — auto-send disabled in config`);
+                      }
                     }
                   } catch (emailErr) {
                     console.error('[Email] Failed to auto-send HB course details email:', emailErr);
@@ -1169,6 +1183,41 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
 
           if (result.success) {
             console.log(`✅ Course enrollment processed successfully`);
+
+            // Award VES Credit for returning students
+            try {
+              const { isReturningStudent, earnCredits, getCreditBalance } = require('../utils/creditManager');
+              const { sendEmail } = require('../utils/emailService');
+              const returning = await isReturningStudent(dbCustomer.id);
+              if (returning) {
+                const creditTxn = await earnCredits({
+                  customerId: dbCustomer.id,
+                  amount: 20,
+                  source: 'course_purchase',
+                  referenceId: result.enrollment?.id?.toString(),
+                  description: `Earned $20 from ${productTitle}`,
+                });
+                console.log(`💰 Awarded $20 VES Credit to ${customer.email}`);
+
+                // Send credit earned email
+                try {
+                  const { generate: generateCreditEarned } = require('../email-templates/credits-earned');
+                  const newBalance = await getCreditBalance(dbCustomer.id);
+                  const { subject, html } = generateCreditEarned({
+                    firstName: customer.first_name,
+                    amountEarned: 20,
+                    courseName: productTitle,
+                    newBalance,
+                  });
+                  await sendEmail({ to: customer.email, subject, html });
+                } catch (emailErr) {
+                  console.error('[Credits] Failed to send credit earned email:', emailErr);
+                }
+              }
+            } catch (creditErr) {
+              console.error('[Credits] Failed to award credit:', creditErr);
+              // Don't block the enrollment flow
+            }
 
             // Auto-send course details email for HB enrollments immediately
             if (result.isHandbuilding && result.enrollment) {

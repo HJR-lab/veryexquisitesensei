@@ -1735,6 +1735,60 @@ app.post('/api/classes/bookings/:bookingId/mark-attendance', authenticateToken, 
     }
   }
 
+  // Handle firing pieces if provided
+  if (req.body.firingPieces && parseInt(req.body.firingPieces) > 0) {
+    const firingPieces = parseInt(req.body.firingPieces);
+    const allowance = 7; // WT standard allowance
+
+    // Save firing_pieces on the booking
+    await supabaseDb.supabase
+      .from('bookings')
+      .update({ firing_pieces: firingPieces })
+      .eq('id', bookingId);
+
+    const extraPieces = Math.max(0, firingPieces - allowance);
+    if (extraPieces > 0) {
+      const chargeAmount = extraPieces * 20;
+
+      // Create firing charge
+      const { data: charge, error: chargeError } = await supabaseDb.supabase
+        .from('firing_charges')
+        .insert({
+          customer_id: booking.student.id,
+          course_enrollment_id: booking.course_enrollment_id,
+          pieces: extraPieces,
+          amount: chargeAmount,
+        })
+        .select()
+        .single();
+
+      if (!chargeError && charge) {
+        // Auto-offset with credits
+        try {
+          const { spendCredits } = require('../utils/creditManager');
+          const { spent } = await spendCredits({
+            customerId: booking.student.id,
+            maxAmount: chargeAmount,
+            source: 'firing_fee',
+            referenceId: charge.id.toString(),
+            description: `${extraPieces} extra firing piece${extraPieces > 1 ? 's' : ''} @ $20`,
+          });
+
+          if (spent > 0) {
+            await supabaseDb.supabase
+              .from('firing_charges')
+              .update({ credit_applied: spent })
+              .eq('id', charge.id);
+          }
+
+          console.log(`🔥 Firing charge: ${extraPieces} extra pieces = $${chargeAmount}, credit applied: $${spent}`);
+        } catch (creditErr) {
+          console.error('[Credits] Failed to offset firing charge:', creditErr);
+        }
+      }
+    }
+  }
+
   res.json({
     success: true,
     booking: {

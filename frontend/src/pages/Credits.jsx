@@ -42,8 +42,8 @@ export default function Credits() {
           api.get(`/credits/history/${customerId}`),
         ]);
         if (!cancelled) {
-          setBalance(balRes.data);
-          setHistory(histRes.data || []);
+          setBalance(balRes.data?.balance ?? balRes.data ?? 0);
+          setHistory(histRes.data?.history || histRes.data || []);
         }
       } catch (err) {
         if (!cancelled) {

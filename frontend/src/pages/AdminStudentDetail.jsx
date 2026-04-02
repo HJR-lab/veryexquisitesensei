@@ -6,6 +6,7 @@ import StudentInfoCard from '../components/StudentInfoCard';
 import StudentBookingsTab from '../components/StudentBookingsTab';
 import StudentFeesTab from '../components/StudentFeesTab';
 import StudentRescheduleModal from '../components/StudentRescheduleModal';
+import StudentCreditsTab from '../components/StudentCreditsTab';
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
 const TC       = '#C4622D';
@@ -195,6 +196,10 @@ export default function AdminStudentDetail() {
   const [studioBookings, setStudioBookings] = useState([]);
   const [studioSummary, setStudioSummary] = useState(null);
 
+  // ── Credits ───────────────────────────────────────────────────────────────
+  const [creditBalance, setCreditBalance] = useState(0);
+  const [creditHistory, setCreditHistory] = useState([]);
+
   // ── UI tabs ───────────────────────────────────────────────────────────────
   const [section, setSection] = useState('enrollment');
 
@@ -337,6 +342,8 @@ export default function AdminStudentDetail() {
             ? api.get(`/admin/instructors/${studentData.id}/teaching`).catch(() => null)
             : Promise.resolve(null),
         );
+        api.get(`/credits/balance/${studentData.id}`).then(r => setCreditBalance(r.data.balance || 0)).catch(() => {});
+        api.get(`/credits/history/${studentData.id}`).then(r => setCreditHistory(r.data.history || [])).catch(() => {});
       }
 
       const results = await Promise.all(parallelCalls);
@@ -922,6 +929,7 @@ export default function AdminStudentDetail() {
                   { id: 'bookings',   label: `Bookings (${showCompletedCourses ? bookings.length : activeBookings.length})` },
                   { id: 'fees',       label: `Fees (${fees.length})` },
                   { id: 'access',     label: `Studio Access (${studioBookings.length})` },
+                  { id: 'credits',    label: `Credits (${creditBalance})` },
                 ] : []),
               ].map(t => (
                 <button key={t.id} onClick={() => setSection(t.id)} style={{
@@ -1258,6 +1266,19 @@ export default function AdminStudentDetail() {
                 deletingFeeId={deletingFeeId}
                 handleDeleteFee={handleDeleteFee}
                 formatDate={formatDate}
+              />
+            )}
+
+            {/* ── CREDITS TAB ── */}
+            {section === 'credits' && (
+              <StudentCreditsTab
+                studentId={student?.id}
+                balance={creditBalance}
+                history={creditHistory}
+                onRefresh={() => {
+                  api.get(`/credits/balance/${student.id}`).then(r => setCreditBalance(r.data.balance || 0)).catch(() => {});
+                  api.get(`/credits/history/${student.id}`).then(r => setCreditHistory(r.data.history || [])).catch(() => {});
+                }}
               />
             )}
 

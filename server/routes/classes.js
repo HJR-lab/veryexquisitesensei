@@ -1156,7 +1156,7 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
       rescheduleFee = 40; // $40 reschedule fee only for rescheduling outside your cohort
 
       // Create reschedule fee record
-      const { error: feeError } = await supabaseDb.supabase
+      const { data: newFee, error: feeError } = await supabaseDb.supabase
         .from('reschedule_fees')
         .insert({
           student_id: dbCustomerId,
@@ -1165,11 +1165,44 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
           amount: rescheduleFee,
           payment_status: 'pending',
           notes: `Reschedule fee for ${oldClass.class_type} on ${new Date(oldClass.class_date).toLocaleDateString()} (rescheduled outside cohort)`
-        });
+        })
+        .select()
+        .single();
 
       if (feeError) {
         console.error('Error creating reschedule fee:', feeError);
         // Continue with reschedule but log the error
+      }
+
+      // Auto-offset reschedule fee with VES Credits
+      if (newFee) {
+        try {
+          const { spendCredits } = require('../utils/creditManager');
+          const feeAmount = parseFloat(newFee.amount);
+          const { spent } = await spendCredits({
+            customerId: newFee.student_id,
+            maxAmount: feeAmount,
+            source: 'reschedule_fee',
+            referenceId: newFee.id.toString(),
+            description: `Reschedule fee offset`,
+          });
+          if (spent > 0) {
+            if (spent >= feeAmount) {
+              await supabaseDb.supabase
+                .from('reschedule_fees')
+                .update({ payment_status: 'paid', notes: (newFee.notes || '') + ` [Credit: $${spent}]` })
+                .eq('id', newFee.id);
+            } else {
+              await supabaseDb.supabase
+                .from('reschedule_fees')
+                .update({ notes: (newFee.notes || '') + ` [Credit: $${spent} of $${feeAmount}]` })
+                .eq('id', newFee.id);
+            }
+            console.log(`💰 Applied $${spent} VES Credit to reschedule fee ${newFee.id}`);
+          }
+        } catch (creditErr) {
+          console.error('[Credits] Failed to offset reschedule fee:', creditErr);
+        }
       }
     }
   }
@@ -1499,7 +1532,7 @@ app.post('/api/classes/pause', authenticateToken, asyncHandler(async (req, res) 
   }
 
   // Create a reschedule fee record for the pause
-  const { error: feeError } = await supabaseDb.supabase
+  const { data: newFee, error: feeError } = await supabaseDb.supabase
     .from('reschedule_fees')
     .insert({
       student_id: dbCustomerId,
@@ -1507,11 +1540,44 @@ app.post('/api/classes/pause', authenticateToken, asyncHandler(async (req, res) 
       amount: totalPauseFee,
       payment_status: 'pending',
       notes: `Course pause - ${remainingCount} remaining classes at $${pauseFeePerClass}/class`
-    });
+    })
+    .select()
+    .single();
 
   if (feeError) {
     console.error('Error creating pause fee:', feeError);
     // Don't fail the request, but log the error
+  }
+
+  // Auto-offset pause fee with VES Credits
+  if (newFee) {
+    try {
+      const { spendCredits } = require('../utils/creditManager');
+      const feeAmount = parseFloat(newFee.amount);
+      const { spent } = await spendCredits({
+        customerId: newFee.student_id,
+        maxAmount: feeAmount,
+        source: 'reschedule_fee',
+        referenceId: newFee.id.toString(),
+        description: `Reschedule fee offset`,
+      });
+      if (spent > 0) {
+        if (spent >= feeAmount) {
+          await supabaseDb.supabase
+            .from('reschedule_fees')
+            .update({ payment_status: 'paid', notes: (newFee.notes || '') + ` [Credit: $${spent}]` })
+            .eq('id', newFee.id);
+        } else {
+          await supabaseDb.supabase
+            .from('reschedule_fees')
+            .update({ notes: (newFee.notes || '') + ` [Credit: $${spent} of $${feeAmount}]` })
+            .eq('id', newFee.id);
+        }
+        console.log(`💰 Applied $${spent} VES Credit to pause fee ${newFee.id}`);
+      }
+    } catch (creditErr) {
+      console.error('[Credits] Failed to offset pause fee:', creditErr);
+    }
   }
 
   // TODO: Generate payment link (needs Shopify integration setup)
@@ -1592,7 +1658,7 @@ app.post('/api/classes/bookings/:bookingId/mark-attendance', authenticateToken, 
 
     // Add $20 no-show fee if this was a rescheduled booking
     if (booking.original_class_instance_id || booking.rescheduled_from_date) {
-      const { error: feeError } = await supabaseDb.supabase
+      const { data: newFee, error: feeError } = await supabaseDb.supabase
         .from('reschedule_fees')
         .insert({
           student_id: booking.student.id,
@@ -1601,8 +1667,41 @@ app.post('/api/classes/bookings/:bookingId/mark-attendance', authenticateToken, 
           amount: 20,
           payment_status: 'pending',
           notes: `No-show fee for rescheduled class ${booking.class_instance?.class_type || ''} on ${booking.class_instance?.class_date || ''}`
-        });
+        })
+        .select()
+        .single();
       if (feeError) console.error('Error creating no-show fee:', feeError);
+
+      // Auto-offset no-show fee with VES Credits
+      if (newFee) {
+        try {
+          const { spendCredits } = require('../utils/creditManager');
+          const feeAmount = parseFloat(newFee.amount);
+          const { spent } = await spendCredits({
+            customerId: newFee.student_id,
+            maxAmount: feeAmount,
+            source: 'reschedule_fee',
+            referenceId: newFee.id.toString(),
+            description: `Reschedule fee offset`,
+          });
+          if (spent > 0) {
+            if (spent >= feeAmount) {
+              await supabaseDb.supabase
+                .from('reschedule_fees')
+                .update({ payment_status: 'paid', notes: (newFee.notes || '') + ` [Credit: $${spent}]` })
+                .eq('id', newFee.id);
+            } else {
+              await supabaseDb.supabase
+                .from('reschedule_fees')
+                .update({ notes: (newFee.notes || '') + ` [Credit: $${spent} of $${feeAmount}]` })
+                .eq('id', newFee.id);
+            }
+            console.log(`💰 Applied $${spent} VES Credit to no-show fee ${newFee.id}`);
+          }
+        } catch (creditErr) {
+          console.error('[Credits] Failed to offset no-show fee:', creditErr);
+        }
+      }
     }
   }
 

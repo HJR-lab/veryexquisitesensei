@@ -151,7 +151,7 @@ async function isReturningStudent(customerId) {
   const { data, error } = await supabase
     .from('course_enrollments')
     .select('id')
-    .eq('customer_id', customerId)
+    .eq('student_id', customerId)
     .in('status', ['active', 'upcoming', 'completed']);
 
   if (error) throw error;

@@ -56,7 +56,7 @@ async function main() {
     const { data: enrollments, error: enrollError } = await supabase
       .from('course_enrollments')
       .select('id')
-      .eq('customer_id', customerId)
+      .eq('student_id', customerId)
       .in('status', ['active', 'upcoming'])
       .limit(1);
 

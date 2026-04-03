@@ -2612,7 +2612,7 @@ app.get('/api/admin/dashboard/activity', authenticateToken, requireAdmin, asyncH
   res.json({ alerts: topAlerts, activity: topActivity });
 }));
 
-// Dashboard engagement metrics (active users 7d/30d, never logged in)
+// Dashboard engagement metrics (active users 7d/30d, never logged in, login stats)
 app.get('/api/admin/dashboard/engagement', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const now = new Date();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -2622,7 +2622,8 @@ app.get('/api/admin/dashboard/engagement', authenticateToken, requireAdmin, asyn
     { count: totalStudents },
     { count: activeLastWeek },
     { count: activeLastMonth },
-    { count: neverLoggedIn }
+    { count: neverLoggedIn },
+    { data: loginData }
   ] = await Promise.all([
     supabaseDb.supabase
       .from('customers')
@@ -2638,14 +2639,25 @@ app.get('/api/admin/dashboard/engagement', authenticateToken, requireAdmin, asyn
     supabaseDb.supabase
       .from('customers')
       .select('*', { count: 'exact', head: true })
-      .is('last_login_at', null)
+      .is('last_login_at', null),
+    supabaseDb.supabase
+      .from('customers')
+      .select('login_count')
+      .gt('login_count', 0)
   ]);
+
+  const studentsWhoLoggedIn = (loginData || []).length;
+  const totalLogins = (loginData || []).reduce((sum, c) => sum + (c.login_count || 0), 0);
+  const avgLogins = studentsWhoLoggedIn > 0 ? Math.round((totalLogins / studentsWhoLoggedIn) * 10) / 10 : 0;
 
   res.json({
     totalStudents: totalStudents || 0,
     activeLastWeek: activeLastWeek || 0,
     activeLastMonth: activeLastMonth || 0,
     neverLoggedIn: neverLoggedIn || 0,
+    studentsWhoLoggedIn,
+    totalLogins,
+    avgLogins,
   });
 }));
 

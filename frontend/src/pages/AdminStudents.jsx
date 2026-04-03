@@ -788,6 +788,11 @@ export default function AdminStudents() {
                     )}
                   </div>
                   <div style={{ fontSize: isMobile ? '10px' : '11px', color: MUTED }}>{student.email}</div>
+                  <div style={{ fontSize: '10px', color: student.lastLoginAt ? '#059669' : '#D97706', marginTop: '2px' }}>
+                    {student.lastLoginAt
+                      ? `Last login: ${new Date(student.lastLoginAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}${student.loginCount > 0 ? ` (${student.loginCount})` : ''}`
+                      : 'Never logged in'}
+                  </div>
                 </div>
 
                 {/* Course / Membership info */}

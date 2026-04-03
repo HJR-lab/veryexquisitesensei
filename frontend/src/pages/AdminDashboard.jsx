@@ -16,6 +16,7 @@ export default function AdminDashboard() {
 
   const [stats, setStats] = useState(null);
   const [summaryStats, setSummaryStats] = useState(null);
+  const [creditStats, setCreditStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [hoveredModule, setHoveredModule] = useState(null);
   const [alerts, setAlerts] = useState([]);
@@ -32,6 +33,11 @@ export default function AdminDashboard() {
     // Engagement metrics (parallel, independent)
     api.get('/admin/dashboard/engagement').then(({ data }) => {
       setEngagement(data);
+    }).catch(() => {});
+
+    // Credit stats (parallel, independent)
+    api.get('/admin/credits/stats').then(({ data }) => {
+      setCreditStats(data);
     }).catch(() => {});
 
     // Phase 2: full stats + activity
@@ -72,6 +78,7 @@ export default function AdminDashboard() {
     { label: 'Instructors', icon: 'person_apron',   href: '/admin/instructors',  desc: 'Profiles & portfolios' },
     { label: 'Events',    icon: 'celebration',     href: '/admin/events',      desc: 'Sales & collaborations' },
     { label: 'Courses',   icon: 'school',          href: '/admin/courses',     desc: 'Course templates' },
+    { label: 'Credits',   icon: 'payments',        href: '/admin/credits',     desc: 'Student credit balances', stat: creditStats ? `$${creditStats.totalBalance}` : null, sub: creditStats ? `${creditStats.studentsWithCredits} students` : '' },
     { label: 'Policy',    icon: 'gavel',           href: '/admin/policy',      desc: 'Studio rules & terms' },
     { label: 'Reference', icon: 'inventory_2',     href: '/admin/reference',   desc: 'Clay types & glazes' },
   ];

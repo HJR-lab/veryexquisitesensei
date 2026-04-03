@@ -123,43 +123,39 @@ export default function Credits() {
               </div>
             </div>
 
-            {/* ── "Use your credits for" card ──────────────────────────────── */}
-            <div style={{
-              border: `1px solid ${RULE}`,
-              padding: '18px 20px',
-              marginBottom: '28px',
-            }}>
+            {/* ── Use your credits ─────────────────────────────────────── */}
+            <div style={{ marginBottom: '28px' }}>
               <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, marginBottom: '14px' }}>
-                Use your credits for
+                Use your credits
               </div>
-              <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
-                {[
-                  { label: 'Studio access fees',           note: 'automatic' },
-                  { label: 'Extra firing pieces',          note: 'automatic' },
-                  { label: 'Piece delivery (self / gift)', note: 'automatic' },
-                  { label: 'Reschedule fees',              note: 'automatic' },
-                  { label: 'Course discount',              note: 'contact us' },
-                ].map(({ label, note }, i, arr) => (
-                  <li
-                    key={label}
-                    style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      padding: '10px 0',
-                      borderBottom: i < arr.length - 1 ? `1px solid ${RULE}` : 'none',
-                    }}
-                  >
-                    <span style={{ fontSize: '13px', color: INK }}>{label}</span>
-                    <span style={{
-                      fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-                      color: note === 'contact us' ? TC : MUTED,
-                      backgroundColor: note === 'contact us' ? TC_LIGHT : 'transparent',
-                      padding: note === 'contact us' ? '2px 8px' : '0',
-                    }}>
-                      {note}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              {[
+                { title: 'Studio Access', desc: '$20/hr · min 2 hrs · full hours only', href: '/studio-access', icon: 'door_open' },
+                { title: 'Fire an Additional Piece', desc: '$20 per piece', href: null, icon: 'local_fire_department' },
+                { title: 'Delivery of Finished Work', desc: '$10 per location', href: null, icon: 'local_shipping' },
+                { title: 'Send to a Friend or Loved One', desc: '$10 per location', href: null, icon: 'card_giftcard' },
+              ].map(({ title, desc, href, icon }, i, arr) => {
+                const inner = (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '14px',
+                    padding: '14px 16px',
+                    border: `1px solid ${RULE}`,
+                    borderRadius: i === 0 ? '8px 8px 0 0' : i === arr.length - 1 ? '0 0 8px 8px' : '0',
+                    borderTop: i > 0 ? 'none' : undefined,
+                    cursor: href ? 'pointer' : 'default',
+                    transition: 'background-color 0.15s',
+                  }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: '22px', color: TC, fontVariationSettings: "'FILL' 0, 'wght' 400" }}>{icon}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '14px', fontWeight: 600, color: INK }}>{title}</div>
+                      <div style={{ fontSize: '12px', color: MUTED, marginTop: '1px' }}>{desc}</div>
+                    </div>
+                    {href && <span className="material-symbols-outlined" style={{ fontSize: '18px', color: MUTED }}>chevron_right</span>}
+                  </div>
+                );
+                return href
+                  ? <a key={title} href={href} style={{ textDecoration: 'none' }}>{inner}</a>
+                  : <div key={title}>{inner}</div>;
+              })}
             </div>
 
             {/* ── Transaction history ──────────────────────────────────────── */}

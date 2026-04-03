@@ -24,6 +24,11 @@ export default function StudentCreditsTab({ studentId, balance, history, onRefre
   const [error, setError]         = useState(null);
   const [success, setSuccess]     = useState(null);
 
+  // Inline balance edit
+  const [editingBalance, setEditingBalance] = useState(false);
+  const [balanceValue, setBalanceValue]     = useState('');
+  const [balanceSaving, setBalanceSaving]   = useState(false);
+
   const handleAdjust = async () => {
     if (!note.trim()) {
       setError('Note is required.');
@@ -55,6 +60,30 @@ export default function StudentCreditsTab({ studentId, balance, history, onRefre
     }
   };
 
+  const startEditBalance = () => {
+    setEditingBalance(true);
+    setBalanceValue(String(balance ?? 0));
+  };
+
+  const saveBalance = async () => {
+    const val = parseFloat(balanceValue);
+    if (isNaN(val) || val < 0) { setEditingBalance(false); return; }
+    if (val === (balance ?? 0)) { setEditingBalance(false); return; }
+    setBalanceSaving(true);
+    try {
+      await api.post('/admin/credits/set-earned', {
+        customerId: studentId,
+        amount: val,
+      });
+      setEditingBalance(false);
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      console.error('Failed to set credits:', err);
+    } finally {
+      setBalanceSaving(false);
+    }
+  };
+
   return (
     <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
 
@@ -68,9 +97,36 @@ export default function StudentCreditsTab({ studentId, balance, history, onRefre
             Credit Balance
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
-            <span style={{ fontSize: '36px', fontWeight: 700, color: TC, lineHeight: 1 }}>
-              {balance ?? 0}
-            </span>
+            {editingBalance ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '36px', fontWeight: 700, color: TC, lineHeight: 1 }}>$</span>
+                <input
+                  autoFocus
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={balanceValue}
+                  onChange={e => setBalanceValue(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveBalance(); if (e.key === 'Escape') setEditingBalance(false); }}
+                  disabled={balanceSaving}
+                  style={{ width: '100px', padding: '4px 8px', fontSize: '28px', fontWeight: 700, color: TC, border: `2px solid ${TC}`, borderRadius: '4px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                />
+                <button onClick={saveBalance} disabled={balanceSaving} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: '#059669', display: 'flex' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>check</span>
+                </button>
+                <button onClick={() => setEditingBalance(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: MUTED, display: 'flex' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>close</span>
+                </button>
+              </span>
+            ) : (
+              <span
+                onClick={startEditBalance}
+                title="Click to set credit amount"
+                style={{ fontSize: '36px', fontWeight: 700, color: TC, lineHeight: 1, cursor: 'pointer', borderBottom: `2px dashed ${TC}`, paddingBottom: '2px' }}
+              >
+                ${balance ?? 0}
+              </span>
+            )}
             <span style={{ fontSize: '13px', color: MUTED }}>credits</span>
           </div>
           <div style={{ fontSize: '12px', color: MUTED, marginTop: '4px' }}>

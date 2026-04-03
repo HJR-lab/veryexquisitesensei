@@ -17,6 +17,8 @@ export default function UploadPiece() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  const [uploadType, setUploadType] = useState('finished'); // 'finished' | 'firing'
+
   const [formData, setFormData] = useState({
     title: '',
     dateCompleted: new Date().toISOString().split('T')[0],
@@ -28,6 +30,13 @@ export default function UploadPiece() {
     width: '',
     length: '',
     isPublic: false
+  });
+
+  // Firing-specific state
+  const [firingForm, setFiringForm] = useState({
+    pieceCount: 7,
+    initials: '',
+    notes: '',
   });
 
   const [images, setImages] = useState([]);
@@ -42,7 +51,15 @@ export default function UploadPiece() {
   const [loading, setLoading] = useState(true);
   const [showDimensions, setShowDimensions] = useState(false);
 
-  useEffect(() => { loadReferenceData(); }, []);
+  useEffect(() => {
+    loadReferenceData();
+    // Pre-fill initials from profile
+    api.get('/auth/me').then(({ data }) => {
+      if (data.customer?.initials) {
+        setFiringForm(f => ({ ...f, initials: data.customer.initials }));
+      }
+    }).catch(() => {});
+  }, []);
 
   const loadReferenceData = async () => {
     try {
@@ -152,6 +169,41 @@ export default function UploadPiece() {
     }
   };
 
+  const handleFiringSubmit = async (e) => {
+    e.preventDefault();
+    if (!firingForm.initials || !firingForm.pieceCount) return;
+    setError('');
+    setUploading(true);
+    setUploadProgress(0);
+    try {
+      let imageUrls = [];
+      if (images.length > 0) {
+        const imageFormData = new FormData();
+        images.forEach(image => imageFormData.append('images', image));
+        const uploadResponse = await api.post('/upload/images', imageFormData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          onUploadProgress: (progressEvent) => {
+            setUploadProgress(Math.round((progressEvent.loaded * 100) / progressEvent.total));
+          }
+        });
+        imageUrls = uploadResponse.data.images.map(img => img.url);
+      }
+      await api.post('/pieces/log', {
+        pieceCount: firingForm.pieceCount,
+        initials: firingForm.initials,
+        notes: firingForm.notes,
+        photoUrls: JSON.stringify(imageUrls),
+      });
+      setSuccess(true);
+      setTimeout(() => navigate('/gallery'), 2000);
+    } catch (err) {
+      console.error('Log firing error:', err);
+      setError(err.response?.data?.error || 'Failed to log pieces for firing');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   /* ─── shared input style ─── */
   const inputStyle = {
     width: '100%', padding: '12px 14px', border: `1px solid ${RULE}`,
@@ -205,7 +257,150 @@ export default function UploadPiece() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} style={{ maxWidth: '540px', margin: '0 auto', padding: '20px 20px 0' }}>
+      <div style={{ maxWidth: '540px', margin: '0 auto', padding: '20px 20px 0' }}>
+
+        {/* ─── Type Selector ─── */}
+        <div style={{ display: 'flex', marginBottom: '24px', background: '#fff', borderRadius: '10px', border: `1px solid ${RULE}`, overflow: 'hidden' }}>
+          {[
+            { id: 'finished', label: 'Finished Work', icon: 'photo_library' },
+            { id: 'firing', label: 'Log for Firing', icon: 'local_fire_department' },
+          ].map(t => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setUploadType(t.id)}
+              style={{
+                flex: 1, padding: '14px 12px', border: 'none', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                fontSize: '13px', fontWeight: 600, fontFamily: 'inherit', transition: 'all 0.2s',
+                background: uploadType === t.id ? TC : 'transparent',
+                color: uploadType === t.id ? '#fff' : MUTED,
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>{t.icon}</span>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ─── FIRING FORM ─── */}
+      {uploadType === 'firing' && (
+        <form onSubmit={handleFiringSubmit} style={{ maxWidth: '540px', margin: '0 auto', padding: '0 20px' }}>
+
+          {/* Photo Upload (shared) */}
+          <div style={{ marginBottom: '28px' }}>
+            <input
+              type="file" id="firing-images" multiple accept="image/*" capture="environment"
+              onChange={handleImageSelect} disabled={uploading || images.length >= 5}
+              style={{ display: 'none' }}
+            />
+            {imagePreviews.length === 0 ? (
+              <label htmlFor="firing-images" style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                height: '220px', border: `2px dashed rgba(196,98,45,0.3)`, borderRadius: '16px',
+                background: TC_LIGHT, cursor: 'pointer', transition: 'all 0.2s',
+              }}>
+                <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '12px', boxShadow: '0 2px 8px rgba(196,98,45,0.15)' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '26px', color: TC }}>photo_camera</span>
+                </div>
+                <span style={{ fontSize: '15px', fontWeight: 600, color: TC_DARK }}>Photo All Your Pieces</span>
+                <span style={{ fontSize: '12px', color: MUTED, marginTop: '4px' }}>Show shapes and initials · up to 5</span>
+              </label>
+            ) : (
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: imagePreviews.length === 1 ? '1fr' : 'repeat(2, 1fr)', gap: '8px' }}>
+                  {imagePreviews.map((preview, index) => (
+                    <div key={index} style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', background: '#ddd', aspectRatio: imagePreviews.length === 1 ? '4/3' : '1' }}>
+                      <img src={preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                      <button type="button" onClick={() => removeImage(index)} disabled={uploading} style={{
+                        position: 'absolute', top: '8px', right: '8px', width: '28px', height: '28px',
+                        borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', color: '#fff',
+                        fontSize: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>×</button>
+                    </div>
+                  ))}
+                  {images.length < 5 && (
+                    <label htmlFor="firing-images" style={{
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                      aspectRatio: '1', borderRadius: '12px', border: `2px dashed ${RULE}`,
+                      background: '#fff', cursor: 'pointer',
+                    }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: '24px', color: MUTED }}>add_photo_alternate</span>
+                      <span style={{ fontSize: '11px', color: MUTED, marginTop: '4px' }}>{images.length}/5</span>
+                    </label>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Piece Count + Initials row */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
+            <div>
+              <label style={labelStyle}>How Many Pieces *</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 14px', border: `1px solid ${RULE}`, borderRadius: '8px', background: '#fff' }}>
+                <button type="button" onClick={() => setFiringForm(f => ({ ...f, pieceCount: Math.max(1, f.pieceCount - 1) }))} style={{ width: 30, height: 30, borderRadius: '50%', border: `1px solid ${RULE}`, background: '#fff', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                <span style={{ fontSize: 22, fontWeight: 700, color: TC, flex: 1, textAlign: 'center' }}>{firingForm.pieceCount}</span>
+                <button type="button" onClick={() => setFiringForm(f => ({ ...f, pieceCount: f.pieceCount + 1 }))} style={{ width: 30, height: 30, borderRadius: '50%', border: `1px solid ${RULE}`, background: '#fff', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+              </div>
+            </div>
+            <div>
+              <label style={labelStyle}>Your Initials *</label>
+              <input
+                type="text" value={firingForm.initials}
+                onChange={e => setFiringForm(f => ({ ...f, initials: e.target.value }))}
+                maxLength={5} placeholder="e.g. JL"
+                style={{ ...inputStyle, textAlign: 'center', letterSpacing: '4px', fontWeight: 700, fontSize: '18px' }}
+                onFocus={e => e.target.style.borderColor = TC}
+                onBlur={e => e.target.style.borderColor = RULE}
+              />
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={labelStyle}>Notes</label>
+            <input
+              type="text" value={firingForm.notes}
+              onChange={e => setFiringForm(f => ({ ...f, notes: e.target.value }))}
+              placeholder="e.g. 3 bowls, 2 mugs, 2 plates"
+              style={inputStyle}
+              onFocus={e => e.target.style.borderColor = TC}
+              onBlur={e => e.target.style.borderColor = RULE}
+            />
+          </div>
+
+          {/* Upload progress */}
+          {uploading && (
+            <div style={{ marginBottom: '20px' }}>
+              <div style={{ height: '4px', background: RULE, borderRadius: '2px', overflow: 'hidden' }}>
+                <div style={{ height: '100%', background: TC, borderRadius: '2px', width: `${uploadProgress}%`, transition: 'width 0.3s ease' }} />
+              </div>
+              <div style={{ textAlign: 'center', fontSize: '12px', color: MUTED, marginTop: '8px' }}>Uploading... {uploadProgress}%</div>
+            </div>
+          )}
+
+          {/* Submit */}
+          <button
+            type="submit"
+            disabled={uploading || !firingForm.initials || !firingForm.pieceCount}
+            style={{
+              width: '100%', padding: '16px', border: 'none', borderRadius: '12px',
+              fontSize: '15px', fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+              background: (uploading || !firingForm.initials) ? '#D4D4D4' : TC,
+              color: (uploading || !firingForm.initials) ? MUTED : '#fff',
+              transition: 'all 0.2s', letterSpacing: '0.02em',
+            }}
+          >
+            {uploading ? 'Uploading...' : 'Log for Firing'}
+          </button>
+        </form>
+      )}
+
+      {/* ─── FINISHED WORK FORM ─── */}
+      {uploadType === 'finished' && (
+      <form onSubmit={handleSubmit} style={{ maxWidth: '540px', margin: '0 auto', padding: '0 20px' }}>
 
         {/* ─── Photo Upload ─── */}
         <div style={{ marginBottom: '28px' }}>
@@ -473,6 +668,7 @@ export default function UploadPiece() {
         </button>
 
       </form>
+      )}
     </div>
   );
 }

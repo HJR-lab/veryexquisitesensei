@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { useAuth } from '../hooks/useAuth';
 import ImpersonationBanner from '../components/ImpersonationBanner';
-import MyPieces from './MyPieces';
 
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
@@ -25,13 +24,12 @@ export default function GalleryNew() {
   }, [user, navigate]);
 
   // --- gallery sub-tab ---
-  const [searchParams] = useSearchParams();
-  const initialTab = searchParams.get('tab') === 'pieces' ? 'pieces' : 'mine';
-  const [galleryTab, setGalleryTab] = useState(initialTab); // 'mine' | 'community' | 'pieces'
+  const [galleryTab, setGalleryTab] = useState('mine'); // 'mine' | 'community'
 
   // --- piece data ---
   const [pieces, setPieces] = useState([]);
   const [communityPieces, setCommunityPieces] = useState([]);
+  const [firingBatches, setFiringBatches] = useState([]);
   const [selectedPiece, setSelectedPiece] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -72,6 +70,7 @@ export default function GalleryNew() {
     fetchPieces();
     fetchReferenceData();
     fetchCommunityPieces();
+    fetchFiringBatches();
   }, []);
 
   const fetchReferenceData = async () => {
@@ -105,6 +104,26 @@ export default function GalleryNew() {
     } catch (error) {
       // Community endpoint may not exist yet — silently ignore
       console.info('Community pieces not available:', error.message);
+    }
+  };
+
+  const fetchFiringBatches = async () => {
+    try {
+      const { data } = await api.get('/pieces/my-batches');
+      // Only show batches still in the pipeline (not collected/shipped/recycled)
+      const active = (data.batches || []).filter(b => !['collected', 'shipped', 'recycled'].includes(b.status));
+      setFiringBatches(active);
+    } catch (err) {
+      console.info('Firing batches not available:', err.message);
+    }
+  };
+
+  const handleDeliveryChoice = async (batchId, method) => {
+    try {
+      await api.put(`/pieces/batches/${batchId}/delivery`, { method });
+      fetchFiringBatches();
+    } catch (err) {
+      console.error('Failed to set delivery:', err);
     }
   };
 
@@ -338,7 +357,7 @@ export default function GalleryNew() {
 
           {/* SUB-TABS */}
           <div style={{ display: 'flex' }}>
-            {[{ id: 'mine', label: 'My Work' }, { id: 'pieces', label: 'My Pieces' }, { id: 'community', label: 'Community' }].map(t => (
+            {[{ id: 'mine', label: 'My Work' }, { id: 'community', label: 'Community' }].map(t => (
               <button
                 key={t.id}
                 onClick={() => setGalleryTab(t.id)}
@@ -359,7 +378,90 @@ export default function GalleryNew() {
         {/* MY WORK TAB */}
         {galleryTab === 'mine' && (
           <div style={{ padding: '16px 20px' }}>
-            {filteredPieces.length === 0 ? (
+
+            {/* FIRING PIPELINE */}
+            {firingBatches.length > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: 10 }}>
+                  In Progress
+                </div>
+                {firingBatches.map(batch => {
+                  const statusMap = {
+                    logged: { label: 'Drying', color: MUTED },
+                    bisque_fired: { label: 'Bisque Fired', color: MUTED },
+                    glaze_fired: { label: 'Glaze Firing', color: '#E65100' },
+                    ready: { label: 'Ready!', color: '#2D8C4E' },
+                    collecting: { label: 'Collecting', color: '#2D8C4E' },
+                    delivering: { label: 'Delivery', color: TC },
+                  };
+                  const st = statusMap[batch.status] || statusMap.logged;
+                  const isReady = batch.status === 'ready';
+                  const photoUrl = batch.photo_urls?.[0];
+                  const courseName = batch.course_enrollments?.course_title || batch.course_enrollments?.course_variant_title || 'Course';
+
+                  return (
+                    <div key={batch.id} style={{
+                      display: 'flex', gap: 12, padding: '12px 0',
+                      borderBottom: `1px solid ${RULE}`,
+                    }}>
+                      {/* Thumbnail */}
+                      <div style={{ width: 56, height: 56, flexShrink: 0, backgroundColor: ALT, overflow: 'hidden' }}>
+                        {photoUrl ? (
+                          <img src={photoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                        ) : (
+                          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 20, color: MUTED }}>local_fire_department</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Info */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: INK }}>{courseName}</div>
+                          <span style={{
+                            fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                            color: st.color, padding: '2px 6px', border: `1px solid ${st.color}`,
+                          }}>{st.label}</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>
+                          {batch.piece_count} piece{batch.piece_count !== 1 ? 's' : ''} · {batch.initials}
+                        </div>
+
+                        {/* Collect / Deliver buttons */}
+                        {isReady && (
+                          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                            <button
+                              onClick={() => handleDeliveryChoice(batch.id, 'collect')}
+                              style={{ padding: '5px 12px', background: '#2D8C4E', color: 'white', border: 'none', fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', cursor: 'pointer' }}
+                            >Collect</button>
+                            <button
+                              onClick={() => handleDeliveryChoice(batch.id, 'deliver')}
+                              style={{ padding: '5px 12px', background: 'transparent', color: TC, border: `1px solid ${TC}`, fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', cursor: 'pointer' }}
+                            >Deliver ($10)</button>
+                          </div>
+                        )}
+                        {batch.status === 'collecting' && (
+                          <div style={{ fontSize: 11, color: '#2D8C4E', fontWeight: 600, marginTop: 4 }}>Come visit the studio to collect</div>
+                        )}
+                        {batch.status === 'delivering' && (
+                          <div style={{ fontSize: 11, color: TC, fontWeight: 600, marginTop: 4 }}>Delivery arranged ($10)</div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* FINISHED WORKS */}
+            {filteredPieces.length > 0 && firingBatches.length > 0 && (
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: 10 }}>
+                Finished Works
+              </div>
+            )}
+
+            {filteredPieces.length === 0 && firingBatches.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '48px 0' }}>
                 <span className="material-symbols-outlined" style={{ fontSize: '48px', color: RULE, display: 'block', marginBottom: '12px' }}>photo_library</span>
                 <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '6px' }}>No pieces yet</div>
@@ -410,9 +512,6 @@ export default function GalleryNew() {
             )}
           </div>
         )}
-
-        {/* MY PIECES TAB */}
-        {galleryTab === 'pieces' && <MyPieces />}
 
         {/* COMMUNITY TAB */}
         {galleryTab === 'community' && (

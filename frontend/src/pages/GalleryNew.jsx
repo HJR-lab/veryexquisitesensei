@@ -341,18 +341,6 @@ export default function GalleryNew() {
               <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: '0 0 4px' }}>Gallery</h1>
               <div style={{ fontSize: '13px', color: MUTED }}>{pieces.length} {pieces.length === 1 ? 'piece' : 'pieces'}</div>
             </div>
-            <button
-              onClick={() => navigate('/upload')}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '6px',
-                padding: '10px 14px', border: 'none', backgroundColor: TC, color: '#FFF',
-                fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
-                cursor: 'pointer',
-              }}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>add_photo_alternate</span>
-              Upload
-            </button>
           </div>
 
           {/* SUB-TABS */}
@@ -461,21 +449,44 @@ export default function GalleryNew() {
               </div>
             )}
 
+            {/* Action Buttons — always visible */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+              <button
+                onClick={() => navigate('/upload?type=firing')}
+                style={{
+                  flex: 1, padding: '14px 12px', border: 'none', borderRadius: '10px', cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
+                  fontFamily: 'inherit', background: TC, color: '#fff',
+                }}
+              >
+                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.7 }}>Step 1</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>local_fire_department</span>
+                  Log for Firing
+                </span>
+              </button>
+              <button
+                onClick={() => navigate('/upload?type=finished')}
+                style={{
+                  flex: 1, padding: '14px 12px', border: 'none', borderRadius: '10px', cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
+                  fontFamily: 'inherit', background: '#fff', color: MUTED,
+                  boxShadow: `inset 0 0 0 1px ${RULE}`, opacity: 0.5,
+                }}
+              >
+                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Step 2</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>photo_library</span>
+                  Upload Finished Work
+                </span>
+              </button>
+            </div>
+
             {filteredPieces.length === 0 && firingBatches.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '48px 0' }}>
+              <div style={{ textAlign: 'center', padding: '32px 0' }}>
                 <span className="material-symbols-outlined" style={{ fontSize: '48px', color: RULE, display: 'block', marginBottom: '12px' }}>photo_library</span>
                 <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '6px' }}>No pieces yet</div>
-                <div style={{ fontSize: '13px', color: MUTED, marginBottom: '20px' }}>Start building your gallery by uploading your first piece</div>
-                <button
-                  onClick={() => navigate('/upload')}
-                  style={{
-                    padding: '10px 20px', backgroundColor: TC, color: '#FFF', border: 'none',
-                    fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Upload First Piece
-                </button>
+                <div style={{ fontSize: '13px', color: MUTED }}>Log your pieces for firing after glazing</div>
               </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '4px' }}>

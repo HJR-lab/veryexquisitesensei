@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import ImpersonationBanner from '../components/ImpersonationBanner';
 
@@ -16,8 +16,9 @@ const BG       = '#F5F3F0';
 export default function UploadPiece() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  const [uploadType, setUploadType] = useState('firing'); // 'firing' | 'finished'
+  const [uploadType, setUploadType] = useState(searchParams.get('type') === 'finished' ? 'finished' : 'firing');
 
   const [formData, setFormData] = useState({
     title: '',

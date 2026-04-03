@@ -26,6 +26,11 @@ export default function AdminCredits() {
   const [search, setSearch] = useState('');
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
+  // Inline earned edit state
+  const [editingId, setEditingId] = useState(null);
+  const [editValue, setEditValue] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+
   // Adjust modal state
   const [adjustStudent, setAdjustStudent] = useState(null);
   const [adjustType, setAdjustType] = useState('spend');
@@ -52,6 +57,41 @@ export default function AdminCredits() {
       console.error('Failed to load credits:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const startEditEarned = (student, e) => {
+    e.stopPropagation();
+    setEditingId(student.customerId);
+    setEditValue(String(student.earned));
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditValue('');
+  };
+
+  const saveEarned = async (student, e) => {
+    e.stopPropagation();
+    const newEarned = parseFloat(editValue);
+    if (isNaN(newEarned) || newEarned < 0) { cancelEdit(); return; }
+    const diff = newEarned - student.earned;
+    if (diff === 0) { cancelEdit(); return; }
+
+    setEditSaving(true);
+    try {
+      await api.post('/credits/adjust', {
+        customerId: student.customerId,
+        amount: Math.abs(diff),
+        type: diff > 0 ? 'earn' : 'spend',
+        description: `Correction — earned adjusted from $${student.earned} to $${newEarned}`,
+      });
+      cancelEdit();
+      loadData();
+    } catch (err) {
+      console.error('Failed to adjust earned:', err);
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -225,7 +265,38 @@ export default function AdminCredits() {
                       <div style={{ fontWeight: 600 }}>{s.name}</div>
                       <div style={{ fontSize: '11px', color: MUTED }}>{s.email}</div>
                     </td>
-                    <td style={{ padding: '12px 16px', textAlign: 'right', color: '#059669', fontWeight: 600 }}>${s.earned}</td>
+                    <td style={{ padding: '12px 16px', textAlign: 'right', color: '#059669', fontWeight: 600 }} onClick={e => e.stopPropagation()}>
+                      {editingId === s.customerId ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          <span style={{ fontSize: '13px' }}>$</span>
+                          <input
+                            autoFocus
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={editValue}
+                            onChange={e => setEditValue(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') saveEarned(s, e); if (e.key === 'Escape') cancelEdit(); }}
+                            disabled={editSaving}
+                            style={{ width: '64px', padding: '4px 6px', fontSize: '13px', fontWeight: 600, textAlign: 'right', border: `1px solid ${TC}`, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                          />
+                          <button onClick={e => saveEarned(s, e)} disabled={editSaving} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: '#059669', display: 'flex' }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>check</span>
+                          </button>
+                          <button onClick={cancelEdit} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: MUTED, display: 'flex' }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>close</span>
+                          </button>
+                        </span>
+                      ) : (
+                        <span
+                          onClick={e => startEditEarned(s, e)}
+                          title="Click to set correct amount"
+                          style={{ cursor: 'pointer', borderBottom: `1px dashed #059669`, paddingBottom: '1px' }}
+                        >
+                          ${s.earned}
+                        </span>
+                      )}
+                    </td>
                     <td style={{ padding: '12px 16px', textAlign: 'right', color: INK }}>${s.spent}</td>
                     <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: s.balance > 0 ? TC : MUTED }}>${s.balance}</td>
                     <td style={{ padding: '12px 8px 12px 0', textAlign: 'right' }}>

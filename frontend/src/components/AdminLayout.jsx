@@ -9,6 +9,7 @@ const getActiveNav = (pathname) => {
   if (pathname.includes('/admin/course-config')) return 'course-config';
   if (pathname.includes('/admin/emails')) return 'emails';
   if (pathname.includes('/admin/gallery')) return 'gallery';
+  if (pathname.includes('/admin/pieces')) return 'pieces';
   if (pathname.includes('/admin/instructors')) return 'instructors';
   if (pathname.includes('/admin/events')) return 'events';
   if (pathname.includes('/admin/reference')) return 'reference';

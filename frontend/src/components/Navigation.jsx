@@ -208,6 +208,13 @@ export default function Navigation() {
                         Gallery
                       </Link>
                       <Link
+                        to="/admin/pieces"
+                        onClick={() => setControlDropdownOpen(false)}
+                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                      >
+                        Pieces
+                      </Link>
+                      <Link
                         to="/admin/reference"
                         onClick={() => setControlDropdownOpen(false)}
                         className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
@@ -234,6 +241,13 @@ export default function Navigation() {
                   to="/my-gallery"
                 >
                   Gallery
+                </Link>
+                <Link
+                  ref={el => linksRef.current['/my-pieces'] = el}
+                  className={`text-sm font-normal uppercase tracking-wide relative pb-1 ${isActive('/my-pieces') ? 'text-text' : 'text-text-muted hover:text-text'}`}
+                  to="/my-pieces"
+                >
+                  My Pieces
                 </Link>
                 <Link
                   ref={el => linksRef.current['/membership'] = el}
@@ -402,6 +416,13 @@ export default function Navigation() {
                         Gallery
                       </Link>
                       <Link
+                        className={`text-sm font-normal uppercase tracking-wide ${isActive('/admin/pieces') ? 'text-text font-bold' : 'text-text-muted'}`}
+                        to="/admin/pieces"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        Pieces
+                      </Link>
+                      <Link
                         className={`text-sm font-normal uppercase tracking-wide ${isActive('/admin/reference') ? 'text-text font-bold' : 'text-text-muted'}`}
                         to="/admin/reference"
                         onClick={() => setMobileMenuOpen(false)}
@@ -439,6 +460,13 @@ export default function Navigation() {
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Gallery
+                  </Link>
+                  <Link
+                    className={`text-sm font-normal uppercase tracking-wide ${isActive('/my-pieces') ? 'text-text font-bold' : 'text-text-muted'}`}
+                    to="/my-pieces"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    My Pieces
                   </Link>
                   <Link
                     className={`text-sm font-normal uppercase tracking-wide ${isActive('/membership') ? 'text-text font-bold' : 'text-text-muted'}`}

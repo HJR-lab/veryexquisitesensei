@@ -618,6 +618,21 @@ export default function AdminClasses() {
     }
   };
 
+  const handleOpenPostponeModal = (classInstance) => {
+    // Find the parent course from courses list
+    const baseId = classInstance.baseCourseIdentifier || (() => {
+      const ct = classInstance.class_type || classInstance.fullCourseIdentifier || '';
+      const dot = ct.lastIndexOf('.');
+      return dot > 0 ? ct.substring(0, dot) : ct;
+    })();
+    const course = courses.find(c => c.identifier === baseId);
+    if (!course) { alert('Course not found'); return; }
+    setPostponeCourse({ id: baseId, classes: course.classes });
+    setPostponeFromClassId(String(classInstance.id));
+    setPostponeWeeks(1);
+    setShowPostponeModal(true);
+  };
+
   const handlePostponeCourse = async () => {
     if (!postponeFromClassId) { alert('Select which class to postpone from'); return; }
     const fromClass = postponeCourse.classes.find(c => c.id === parseInt(postponeFromClassId));
@@ -901,11 +916,6 @@ export default function AdminClasses() {
                 + Add Student
               </button>
               <button
-                onClick={e => { e.stopPropagation(); setPostponeCourse(course); setPostponeFromClassId(''); setPostponeWeeks(1); setShowPostponeModal(true); }}
-                style={{ padding: '7px 10px', border: `1px solid ${RULE}`, backgroundColor: '#FFF7E6', color: '#9E6200', fontSize: '10px', fontWeight: 700, cursor: 'pointer', letterSpacing: '0.04em', textTransform: 'uppercase' }}
-              >
-                Postpone
-              </button>
               <button
                 onClick={e => { e.stopPropagation(); if (course.classes[0]) handleOpenEditClassModal(course.classes[0]); }}
                 style={{ padding: '7px 10px', border: `1px solid ${RULE}`, backgroundColor: '#FFF', color: INK, fontSize: '10px', fontWeight: 700, cursor: 'pointer' }}
@@ -1353,6 +1363,7 @@ export default function AdminClasses() {
                 handleOpenAddStudentModal={handleOpenAddStudentModal}
                 handleOpenEditClassModal={handleOpenEditClassModal}
                 handleDeleteClass={handleDeleteClass}
+                handleOpenPostponeModal={handleOpenPostponeModal}
                 renderDayDetailMemberTable={renderDayDetailMemberTable}
               />
             )}

@@ -28,6 +28,7 @@ export default function ClassDayDetail({
   handleOpenAddStudentModal,
   handleOpenEditClassModal,
   handleDeleteClass,
+  handleOpenPostponeModal,
   renderDayDetailMemberTable,
 }) {
   return (
@@ -74,6 +75,14 @@ export default function ClassDayDetail({
                       >
                         Edit
                       </button>
+                      {isWT && handleOpenPostponeModal && (
+                        <button
+                          onClick={() => handleOpenPostponeModal(classInstance)}
+                          style={{ fontSize: '9px', padding: '3px 8px', border: 'none', backgroundColor: '#FFF7E6', color: '#9E6200', cursor: 'pointer', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}
+                        >
+                          Postpone
+                        </button>
+                      )}
                       <button
                         onClick={() => handleDeleteClass(classInstance.id, classInstance.class_type)}
                         disabled={booked > 0}

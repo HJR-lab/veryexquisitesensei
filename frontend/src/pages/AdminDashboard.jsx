@@ -191,32 +191,6 @@ export default function AdminDashboard() {
                   Engagement
                 </div>
                 <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
-                  {/* Header stat */}
-                  <div style={{ padding: '16px 14px 12px', borderBottom: `1px solid ${RULE}` }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: '16px', color: TC }}>monitoring</span>
-                      <span style={{ fontSize: '13px', fontWeight: 700, color: INK }}>Usage Overview</span>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                      <div>
-                        <div style={{ fontSize: '24px', fontWeight: 700, color: INK, lineHeight: 1 }}>
-                          {engagement.totalStudents}
-                        </div>
-                        <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: '2px' }}>
-                          Total Students
-                        </div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '24px', fontWeight: 700, color: INK, lineHeight: 1 }}>
-                          {engagement.totalLogins ?? 0}
-                        </div>
-                        <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: '2px' }}>
-                          Total Logins
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
                   {/* Students breakdown */}
                   <div style={{ padding: '12px 14px', borderBottom: `1px solid ${RULE}` }}>
                     <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: '8px' }}>
@@ -224,16 +198,22 @@ export default function AdminDashboard() {
                     </div>
                     {[
                       {
+                        label: 'Active (today)',
+                        value: engagement.activeToday ?? 0,
+                        pct: engagement.totalStudents > 0 ? Math.round(((engagement.activeToday ?? 0) / engagement.totalStudents) * 100) : 0,
+                        color: '#059669',
+                      },
+                      {
                         label: 'Active (7 days)',
                         value: engagement.activeLastWeek,
                         pct: engagement.totalStudents > 0 ? Math.round((engagement.activeLastWeek / engagement.totalStudents) * 100) : 0,
-                        color: '#059669',
+                        color: TC,
                       },
                       {
                         label: 'Active (30 days)',
                         value: engagement.activeLastMonth,
                         pct: engagement.totalStudents > 0 ? Math.round((engagement.activeLastMonth / engagement.totalStudents) * 100) : 0,
-                        color: TC,
+                        color: '#D97706',
                       },
                       {
                         label: 'Never logged in',
@@ -256,17 +236,16 @@ export default function AdminDashboard() {
                     ))}
                   </div>
 
-                  {/* Logins breakdown */}
+                  {/* Recent logins */}
                   <div style={{ padding: '12px 14px' }}>
                     <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: '8px' }}>
-                      Logins
+                      Recent Logins
                     </div>
-                    {[
-                      { label: 'Students who logged in', value: engagement.studentsWhoLoggedIn ?? 0 },
-                      { label: 'Avg. logins per student', value: engagement.avgLogins ?? 0 },
-                    ].map((row, i, arr) => (
+                    {(engagement.recentLogins || []).length === 0 ? (
+                      <div style={{ fontSize: '12px', color: MUTED }}>No logins yet</div>
+                    ) : (engagement.recentLogins || []).map((login, i, arr) => (
                       <div
-                        key={row.label}
+                        key={i}
                         style={{
                           display: 'flex',
                           justifyContent: 'space-between',
@@ -275,8 +254,10 @@ export default function AdminDashboard() {
                           borderBottom: i < arr.length - 1 ? `1px solid ${RULE}` : 'none',
                         }}
                       >
-                        <span style={{ fontSize: '12px', color: INK }}>{row.label}</span>
-                        <span style={{ fontSize: '13px', fontWeight: 700, color: TC }}>{row.value}</span>
+                        <span style={{ fontSize: '12px', fontWeight: 600, color: INK }}>{login.name}</span>
+                        <span style={{ fontSize: '10px', color: MUTED }}>
+                          {new Date(login.lastLoginAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                        </span>
                       </div>
                     ))}
                   </div>

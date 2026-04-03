@@ -316,6 +316,44 @@ export default function Credits() {
               </div>
             </div>
 
+            {/* ── How you earn ─────────────────────────────────────────── */}
+            <div style={{
+              border: `1px solid ${RULE}`,
+              padding: '20px',
+              marginBottom: '24px',
+            }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, marginBottom: '14px' }}>
+                How you earn credits
+              </div>
+
+              <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: TC_LIGHT, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '20px', color: TC }}>school</span>
+                </div>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: INK, marginBottom: '2px' }}>$20 for every course you take</div>
+                  <div style={{ fontSize: '12px', color: MUTED, lineHeight: 1.5 }}>
+                    From your second course onwards, you automatically receive $20 in Ves Credits each time you sign up. Our way of saying thank you for being part of the Ves family.
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '16px' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: TC_LIGHT, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '20px', color: TC }}>auto_awesome</span>
+                </div>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: INK, marginBottom: '2px' }}>Credits stack and never expire*</div>
+                  <div style={{ fontSize: '12px', color: MUTED, lineHeight: 1.5 }}>
+                    The more you create with us, the more you earn. Your credits accumulate across courses and can be used anytime.
+                  </div>
+                  <div style={{ fontSize: '10px', color: MUTED, marginTop: '6px', fontStyle: 'italic' }}>
+                    *Valid through 31 Dec 2026 as part of our 10th anniversary programme.
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* ── Use your credits ─────────────────────────────────────── */}
             <div style={{ marginBottom: '28px' }}>
               <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, marginBottom: '14px' }}>

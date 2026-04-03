@@ -44,7 +44,7 @@ export default function StudentCreditsTab({ studentId, balance, history, onRefre
     try {
       await api.post('/credits/adjust', {
         customerId:  studentId,
-        type,
+        type:        type === 'add' ? 'earn' : 'spend',
         amount:      parsed,
         description: note.trim(),
       });

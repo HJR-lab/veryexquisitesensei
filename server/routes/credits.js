@@ -1,4 +1,4 @@
-const { getCreditBalance, getCreditHistory, earnCredits, spendCredits } = require('../utils/creditManager');
+const { getCreditBalance, getCreditHistory, earnCredits, spendCredits, CREDIT_EXPIRY } = require('../utils/creditManager');
 const { supabase } = require('../utils/supabaseDb');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler }) {
@@ -51,6 +51,47 @@ app.post('/api/credits/adjust', authenticateToken, requireAdmin, asyncHandler(as
   }
 
   res.json({ success: true, transaction });
+}));
+
+// POST /api/admin/credits/set-earned — set a student's total earned credits directly
+app.post('/api/admin/credits/set-earned', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { customerId, amount } = req.body;
+
+  if (!customerId || amount == null || amount < 0) {
+    return res.status(400).json({ error: 'customerId and a non-negative amount are required' });
+  }
+
+  const cid = parseInt(customerId, 10);
+  const newAmount = parseFloat(amount);
+
+  // Delete all existing earn transactions for this customer
+  const { error: delErr } = await supabase
+    .from('credit_transactions')
+    .delete()
+    .eq('customer_id', cid)
+    .eq('type', 'earn');
+
+  if (delErr) throw delErr;
+
+  // Insert a single earn transaction with the correct amount (skip if zero)
+  if (newAmount > 0) {
+    const { error: insErr } = await supabase
+      .from('credit_transactions')
+      .insert([{
+        customer_id: cid,
+        type: 'earn',
+        amount: newAmount,
+        source: 'admin_set',
+        description: `Initial credit — $${newAmount}`,
+        expires_at: CREDIT_EXPIRY,
+        created_at: new Date().toISOString(),
+      }]);
+
+    if (insErr) throw insErr;
+  }
+
+  const balance = await getCreditBalance(cid);
+  res.json({ success: true, earned: newAmount, balance });
 }));
 
 // POST /api/credits/delivery — create delivery order with credit auto-offset

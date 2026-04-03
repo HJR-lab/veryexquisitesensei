@@ -75,21 +75,18 @@ export default function AdminCredits() {
     e.stopPropagation();
     const newEarned = parseFloat(editValue);
     if (isNaN(newEarned) || newEarned < 0) { cancelEdit(); return; }
-    const diff = newEarned - student.earned;
-    if (diff === 0) { cancelEdit(); return; }
+    if (newEarned === student.earned) { cancelEdit(); return; }
 
     setEditSaving(true);
     try {
-      await api.post('/credits/adjust', {
+      await api.post('/admin/credits/set-earned', {
         customerId: student.customerId,
-        amount: Math.abs(diff),
-        type: diff > 0 ? 'earn' : 'spend',
-        description: `Correction — earned adjusted from $${student.earned} to $${newEarned}`,
+        amount: newEarned,
       });
       cancelEdit();
       loadData();
     } catch (err) {
-      console.error('Failed to adjust earned:', err);
+      console.error('Failed to set earned:', err);
     } finally {
       setEditSaving(false);
     }

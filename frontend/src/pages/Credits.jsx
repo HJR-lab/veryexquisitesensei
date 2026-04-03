@@ -274,8 +274,8 @@ export default function Credits() {
 
         {/* Page header */}
         <div style={{ marginBottom: '24px' }}>
-          <h1 style={{ fontSize: '22px', fontWeight: 700, margin: 0 }}>Ves Credits</h1>
-          <p style={{ fontSize: '12px', color: MUTED, margin: '4px 0 0' }}>Your Ves studio credit balance and history</p>
+          <h1 style={{ fontSize: '22px', fontWeight: 700, margin: 0 }}>Credits</h1>
+          <p style={{ fontSize: '12px', color: MUTED, margin: '4px 0 0' }}>Your studio credit balance and history</p>
         </div>
 
         {/* Error state */}

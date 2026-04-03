@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import ImpersonationBanner from '../components/ImpersonationBanner';
@@ -20,6 +20,160 @@ function fmtDate(dateStr) {
   return `${d.getDate()} ${MONTH_LABELS[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+// ─── Delivery form (self) ─────────────────────────────────────────────────────
+function DeliveryForm({ customerId, balance, onSuccess }) {
+  const [address, setAddress] = useState('');
+  const [pieces, setPieces]   = useState(1);
+  const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState('');
+
+  const canSubmit = address.trim() && pieces >= 1 && balance >= 10 && !submitting;
+
+  async function handleSubmit() {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    try {
+      const { data } = await api.post('/credits/delivery', {
+        customerId,
+        deliveryType: 'self',
+        recipientAddress: address.trim(),
+        pieces,
+      });
+      setSuccess(`Order placed! $${data.creditApplied} credit applied.`);
+      setAddress('');
+      setPieces(1);
+      onSuccess();
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to place order');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div style={{ padding: '16px', backgroundColor: TC_LIGHT, borderTop: `1px solid ${RULE}` }}>
+      {success && (
+        <div style={{ padding: '8px 12px', backgroundColor: '#E8F5E9', color: '#2E7D32', fontSize: '12px', fontWeight: 600, marginBottom: '12px', borderRadius: '4px' }}>
+          {success}
+        </div>
+      )}
+      <label style={labelStyle}>Delivery address</label>
+      <input
+        value={address}
+        onChange={e => setAddress(e.target.value)}
+        placeholder="e.g. 123 Main St, Singapore 123456"
+        style={inputStyle}
+      />
+      <label style={labelStyle}>Number of pieces</label>
+      <input
+        type="number"
+        min="1"
+        value={pieces}
+        onChange={e => setPieces(Math.max(1, parseInt(e.target.value) || 1))}
+        style={{ ...inputStyle, width: '80px' }}
+      />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '12px' }}>
+        <div style={{ fontSize: '14px', fontWeight: 600, color: INK }}>Total: $10</div>
+        <button onClick={handleSubmit} disabled={!canSubmit} style={btnStyle(canSubmit)}>
+          {submitting ? 'Placing order...' : balance < 10 ? 'Insufficient credits' : 'Pay with Ves Credits'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Gift form ────────────────────────────────────────────────────────────────
+function GiftForm({ customerId, balance, onSuccess }) {
+  const [name, setName]       = useState('');
+  const [phone, setPhone]     = useState('');
+  const [address, setAddress] = useState('');
+  const [message, setMessage] = useState('');
+  const [pieces, setPieces]   = useState(1);
+  const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState('');
+
+  const canSubmit = name.trim() && phone.trim() && address.trim() && pieces >= 1 && balance >= 10 && !submitting;
+
+  async function handleSubmit() {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    try {
+      const { data } = await api.post('/credits/delivery', {
+        customerId,
+        deliveryType: 'gift',
+        recipientName: name.trim(),
+        recipientPhone: phone.trim(),
+        recipientAddress: address.trim(),
+        giftMessage: message.trim() || null,
+        pieces,
+      });
+      setSuccess(`Gift order placed! $${data.creditApplied} credit applied.`);
+      setName(''); setPhone(''); setAddress(''); setMessage(''); setPieces(1);
+      onSuccess();
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to place order');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div style={{ padding: '16px', backgroundColor: TC_LIGHT, borderTop: `1px solid ${RULE}` }}>
+      {success && (
+        <div style={{ padding: '8px 12px', backgroundColor: '#E8F5E9', color: '#2E7D32', fontSize: '12px', fontWeight: 600, marginBottom: '12px', borderRadius: '4px' }}>
+          {success}
+        </div>
+      )}
+      <label style={labelStyle}>Recipient name</label>
+      <input value={name} onChange={e => setName(e.target.value)} placeholder="Their full name" style={inputStyle} />
+      <label style={labelStyle}>Recipient phone</label>
+      <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="e.g. 9123 4567" style={inputStyle} />
+      <label style={labelStyle}>Delivery address</label>
+      <input value={address} onChange={e => setAddress(e.target.value)} placeholder="e.g. 123 Main St, Singapore 123456" style={inputStyle} />
+      <label style={labelStyle}>Gift message <span style={{ fontWeight: 400, color: MUTED }}>(optional)</span></label>
+      <textarea
+        value={message}
+        onChange={e => setMessage(e.target.value)}
+        placeholder="Write a message to include..."
+        rows={2}
+        style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }}
+      />
+      <label style={labelStyle}>Number of pieces</label>
+      <input
+        type="number"
+        min="1"
+        value={pieces}
+        onChange={e => setPieces(Math.max(1, parseInt(e.target.value) || 1))}
+        style={{ ...inputStyle, width: '80px' }}
+      />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '12px' }}>
+        <div style={{ fontSize: '14px', fontWeight: 600, color: INK }}>Total: $10</div>
+        <button onClick={handleSubmit} disabled={!canSubmit} style={btnStyle(canSubmit)}>
+          {submitting ? 'Placing order...' : balance < 10 ? 'Insufficient credits' : 'Pay with Ves Credits'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Shared styles ────────────────────────────────────────────────────────────
+const labelStyle = { display: 'block', fontSize: '11px', fontWeight: 600, color: TC_DARK, marginBottom: '4px', marginTop: '10px', textTransform: 'uppercase', letterSpacing: '0.04em' };
+const inputStyle = { width: '100%', padding: '8px 10px', fontSize: '13px', border: `1px solid ${RULE}`, borderRadius: '4px', boxSizing: 'border-box', outline: 'none', backgroundColor: '#FFFFFF' };
+const btnStyle = (enabled) => ({
+  padding: '10px 20px', fontSize: '12px', fontWeight: 700, border: 'none', borderRadius: '6px', cursor: enabled ? 'pointer' : 'default',
+  backgroundColor: enabled ? TC : '#CCCCCC', color: enabled ? '#FFFFFF' : '#888888',
+});
+
+// ─── Service items config ─────────────────────────────────────────────────────
+const SERVICES = [
+  { id: 'studio',   title: 'Studio Access',                  desc: '$20/hr · min 2 hrs · full hours only', icon: 'door_open',            href: '/studio-access' },
+  { id: 'firing',   title: 'Fire an Additional Piece',       desc: '$20/piece · logged by instructor',     icon: 'local_fire_department', info: true },
+  { id: 'delivery', title: 'Delivery of Finished Work',      desc: '$10 per location',                     icon: 'local_shipping',        form: 'delivery' },
+  { id: 'gift',     title: 'Send to a Friend or Loved One',  desc: '$10 per location',                     icon: 'card_giftcard',         form: 'gift' },
+];
+
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function Credits() {
   const { user } = useAuth();
@@ -28,9 +182,23 @@ export default function Credits() {
   const [history, setHistory]     = useState([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState('');
+  const [expanded, setExpanded]   = useState(null); // 'delivery' | 'gift' | null
+
+  const customerId = user?.dbCustomerId;
+
+  const refreshData = useCallback(async () => {
+    if (!customerId) return;
+    try {
+      const [balRes, histRes] = await Promise.all([
+        api.get(`/credits/balance/${customerId}`),
+        api.get(`/credits/history/${customerId}`),
+      ]);
+      setBalance(balRes.data?.balance ?? balRes.data ?? 0);
+      setHistory(histRes.data?.history || histRes.data || []);
+    } catch {}
+  }, [customerId]);
 
   useEffect(() => {
-    const customerId = user?.dbCustomerId;
     if (!customerId) return;
     let cancelled = false;
 
@@ -56,7 +224,12 @@ export default function Credits() {
 
     load();
     return () => { cancelled = true; };
-  }, [user?.dbCustomerId]);
+  }, [customerId]);
+
+  function handleFormSuccess() {
+    setExpanded(null);
+    refreshData();
+  }
 
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#FFFFFF', minHeight: '100vh' }}>
@@ -128,33 +301,53 @@ export default function Credits() {
               <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, marginBottom: '14px' }}>
                 Use your credits
               </div>
-              {[
-                { title: 'Studio Access', desc: '$20/hr · min 2 hrs · full hours only', href: '/studio-access', icon: 'door_open' },
-                { title: 'Fire an Additional Piece', desc: '$20 per piece', href: null, icon: 'local_fire_department' },
-                { title: 'Delivery of Finished Work', desc: '$10 per location', href: null, icon: 'local_shipping' },
-                { title: 'Send to a Friend or Loved One', desc: '$10 per location', href: null, icon: 'card_giftcard' },
-              ].map(({ title, desc, href, icon }, i, arr) => {
-                const inner = (
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: '14px',
-                    padding: '14px 16px',
-                    border: `1px solid ${RULE}`,
-                    borderRadius: i === 0 ? '8px 8px 0 0' : i === arr.length - 1 ? '0 0 8px 8px' : '0',
-                    borderTop: i > 0 ? 'none' : undefined,
-                    cursor: href ? 'pointer' : 'default',
-                    transition: 'background-color 0.15s',
-                  }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: '22px', color: TC, fontVariationSettings: "'FILL' 0, 'wght' 400" }}>{icon}</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '14px', fontWeight: 600, color: INK }}>{title}</div>
-                      <div style={{ fontSize: '12px', color: MUTED, marginTop: '1px' }}>{desc}</div>
+              {SERVICES.map(({ id, title, desc, icon, href, info, form }, i) => {
+                const isExpanded = expanded === form;
+                const isClickable = href || form;
+                const isFirst = i === 0;
+                const isLast = i === SERVICES.length - 1 && !isExpanded;
+
+                return (
+                  <div key={id}>
+                    {/* Service row */}
+                    <div
+                      onClick={() => {
+                        if (href) { window.location.href = href; return; }
+                        if (form) setExpanded(isExpanded ? null : form);
+                      }}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '14px',
+                        padding: '14px 16px',
+                        border: `1px solid ${RULE}`,
+                        borderRadius: isFirst ? '8px 8px 0 0' : (isLast && !isExpanded) ? '0 0 8px 8px' : '0',
+                        borderTop: i > 0 ? 'none' : undefined,
+                        cursor: isClickable ? 'pointer' : 'default',
+                        backgroundColor: isExpanded ? TC_LIGHT : '#FFFFFF',
+                        transition: 'background-color 0.15s',
+                      }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: '22px', color: info ? MUTED : TC, fontVariationSettings: "'FILL' 0, 'wght' 400" }}>{icon}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '14px', fontWeight: 600, color: info ? MUTED : INK }}>{title}</div>
+                        <div style={{ fontSize: '12px', color: MUTED, marginTop: '1px' }}>{desc}</div>
+                      </div>
+                      {href && <span className="material-symbols-outlined" style={{ fontSize: '18px', color: MUTED }}>chevron_right</span>}
+                      {form && <span className="material-symbols-outlined" style={{ fontSize: '18px', color: TC, transition: 'transform 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)' }}>expand_more</span>}
                     </div>
-                    {href && <span className="material-symbols-outlined" style={{ fontSize: '18px', color: MUTED }}>chevron_right</span>}
+
+                    {/* Expanded form */}
+                    {isExpanded && form === 'delivery' && (
+                      <div style={{ border: `1px solid ${RULE}`, borderTop: 'none', borderRadius: i === SERVICES.length - 1 ? '0 0 8px 8px' : '0', overflow: 'hidden' }}>
+                        <DeliveryForm customerId={customerId} balance={balance} onSuccess={handleFormSuccess} />
+                      </div>
+                    )}
+                    {isExpanded && form === 'gift' && (
+                      <div style={{ border: `1px solid ${RULE}`, borderTop: 'none', borderRadius: i === SERVICES.length - 1 ? '0 0 8px 8px' : '0', overflow: 'hidden' }}>
+                        <GiftForm customerId={customerId} balance={balance} onSuccess={handleFormSuccess} />
+                      </div>
+                    )}
                   </div>
                 );
-                return href
-                  ? <a key={title} href={href} style={{ textDecoration: 'none' }}>{inner}</a>
-                  : <div key={title}>{inner}</div>;
               })}
             </div>
 

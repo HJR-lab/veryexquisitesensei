@@ -2622,22 +2622,29 @@ app.get('/api/admin/dashboard/activity', authenticateToken, requireAdmin, asyncH
   res.json({ alerts: topAlerts, activity: topActivity });
 }));
 
-// Dashboard engagement metrics (active users 7d/30d, never logged in, login stats)
+// Dashboard engagement metrics (active users 1d/7d/30d, never logged in, recent logins)
 app.get('/api/admin/dashboard/engagement', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const now = new Date();
+  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
   const [
     { count: totalStudents },
+    { count: activeToday },
     { count: activeLastWeek },
     { count: activeLastMonth },
     { count: neverLoggedIn },
-    { data: loginData }
+    { data: loginData },
+    { data: recentLogins }
   ] = await Promise.all([
     supabaseDb.supabase
       .from('customers')
       .select('*', { count: 'exact', head: true }),
+    supabaseDb.supabase
+      .from('customers')
+      .select('*', { count: 'exact', head: true })
+      .gte('last_login_at', oneDayAgo),
     supabaseDb.supabase
       .from('customers')
       .select('*', { count: 'exact', head: true })
@@ -2653,21 +2660,30 @@ app.get('/api/admin/dashboard/engagement', authenticateToken, requireAdmin, asyn
     supabaseDb.supabase
       .from('customers')
       .select('login_count')
-      .gt('login_count', 0)
+      .gt('login_count', 0),
+    supabaseDb.supabase
+      .from('customers')
+      .select('first_name, last_name, last_login_at')
+      .not('last_login_at', 'is', null)
+      .order('last_login_at', { ascending: false })
+      .limit(10)
   ]);
 
   const studentsWhoLoggedIn = (loginData || []).length;
   const totalLogins = (loginData || []).reduce((sum, c) => sum + (c.login_count || 0), 0);
-  const avgLogins = studentsWhoLoggedIn > 0 ? Math.round((totalLogins / studentsWhoLoggedIn) * 10) / 10 : 0;
 
   res.json({
     totalStudents: totalStudents || 0,
+    activeToday: activeToday || 0,
     activeLastWeek: activeLastWeek || 0,
     activeLastMonth: activeLastMonth || 0,
     neverLoggedIn: neverLoggedIn || 0,
     studentsWhoLoggedIn,
     totalLogins,
-    avgLogins,
+    recentLogins: (recentLogins || []).map(r => ({
+      name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || 'Unknown',
+      lastLoginAt: r.last_login_at,
+    })),
   });
 }));
 

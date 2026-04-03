@@ -53,6 +53,32 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
     const cacheKey = `${dbCustomerId}:${req.user.isImpersonating || false}`;
     const cached = getCachedAuth(cacheKey);
     if (cached) {
+      // Login tracking even on cache hit — fire-and-forget, non-blocking
+      if (!req.user.isImpersonating) {
+        const lastLogin = cached.user?.lastLoginAt ? new Date(cached.user.lastLoginAt) : null;
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+        if (!lastLogin || lastLogin < oneHourAgo) {
+          supabaseDb.supabase
+            .from('customers')
+            .select('last_login_at, login_count')
+            .eq('id', dbCustomerId)
+            .single()
+            .then(({ data: fresh }) => {
+              if (!fresh) return;
+              const freshLogin = fresh.last_login_at ? new Date(fresh.last_login_at) : null;
+              if (!freshLogin || freshLogin < oneHourAgo) {
+                const now = new Date();
+                supabaseDb.supabase
+                  .from('customers')
+                  .update({ last_login_at: now.toISOString(), login_count: (fresh.login_count || 0) + 1 })
+                  .eq('id', dbCustomerId)
+                  .then(() => {})
+                  .catch(err => console.error('Login tracking error (cached):', err));
+              }
+            })
+            .catch(() => {});
+        }
+      }
       return res.json(cached);
     }
 

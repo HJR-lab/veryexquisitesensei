@@ -17,7 +17,7 @@ export default function UploadPiece() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const [uploadType, setUploadType] = useState('finished'); // 'finished' | 'firing'
+  const [uploadType, setUploadType] = useState('firing'); // 'firing' | 'finished'
 
   const [formData, setFormData] = useState({
     title: '',
@@ -260,27 +260,38 @@ export default function UploadPiece() {
       <div style={{ maxWidth: '540px', margin: '0 auto', padding: '20px 20px 0' }}>
 
         {/* ─── Type Selector ─── */}
-        <div style={{ display: 'flex', marginBottom: '24px', background: '#fff', borderRadius: '10px', border: `1px solid ${RULE}`, overflow: 'hidden' }}>
-          {[
-            { id: 'finished', label: 'Finished Work', icon: 'photo_library' },
-            { id: 'firing', label: 'Log for Firing', icon: 'local_fire_department' },
-          ].map(t => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setUploadType(t.id)}
-              style={{
-                flex: 1, padding: '14px 12px', border: 'none', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-                fontSize: '13px', fontWeight: 600, fontFamily: 'inherit', transition: 'all 0.2s',
-                background: uploadType === t.id ? TC : 'transparent',
-                color: uploadType === t.id ? '#fff' : MUTED,
-              }}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>{t.icon}</span>
-              {t.label}
-            </button>
-          ))}
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '24px' }}>
+          <button
+            type="button"
+            onClick={() => setUploadType('firing')}
+            style={{
+              flex: 1, padding: '14px 12px', border: 'none', borderRadius: '10px', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+              fontSize: '13px', fontWeight: 600, fontFamily: 'inherit', transition: 'all 0.2s',
+              background: uploadType === 'firing' ? TC : '#fff',
+              color: uploadType === 'firing' ? '#fff' : INK,
+              boxShadow: uploadType === 'firing' ? 'none' : `inset 0 0 0 1px ${RULE}`,
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>local_fire_department</span>
+            Log for Firing
+          </button>
+          <button
+            type="button"
+            onClick={() => setUploadType('finished')}
+            style={{
+              flex: 1, padding: '14px 12px', border: 'none', borderRadius: '10px', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+              fontSize: '13px', fontWeight: 600, fontFamily: 'inherit', transition: 'all 0.2s',
+              background: uploadType === 'finished' ? TC : '#fff',
+              color: uploadType === 'finished' ? '#fff' : MUTED,
+              boxShadow: uploadType === 'finished' ? 'none' : `inset 0 0 0 1px ${RULE}`,
+              opacity: uploadType === 'finished' ? 1 : 0.5,
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>photo_library</span>
+            Upload Finished Work
+          </button>
         </div>
       </div>
 

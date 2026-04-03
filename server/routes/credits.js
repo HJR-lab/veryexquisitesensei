@@ -172,4 +172,97 @@ app.patch('/api/credits/delivery/:id/status', authenticateToken, requireAdmin, a
   res.json({ success: true, order: updated });
 }));
 
+// ============================================
+// ADMIN CREDIT ENDPOINTS
+// ============================================
+
+// GET /api/admin/credits/stats — summary for dashboard card
+app.get('/api/admin/credits/stats', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const now = new Date().toISOString();
+
+  // All earn transactions (non-expired)
+  const { data: earnRows, error: e1 } = await supabase
+    .from('credit_transactions')
+    .select('amount, customer_id')
+    .eq('type', 'earn')
+    .gt('expires_at', now);
+
+  // All spend transactions
+  const { data: spendRows, error: e2 } = await supabase
+    .from('credit_transactions')
+    .select('amount, customer_id')
+    .eq('type', 'spend');
+
+  if (e1 || e2) throw e1 || e2;
+
+  const totalEarned = (earnRows || []).reduce((s, r) => s + Number(r.amount), 0);
+  const totalSpent = (spendRows || []).reduce((s, r) => s + Number(r.amount), 0);
+  const totalBalance = totalEarned - totalSpent;
+
+  // Count unique customers with positive balance
+  const balanceByCustomer = {};
+  for (const r of (earnRows || [])) {
+    balanceByCustomer[r.customer_id] = (balanceByCustomer[r.customer_id] || 0) + Number(r.amount);
+  }
+  for (const r of (spendRows || [])) {
+    balanceByCustomer[r.customer_id] = (balanceByCustomer[r.customer_id] || 0) - Number(r.amount);
+  }
+  const studentsWithCredits = Object.values(balanceByCustomer).filter(b => b > 0).length;
+
+  res.json({ totalEarned, totalSpent, totalBalance, studentsWithCredits });
+}));
+
+// GET /api/admin/credits/overview — per-student balances + full transaction log
+app.get('/api/admin/credits/overview', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const now = new Date().toISOString();
+
+  // All transactions with customer info
+  const { data: transactions, error: txErr } = await supabase
+    .from('credit_transactions')
+    .select('*, customers!inner(first_name, last_name, email)')
+    .order('created_at', { ascending: false });
+
+  if (txErr) throw txErr;
+
+  // Build per-student balances
+  const studentMap = {};
+  for (const tx of (transactions || [])) {
+    const cid = tx.customer_id;
+    if (!studentMap[cid]) {
+      studentMap[cid] = {
+        customerId: cid,
+        name: `${tx.customers.first_name || ''} ${tx.customers.last_name || ''}`.trim(),
+        email: tx.customers.email,
+        earned: 0,
+        spent: 0,
+      };
+    }
+    const amt = Number(tx.amount);
+    if (tx.type === 'earn' && tx.expires_at && new Date(tx.expires_at) > new Date(now)) {
+      studentMap[cid].earned += amt;
+    } else if (tx.type === 'spend') {
+      studentMap[cid].spent += amt;
+    }
+  }
+
+  const students = Object.values(studentMap)
+    .map(s => ({ ...s, balance: s.earned - s.spent }))
+    .filter(s => s.earned > 0 || s.spent > 0)
+    .sort((a, b) => b.balance - a.balance);
+
+  // Flatten transactions for log
+  const log = (transactions || []).map(tx => ({
+    id: tx.id,
+    customerId: tx.customer_id,
+    name: `${tx.customers.first_name || ''} ${tx.customers.last_name || ''}`.trim(),
+    type: tx.type,
+    amount: Number(tx.amount),
+    source: tx.source,
+    description: tx.description,
+    createdAt: tx.created_at,
+  }));
+
+  res.json({ students, log });
+}));
+
 }; // end module.exports

@@ -3817,6 +3817,96 @@ app.patch('/api/admin/classes/:classId', authenticateToken, requireAdmin, asyncH
   res.json({ message: 'Class updated successfully' });
 }));
 
+// Postpone course classes from a given class onwards
+app.post('/api/admin/courses/:courseIdentifier/postpone', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { courseIdentifier } = req.params;
+  const { fromClassId, weeks = 1 } = req.body;
+
+  if (!fromClassId) {
+    return res.status(400).json({ error: 'fromClassId is required' });
+  }
+
+  // 1. Find ALL class_instances for this course
+  const { data: allClasses, error: fetchError } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('*')
+    .like('class_type', `${courseIdentifier}.%`);
+
+  if (fetchError) {
+    console.error('Error fetching class instances:', fetchError);
+    return res.status(500).json({ error: 'Failed to fetch class instances' });
+  }
+
+  if (!allClasses || allClasses.length === 0) {
+    return res.status(404).json({ error: 'No class instances found for this course' });
+  }
+
+  // 2. Get the class_date of the fromClassId class instance
+  const fromClass = allClasses.find(c => c.id === fromClassId);
+  if (!fromClass) {
+    return res.status(404).json({ error: 'fromClassId not found in this course' });
+  }
+
+  const fromDate = fromClass.class_date;
+
+  // 3. Filter to only class instances with class_date >= fromDate
+  const classesToPostpone = allClasses.filter(c => c.class_date >= fromDate);
+
+  // 4. Sort by class_date DESCENDING (move latest first to avoid unique constraint conflicts)
+  classesToPostpone.sort((a, b) => b.class_date.localeCompare(a.class_date));
+
+  // 5. Update each class_date by adding weeks * 7 days
+  const daysToAdd = weeks * 7;
+  const updatedDates = [];
+
+  for (const cls of classesToPostpone) {
+    const oldDate = new Date(cls.class_date);
+    oldDate.setDate(oldDate.getDate() + daysToAdd);
+    const newDate = oldDate.toISOString().split('T')[0]; // YYYY-MM-DD
+
+    const { error: updateError } = await supabaseDb.supabase
+      .from('class_instances')
+      .update({ class_date: newDate })
+      .eq('id', cls.id);
+
+    if (updateError) {
+      console.error(`Error updating class ${cls.id}:`, updateError);
+      return res.status(500).json({ error: `Failed to update class ${cls.id}` });
+    }
+
+    updatedDates.push({ id: cls.id, class_type: cls.class_type, old_date: cls.class_date, new_date: newDate });
+  }
+
+  // 6. Update course_enrollments: set course_end_date and expected_end_date to the new latest class date
+  // The new latest date is the last entry when sorted ascending
+  const newLatestDate = updatedDates
+    .map(d => d.new_date)
+    .sort()
+    .pop();
+
+  if (newLatestDate) {
+    const { error: enrollError } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .update({
+        course_end_date: newLatestDate,
+        expected_end_date: newLatestDate
+      })
+      .eq('course_identifier', courseIdentifier);
+
+    if (enrollError) {
+      console.error('Error updating course enrollments:', enrollError);
+      return res.status(500).json({ error: 'Classes updated but failed to update enrollment dates' });
+    }
+  }
+
+  // 7. Return success
+  res.json({
+    message: `Successfully postponed ${classesToPostpone.length} class(es) by ${weeks} week(s)`,
+    updatedClasses: updatedDates,
+    newCourseEndDate: newLatestDate
+  });
+}));
+
 // Create a new class
 app.post('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { startTime, endTime, classType, instructor, room, teachingCapacity, makeUpCapacity, glazingCapacity, numberOfClasses, classDates } = req.body;

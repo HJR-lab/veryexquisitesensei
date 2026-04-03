@@ -128,6 +128,13 @@ export default function AdminClasses() {
   const [editClassData, setEditClassData] = useState({ classDate: '', startTime: '', endTime: '', instructor: '', maxCapacity: 12, classTitle: '', classDescription: '' });
   const [updatingClass, setUpdatingClass] = useState(false);
 
+  // ── Postpone course modal ────────────────────────────────────────────────────
+  const [showPostponeModal, setShowPostponeModal] = useState(false);
+  const [postponeCourse, setPostponeCourse] = useState(null); // { id, classes }
+  const [postponeFromClassId, setPostponeFromClassId] = useState('');
+  const [postponeWeeks, setPostponeWeeks] = useState(1);
+  const [postponing, setPostponing] = useState(false);
+
   // ── Create course modal ───────────────────────────────────────────────────────
   const [showCreateClassModal, setShowCreateClassModal] = useState(false);
   const [creatingClass, setCreatingClass] = useState(false);
@@ -611,6 +618,31 @@ export default function AdminClasses() {
     }
   };
 
+  const handlePostponeCourse = async () => {
+    if (!postponeFromClassId) { alert('Select which class to postpone from'); return; }
+    const fromClass = postponeCourse.classes.find(c => c.id === parseInt(postponeFromClassId));
+    const affectedCount = postponeCourse.classes.filter(c => new Date(c.class_date) >= new Date(fromClass.class_date)).length;
+    if (!confirm(`Postpone ${affectedCount} class${affectedCount > 1 ? 'es' : ''} by ${postponeWeeks} week${postponeWeeks > 1 ? 's' : ''}? All classes from ${new Date(fromClass.class_date).toLocaleDateString('en-SG', { weekday: 'short', day: 'numeric', month: 'short' })} onwards will shift forward.`)) return;
+    try {
+      setPostponing(true);
+      await api.post(`/admin/courses/${encodeURIComponent(postponeCourse.id)}/postpone`, {
+        fromClassId: parseInt(postponeFromClassId),
+        weeks: postponeWeeks,
+      });
+      await loadCourses();
+      alert('Course postponed successfully!');
+      setShowPostponeModal(false);
+      setPostponeCourse(null);
+      setPostponeFromClassId('');
+      setPostponeWeeks(1);
+    } catch (error) {
+      console.error('Failed to postpone course:', error);
+      alert(error.response?.data?.error || 'Failed to postpone course.');
+    } finally {
+      setPostponing(false);
+    }
+  };
+
   // ── Create course handlers ────────────────────────────────────────────────────
   const handleNumberOfClassesChange = (newNumber) => {
     const num = Math.max(1, Math.min(12, parseInt(newNumber) || 1));
@@ -867,6 +899,12 @@ export default function AdminClasses() {
                 style={{ flex: 1, padding: '7px', border: 'none', backgroundColor: course.color, color: '#FFF', fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', cursor: 'pointer' }}
               >
                 + Add Student
+              </button>
+              <button
+                onClick={e => { e.stopPropagation(); setPostponeCourse(course); setPostponeFromClassId(''); setPostponeWeeks(1); setShowPostponeModal(true); }}
+                style={{ padding: '7px 10px', border: `1px solid ${RULE}`, backgroundColor: '#FFF7E6', color: '#9E6200', fontSize: '10px', fontWeight: 700, cursor: 'pointer', letterSpacing: '0.04em', textTransform: 'uppercase' }}
+              >
+                Postpone
               </button>
               <button
                 onClick={e => { e.stopPropagation(); if (course.classes[0]) handleOpenEditClassModal(course.classes[0]); }}
@@ -1366,6 +1404,100 @@ export default function AdminClasses() {
         rescheduling={rescheduling}
         formatDate={formatDate}
       />
+
+      {/* Postpone Course Modal */}
+      {showPostponeModal && postponeCourse && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div style={{ backgroundColor: '#FFFFFF', padding: isMobile ? '24px 20px' : '32px', width: '440px', maxWidth: '100%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
+              <div style={{ fontSize: '16px', fontWeight: 700 }}>Postpone Course</div>
+              <button onClick={() => setShowPostponeModal(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '18px', color: '#888', lineHeight: 1, padding: '0 0 0 16px' }}>&#10005;</button>
+            </div>
+            <div style={{ fontSize: '12px', color: '#888', marginBottom: '22px' }}>
+              Push classes forward when instructor is unavailable
+            </div>
+            <div style={{ fontFamily: 'monospace', fontSize: '12px', fontWeight: 700, marginBottom: '16px', padding: '8px 10px', backgroundColor: '#F9EDE6', color: '#9E4A1E' }}>
+              {postponeCourse.id}
+            </div>
+
+            <div style={{ marginBottom: '14px' }}>
+              <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#888', display: 'block', marginBottom: '5px' }}>Postpone from</label>
+              <select
+                value={postponeFromClassId}
+                onChange={e => setPostponeFromClassId(e.target.value)}
+                style={{ width: '100%', padding: '9px 12px', border: '1px solid rgba(40,40,40,0.09)', fontSize: '13px', fontFamily: 'inherit', boxSizing: 'border-box' }}
+              >
+                <option value="">Select class...</option>
+                {postponeCourse.classes
+                  .filter(c => new Date(c.class_date) >= new Date(new Date().setHours(0,0,0,0)))
+                  .sort((a, b) => new Date(a.class_date) - new Date(b.class_date))
+                  .map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.class_type} — {new Date(c.class_date).toLocaleDateString('en-SG', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                    </option>
+                  ))}
+              </select>
+            </div>
+
+            <div style={{ marginBottom: '18px' }}>
+              <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#888', display: 'block', marginBottom: '5px' }}>Push forward by</label>
+              <select
+                value={postponeWeeks}
+                onChange={e => setPostponeWeeks(parseInt(e.target.value))}
+                style={{ width: '100%', padding: '9px 12px', border: '1px solid rgba(40,40,40,0.09)', fontSize: '13px', fontFamily: 'inherit', boxSizing: 'border-box' }}
+              >
+                <option value={1}>1 week</option>
+                <option value={2}>2 weeks</option>
+                <option value={3}>3 weeks</option>
+              </select>
+            </div>
+
+            {postponeFromClassId && (
+              <div style={{ padding: '10px 12px', backgroundColor: '#FFF7E6', marginBottom: '18px', fontSize: '11px', color: '#9E6200' }}>
+                {(() => {
+                  const fromClass = postponeCourse.classes.find(c => c.id === parseInt(postponeFromClassId));
+                  if (!fromClass) return null;
+                  const affected = postponeCourse.classes
+                    .filter(c => new Date(c.class_date) >= new Date(fromClass.class_date))
+                    .sort((a, b) => new Date(a.class_date) - new Date(b.class_date));
+                  return (
+                    <>
+                      <div style={{ fontWeight: 700, marginBottom: '6px' }}>{affected.length} class{affected.length > 1 ? 'es' : ''} will shift:</div>
+                      {affected.map(c => {
+                        const oldDate = new Date(c.class_date);
+                        const newDate = new Date(oldDate);
+                        newDate.setDate(newDate.getDate() + postponeWeeks * 7);
+                        return (
+                          <div key={c.id} style={{ display: 'flex', gap: '6px', marginBottom: '2px' }}>
+                            <span>{c.class_type}:</span>
+                            <span style={{ textDecoration: 'line-through' }}>{oldDate.toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })}</span>
+                            <span>&rarr;</span>
+                            <span style={{ fontWeight: 700 }}>{newDate.toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })}</span>
+                          </div>
+                        );
+                      })}
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+
+            <button
+              onClick={handlePostponeCourse}
+              disabled={postponing || !postponeFromClassId}
+              style={{
+                width: '100%', padding: '11px', border: 'none',
+                backgroundColor: postponeFromClassId ? '#C4622D' : '#ccc',
+                color: '#FFF', fontSize: '12px', fontWeight: 700,
+                letterSpacing: '0.06em', textTransform: 'uppercase',
+                cursor: postponeFromClassId ? 'pointer' : 'not-allowed',
+              }}
+            >
+              {postponing ? 'Postponing...' : 'Confirm Postpone'}
+            </button>
+          </div>
+        </div>
+      )}
 
       <AddStudentModal
         show={showAddStudentModal}

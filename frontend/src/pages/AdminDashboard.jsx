@@ -75,10 +75,10 @@ export default function AdminDashboard() {
     { label: 'Users',     icon: 'group',          href: '/admin/students',    desc: 'Students & members',     stat: loading ? (summaryStats ? (summaryStats.students?.total ?? 0) + (summaryStats.memberships?.total ?? 0) : null) : ((stats?.students?.total ?? 0) + (stats?.memberships?.total ?? 0)),  sub: loading ? '' : `${stats?.memberships?.expiringSoon ?? 0} memberships expiring` },
     { label: 'Studio Access', icon: 'door_open',  href: '/admin/studio-access', desc: 'Studio access bookings', stat: loading ? (summaryStats?.studioAccess?.pending ?? null) : (stats?.studioAccess?.confirmed ?? null), sub: loading ? (summaryStats?.studioAccess?.pending != null ? 'pending' : '') : `${stats?.studioAccess?.confirmed ?? 0} confirmed · ${stats?.studioAccess?.pending ?? 0} pending` },
     { label: 'Gallery',   icon: 'photo_library',   href: '/admin/gallery',     desc: 'Student pottery works',  stat: loading ? (summaryStats?.gallery?.total ?? null) : (stats?.gallery?.total ?? null),      sub: loading ? '' : `${stats?.gallery?.addedThisMonth ?? 0} added this month` },
-    { label: 'Instructors', icon: 'person_apron',   href: '/admin/instructors',  desc: 'Profiles & portfolios' },
-    { label: 'Events',    icon: 'celebration',     href: '/admin/events',      desc: 'Sales & collaborations' },
-    { label: 'Courses',   icon: 'school',          href: '/admin/courses',     desc: 'Course templates' },
+    { label: 'Instructors', icon: 'person_apron',   href: '/admin/instructors',  desc: 'Profiles & portfolios', stat: summaryStats?.totalInstructors ?? null, sub: summaryStats?.totalInstructors != null ? `${summaryStats.totalInstructors} active` : '' },
     { label: 'Credits',   icon: 'payments',        href: '/admin/credits',     desc: 'Student credit balances', stat: creditStats ? `$${creditStats.totalBalance}` : null, sub: creditStats ? `${creditStats.totalTransactions} transactions · ${creditStats.todayTransactions} today` : '' },
+    { label: 'Courses',   icon: 'school',          href: '/admin/courses',     desc: 'Course templates' },
+    { label: 'Events',    icon: 'celebration',     href: '/admin/events',      desc: 'Sales & collaborations' },
     { label: 'Policy',    icon: 'gavel',           href: '/admin/policy',      desc: 'Studio rules & terms' },
     { label: 'Reference', icon: 'inventory_2',     href: '/admin/reference',   desc: 'Clay types & glazes' },
   ];

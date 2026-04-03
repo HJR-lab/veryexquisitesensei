@@ -2629,6 +2629,9 @@ app.get('/api/admin/dashboard/engagement', authenticateToken, requireAdmin, asyn
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
+  // Exclude admin account (info@ves.sg) from all engagement metrics
+  const ADMIN_EMAIL = 'info@ves.sg';
+
   const [
     { count: totalStudents },
     { count: activeToday },
@@ -2640,30 +2643,37 @@ app.get('/api/admin/dashboard/engagement', authenticateToken, requireAdmin, asyn
   ] = await Promise.all([
     supabaseDb.supabase
       .from('customers')
-      .select('*', { count: 'exact', head: true }),
+      .select('*', { count: 'exact', head: true })
+      .neq('email', ADMIN_EMAIL),
     supabaseDb.supabase
       .from('customers')
       .select('*', { count: 'exact', head: true })
+      .neq('email', ADMIN_EMAIL)
       .gte('last_login_at', oneDayAgo),
     supabaseDb.supabase
       .from('customers')
       .select('*', { count: 'exact', head: true })
+      .neq('email', ADMIN_EMAIL)
       .gte('last_login_at', sevenDaysAgo),
     supabaseDb.supabase
       .from('customers')
       .select('*', { count: 'exact', head: true })
+      .neq('email', ADMIN_EMAIL)
       .gte('last_login_at', thirtyDaysAgo),
     supabaseDb.supabase
       .from('customers')
       .select('*', { count: 'exact', head: true })
+      .neq('email', ADMIN_EMAIL)
       .is('last_login_at', null),
     supabaseDb.supabase
       .from('customers')
       .select('login_count')
+      .neq('email', ADMIN_EMAIL)
       .gt('login_count', 0),
     supabaseDb.supabase
       .from('customers')
       .select('first_name, last_name, last_login_at')
+      .neq('email', ADMIN_EMAIL)
       .not('last_login_at', 'is', null)
       .order('last_login_at', { ascending: false })
       .limit(10)

@@ -54,7 +54,8 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
     const cached = getCachedAuth(cacheKey);
     if (cached) {
       // Login tracking even on cache hit — fire-and-forget, non-blocking
-      if (!req.user.isImpersonating) {
+      // Skip admin (info@ves.sg) and impersonation sessions
+      if (!req.user.isImpersonating && !req.user.isAdmin) {
         const lastLogin = cached.user?.lastLoginAt ? new Date(cached.user.lastLoginAt) : null;
         const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
         if (!lastLogin || lastLogin < oneHourAgo) {
@@ -108,8 +109,8 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
     const hasActiveEnrollments = (activeEnrollmentRes.data || []).length > 0;
 
     // Login tracking — fire-and-forget, non-blocking (1-hour deduplication)
-    // Do NOT track impersonation sessions
-    if (!req.user.isImpersonating) {
+    // Do NOT track impersonation sessions or admin (info@ves.sg)
+    if (!req.user.isImpersonating && !req.user.isAdmin) {
       const now = new Date();
       const lastLogin = customer.last_login_at ? new Date(customer.last_login_at) : null;
       const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);

@@ -115,7 +115,7 @@ export default function Credits() {
                 Available Balance
               </div>
               <div style={{ fontSize: '48px', fontWeight: 700, color: TC, lineHeight: 1, marginBottom: '8px' }}>
-                {balance?.balance ?? 0}
+                {balance ?? 0}
                 <span style={{ fontSize: '16px', fontWeight: 400, color: TC_DARK, marginLeft: '6px' }}>credits</span>
               </div>
               <div style={{ fontSize: '11px', color: TC_DARK, opacity: 0.7 }}>

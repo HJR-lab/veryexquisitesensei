@@ -8,6 +8,15 @@ const INK      = '#282828';
 const MUTED    = '#888888';
 const RULE     = 'rgba(40,40,40,0.09)';
 
+const REDEMPTIONS = [
+  { label: 'Studio Access (1 hr)', amount: 20, desc: 'Studio access — 1 hr' },
+  { label: 'Studio Access (2 hrs)', amount: 40, desc: 'Studio access — 2 hrs' },
+  { label: 'Fire Additional Piece', amount: 20, desc: 'Fire additional piece' },
+  { label: 'Delivery — Self', amount: 10, desc: 'Delivery — self collection' },
+  { label: 'Delivery — Gift', amount: 10, desc: 'Delivery — gift' },
+  { label: 'Other', amount: null, desc: '' },
+];
+
 export default function AdminCredits() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -16,6 +25,15 @@ export default function AdminCredits() {
   const [tab, setTab] = useState('students'); // 'students' | 'log'
   const [search, setSearch] = useState('');
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  // Adjust modal state
+  const [adjustStudent, setAdjustStudent] = useState(null);
+  const [adjustType, setAdjustType] = useState('spend');
+  const [adjustRedemption, setAdjustRedemption] = useState('');
+  const [adjustAmount, setAdjustAmount] = useState('');
+  const [adjustDesc, setAdjustDesc] = useState('');
+  const [adjustSubmitting, setAdjustSubmitting] = useState(false);
+  const [adjustError, setAdjustError] = useState('');
 
   useEffect(() => {
     loadData();
@@ -34,6 +52,50 @@ export default function AdminCredits() {
       console.error('Failed to load credits:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openAdjust = (student, e) => {
+    e.stopPropagation();
+    setAdjustStudent(student);
+    setAdjustType('spend');
+    setAdjustRedemption('');
+    setAdjustAmount('');
+    setAdjustDesc('');
+    setAdjustError('');
+  };
+
+  const handleRedemptionChange = (val) => {
+    setAdjustRedemption(val);
+    const r = REDEMPTIONS.find(r => r.label === val);
+    if (r && r.amount != null) {
+      setAdjustAmount(String(r.amount));
+      setAdjustDesc(r.desc);
+    } else {
+      setAdjustAmount('');
+      setAdjustDesc('');
+    }
+  };
+
+  const submitAdjust = async () => {
+    const amt = parseFloat(adjustAmount);
+    if (!amt || amt <= 0) { setAdjustError('Enter a valid amount'); return; }
+    if (!adjustDesc.trim()) { setAdjustError('Enter a description'); return; }
+    setAdjustSubmitting(true);
+    setAdjustError('');
+    try {
+      await api.post('/credits/adjust', {
+        customerId: adjustStudent.customerId,
+        amount: amt,
+        type: adjustType,
+        description: adjustDesc.trim(),
+      });
+      setAdjustStudent(null);
+      loadData();
+    } catch (err) {
+      setAdjustError(err.response?.data?.error || 'Failed to adjust credits');
+    } finally {
+      setAdjustSubmitting(false);
     }
   };
 
@@ -143,8 +205,8 @@ export default function AdminCredits() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid ${RULE}` }}>
-                  {['Student', 'Earned', 'Spent', 'Balance'].map(h => (
-                    <th key={h} style={{ padding: '12px 16px', textAlign: h === 'Student' ? 'left' : 'right', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: MUTED }}>
+                  {['Student', 'Earned', 'Spent', 'Balance', ''].map(h => (
+                    <th key={h} style={{ padding: '12px 16px', textAlign: h === 'Student' || h === '' ? 'left' : 'right', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: MUTED }}>
                       {h}
                     </th>
                   ))}
@@ -152,7 +214,7 @@ export default function AdminCredits() {
               </thead>
               <tbody>
                 {filteredStudents.length === 0 ? (
-                  <tr><td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: MUTED }}>No students with credits</td></tr>
+                  <tr><td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: MUTED }}>No students with credits</td></tr>
                 ) : filteredStudents.map(s => (
                   <tr
                     key={s.customerId}
@@ -166,6 +228,18 @@ export default function AdminCredits() {
                     <td style={{ padding: '12px 16px', textAlign: 'right', color: '#059669', fontWeight: 600 }}>${s.earned}</td>
                     <td style={{ padding: '12px 16px', textAlign: 'right', color: INK }}>${s.spent}</td>
                     <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: s.balance > 0 ? TC : MUTED }}>${s.balance}</td>
+                    <td style={{ padding: '12px 8px 12px 0', textAlign: 'right' }}>
+                      <button
+                        onClick={(e) => openAdjust(s, e)}
+                        style={{
+                          background: 'none', border: `1px solid ${RULE}`, padding: '5px 12px',
+                          fontSize: '11px', fontWeight: 600, color: TC, cursor: 'pointer',
+                          fontFamily: 'inherit',
+                        }}
+                      >
+                        Adjust
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -213,6 +287,104 @@ export default function AdminCredits() {
             ))}
           </div>
         )}
+        {/* Adjust modal */}
+        {adjustStudent && (
+          <div
+            style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '16px' }}
+            onClick={() => setAdjustStudent(null)}
+          >
+            <div
+              style={{ backgroundColor: '#fff', width: '100%', maxWidth: '420px', padding: '28px 24px', position: 'relative' }}
+              onClick={e => e.stopPropagation()}
+            >
+              <button onClick={() => setAdjustStudent(null)} style={{ position: 'absolute', top: '12px', right: '12px', background: 'none', border: 'none', cursor: 'pointer', color: MUTED, fontSize: '18px' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>close</span>
+              </button>
+
+              <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: TC, marginBottom: '4px' }}>Adjust Credits</div>
+              <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '4px' }}>{adjustStudent.name}</div>
+              <div style={{ fontSize: '12px', color: MUTED, marginBottom: '20px' }}>Current balance: <b style={{ color: TC }}>${adjustStudent.balance}</b></div>
+
+              {/* Type toggle */}
+              <div style={{ display: 'flex', gap: 0, marginBottom: '16px' }}>
+                {['spend', 'earn'].map(t => (
+                  <button
+                    key={t}
+                    onClick={() => setAdjustType(t)}
+                    style={{
+                      flex: 1, padding: '8px', fontSize: '12px', fontWeight: 700, textTransform: 'uppercase',
+                      letterSpacing: '0.06em', border: `1px solid ${RULE}`, cursor: 'pointer',
+                      backgroundColor: adjustType === t ? (t === 'spend' ? '#FEE2E2' : '#D1FAE5') : '#fff',
+                      color: adjustType === t ? (t === 'spend' ? '#DC2626' : '#059669') : MUTED,
+                      borderRight: t === 'spend' ? 'none' : `1px solid ${RULE}`,
+                    }}
+                  >
+                    {t === 'spend' ? 'Redeem / Spend' : 'Add / Earn'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Redemption dropdown (only for spend) */}
+              {adjustType === 'spend' && (
+                <div style={{ marginBottom: '12px' }}>
+                  <label style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, display: 'block', marginBottom: '4px' }}>Redemption Type</label>
+                  <select
+                    value={adjustRedemption}
+                    onChange={e => handleRedemptionChange(e.target.value)}
+                    style={{ width: '100%', padding: '9px 10px', fontSize: '13px', border: `1px solid ${RULE}`, backgroundColor: '#fff', fontFamily: 'inherit', outline: 'none' }}
+                  >
+                    <option value="">Select...</option>
+                    {REDEMPTIONS.map(r => (
+                      <option key={r.label} value={r.label}>{r.label}{r.amount != null ? ` — $${r.amount}` : ''}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Amount */}
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, display: 'block', marginBottom: '4px' }}>Amount ($)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={adjustAmount}
+                  onChange={e => setAdjustAmount(e.target.value)}
+                  placeholder="0"
+                  style={{ width: '100%', padding: '9px 10px', fontSize: '13px', border: `1px solid ${RULE}`, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              {/* Description */}
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, display: 'block', marginBottom: '4px' }}>Description</label>
+                <input
+                  type="text"
+                  value={adjustDesc}
+                  onChange={e => setAdjustDesc(e.target.value)}
+                  placeholder={adjustType === 'spend' ? 'e.g. Studio access — 2 Apr' : 'e.g. Loyalty bonus'}
+                  style={{ width: '100%', padding: '9px 10px', fontSize: '13px', border: `1px solid ${RULE}`, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              {adjustError && <div style={{ fontSize: '12px', color: '#DC2626', marginBottom: '12px' }}>{adjustError}</div>}
+
+              <button
+                onClick={submitAdjust}
+                disabled={adjustSubmitting}
+                style={{
+                  width: '100%', padding: '11px', fontSize: '13px', fontWeight: 700,
+                  backgroundColor: adjustType === 'spend' ? '#DC2626' : '#059669',
+                  color: '#fff', border: 'none', cursor: adjustSubmitting ? 'not-allowed' : 'pointer',
+                  fontFamily: 'inherit', opacity: adjustSubmitting ? 0.6 : 1,
+                }}
+              >
+                {adjustSubmitting ? 'Saving...' : adjustType === 'spend' ? `Spend $${adjustAmount || '0'}` : `Add $${adjustAmount || '0'}`}
+              </button>
+            </div>
+          </div>
+        )}
+
       </main>
     </div>
   );

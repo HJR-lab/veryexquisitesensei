@@ -96,7 +96,8 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
       course_start_date, course_end_date, created_at, package_total_courses,
       customers!course_enrollments_student_id_fkey (
         id, email, first_name, last_name, customer_type,
-        course_purchase_count, classes_allocated, created_at
+        course_purchase_count, classes_allocated, created_at,
+        last_login_at, login_count
       )
     `)
     .in('status', ['active', 'paused', 'upcoming'])
@@ -113,7 +114,8 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
       course_start_date, course_end_date, created_at, package_total_courses,
       customers!course_enrollments_student_id_fkey (
         id, email, first_name, last_name, customer_type,
-        course_purchase_count, classes_allocated, created_at
+        course_purchase_count, classes_allocated, created_at,
+        last_login_at, login_count
       )
     `)
     .eq('status', 'completed')
@@ -214,7 +216,9 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
       customerType: student.customer_type,
       isHB,
       isWT,
-      membership: membershipByEmail[student.email] || null
+      membership: membershipByEmail[student.email] || null,
+      lastLoginAt: student.last_login_at || null,
+      loginCount: student.login_count || 0
     };
 
     // Keep most recent enrollment per student, but track upcoming separately

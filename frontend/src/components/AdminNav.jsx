@@ -102,31 +102,28 @@ export default function AdminNav({ active, onSyncComplete }) {
               <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>settings</span>
             </button>
             {showSettings && (
-              <div style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, backgroundColor: '#FFF', border: `1px solid ${RULE}`, minWidth: '120px', zIndex: 100 }}>
-                <a
-                  href="/admin/emails"
-                  style={{ display: 'block', padding: '7px 12px', fontSize: '11px', fontWeight: 600, color: INK, textDecoration: 'none', borderBottom: `1px solid ${RULE}` }}
-                  onMouseEnter={e => e.currentTarget.style.backgroundColor = '#F5F5F5'}
-                  onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                >
-                  Emails
-                </a>
-                <a
-                  href="/admin/course-config"
-                  style={{ display: 'block', padding: '7px 12px', fontSize: '11px', fontWeight: 600, color: INK, textDecoration: 'none', borderBottom: `1px solid ${RULE}` }}
-                  onMouseEnter={e => e.currentTarget.style.backgroundColor = '#F5F5F5'}
-                  onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                >
-                  Courses
-                </a>
-                <a
-                  href="/admin/platform-stats"
-                  style={{ display: 'block', padding: '7px 12px', fontSize: '11px', fontWeight: 600, color: INK, textDecoration: 'none' }}
-                  onMouseEnter={e => e.currentTarget.style.backgroundColor = '#F5F5F5'}
-                  onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                >
-                  Platform Stats
-                </a>
+              <div style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, backgroundColor: '#FFF', border: `1px solid ${RULE}`, minWidth: '140px', zIndex: 100 }}>
+                {[
+                  { label: 'Gallery', href: '/admin/gallery' },
+                  { label: 'Instructors', href: '/admin/instructors' },
+                  { label: 'Credits', href: '/admin/credits' },
+                  { label: 'Events', href: '/admin/events' },
+                  { label: 'Courses', href: '/admin/course-config' },
+                  { label: 'Policy', href: '/admin/policy' },
+                  { label: 'Reference', href: '/admin/reference' },
+                  { label: 'Emails', href: '/admin/emails' },
+                  { label: 'Platform Stats', href: '/admin/platform-stats' },
+                ].map((item, i, arr) => (
+                  <a
+                    key={item.href}
+                    href={item.href}
+                    style={{ display: 'block', padding: '7px 12px', fontSize: '11px', fontWeight: 600, color: INK, textDecoration: 'none', borderBottom: i < arr.length - 1 ? `1px solid ${RULE}` : 'none' }}
+                    onMouseEnter={e => e.currentTarget.style.backgroundColor = '#F5F5F5'}
+                    onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                  >
+                    {item.label}
+                  </a>
+                ))}
               </div>
             )}
           </div>

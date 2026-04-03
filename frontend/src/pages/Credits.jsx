@@ -81,8 +81,8 @@ export default function Credits() {
 
         {/* Page header */}
         <div style={{ marginBottom: '24px' }}>
-          <h1 style={{ fontSize: '22px', fontWeight: 700, margin: 0 }}>Credits</h1>
-          <p style={{ fontSize: '12px', color: MUTED, margin: '4px 0 0' }}>Your VES studio credit balance and history</p>
+          <h1 style={{ fontSize: '22px', fontWeight: 700, margin: 0 }}>Ves Credits</h1>
+          <p style={{ fontSize: '12px', color: MUTED, margin: '4px 0 0' }}>Your Ves studio credit balance and history</p>
         </div>
 
         {/* Error state */}
@@ -115,8 +115,8 @@ export default function Credits() {
                 Available Balance
               </div>
               <div style={{ fontSize: '48px', fontWeight: 700, color: TC, lineHeight: 1, marginBottom: '8px' }}>
-                {balance ?? 0}
-                <span style={{ fontSize: '16px', fontWeight: 400, color: TC_DARK, marginLeft: '6px' }}>credits</span>
+                <span style={{ fontSize: '28px', fontWeight: 400, verticalAlign: 'top', marginRight: '2px' }}>$</span>{balance ?? 0}
+                <span style={{ fontSize: '16px', fontWeight: 400, color: TC_DARK, marginLeft: '6px' }}>Ves Credits</span>
               </div>
               <div style={{ fontSize: '11px', color: TC_DARK, opacity: 0.7 }}>
                 Expires 31 Dec 2026
@@ -170,7 +170,7 @@ export default function Credits() {
                 </div>
               ) : (
                 history.map((tx, i) => {
-                  const isEarn = tx.amount > 0;
+                  const isEarn = tx.type === 'earn' || tx.amount > 0;
                   return (
                     <div
                       key={tx.id ?? i}
@@ -195,7 +195,7 @@ export default function Credits() {
                         <div style={{ fontSize: '13px', fontWeight: 500, color: INK }}>{tx.description}</div>
                         {tx.balance_after != null && (
                           <div style={{ fontSize: '11px', color: MUTED, marginTop: '2px' }}>
-                            Balance: {tx.balance_after} credits
+                            Balance: ${tx.balance_after}
                           </div>
                         )}
                       </div>
@@ -205,7 +205,7 @@ export default function Credits() {
                         fontSize: '14px', fontWeight: 700, flexShrink: 0,
                         color: isEarn ? '#2E7D32' : INK,
                       }}>
-                        {isEarn ? `+${tx.amount}` : tx.amount}
+                        {isEarn ? `+$${tx.amount}` : `-$${Math.abs(tx.amount)}`}
                       </div>
                     </div>
                   );

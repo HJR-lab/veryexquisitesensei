@@ -77,7 +77,7 @@ export default function AdminDashboard() {
     { label: 'Gallery',   icon: 'photo_library',   href: '/admin/gallery',     desc: 'Student pottery works',  stat: loading ? (summaryStats?.gallery?.total ?? null) : (stats?.gallery?.total ?? null),      sub: loading ? '' : `${stats?.gallery?.addedThisMonth ?? 0} added this month` },
     { label: 'Instructors', icon: 'person_apron',   href: '/admin/instructors',  desc: 'Profiles & portfolios', stat: summaryStats?.totalInstructors ?? null, sub: summaryStats?.totalInstructors != null ? `${summaryStats.totalInstructors} active` : '' },
     { label: 'Credits',   icon: 'payments',        href: '/admin/credits',     desc: 'Student credit balances', stat: creditStats ? `$${creditStats.totalBalance}` : null, sub: creditStats ? `${creditStats.totalTransactions} transactions · ${creditStats.todayTransactions} today` : '' },
-    { label: 'Courses',   icon: 'school',          href: '/admin/courses',     desc: 'Course templates' },
+    { label: 'Courses',   icon: 'school',          href: '/admin/course-config', desc: 'Course templates' },
     { label: 'Events',    icon: 'celebration',     href: '/admin/events',      desc: 'Sales & collaborations' },
     { label: 'Policy',    icon: 'gavel',           href: '/admin/policy',      desc: 'Studio rules & terms' },
     { label: 'Reference', icon: 'inventory_2',     href: '/admin/reference',   desc: 'Clay types & glazes' },

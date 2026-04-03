@@ -96,7 +96,7 @@ async function main() {
     // Step 4: Compute grant amount
     const pastCourses = course_purchase_count - 1;
     const amount = pastCourses * 20;
-    const description = `Retroactive VES Credit grant — ${pastCourses} past course${pastCourses !== 1 ? 's' : ''} × $20`;
+    const description = 'Welcome back to Ves — thank you for being part of our journey';
 
     eligible++;
 

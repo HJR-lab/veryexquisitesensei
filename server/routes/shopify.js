@@ -1195,7 +1195,7 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
                   amount: 20,
                   source: 'course_purchase',
                   referenceId: result.enrollment?.id?.toString(),
-                  description: `Earned $20 from ${productTitle}`,
+                  description: `Ves is 10 — $20 credit for ${productTitle}`,
                 });
                 console.log(`💰 Awarded $20 VES Credit to ${customer.email}`);
 

@@ -8,6 +8,7 @@ const TABS = [
   { id: 'classes', label: 'Classes', icon: 'calendar_month', href: '/classes' },
   { id: 'credits', label: 'Credits', icon: 'toll',           href: '/credits' },
   { id: 'studio',  label: 'Studio',  icon: 'door_open',      href: '/studio-access' },
+  { id: 'pieces',  label: 'Pieces',  icon: 'local_fire_department', href: '/my-pieces' },
   { id: 'gallery', label: 'Gallery', icon: 'photo_library',  href: '/gallery' },
   { id: 'account', label: 'Account', icon: 'person',         href: '/account' },
 ];
@@ -16,6 +17,7 @@ const getActiveTab = (pathname) => {
   if (pathname.startsWith('/classes')) return 'classes';
   if (pathname.startsWith('/credits')) return 'credits';
   if (pathname.startsWith('/studio')) return 'studio';
+  if (pathname.startsWith('/my-pieces')) return 'pieces';
   if (pathname.startsWith('/gallery')) return 'gallery';
   if (pathname.startsWith('/account')) return 'account';
   if (pathname.startsWith('/upload')) return 'gallery';

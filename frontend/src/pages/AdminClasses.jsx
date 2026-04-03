@@ -916,7 +916,6 @@ export default function AdminClasses() {
                 + Add Student
               </button>
               <button
-              <button
                 onClick={e => { e.stopPropagation(); if (course.classes[0]) handleOpenEditClassModal(course.classes[0]); }}
                 style={{ padding: '7px 10px', border: `1px solid ${RULE}`, backgroundColor: '#FFF', color: INK, fontSize: '10px', fontWeight: 700, cursor: 'pointer' }}
               >

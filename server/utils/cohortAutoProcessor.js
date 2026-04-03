@@ -477,6 +477,71 @@ async function checkWeeklyUnconfirmedRecheck() {
 }
 
 /**
+ * Check for piece batches that need reminder emails.
+ * Sends reminders every 14 days for batches in 'ready' status
+ * that haven't been collected/shipped within the 60-day hold period.
+ */
+async function checkPieceReminders() {
+  try {
+    const supabaseDb = require('./supabaseDb');
+    const { sendAndLogEmail } = require('./emailService');
+    const piecesReminderTemplate = require('../email-templates/pieces/pieces-reminder');
+    const appUrl = process.env.FRONTEND_URL || 'https://club.ves.sg';
+
+    const batches = await supabaseDb.getReadyBatchesNeedingReminder();
+    console.log(`[Auto-Processor] Found ${batches.length} piece batches needing reminders`);
+
+    let sent = 0;
+    for (const batch of batches) {
+      const student = batch.customers;
+      if (!student || !student.email) continue;
+
+      const readyAt = new Date(batch.ready_at);
+      const now = new Date();
+      const daysSinceReady = Math.floor((now - readyAt) / (1000 * 60 * 60 * 24));
+
+      if (daysSinceReady > 60) continue;
+
+      const holdExpires = new Date(batch.hold_expires_at);
+      const holdExpiresDate = holdExpires.toLocaleDateString('en-SG', { day: 'numeric', month: 'long', year: 'numeric' });
+
+      const courseName = batch.course_enrollments?.course_title || batch.course_enrollments?.course_variant_title || 'your course';
+      const photoUrl = batch.photo_urls && batch.photo_urls.length > 0 ? batch.photo_urls[0] : null;
+
+      const { subject, html } = piecesReminderTemplate.generate({
+        studentName: student.first_name || 'there',
+        courseName,
+        pieceCount: batch.piece_count,
+        photoUrl,
+        appUrl,
+        daysSinceReady,
+        holdExpiresDate,
+      });
+
+      const result = await sendAndLogEmail({
+        emailType: 'pieces-reminder',
+        courseIdentifier: batch.course_enrollments?.course_identifier || `batch-${batch.id}`,
+        subject,
+        html,
+        recipientEmails: [student.email],
+        sentBy: 'system',
+      });
+
+      if (result.success) {
+        await supabaseDb.updatePieceBatch(batch.id, { last_reminder_at: new Date().toISOString() });
+        sent++;
+      }
+    }
+
+    console.log(`[Auto-Processor] ✅ Sent ${sent} piece reminder emails`);
+    return { success: true, sent };
+  } catch (error) {
+    console.error('[Auto-Processor] Error in checkPieceReminders:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Schedule automatic processing (call this on server startup)
  */
 function startAutomaticProcessing() {
@@ -485,6 +550,7 @@ function startAutomaticProcessing() {
     console.log('[Auto-Processor] Running initial check...');
     processReadyCohorts().catch(console.error);
     autoMarkPastBookingsAsAttended().catch(console.error);
+    checkPieceReminders().catch(console.error);
   }, 5000);
 
   // Run daily at 2 AM
@@ -501,6 +567,7 @@ function startAutomaticProcessing() {
       checkCourseEmailReminders().catch(console.error);
       checkUnconfirmedCourses().catch(console.error);
       checkWeeklyUnconfirmedRecheck().catch(console.error);
+      checkPieceReminders().catch(console.error);
     }
   };
 
@@ -516,5 +583,6 @@ module.exports = {
   checkCourseEmailReminders,
   checkUnconfirmedCourses,
   checkWeeklyUnconfirmedRecheck,
+  checkPieceReminders,
   startAutomaticProcessing
 };

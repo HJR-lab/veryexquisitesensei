@@ -1431,6 +1431,131 @@ async function updateSingleCustomerType(customerId) {
   }
 }
 
+// ==================== Piece Batches ====================
+
+async function createPieceBatch({ courseEnrollmentId, customerId, pieceCount, initials, notes, photoUrls }) {
+  const { data, error } = await supabase
+    .from('piece_batches')
+    .insert({
+      course_enrollment_id: courseEnrollmentId || null,
+      customer_id: customerId,
+      piece_count: pieceCount,
+      initials: initials,
+      notes: notes || null,
+      photo_urls: photoUrls || [],
+      status: 'logged',
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+async function getPieceBatchesByCustomerId(customerId) {
+  const { data, error } = await supabase
+    .from('piece_batches')
+    .select('*, course_enrollments(course_type, course_title, course_variant_title, course_identifier)')
+    .eq('customer_id', customerId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+async function getPieceBatchById(batchId) {
+  const { data, error } = await supabase
+    .from('piece_batches')
+    .select('*, customers(id, first_name, last_name, email), course_enrollments(course_type, course_title, course_variant_title, course_identifier)')
+    .eq('id', batchId)
+    .single();
+
+  if (error && error.code !== 'PGRST116') throw error;
+  return data;
+}
+
+async function getAllActivePieceBatches() {
+  const { data, error } = await supabase
+    .from('piece_batches')
+    .select('*, customers(id, first_name, last_name, email), course_enrollments(course_type, course_title, course_variant_title, course_identifier)')
+    .not('status', 'in', '("collected","shipped","recycled")')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+async function updatePieceBatchStatus(batchId, status, extraFields = {}) {
+  const updateData = { status, updated_at: new Date().toISOString(), ...extraFields };
+
+  if (status === 'ready') {
+    const readyAt = new Date().toISOString();
+    updateData.ready_at = readyAt;
+    const holdExpires = new Date();
+    holdExpires.setDate(holdExpires.getDate() + 60);
+    updateData.hold_expires_at = holdExpires.toISOString();
+  }
+
+  if (status === 'collected' || status === 'shipped') {
+    updateData.completed_at = new Date().toISOString();
+  }
+
+  const { data, error } = await supabase
+    .from('piece_batches')
+    .update(updateData)
+    .eq('id', batchId)
+    .select('*, customers(id, first_name, last_name, email), course_enrollments(course_type, course_title, course_variant_title, course_identifier)')
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+async function updatePieceBatch(batchId, updates) {
+  const { data, error } = await supabase
+    .from('piece_batches')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', batchId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+async function searchPieceBatchesByInitials(initials) {
+  const { data, error } = await supabase
+    .from('piece_batches')
+    .select('*, customers(id, first_name, last_name, email), course_enrollments(course_type, course_title, course_variant_title, course_identifier)')
+    .ilike('initials', `%${initials}%`)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+async function getReadyBatchesNeedingReminder() {
+  const fourteenDaysAgo = new Date();
+  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+  const cutoff = fourteenDaysAgo.toISOString();
+
+  const { data, error } = await supabase
+    .from('piece_batches')
+    .select('*, customers(id, first_name, last_name, email), course_enrollments(course_type, course_title, course_variant_title)')
+    .in('status', ['ready', 'collecting', 'delivering'])
+    .or(`last_reminder_at.is.null,last_reminder_at.lt.${cutoff}`)
+    .not('ready_at', 'is', null);
+
+  if (error) throw error;
+
+  const now = new Date();
+  return (data || []).filter(batch => {
+    const readyAt = new Date(batch.ready_at);
+    const daysSinceReady = Math.floor((now - readyAt) / (1000 * 60 * 60 * 24));
+    return daysSinceReady >= 14;
+  });
+}
+
 module.exports = {
   supabase,
   // Customer functions
@@ -1501,5 +1626,14 @@ module.exports = {
   createMultipleBookings,
   // Customer type sync
   syncCustomerTypeFromMemberships,
-  updateSingleCustomerType
+  updateSingleCustomerType,
+  // Piece batch functions
+  createPieceBatch,
+  getPieceBatchesByCustomerId,
+  getPieceBatchById,
+  getAllActivePieceBatches,
+  updatePieceBatchStatus,
+  updatePieceBatch,
+  searchPieceBatchesByInitials,
+  getReadyBatchesNeedingReminder,
 };

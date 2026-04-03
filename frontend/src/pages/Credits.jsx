@@ -252,6 +252,26 @@ export default function Credits() {
       {/* Scrollable body */}
       <div style={{ maxWidth: '520px', margin: '0 auto', padding: '20px 20px 100px' }}>
 
+        {/* Ves is 10 banner */}
+        <div style={{
+          background: `linear-gradient(135deg, ${INK} 0%, #3D3D3D 100%)`,
+          padding: '20px',
+          marginBottom: '20px',
+          position: 'relative',
+          overflow: 'hidden',
+        }}>
+          <div style={{ position: 'absolute', top: '-8px', right: '16px', fontSize: '72px', fontWeight: 800, color: 'rgba(255,255,255,0.06)', lineHeight: 1 }}>10</div>
+          <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>
+            New — Celebrating 10 Years
+          </div>
+          <div style={{ fontSize: '17px', fontWeight: 700, color: '#FFFFFF', lineHeight: 1.3, marginBottom: '6px' }}>
+            Ves is 10 Credits
+          </div>
+          <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)', lineHeight: 1.5 }}>
+            To celebrate 10 years of Ves, every returning student earns <span style={{ color: '#FFFFFF', fontWeight: 600 }}>$20 Ves Credits</span> with each new course. Use them for studio access, firing, delivery and more.
+          </div>
+        </div>
+
         {/* Page header */}
         <div style={{ marginBottom: '24px' }}>
           <h1 style={{ fontSize: '22px', fontWeight: 700, margin: 0 }}>Ves Credits</h1>

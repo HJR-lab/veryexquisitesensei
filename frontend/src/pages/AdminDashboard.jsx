@@ -266,7 +266,7 @@ export default function AdminDashboard() {
             )}
 
             {/* Recent activity */}
-            <div>
+            <div style={isMobile ? { gridColumn: 'span 2' } : undefined}>
               <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, marginBottom: '12px' }}>
                 Recent Activity
               </div>

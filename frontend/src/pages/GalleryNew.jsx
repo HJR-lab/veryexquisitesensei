@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import { useAuth } from '../hooks/useAuth';
 import ImpersonationBanner from '../components/ImpersonationBanner';
+import MyPieces from './MyPieces';
 
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
@@ -24,7 +25,9 @@ export default function GalleryNew() {
   }, [user, navigate]);
 
   // --- gallery sub-tab ---
-  const [galleryTab, setGalleryTab] = useState('mine'); // 'mine' | 'community'
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get('tab') === 'pieces' ? 'pieces' : 'mine';
+  const [galleryTab, setGalleryTab] = useState(initialTab); // 'mine' | 'community' | 'pieces'
 
   // --- piece data ---
   const [pieces, setPieces] = useState([]);
@@ -335,7 +338,7 @@ export default function GalleryNew() {
 
           {/* SUB-TABS */}
           <div style={{ display: 'flex' }}>
-            {[{ id: 'mine', label: 'My Work' }, { id: 'community', label: 'Community' }].map(t => (
+            {[{ id: 'mine', label: 'My Work' }, { id: 'pieces', label: 'My Pieces' }, { id: 'community', label: 'Community' }].map(t => (
               <button
                 key={t.id}
                 onClick={() => setGalleryTab(t.id)}
@@ -407,6 +410,9 @@ export default function GalleryNew() {
             )}
           </div>
         )}
+
+        {/* MY PIECES TAB */}
+        {galleryTab === 'pieces' && <MyPieces />}
 
         {/* COMMUNITY TAB */}
         {galleryTab === 'community' && (

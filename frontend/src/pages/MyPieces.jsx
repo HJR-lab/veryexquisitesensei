@@ -13,6 +13,7 @@ const STATUS_CONFIG = {
   recycled: { label: 'Recycled', color: '#888', bg: '#f5f5f5' },
 };
 
+// Embeddable component — used inside GalleryNew as a tab
 export default function MyPieces() {
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -116,21 +117,20 @@ export default function MyPieces() {
   }
 
   return (
-    <div style={{ maxWidth: 640, margin: '0 auto', padding: '24px 16px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <h1 style={{ margin: 0, fontSize: 24, color: '#282828' }}>My Pieces</h1>
+    <div style={{ padding: '16px 20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
         <button
           onClick={() => setShowLogForm(!showLogForm)}
-          style={{ padding: '10px 20px', background: '#C4622D', color: 'white', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer', fontSize: 14 }}
+          style={{ padding: '8px 16px', background: '#C4622D', color: 'white', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}
         >
-          {showLogForm ? 'Cancel' : '📸 Log My Pieces'}
+          {showLogForm ? 'Cancel' : '+ Log Pieces'}
         </button>
       </div>
 
       {/* Log Form */}
       {showLogForm && (
-        <div style={{ background: 'white', borderRadius: 12, padding: 24, marginBottom: 24, border: '1px solid #e0e0e0' }}>
-          <h3 style={{ margin: '0 0 16px', color: '#282828' }}>Log Your Pieces</h3>
+        <div style={{ background: '#F5F3F0', padding: 20, marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#888', marginBottom: 12 }}>Log Your Pieces</div>
 
           {/* Photo upload */}
           <div style={{ marginBottom: 16 }}>

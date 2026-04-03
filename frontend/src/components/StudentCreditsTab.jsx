@@ -236,9 +236,9 @@ export default function StudentCreditsTab({ studentId, balance, history, onRefre
           </div>
         ) : (
           history.map((tx, i) => {
-            const isEarn    = tx.transaction_type === 'earn' || tx.amount > 0;
-            const amountNum = tx.amount ?? 0;
-            const sign      = amountNum >= 0 ? '+' : '';
+            const isEarn    = (tx.type || tx.transaction_type) === 'earn';
+            const amountNum = Math.abs(tx.amount ?? 0);
+            const sign      = isEarn ? '+' : '-';
             const amtColor  = isEarn ? '#2E7D32' : '#C03030';
             return (
               <div
@@ -260,7 +260,7 @@ export default function StudentCreditsTab({ studentId, balance, history, onRefre
                   {tx.source || tx.transaction_type || '—'}
                 </span>
                 <span style={{ fontSize: '13px', fontWeight: 700, color: amtColor }}>
-                  {sign}{amountNum}
+                  {sign}${amountNum}
                 </span>
               </div>
             );

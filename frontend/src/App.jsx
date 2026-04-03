@@ -7,6 +7,7 @@ import AdminLayout from './components/AdminLayout';
 import StudentLayout from './components/StudentLayout';
 
 // Critical path — loaded eagerly (student landing pages)
+import MyPieces from './pages/MyPieces';
 import AuthCallback from './pages/AuthCallback';
 import Dashboard from './pages/Dashboard';
 import PublicGallery from './pages/PublicGallery';
@@ -185,6 +186,7 @@ function App() {
           {/* Student routes — persistent bottom nav via StudentLayout */}
           <Route element={<PrivateRoute><StudentLayout /></PrivateRoute>}>
             <Route path="/gallery" element={<GalleryNew />} />
+            <Route path="/my-pieces" element={<MyPieces />} />
             <Route path="/gallery-old" element={<Gallery />} />
             <Route path="/classes" element={<ClassScheduleNew />} />
             <Route path="/upload" element={<UploadPiece />} />

@@ -78,7 +78,7 @@ export default function AdminDashboard() {
     { label: 'Instructors', icon: 'person_apron',   href: '/admin/instructors',  desc: 'Profiles & portfolios' },
     { label: 'Events',    icon: 'celebration',     href: '/admin/events',      desc: 'Sales & collaborations' },
     { label: 'Courses',   icon: 'school',          href: '/admin/courses',     desc: 'Course templates' },
-    { label: 'Credits',   icon: 'payments',        href: '/admin/credits',     desc: 'Student credit balances', stat: creditStats ? `$${creditStats.totalBalance}` : null, sub: creditStats ? `${creditStats.studentsWithCredits} students` : '' },
+    { label: 'Credits',   icon: 'payments',        href: '/admin/credits',     desc: 'Student credit balances', stat: creditStats ? creditStats.totalTransactions : null, sub: creditStats ? `${creditStats.todayTransactions} today · $${creditStats.totalBalance} outstanding` : '' },
     { label: 'Policy',    icon: 'gavel',           href: '/admin/policy',      desc: 'Studio rules & terms' },
     { label: 'Reference', icon: 'inventory_2',     href: '/admin/reference',   desc: 'Clay types & glazes' },
   ];

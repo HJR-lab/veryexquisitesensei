@@ -195,6 +195,21 @@ app.get('/api/admin/credits/stats', authenticateToken, requireAdmin, asyncHandle
 
   if (e1 || e2) throw e1 || e2;
 
+  // Total transaction count
+  const { count: totalTransactions, error: e3 } = await supabase
+    .from('credit_transactions')
+    .select('*', { count: 'exact', head: true });
+
+  // Today's transaction count
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const { count: todayTransactions, error: e4 } = await supabase
+    .from('credit_transactions')
+    .select('*', { count: 'exact', head: true })
+    .gte('created_at', todayStart.toISOString());
+
+  if (e3 || e4) throw e3 || e4;
+
   const totalEarned = (earnRows || []).reduce((s, r) => s + Number(r.amount), 0);
   const totalSpent = (spendRows || []).reduce((s, r) => s + Number(r.amount), 0);
   const totalBalance = totalEarned - totalSpent;
@@ -209,7 +224,7 @@ app.get('/api/admin/credits/stats', authenticateToken, requireAdmin, asyncHandle
   }
   const studentsWithCredits = Object.values(balanceByCustomer).filter(b => b > 0).length;
 
-  res.json({ totalEarned, totalSpent, totalBalance, studentsWithCredits });
+  res.json({ totalEarned, totalSpent, totalBalance, studentsWithCredits, totalTransactions: totalTransactions || 0, todayTransactions: todayTransactions || 0 });
 }));
 
 // GET /api/admin/credits/overview — per-student balances + full transaction log

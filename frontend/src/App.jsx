@@ -45,6 +45,7 @@ const AdminStudioAccess = lazy(() => import('./pages/AdminStudioAccess'));
 const AdminEmails = lazy(() => import('./pages/AdminEmails'));
 const AdminCourseConfig = lazy(() => import('./pages/AdminCourseConfig'));
 const AdminPlatformStats = lazy(() => import('./pages/AdminPlatformStats'));
+const AdminPiecePipeline = lazy(() => import('./pages/AdminPiecePipeline'));
 
 const Policies = lazy(() => import('./pages/Policies'));
 
@@ -219,6 +220,7 @@ function App() {
             <Route path="emails" element={<AdminEmails />} />
             <Route path="course-config" element={<AdminCourseConfig />} />
             <Route path="platform-stats" element={<AdminPlatformStats />} />
+            <Route path="pieces" element={<AdminPiecePipeline />} />
 
           </Route>
 

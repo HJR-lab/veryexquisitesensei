@@ -594,25 +594,12 @@ export default function Dashboard() {
                       )}
                     </div>
 
-                    {/* Pending threshold message with schedule */}
-                    {enrollment.pendingThreshold && (() => {
-                      const bookings = (enrollment.bookings || []).filter(b => b.class_instances).sort((a, b) => new Date(a.class_instances.class_date) - new Date(b.class_instances.class_date));
-                      let scheduleLine = '';
-                      if (bookings.length > 0) {
-                        const first = bookings[0].class_instances;
-                        const last = bookings[bookings.length - 1].class_instances;
-                        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-                        const dayOfWeek = dayNames[new Date(first.class_date).getDay()] + 's';
-                        const fmtDate = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-                        scheduleLine = `${dayOfWeek.toUpperCase()} · ${fmtDate(first.class_date)} – ${fmtDate(last.class_date)} · ${first.start_time || ''}–${first.end_time || ''}`;
-                      }
-                      return (
-                        <div style={{ padding: '10px 14px', backgroundColor: '#FFF7E6', borderTop: `1px solid #F0E4C8`, fontSize: '12px', color: '#6B4D00', lineHeight: 1.5 }}>
-                          {scheduleLine && <div style={{ fontWeight: 700, fontSize: '11px', letterSpacing: '0.03em', marginBottom: '4px' }}>{scheduleLine}</div>}
-                          <strong>You're registered!</strong> We need a minimum of {enrollment.requiredStudents} students for this class to run. Currently {enrollment.currentStudents}/{enrollment.requiredStudents} enrolled. You'll receive a confirmation email once the class is confirmed.
-                        </div>
-                      );
-                    })()}
+                    {/* Pending threshold message */}
+                    {enrollment.pendingThreshold && (
+                      <div style={{ padding: '10px 14px', backgroundColor: '#FFF7E6', borderTop: `1px solid #F0E4C8`, fontSize: '12px', color: '#6B4D00', lineHeight: 1.5 }}>
+                        <strong>You're registered!</strong> We need a minimum of {enrollment.requiredStudents} students for this class to run. Currently {enrollment.currentStudents}/{enrollment.requiredStudents} enrolled. You'll receive a confirmation email once the class is confirmed.
+                      </div>
+                    )}
 
                     {/* Expandable course details — 3 sections */}
                     {isExpanded && details && (

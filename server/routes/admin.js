@@ -3134,7 +3134,7 @@ app.get('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asyn
     const name = u.customers ? `${u.customers.first_name} ${u.customers.last_name}` : null;
     if (name) {
       if (!instructorUnavailability[name]) instructorUnavailability[name] = new Set();
-      instructorUnavailability[name].add(u.unavailable_date);
+      instructorUnavailability[name].add(u.unavailable_date?.split('T')[0]);
     }
   });
 
@@ -3142,7 +3142,7 @@ app.get('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asyn
   filteredCourses.forEach(course => {
     course.classes.forEach(cls => {
       const unavailDates = instructorUnavailability[cls.instructor];
-      if (unavailDates && unavailDates.has(cls.class_date)) {
+      if (unavailDates && unavailDates.has(cls.class_date?.split('T')[0])) {
         cls.instructorUnavailable = true;
       }
     });

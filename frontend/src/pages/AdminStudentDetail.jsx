@@ -950,8 +950,8 @@ export default function AdminStudentDetail() {
                   <div style={{ padding: '40px 0', textAlign: 'center', color: MUTED, fontSize: '13px' }}>No courses assigned to this instructor.</div>
                 ) : (() => {
                   const now = new Date(); now.setHours(0,0,0,0);
-                  const unavailDates = new Set(teachingData.unavailableDates || []);
-                  const isClassCancelled = (cls) => cls.status === 'cancelled' || unavailDates.has(cls.class_date);
+                  const unavailDates = new Set((teachingData.unavailableDates || []).map(d => d?.split('T')[0]));
+                  const isClassCancelled = (cls) => cls.status === 'cancelled' || unavailDates.has(cls.class_date?.split('T')[0]);
                   const activeCourses = teachingData.courses.filter(c => (c.classes || []).some(cls => new Date(cls.class_date) >= now && !isClassCancelled(cls)));
                   const completedCourses = teachingData.courses.filter(c => !(c.classes || []).some(cls => new Date(cls.class_date) >= now && !isClassCancelled(cls)));
                   const renderCourse = (course, { isCompleted } = {}) => {

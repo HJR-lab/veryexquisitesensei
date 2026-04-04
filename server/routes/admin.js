@@ -2979,6 +2979,76 @@ app.put('/api/admin/students/:email', authenticateToken, requireAdmin, asyncHand
   res.json(data);
 }));
 
+// Audit: flag students where course_purchase_count != enrollments count
+app.get('/api/admin/enrollment-audit', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  // Get all students with course purchases
+  const { data: students } = await supabaseDb.supabase
+    .from('customers')
+    .select('id, first_name, last_name, email, course_purchase_count')
+    .gt('course_purchase_count', 0);
+
+  // Get all enrollments grouped by student
+  const { data: enrollments } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('id, student_id, status, course_identifier, course_type, course_title, number_of_weeks')
+    .not('status', 'eq', 'cancelled');
+
+  const enrollmentsByStudent = {};
+  (enrollments || []).forEach(e => {
+    if (!enrollmentsByStudent[e.student_id]) enrollmentsByStudent[e.student_id] = [];
+    enrollmentsByStudent[e.student_id].push(e);
+  });
+
+  const flagged = [];
+  (students || []).forEach(s => {
+    const studentEnrollments = enrollmentsByStudent[s.id] || [];
+    const completed = studentEnrollments.filter(e => e.status === 'completed').length;
+    const active = studentEnrollments.filter(e => e.status === 'active' || e.status === 'paused').length;
+    const totalEnrollments = studentEnrollments.length;
+    const purchaseCount = s.course_purchase_count || 0;
+
+    if (purchaseCount !== totalEnrollments) {
+      flagged.push({
+        id: s.id,
+        name: `${s.first_name} ${s.last_name}`,
+        email: s.email,
+        purchaseCount,
+        enrollmentCount: totalEnrollments,
+        completed,
+        active,
+        difference: purchaseCount - totalEnrollments,
+        enrollments: studentEnrollments.map(e => ({
+          id: e.id,
+          identifier: e.course_identifier,
+          status: e.status,
+          type: e.course_type,
+          title: e.course_title
+        }))
+      });
+    }
+  });
+
+  // Also flag students with enrollments but no purchase count
+  const studentIdsWithPurchases = new Set((students || []).map(s => s.id));
+  const orphanedEnrollments = [];
+  Object.entries(enrollmentsByStudent).forEach(([studentId, enrolls]) => {
+    if (!studentIdsWithPurchases.has(parseInt(studentId))) {
+      orphanedEnrollments.push({
+        studentId: parseInt(studentId),
+        enrollmentCount: enrolls.length,
+        enrollments: enrolls.map(e => ({ id: e.id, identifier: e.course_identifier, status: e.status }))
+      });
+    }
+  });
+
+  res.json({
+    totalStudents: (students || []).length,
+    flaggedCount: flagged.length,
+    flagged: flagged.sort((a, b) => Math.abs(b.difference) - Math.abs(a.difference)),
+    orphanedEnrollments
+  });
+}));
+
 // Get classes summary (lightweight, count-only)
 app.get('/api/admin/classes/summary', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const todayStr = new Date().toISOString().split('T')[0];

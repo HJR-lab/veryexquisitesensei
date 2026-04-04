@@ -114,6 +114,8 @@ export default function Dashboard() {
   const getAllBookings = (enrollments) => {
     const all = [];
     enrollments.forEach(enrollment => {
+      // Skip bookings from courses awaiting confirmation (draft classes)
+      if (enrollment.pendingThreshold) return;
       if (enrollment.bookings && Array.isArray(enrollment.bookings)) {
         const isHB = (enrollment.course_type || '').toLowerCase().includes('handbuilding');
         const totalCredits = enrollment.class_credits_allocated || enrollment.number_of_weeks || 0;

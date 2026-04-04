@@ -541,23 +541,54 @@ export default function Dashboard() {
                           {statusLabel === 'pending' ? 'awaiting confirmation' : statusLabel}
                         </span>
                       </div>
-                      {/* Schedule line for pending courses */}
-                      {enrollment.pendingThreshold && (() => {
-                        const bks = (enrollment.bookings || []).filter(b => b.class_instances).sort((a, b) => new Date(a.class_instances.class_date) - new Date(b.class_instances.class_date));
-                        if (bks.length === 0) return null;
-                        const first = bks[0].class_instances;
-                        const last = bks[bks.length - 1].class_instances;
-                        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-                        const dayOfWeek = dayNames[new Date(first.class_date).getDay()] + 's';
-                        const fmtDate = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-                        return (
-                          <div style={{ fontSize: '11px', color: MUTED, fontWeight: 600, marginBottom: '8px' }}>
-                            {dayOfWeek.toUpperCase()} · {fmtDate(first.class_date)} – {fmtDate(last.class_date)} · {first.start_time || ''}–{first.end_time || ''}
+                      {/* Row 2: Schedule (if pending) + Booked/Attended */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
+                        {enrollment.pendingThreshold ? (() => {
+                          const bks = (enrollment.bookings || []).filter(b => b.class_instances).sort((a, b) => new Date(a.class_instances.class_date) - new Date(b.class_instances.class_date));
+                          if (bks.length === 0) return null;
+                          const first = bks[0].class_instances;
+                          const last = bks[bks.length - 1].class_instances;
+                          const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                          const dayOfWeek = dayNames[new Date(first.class_date).getDay()] + 's';
+                          const fmtDate = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+                          return (
+                            <div style={{ fontSize: '10px', color: MUTED, fontWeight: 600, flex: 1, minWidth: 0 }}>
+                              {dayOfWeek.toUpperCase()} · {fmtDate(first.class_date)} – {fmtDate(last.class_date)} · {first.start_time || ''}–{first.end_time || ''}
+                            </div>
+                          );
+                        })() : (
+                          <button
+                            onClick={() => setExpandedCourse(isExpanded ? null : enrollment.id)}
+                            style={{
+                              background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                              fontSize: '11px', fontWeight: 600, color: TC, display: 'flex', alignItems: 'center', gap: '3px',
+                            }}
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '14px', transition: 'transform 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
+                            {isExpanded ? 'Hide details' : 'Course details'}
+                          </button>
+                        )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+                          <div style={{ width: '60px' }}>
+                            <div style={{ fontSize: '10px', color: MUTED, marginBottom: '2px' }}>
+                              Booked <strong style={{ color: INK }}>{bookedCount}/{totalClasses}</strong>
+                            </div>
+                            <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.08)' }}>
+                              <div style={{ height: '2px', width: `${bookedPct}%`, backgroundColor: TC, transition: 'width 0.3s' }} />
+                            </div>
                           </div>
-                        );
-                      })()}
-                      {/* Row 2: Course Details toggle (left) + Booked/Attended (right) */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ width: '60px' }}>
+                            <div style={{ fontSize: '10px', color: MUTED, marginBottom: '2px' }}>
+                              Attended <strong style={{ color: INK }}>{attendedCount}/{totalClasses}</strong>
+                            </div>
+                            <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.08)' }}>
+                              <div style={{ height: '2px', width: `${pct}%`, backgroundColor: TC, transition: 'width 0.3s' }} />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      {/* Course details toggle (separate row for non-pending) */}
+                      {enrollment.pendingThreshold && (
                         <button
                           onClick={() => setExpandedCourse(isExpanded ? null : enrollment.id)}
                           style={{
@@ -568,25 +599,7 @@ export default function Dashboard() {
                           <span className="material-symbols-outlined" style={{ fontSize: '14px', transition: 'transform 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
                           {isExpanded ? 'Hide details' : 'Course details'}
                         </button>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                          <div style={{ width: '90px' }}>
-                            <div style={{ fontSize: '11px', color: MUTED, marginBottom: '3px' }}>
-                              Booked <strong style={{ color: INK }}>{bookedCount}/{totalClasses}</strong>
-                            </div>
-                            <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.08)' }}>
-                              <div style={{ height: '2px', width: `${bookedPct}%`, backgroundColor: TC, transition: 'width 0.3s' }} />
-                            </div>
-                          </div>
-                          <div style={{ width: '90px' }}>
-                            <div style={{ fontSize: '11px', color: MUTED, marginBottom: '3px' }}>
-                              Attended <strong style={{ color: INK }}>{attendedCount}/{totalClasses}</strong>
-                            </div>
-                            <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.08)' }}>
-                              <div style={{ height: '2px', width: `${pct}%`, backgroundColor: TC, transition: 'width 0.3s' }} />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+                      )}
                       {enrollment.package_total_courses === 3 && typeLabel.startsWith('Wheelthrowing') && (
                         <div style={{ fontSize: '11px', color: studentData?.wheel_preference ? TC_DARK : MUTED, fontWeight: 600, marginTop: '6px' }}>
                           Wheel #{studentData?.wheel_preference || '—'}

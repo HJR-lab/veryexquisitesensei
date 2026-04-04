@@ -283,23 +283,50 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
   });
 
   // Add standalone bookings (not part of a course enrollment)
+  // Group by class_type base identifier so related classes appear together
   const standaloneBookings = bookings.filter(b => !b.course_enrollment_id);
+  const standaloneGrouped = {};
   standaloneBookings.forEach(booking => {
-    const classDate = new Date(booking.class_instance.class_date);
+    const ci = booking.class_instance;
+    const baseId = extractCourseIdentifier(ci.class_type) || `standalone-${booking.id}`;
+    if (!standaloneGrouped[baseId]) standaloneGrouped[baseId] = [];
+    standaloneGrouped[baseId].push(booking);
+  });
+
+  Object.entries(standaloneGrouped).forEach(([groupId, groupBookings]) => {
+    const sorted = [...groupBookings].sort((a, b) => new Date(a.class_instance.class_date) - new Date(b.class_instance.class_date));
+    const firstCI = sorted[0].class_instance;
+    const lastCI = sorted[sorted.length - 1].class_instance;
+    const hasUpcoming = sorted.some(b => new Date(b.class_instance.class_date) >= today && b.status === 'booked');
+    const allFuture = new Date(firstCI.class_date) > today;
+
+    // Derive a readable title from the class_type
+    const ct = (firstCI.class_type || '').toUpperCase();
+    let title = firstCI.class_type || 'Class';
+    if (ct.startsWith('WT')) title = 'Wheelthrowing Beginner/Ext';
+    else if (ct.startsWith('HB')) title = 'Handbuilding';
+    else if (ct.includes('GLAZ')) title = 'Glazing';
+
     courseHistory.push({
-      id: `booking-${booking.id}`,
+      id: `standalone-${groupId}`,
       type: 'standalone',
-      status: classDate >= today && booking.status === 'booked' ? 'upcoming' : 'past',
-      classes: [{
-        id: booking.class_instance.id,
-        date: booking.class_instance.class_date,
-        startTime: booking.class_instance.start_time,
-        endTime: booking.class_instance.end_time,
-        classType: booking.class_instance.class_type,
-        instructor: booking.class_instance.instructor,
-        attended: booking.attended,
-        status: booking.status
-      }]
+      courseTitle: title,
+      courseIdentifier: groupId,
+      startDate: firstCI.class_date,
+      endDate: lastCI.class_date,
+      instructor: firstCI.instructor || 'VES Instructor',
+      status: allFuture ? 'upcoming' : hasUpcoming ? 'current' : 'past',
+      classesAttended: sorted.filter(b => b.attended || b.status === 'attended' || b.status === 'completed').length,
+      classes: sorted.map(b => ({
+        id: b.class_instance.id,
+        date: b.class_instance.class_date,
+        startTime: b.class_instance.start_time,
+        endTime: b.class_instance.end_time,
+        classType: b.class_instance.class_type,
+        instructor: b.class_instance.instructor,
+        attended: b.attended,
+        status: b.status
+      }))
     });
   });
 

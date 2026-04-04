@@ -85,11 +85,10 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
     throw enrollmentsError;
   }
 
-  // Group bookings by actual course identifier (extracted from class_type)
   const courseHistory = [];
   const today = new Date();
 
-  // Helper function to extract base course identifier from class_type
+  // Extract base course identifier from class_type
   // e.g., "WT1701AM_DL6.2" -> "WT1701AM_DL6"
   const extractCourseIdentifier = (classType) => {
     if (!classType) return null;
@@ -97,166 +96,71 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
     return match ? match[1] : classType;
   };
 
-  // Process enrollments and split by actual course identifiers
-  enrollments.forEach(enrollment => {
-    const courseBookings = bookings.filter(b => b.course_enrollment_id === enrollment.id);
+  const isAttended = (b) => b.attended === true || b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && new Date(b.class_instance.class_date) < today);
 
-    // If no bookings exist but enrollment is completed, show it from enrollment data
-    if (courseBookings.length === 0) {
-      if (enrollment.status === 'completed') {
-        courseHistory.push({
-          id: `${enrollment.id}-enrollment`,
-          type: 'course',
-          courseIdentifier: enrollment.course_identifier || enrollment.id.toString(),
-          courseTitle: enrollment.course_title || ((enrollment.course_type || '').toLowerCase().includes('wheel') ? `Wheelthrowing Beginner/Ext ${enrollment.number_of_weeks || 6} Weeks` : 'Course'),
-          courseType: enrollment.course_type || '',
-          numberOfWeeks: enrollment.number_of_weeks || enrollment.class_credits_allocated || 6,
-          startDate: enrollment.course_start_date,
-          endDate: enrollment.course_end_date || enrollment.course_expiry_date,
-          instructor: enrollment.instructor || 'VES Instructor',
-          status: 'completed',
-          scheduleDescription: enrollment.schedule_description || '',
-          classesAttended: enrollment.class_credits_used || enrollment.number_of_weeks || 6,
-          classes: []
-        });
-      }
-      return;
+  // Step 1: Group ALL bookings by base course identifier (source of truth)
+  const courseGroups = {};
+  bookings.forEach(booking => {
+    const baseId = extractCourseIdentifier(booking.class_instance.class_type);
+    if (!baseId) return;
+    if (!courseGroups[baseId]) courseGroups[baseId] = [];
+    courseGroups[baseId].push(booking);
+  });
+
+  // Step 2: Build enrollment lookup by course_identifier and by ID
+  const enrollmentByCourseId = {};
+  const enrollmentById = {};
+  enrollments.forEach(e => {
+    enrollmentById[e.id] = e;
+    if (e.course_identifier) {
+      enrollmentByCourseId[e.course_identifier] = e;
+    }
+  });
+
+  // Track which enrollments have been matched
+  const matchedEnrollmentIds = new Set();
+
+  // Step 3: For each course group, find matching enrollment and build history entry
+  Object.entries(courseGroups).forEach(([courseId, groupBookings]) => {
+    const sorted = [...groupBookings].sort((a, b) => new Date(a.class_instance.class_date) - new Date(b.class_instance.class_date));
+    const startDate = sorted[0]?.class_instance.class_date;
+    const endDate = sorted[sorted.length - 1]?.class_instance.class_date;
+    const instructor = sorted[0]?.class_instance.instructor || 'VES Instructor';
+
+    // Find matching enrollment: by course_identifier or by enrollment_id on bookings
+    let enrollment = enrollmentByCourseId[courseId];
+    if (!enrollment) {
+      // Find from booking's course_enrollment_id
+      const enrollmentId = sorted.find(b => b.course_enrollment_id)?.course_enrollment_id;
+      if (enrollmentId) enrollment = enrollmentById[enrollmentId];
     }
 
-    // Keep all bookings under the same enrollment together as one course
-    // Enrollment data is source of truth for title, dates, weeks
-    const sortedBookings = [...courseBookings].sort((a, b) =>
-      new Date(a.class_instance.class_date) - new Date(b.class_instance.class_date)
-    );
+    if (enrollment) matchedEnrollmentIds.add(enrollment.id);
 
-    // Use enrollment dates as source of truth, fallback to booking dates
-    const startDate = enrollment.course_start_date || sortedBookings[0]?.class_instance.class_date;
-    const endDate = enrollment.course_end_date || enrollment.course_expiry_date || sortedBookings[sortedBookings.length - 1]?.class_instance.class_date;
-
-    const hasUpcomingClasses = courseBookings.some(b =>
-      new Date(b.class_instance.class_date) >= today && b.status === 'booked'
-    );
-    const allClassesFuture = startDate && new Date(startDate) > today;
-
-    const instructor = sortedBookings[0]?.class_instance.instructor ||
-                      enrollment.instructor ||
-                      'VES Instructor';
-
-    const courseId = enrollment.course_identifier || extractCourseIdentifier(sortedBookings[0]?.class_instance.class_type) || enrollment.id.toString();
-    const weeks = enrollment.number_of_weeks || enrollment.class_credits_allocated || 6;
-
-    // Derive course title from enrollment data
-    const ct = (enrollment.course_type || '').toLowerCase();
-    let courseTitle = enrollment.course_title;
+    const weeks = enrollment?.number_of_weeks || enrollment?.class_credits_allocated || 6;
+    const ct = (enrollment?.course_type || courseId).toLowerCase();
+    let courseTitle = enrollment?.course_title;
     if (!courseTitle) {
-      if (ct.includes('wheelthrowing') || ct.includes('wheel')) courseTitle = `Wheelthrowing Beginner/Ext ${weeks} Weeks`;
-      else if (ct.includes('handbuilding')) courseTitle = `Handbuilding ${weeks} Weeks`;
-      else courseTitle = `Course ${weeks} Weeks`;
+      if (ct.includes('wheel') || courseId.startsWith('WT')) courseTitle = `Wheelthrowing Beginner/Ext ${weeks} Weeks`;
+      else if (ct.includes('handbuild') || courseId.startsWith('HB')) courseTitle = `Handbuilding ${weeks} Weeks`;
+      else courseTitle = courseId;
     }
+
+    const hasUpcoming = sorted.some(b => new Date(b.class_instance.class_date) >= today && b.status === 'booked');
+    const allFuture = startDate && new Date(startDate) > today;
 
     courseHistory.push({
-      id: `${enrollment.id}-${courseId}`,
-      type: 'course',
+      id: enrollment ? `${enrollment.id}-${courseId}` : `course-${courseId}`,
+      type: enrollment ? 'course' : 'standalone',
       courseIdentifier: courseId,
       courseTitle: courseTitle,
-      courseType: enrollment.course_type,
+      courseType: enrollment?.course_type || '',
       numberOfWeeks: weeks,
       startDate: startDate,
       endDate: endDate,
       instructor: instructor,
-      status: allClassesFuture ? 'upcoming' : hasUpcomingClasses ? 'current' : 'completed',
-      classesAttended: sortedBookings.filter(b => b.attended === true || b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && new Date(b.class_instance.class_date) < today)).length,
-      classes: sortedBookings.map(b => ({
-        id: b.class_instance.id,
-        date: b.class_instance.class_date,
-        startTime: b.class_instance.start_time,
-        endTime: b.class_instance.end_time,
-        classType: b.class_instance.class_type,
-        instructor: b.class_instance.instructor,
-        attended: b.attended === true || b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && new Date(b.class_instance.class_date) < today),
-        status: b.status
-      }))
-    });
-  });
-
-  // Add standalone bookings (not part of a course enrollment)
-  // Try to merge into existing course entries first, then show remaining as standalone
-  const standaloneBookings = bookings.filter(b => !b.course_enrollment_id);
-  const unmatchedStandalone = [];
-
-  standaloneBookings.forEach(booking => {
-    const ci = booking.class_instance;
-    const bookingDate = new Date(ci.class_date);
-
-    // Try to find a matching course entry by instructor + date proximity (within 8 weeks)
-    const match = courseHistory.find(course => {
-      if (course.type !== 'course') return false;
-      const courseStart = new Date(course.startDate);
-      const courseEnd = new Date(course.endDate);
-      // Extend range by 2 weeks on each side to catch makeups
-      courseStart.setDate(courseStart.getDate() - 14);
-      courseEnd.setDate(courseEnd.getDate() + 14);
-      return course.instructor === ci.instructor &&
-             bookingDate >= courseStart && bookingDate <= courseEnd;
-    });
-
-    if (match) {
-      // Merge into existing course entry
-      const classEntry = {
-        id: ci.id,
-        date: ci.class_date,
-        startTime: ci.start_time,
-        endTime: ci.end_time,
-        classType: ci.class_type,
-        instructor: ci.instructor,
-        attended: booking.attended === true || booking.status === 'attended' || booking.status === 'completed',
-        status: booking.status
-      };
-      match.classes.push(classEntry);
-      match.classes.sort((a, b) => new Date(a.date) - new Date(b.date));
-      // Update start/end dates
-      match.startDate = match.classes[0].date;
-      match.endDate = match.classes[match.classes.length - 1].date;
-      // Recount attended
-      match.classesAttended = match.classes.filter(c => c.attended).length;
-    } else {
-      unmatchedStandalone.push(booking);
-    }
-  });
-
-  // Group remaining unmatched standalone bookings
-  const standaloneGrouped = {};
-  unmatchedStandalone.forEach(booking => {
-    const ci = booking.class_instance;
-    const baseId = extractCourseIdentifier(ci.class_type) || `standalone-${booking.id}`;
-    if (!standaloneGrouped[baseId]) standaloneGrouped[baseId] = [];
-    standaloneGrouped[baseId].push(booking);
-  });
-
-  Object.entries(standaloneGrouped).forEach(([groupId, groupBookings]) => {
-    const sorted = [...groupBookings].sort((a, b) => new Date(a.class_instance.class_date) - new Date(b.class_instance.class_date));
-    const firstCI = sorted[0].class_instance;
-    const lastCI = sorted[sorted.length - 1].class_instance;
-    const hasUpcoming = sorted.some(b => new Date(b.class_instance.class_date) >= today && b.status === 'booked');
-    const allFuture = new Date(firstCI.class_date) > today;
-
-    // Derive a readable title from the class_type
-    const ct = (firstCI.class_type || '').toUpperCase();
-    let title = firstCI.class_type || 'Class';
-    if (ct.startsWith('WT')) title = 'Wheelthrowing Beginner/Ext';
-    else if (ct.startsWith('HB')) title = 'Handbuilding';
-    else if (ct.includes('GLAZ')) title = 'Glazing';
-
-    courseHistory.push({
-      id: `standalone-${groupId}`,
-      type: 'standalone',
-      courseTitle: title,
-      courseIdentifier: groupId,
-      startDate: firstCI.class_date,
-      endDate: lastCI.class_date,
-      instructor: firstCI.instructor || 'VES Instructor',
-      status: allFuture ? 'upcoming' : hasUpcoming ? 'current' : 'past',
-      classesAttended: sorted.filter(b => b.attended || b.status === 'attended' || b.status === 'completed').length,
+      status: allFuture ? 'upcoming' : hasUpcoming ? 'current' : 'completed',
+      classesAttended: sorted.filter(b => isAttended(b)).length,
       classes: sorted.map(b => ({
         id: b.class_instance.id,
         date: b.class_instance.class_date,
@@ -264,9 +168,31 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
         endTime: b.class_instance.end_time,
         classType: b.class_instance.class_type,
         instructor: b.class_instance.instructor,
-        attended: b.attended,
+        attended: isAttended(b),
         status: b.status
       }))
+    });
+  });
+
+  // Step 4: Add enrollments that had no bookings (completed without class records)
+  enrollments.forEach(enrollment => {
+    if (matchedEnrollmentIds.has(enrollment.id)) return;
+    if (enrollment.status !== 'completed') return;
+    const weeks = enrollment.number_of_weeks || enrollment.class_credits_allocated || 6;
+    const ct = (enrollment.course_type || '').toLowerCase();
+    courseHistory.push({
+      id: `${enrollment.id}-enrollment`,
+      type: 'course',
+      courseIdentifier: enrollment.course_identifier || enrollment.id.toString(),
+      courseTitle: enrollment.course_title || (ct.includes('wheel') ? `Wheelthrowing Beginner/Ext ${weeks} Weeks` : 'Course'),
+      courseType: enrollment.course_type || '',
+      numberOfWeeks: weeks,
+      startDate: enrollment.course_start_date,
+      endDate: enrollment.course_end_date,
+      instructor: enrollment.instructor || 'VES Instructor',
+      status: 'completed',
+      classesAttended: enrollment.class_credits_used || weeks,
+      classes: []
     });
   });
 

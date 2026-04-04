@@ -658,7 +658,7 @@ app.get('/api/students/me/dashboard', authenticateToken, asyncHandler(async (req
     const status = getEnrollmentStatus(enrollment, bookingsForEnrollment);
 
     const isWTCourse = (enrollment.course_type || '').toLowerCase().includes('wheelthrowing');
-    const isPendingThreshold = isWTCourse && status === 'pending' && enrollment.pending_student_count < 4;
+    const isPendingThreshold = isWTCourse && enrollment.pending_student_count != null && enrollment.pending_student_count < 4;
 
     const enrollmentWithBookings = {
       ...enrollment,

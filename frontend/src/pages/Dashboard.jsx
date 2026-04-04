@@ -71,6 +71,7 @@ export default function Dashboard() {
   const [expandedCourse, setExpandedCourse] = useState(null);
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   const [showCompletedCourses, setShowCompletedCourses] = useState(false);
+  const [creditBalance, setCreditBalance] = useState(null);
 
   useEffect(() => {
     fetchDashboardData();
@@ -79,14 +80,16 @@ export default function Dashboard() {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const [dashboardResponse, potteryData, eventsRes, membershipRes] = await Promise.all([
+      const [dashboardResponse, potteryData, eventsRes, membershipRes, creditRes] = await Promise.all([
         api.get('/students/me/dashboard'),
         potteryAPI.getPieces(),
         api.get('/events/upcoming').catch(() => ({ data: { events: [] } })),
         api.get('/membership/my-membership').catch(() => ({ data: { hasMembership: false } })),
+        api.get(`/credits/balance/${user?.dbCustomerId}`).catch(() => ({ data: { balance: 0 } })),
       ]);
       setUpcomingEvents(eventsRes.data.events || []);
       setMembershipData(membershipRes.data);
+      setCreditBalance(creditRes.data?.balance ?? 0);
 
       setDashboardData(dashboardResponse.data);
       setStudentData(dashboardResponse.data.student);
@@ -372,28 +375,24 @@ export default function Dashboard() {
                 <MemberBadge membershipType={membershipData.membership.type} style={{ marginLeft: '10px', position: 'relative', top: '-4px' }} />
               )}
             </h1>
-            {greetingEntries.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px', fontSize: '14px', color: MUTED, marginBottom: '4px' }}>
-                {greetingEntries.map(([label, info], i) => (
-                  <span key={label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {i > 0 && <span style={{ color: RULE }}>·</span>}
-                    {info.isHB ? (
-                      <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                        <span>{label}</span>
-                        <span><strong style={{ color: INK }}>{info.remaining}</strong> class credit{info.remaining !== 1 ? 's' : ''} remaining</span>
-                      </span>
-                    ) : (
-                      <span><strong style={{ color: INK }}>{info.remaining}</strong>&nbsp;{label}</span>
-                    )}
-                  </span>
-                ))}
-              </div>
-            )}
-            {nextClass && (
-              <div style={{ fontSize: '13px', color: MUTED }}>
-                Next: <strong style={{ color: INK }}>{nextClass.date}</strong>, {nextClass.time}
-              </div>
-            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', color: MUTED }}>
+              {greetingEntries.length > 0 && greetingEntries.map(([label, info]) => (
+                <div key={label}>
+                  {info.isHB ? (
+                    <span>{label} · <strong style={{ color: INK }}>{info.remaining}</strong> credit{info.remaining !== 1 ? 's' : ''} remaining</span>
+                  ) : (
+                    <span><strong style={{ color: INK }}>{info.remaining}</strong> {label}</span>
+                  )}
+                  {nextClass && <span> · Next: <strong style={{ color: INK }}>{nextClass.date}</strong>, {nextClass.time}</span>}
+                </div>
+              ))}
+              {creditBalance > 0 && (
+                <div><strong style={{ color: INK }}>${creditBalance}</strong> Ves is 10 Credits</div>
+              )}
+              {dashboardData?.studioAccessPasses?.remaining > 0 && (
+                <div><strong style={{ color: INK }}>{dashboardData.studioAccessPasses.remaining}</strong> studio access pass{dashboardData.studioAccessPasses.remaining !== 1 ? 'es' : ''}</div>
+              )}
+            </div>
           </div>
           {upcomingEvents.length > 0 && (() => {
             const evt = upcomingEvents[0];

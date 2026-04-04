@@ -225,18 +225,37 @@ export default function Dashboard() {
   const stats = dashboardData?.stats;
 
   // Derive per-enrollment attended counts (same logic as before)
+  // Helper: check if a booking's class has ended (for today's classes, checks end_time)
+  const isBookingClassOver = (b) => {
+    if (!b.class_instances) return false;
+    const ci = b.class_instances;
+    const now = new Date();
+    const classDate = new Date(ci.class_date);
+    classDate.setHours(0, 0, 0, 0);
+    const todayMid = new Date(); todayMid.setHours(0, 0, 0, 0);
+    if (classDate < todayMid) return true;
+    if (classDate > todayMid) return false;
+    // Today: check end_time
+    if (ci.end_time) {
+      const match = ci.end_time.trim().toLowerCase().match(/(\d{1,2}):?(\d{2})?\s*(am|pm)?/);
+      if (match) {
+        let h = parseInt(match[1], 10);
+        const mins = parseInt(match[2] || '0', 10);
+        const ampm = match[3];
+        if (ampm === 'pm' && h !== 12) h += 12;
+        if (ampm === 'am' && h === 12) h = 0;
+        return now.getHours() > h || (now.getHours() === h && now.getMinutes() >= mins);
+      }
+    }
+    return false;
+  };
+
   const enrollmentsWithCounts = enrollments.map(enrollment => {
     const totalClasses = enrollment.class_credits_allocated || enrollment.number_of_weeks || 6;
     const enrollmentBookings = enrollment.bookings || [];
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
     const bookingAttendedCount = enrollmentBookings.filter(b => {
       if (b.status === 'attended' || b.status === 'completed') return true;
-      if (b.status === 'booked' && b.class_instances) {
-        const d = new Date(b.class_instances.class_date);
-        d.setHours(0, 0, 0, 0);
-        return d < today;
-      }
+      if (b.status === 'booked') return isBookingClassOver(b);
       return false;
     }).length;
     const attendedCount = enrollmentBookings.length > 0 ? bookingAttendedCount : (enrollment.class_credits_used || 0);
@@ -244,7 +263,7 @@ export default function Dashboard() {
     const isHBCredit = (enrollment.course_type || '').toLowerCase().includes('handbuilding');
     const bookedCount = isHBCredit
       ? (enrollment.class_credits_used || attendedCount)
-      : enrollmentBookings.filter(b => b.status === 'booked').length;
+      : enrollmentBookings.filter(b => b.status === 'booked' && !isBookingClassOver(b)).length;
     const remaining = Math.max(totalClasses - attendedCount, 0);
     const pct = totalClasses > 0 ? Math.min(Math.round((attendedCount / totalClasses) * 100), 100) : 0;
 

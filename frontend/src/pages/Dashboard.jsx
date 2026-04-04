@@ -391,9 +391,11 @@ export default function Dashboard() {
               {creditBalance > 0 && (
                 <div><strong style={{ color: INK }}>${creditBalance}</strong> Ves is 10 Credits</div>
               )}
-              {dashboardData?.packageInfo?.totalCourses > 1 && (
-                <div><strong style={{ color: INK }}>{dashboardData.packageInfo.currentCourse || 1}/{dashboardData.packageInfo.totalCourses}</strong> Courses remaining</div>
-              )}
+              {dashboardData?.packageInfo?.totalCourses > 1 && (() => {
+                const pkg = dashboardData.packageInfo;
+                const used = pkg.totalCourses - (pkg.coursesRemaining || 0);
+                return <div><strong style={{ color: INK }}>{used}/{pkg.totalCourses}</strong> Courses · {pkg.coursesRemaining || 0} remaining</div>;
+              })()}
               {dashboardData?.studioAccessPasses?.remaining > 0 && (
                 <div><strong style={{ color: INK }}>{dashboardData.studioAccessPasses.remaining}</strong> studio access pass{dashboardData.studioAccessPasses.remaining !== 1 ? 'es' : ''}</div>
               )}

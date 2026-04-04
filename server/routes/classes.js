@@ -170,7 +170,7 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
       endDate: endDate,
       instructor: instructor,
       status: allFuture ? 'upcoming' : hasUpcoming ? 'current' : 'completed',
-      classesAttended: sorted.filter(b => isAttended(b)).length,
+      classesAttended: (!hasUpcoming && !allFuture && enrollment) ? (enrollment.number_of_weeks || enrollment.class_credits_allocated || sorted.filter(b => isAttended(b)).length) : sorted.filter(b => isAttended(b)).length,
       classes: sorted.map(b => ({
         id: b.class_instance.id,
         date: b.class_instance.class_date,

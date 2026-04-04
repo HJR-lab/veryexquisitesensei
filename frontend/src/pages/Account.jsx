@@ -504,7 +504,8 @@ export default function Account() {
                       <span style={{
                         fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
                         padding: '4px 8px', marginLeft: '8px', flexShrink: 0,
-                        backgroundColor: TC_LIGHT, color: TC_DARK,
+                        backgroundColor: course.status === 'awaiting confirmation' ? '#FFF7E6' : TC_LIGHT,
+                        color: course.status === 'awaiting confirmation' ? '#9E6200' : TC_DARK,
                       }}>
                         {course.status}
                       </span>

@@ -731,6 +731,9 @@ async function getStudentBookings(studentId) {
   // This ensures students only see their current course, not completed past courses
   // Completed courses are shown in Course History instead
   const activeBookings = (data || []).filter(booking => {
+    // Exclude bookings for draft class instances (awaiting confirmation / under threshold)
+    if (booking.class_instance?.status === 'draft') return false;
+
     // Include bookings without an enrollment (legacy data/standalone bookings)
     if (!booking.course_enrollment) return true;
 

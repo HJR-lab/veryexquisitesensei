@@ -49,13 +49,20 @@ export default function ClassDayDetail({
             const color = isWT && courseIdx >= 0 ? wtCourses[courseIdx].color : '#888';
             const booked = classInstance.bookingCount || 0;
             const cap    = classInstance.max_capacity || 10;
+            const isCancelled = classInstance.status === 'cancelled';
 
             return (
-              <div key={classInstance.id} style={{ border: `1px solid ${RULE}`, borderLeft: `3px solid ${color}`, backgroundColor: '#FFFFFF' }}>
+              <div key={classInstance.id} style={{ border: `1px solid ${isCancelled ? '#E8A0A0' : RULE}`, borderLeft: `3px solid ${isCancelled ? '#D93025' : color}`, backgroundColor: isCancelled ? '#FDF2F2' : '#FFFFFF', opacity: isCancelled ? 0.85 : 1 }}>
+                {/* Cancelled banner */}
+                {isCancelled && (
+                  <div style={{ padding: '6px 14px', backgroundColor: '#FDECEA', borderBottom: `1px solid #E8A0A0`, fontSize: '11px', fontWeight: 700, color: '#D93025', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                    ✕ Cancelled{classInstance.cancellation_reason ? ` — ${classInstance.cancellation_reason}` : ''}
+                  </div>
+                )}
                 {/* Class header */}
                 <div style={{ padding: '14px 14px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontFamily: 'monospace', fontSize: '13px', fontWeight: 700, marginBottom: '3px' }}>{classInstance.fullCourseIdentifier || classInstance.baseCourseIdentifier}</div>
+                    <div style={{ fontFamily: 'monospace', fontSize: '13px', fontWeight: 700, marginBottom: '3px', textDecoration: isCancelled ? 'line-through' : 'none', color: isCancelled ? MUTED : undefined }}>{classInstance.fullCourseIdentifier || classInstance.baseCourseIdentifier}</div>
                     <div style={{ fontSize: '11px', color: MUTED }}>
                       {classInstance.start_time} – {classInstance.end_time} · {classInstance.instructor}
                     </div>

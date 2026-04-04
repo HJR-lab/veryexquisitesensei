@@ -390,7 +390,7 @@ export default function AdminClasses() {
     wtCourses.forEach((c, idx) => {
       c.classes.forEach((cls, clsIdx) => {
         if (cls.class_date?.startsWith(dateStr)) {
-          evs.push({ kind: 'WT', course: c, courseIdx: idx, cls, weekNum: clsIdx + 1 });
+          evs.push({ kind: 'WT', course: c, courseIdx: idx, cls, weekNum: clsIdx + 1, cancelled: cls.status === 'cancelled' });
         }
       });
     });
@@ -399,7 +399,7 @@ export default function AdminClasses() {
     getHBCourses().forEach(hb => {
       hb.classes.forEach(cls => {
         if (cls.class_date?.startsWith(dateStr)) {
-          evs.push({ kind: 'HB', hb });
+          evs.push({ kind: 'HB', hb, cancelled: cls.status === 'cancelled' });
         }
       });
     });
@@ -1055,7 +1055,7 @@ export default function AdminClasses() {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px' }}>
             {events.map((ev, j) => {
               const col = ev.kind === 'WT' ? ev.course.color : '#B8B3AB';
-              return <span key={j} style={{ width: '7px', height: '7px', display: 'inline-block', backgroundColor: col }} />;
+              return <span key={j} style={{ width: '7px', height: '7px', display: 'inline-block', backgroundColor: ev.cancelled ? '#CCC' : col, opacity: ev.cancelled ? 0.5 : 1 }} />;
             })}
           </div>
         ) : (
@@ -1066,17 +1066,19 @@ export default function AdminClasses() {
                   <div key={j} style={{
                     fontSize: '8px', fontWeight: 700, letterSpacing: '0.02em',
                     padding: '1px 3px', lineHeight: 1.5,
-                    backgroundColor: ev.course.color,
+                    backgroundColor: ev.cancelled ? '#CCC' : ev.course.color,
                     color: '#FFF',
                     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    textDecoration: ev.cancelled ? 'line-through' : 'none',
+                    opacity: ev.cancelled ? 0.7 : 1,
                   }}>
-                    {ev.course.id?.slice(0, 8)} {ev.weekNum}/{ev.course.weeks}
+                    {ev.cancelled ? '✕ ' : ''}{ev.course.id?.slice(0, 8)} {ev.weekNum}/{ev.course.weeks}
                   </div>
                 );
               }
               return (
-                <div key={j} style={{ fontSize: '8px', fontWeight: 600, padding: '1px 3px', lineHeight: 1.5, backgroundColor: '#E2DFD9', color: '#555', whiteSpace: 'nowrap' }}>
-                  {ev.hb.shortLabel}
+                <div key={j} style={{ fontSize: '8px', fontWeight: 600, padding: '1px 3px', lineHeight: 1.5, backgroundColor: ev.cancelled ? '#CCC' : '#E2DFD9', color: ev.cancelled ? '#999' : '#555', whiteSpace: 'nowrap', textDecoration: ev.cancelled ? 'line-through' : 'none', opacity: ev.cancelled ? 0.7 : 1 }}>
+                  {ev.cancelled ? '✕ ' : ''}{ev.hb.shortLabel}
                 </div>
               );
             })}

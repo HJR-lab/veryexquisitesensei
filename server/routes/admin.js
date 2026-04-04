@@ -3022,7 +3022,7 @@ app.get('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asyn
   const todayStr = new Date().toISOString().split('T')[0];
   const { data: allClassInstances, error: classesError } = await supabaseDb.supabase
     .from('class_instances')
-    .select('id, class_type, class_date, start_time, end_time, instructor, room, max_capacity, current_enrollment, class_title, class_description')
+    .select('id, class_type, class_date, start_time, end_time, instructor, room, max_capacity, current_enrollment, class_title, class_description, status, cancellation_reason')
     .gte('class_date', '2026-01-01')
     .order('class_date', { ascending: true });
 

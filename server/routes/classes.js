@@ -107,13 +107,23 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
     courseGroups[baseId].push(booking);
   });
 
-  // Step 2: Build enrollment lookup by course_identifier and by ID
+  // Step 2: Build enrollment lookup — derive course_identifier from bookings if missing
   const enrollmentByCourseId = {};
   const enrollmentById = {};
   enrollments.forEach(e => {
     enrollmentById[e.id] = e;
     if (e.course_identifier) {
       enrollmentByCourseId[e.course_identifier] = e;
+    } else {
+      // Derive course_identifier from this enrollment's bookings
+      const enrollmentBooking = bookings.find(b => b.course_enrollment_id === e.id);
+      if (enrollmentBooking) {
+        const derived = extractCourseIdentifier(enrollmentBooking.class_instance.class_type);
+        if (derived) {
+          e.course_identifier = derived;
+          enrollmentByCourseId[derived] = e;
+        }
+      }
     }
   });
 

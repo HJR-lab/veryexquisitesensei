@@ -795,122 +795,124 @@ export default function AdminStudents() {
                   </div>
                 </div>
 
-                {/* Course / Membership info */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                  {/* Student course info (for students and dual) */}
+                {/* Course + Progress + Status — stacked sub-rows */}
+                <div style={{ display: 'contents' }}>
+                  {/* Active course row */}
                   {!isMember && (
-                    <>
-                      {student._variantTitle ? (
-                        <span style={{ fontFamily: 'monospace', fontSize: '10px', fontWeight: 700, color: isHB ? '#555' : TC_DARK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '170px' }}>
-                          {student._variantTitle}
-                        </span>
-                      ) : (
-                        <span style={{ fontSize: '10px', color: MUTED }}>—</span>
-                      )}
-                      {student.courseIdentifier && (
-                        <span style={{ fontFamily: 'monospace', fontSize: '9px', color: MUTED }}>{student.courseIdentifier}</span>
-                      )}
-                      {student._upcomingCourse && (
-                        <div style={{ marginTop: '10px' }}>
-                          {student._upcomingCourse.variantTitle && (
-                            <span style={{ fontFamily: 'monospace', fontSize: '10px', fontWeight: 700, color: '#888', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '170px', display: 'block' }}>
-                              {student._upcomingCourse.variantTitle}
-                            </span>
-                          )}
-                          <span style={{ fontFamily: 'monospace', fontSize: '9px', color: MUTED }}>
-                            {student._upcomingCourse.courseIdentifier}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'subgrid', gridColumn: '2 / -1', alignItems: 'center' }}>
+                      <div>
+                        {student._variantTitle ? (
+                          <span style={{ fontFamily: 'monospace', fontSize: '10px', fontWeight: 700, color: isHB ? '#555' : TC_DARK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '170px', display: 'block' }}>
+                            {student._variantTitle}
                           </span>
+                        ) : (
+                          <span style={{ fontSize: '10px', color: MUTED }}>—</span>
+                        )}
+                        {student.courseIdentifier && (
+                          <span style={{ fontFamily: 'monospace', fontSize: '9px', color: MUTED, display: 'block' }}>{student.courseIdentifier}</span>
+                        )}
+                      </div>
+                      <div>
+                        {student._wtTotal != null && (
+                          <AllocBar label="WT" used={student._wtUsed} total={student._wtTotal} color={TC} />
+                        )}
+                        {student._hbTotal != null && (
+                          <AllocBar label="HB" used={student.classesAttended || 0} total={student._hbTotal} color={isHB && hbAllUsed ? '#2E7D32' : '#E65100'} />
+                        )}
+                        {student._wtTotal == null && student._hbTotal == null && (
+                          <span style={{ fontSize: '10px', color: MUTED }}>—</span>
+                        )}
+
+                        {/* HB inline credit edit */}
+                        {isHB && editingCredits === student._enrollmentId && (
+                          <div
+                            onClick={e => e.stopPropagation()}
+                            style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}
+                          >
+                            <input
+                              type="number" min="0" value={editCreditsUsed}
+                              onChange={e => setEditCreditsUsed(e.target.value)}
+                              style={{ width: '36px', padding: '2px 4px', fontSize: '11px', border: `1px solid ${RULE}`, outline: 'none', fontFamily: 'inherit' }}
+                              placeholder="Used"
+                            />
+                            <span style={{ fontSize: '10px', color: MUTED }}>/</span>
+                            <input
+                              type="number" min="0" value={editCreditsAllocated}
+                              onChange={e => setEditCreditsAllocated(e.target.value)}
+                              style={{ width: '36px', padding: '2px 4px', fontSize: '11px', border: `1px solid ${RULE}`, outline: 'none', fontFamily: 'inherit' }}
+                              placeholder="Total"
+                            />
+                            <button onClick={e => { e.stopPropagation(); saveInlineCredits(student); }} style={{ padding: '2px 6px', backgroundColor: '#2E7D32', color: '#FFF', border: 'none', fontSize: '10px', fontWeight: 700, cursor: 'pointer' }}>Save</button>
+                            <button onClick={e => { e.stopPropagation(); cancelEditingCredits(); }} style={{ padding: '2px 6px', backgroundColor: MUTED, color: '#FFF', border: 'none', fontSize: '10px', fontWeight: 700, cursor: 'pointer' }}>×</button>
+                          </div>
+                        )}
+                      </div>
+                      <div><StatusBadge status={statusKey} /></div>
+                    </div>
+                  )}
+
+                  {/* Upcoming course row */}
+                  {!isMember && student._upcomingCourse && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'subgrid', gridColumn: '2 / -1', alignItems: 'center', marginTop: '8px' }}>
+                      <div>
+                        {student._upcomingCourse.variantTitle && (
+                          <span style={{ fontFamily: 'monospace', fontSize: '10px', fontWeight: 700, color: '#888', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '170px', display: 'block' }}>
+                            {student._upcomingCourse.variantTitle}
+                          </span>
+                        )}
+                        <span style={{ fontFamily: 'monospace', fontSize: '9px', color: MUTED, display: 'block' }}>
+                          {student._upcomingCourse.courseIdentifier}
+                        </span>
+                      </div>
+                      <div>
+                        <AllocBar label="WT" used={0} total={student._upcomingCourse.numberOfWeeks || 6} color={MUTED} />
+                      </div>
+                      <div><StatusBadge status="upcoming" /></div>
+                    </div>
+                  )}
+
+                  {/* Member-only row */}
+                  {isMember && !isDual && membership && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'subgrid', gridColumn: '2 / -1', alignItems: 'center' }}>
+                      <div>
+                        <span style={{ fontSize: '10px', fontWeight: 700, color: MEMBER_COLOR }}>{getDisplayType(membership.membershipType)}</span>
+                        <div style={{ fontSize: '12px', fontWeight: 700, color: membership.membershipStatus === 'expired' ? MUTED : INK, marginTop: '2px' }}>{fmtDate(membership.endDate)}</div>
+                        <div style={{ fontSize: '11px', fontWeight: 600, color: membership.membershipStatus === 'expiring' ? '#9E6200' : membership.membershipStatus === 'expired' ? MUTED : TC_DARK }}>
+                          {membership.daysRemaining > 0 ? `${membership.daysRemaining} days left` : 'Expired'}
                         </div>
-                      )}
-                    </>
-                  )}
-                  {/* Membership info (for members and dual) */}
-                  {(isMember || isDual) && membership && (
-                    <div style={{ marginTop: !isMember ? '4px' : 0 }}>
-                      <span style={{ fontSize: '10px', fontWeight: 700, color: MEMBER_COLOR }}>
-                        {getDisplayType(membership.membershipType)}
-                      </span>
-                      <div style={{ fontSize: '12px', fontWeight: 700, color: membership.membershipStatus === 'expired' ? MUTED : INK, marginTop: '2px' }}>
-                        {fmtDate(membership.endDate)}
                       </div>
-                      <div style={{ fontSize: '11px', fontWeight: 600, color: membership.membershipStatus === 'expiring' ? '#9E6200' : membership.membershipStatus === 'expired' ? MUTED : TC_DARK }}>
-                        {membership.daysRemaining > 0 ? `${membership.daysRemaining} days left` : 'Expired'}
+                      <div>
+                        <AllocBar
+                          label="Time"
+                          used={Math.max(0, (membership.totalDays || 0) - (membership.daysRemaining || 0))}
+                          total={membership.totalDays || 1}
+                          color={membership.membershipStatus === 'expiring' ? '#E6A817' : membership.membershipStatus === 'expired' ? MUTED : MEMBER_COLOR}
+                        />
                       </div>
+                      <div><StatusBadge status={membership.membershipStatus || 'member'} /></div>
                     </div>
                   )}
-                </div>
 
-                {/* Progress */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  {/* Student progress bars */}
-                  {student._wtTotal != null && (
-                    <AllocBar label="WT" used={student._wtUsed} total={student._wtTotal} color={TC} />
-                  )}
-                  {student._hbTotal != null && (
-                    <AllocBar label="HB" used={student.classesAttended || 0} total={student._hbTotal} color={isHB && hbAllUsed ? '#2E7D32' : '#E65100'} />
-                  )}
-                  {student._upcomingCourse && (
-                    <div style={{ marginTop: '6px' }}>
-                      <AllocBar label="WT" used={0} total={student._upcomingCourse.numberOfWeeks || 6} color={MUTED} />
-                    </div>
-                  )}
-                  {/* Member expiry progress bar */}
-                  {isMember && membership && (
-                    <AllocBar
-                      label="Time"
-                      used={Math.max(0, (membership.totalDays || 0) - (membership.daysRemaining || 0))}
-                      total={membership.totalDays || 1}
-                      color={membership.membershipStatus === 'expiring' ? '#E6A817' : membership.membershipStatus === 'expired' ? MUTED : MEMBER_COLOR}
-                    />
-                  )}
-                  {/* Dual: also show membership progress */}
+                  {/* Dual membership row */}
                   {isDual && membership && (
-                    <AllocBar
-                      label="Mem"
-                      used={Math.max(0, (membership.totalDays || 0) - (membership.daysRemaining || 0))}
-                      total={membership.totalDays || 1}
-                      color={membership.membershipStatus === 'expiring' ? '#E6A817' : MEMBER_COLOR}
-                    />
-                  )}
-                  {student._wtTotal == null && student._hbTotal == null && !isMember && !isDual && (
-                    <span style={{ fontSize: '10px', color: MUTED }}>—</span>
-                  )}
-
-                  {/* HB inline credit edit */}
-                  {isHB && editingCredits === student._enrollmentId && (
-                    <div
-                      onClick={e => e.stopPropagation()}
-                      style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}
-                    >
-                      <input
-                        type="number" min="0" value={editCreditsUsed}
-                        onChange={e => setEditCreditsUsed(e.target.value)}
-                        style={{ width: '36px', padding: '2px 4px', fontSize: '11px', border: `1px solid ${RULE}`, outline: 'none', fontFamily: 'inherit' }}
-                        placeholder="Used"
-                      />
-                      <span style={{ fontSize: '10px', color: MUTED }}>/</span>
-                      <input
-                        type="number" min="0" value={editCreditsAllocated}
-                        onChange={e => setEditCreditsAllocated(e.target.value)}
-                        style={{ width: '36px', padding: '2px 4px', fontSize: '11px', border: `1px solid ${RULE}`, outline: 'none', fontFamily: 'inherit' }}
-                        placeholder="Total"
-                      />
-                      <button onClick={e => { e.stopPropagation(); saveInlineCredits(student); }} style={{ padding: '2px 6px', backgroundColor: '#2E7D32', color: '#FFF', border: 'none', fontSize: '10px', fontWeight: 700, cursor: 'pointer' }}>Save</button>
-                      <button onClick={e => { e.stopPropagation(); cancelEditingCredits(); }} style={{ padding: '2px 6px', backgroundColor: MUTED, color: '#FFF', border: 'none', fontSize: '10px', fontWeight: 700, cursor: 'pointer' }}>×</button>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'subgrid', gridColumn: '2 / -1', alignItems: 'center', marginTop: '8px' }}>
+                      <div>
+                        <span style={{ fontSize: '10px', fontWeight: 700, color: MEMBER_COLOR }}>{getDisplayType(membership.membershipType)}</span>
+                        <div style={{ fontSize: '12px', fontWeight: 700, color: membership.membershipStatus === 'expired' ? MUTED : INK, marginTop: '2px' }}>{fmtDate(membership.endDate)}</div>
+                        <div style={{ fontSize: '11px', fontWeight: 600, color: membership.membershipStatus === 'expiring' ? '#9E6200' : membership.membershipStatus === 'expired' ? MUTED : TC_DARK }}>
+                          {membership.daysRemaining > 0 ? `${membership.daysRemaining} days left` : 'Expired'}
+                        </div>
+                      </div>
+                      <div>
+                        <AllocBar
+                          label="Mem"
+                          used={Math.max(0, (membership.totalDays || 0) - (membership.daysRemaining || 0))}
+                          total={membership.totalDays || 1}
+                          color={membership.membershipStatus === 'expiring' ? '#E6A817' : MEMBER_COLOR}
+                        />
+                      </div>
+                      <div><StatusBadge status={membership.membershipStatus || 'member'} /></div>
                     </div>
-                  )}
-                </div>
-
-                {/* Status badge(s) */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
-                  <StatusBadge status={statusKey} />
-                  {student._upcomingCourse && (
-                    <div style={{ marginTop: '6px' }}>
-                      <StatusBadge status="upcoming" />
-                    </div>
-                  )}
-                  {isDual && membership && (
-                    <StatusBadge status={membership.membershipStatus || 'member'} />
                   )}
                 </div>
               </div>

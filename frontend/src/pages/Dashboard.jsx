@@ -377,13 +377,14 @@ export default function Dashboard() {
             </h1>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', color: MUTED }}>
               {greetingEntries.length > 0 && greetingEntries.map(([label, info]) => {
-                const attended = stats ? (stats.attended || 0) : 0;
-                const total = info.isHB ? info.remaining : (stats?.totalClassesAllocated || 6);
+                const currentCourse = enrollmentsWithCounts.find(e => e.statusLabel === 'active' || e.statusLabel === 'upcoming');
+                const courseAttended = currentCourse?.attendedCount || 0;
+                const courseTotal = currentCourse?.totalClasses || 6;
                 return (
                   <div key={label}>
                     <div>{label}</div>
                     {nextClass && (
-                      <div>Next: <strong style={{ color: INK }}>{nextClass.date} {nextClass.time}</strong> · {attended}/{info.isHB ? info.remaining : (enrollmentsWithCounts.find(e => e.statusLabel !== 'completed' && e.statusLabel !== 'pending')?.totalClasses || 6)}</div>
+                      <div>Next: <strong style={{ color: INK }}>{nextClass.date} {nextClass.time}</strong> · {courseAttended}/{courseTotal}</div>
                     )}
                   </div>
                 );

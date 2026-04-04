@@ -699,13 +699,11 @@ app.get('/api/students/me/dashboard', authenticateToken, asyncHandler(async (req
     // Check if this is part of a package
     if (enrollment.package_total_courses) {
       if (!packageInfo) {
-        const currentCourse = enrollment.package_total_courses - (enrollment.package_courses_remaining || 0);
         packageInfo = {
           totalCourses: enrollment.package_total_courses,
           totalClasses: enrollment.package_total_classes,
           coursesRemaining: enrollment.package_courses_remaining || 0,
-          currentCourse: currentCourse,
-          coursesCompleted: currentCourse - 1
+          currentCourse: enrollment.package_total_courses - (enrollment.package_courses_remaining || 0),
         };
       }
     }

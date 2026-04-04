@@ -280,7 +280,7 @@ export default function Dashboard() {
       const lower = (classType + ' ' + courseTitle).toLowerCase();
       const isWT = classType.startsWith('WT') || lower.includes('wheel');
       const isHB = classType.startsWith('HB') || lower.includes('handbuild');
-      if (isWT) typeLabel = 'Wheelthrowing Beginners/Ext';
+      if (isWT) typeLabel = `Wheelthrowing Beginners/Ext ${weeks} Wks`;
       else if (isHB) typeLabel = `Handbuilding ${weeks} Weeks`;
     }
 
@@ -528,7 +528,7 @@ export default function Dashboard() {
                     {/* Header */}
                     <div style={{ padding: '12px 14px' }}>
                       {/* Row 1: Title + Status badge */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: enrollment.pendingThreshold ? '4px' : '8px' }}>
                         <div style={{ fontSize: '12px', fontWeight: 700, color: INK, lineHeight: '1.3', flex: 1, minWidth: 0 }}>
                           {typeLabel}
                         </div>
@@ -541,6 +541,21 @@ export default function Dashboard() {
                           {statusLabel === 'pending' ? 'awaiting confirmation' : statusLabel}
                         </span>
                       </div>
+                      {/* Schedule line for pending courses */}
+                      {enrollment.pendingThreshold && (() => {
+                        const bks = (enrollment.bookings || []).filter(b => b.class_instances).sort((a, b) => new Date(a.class_instances.class_date) - new Date(b.class_instances.class_date));
+                        if (bks.length === 0) return null;
+                        const first = bks[0].class_instances;
+                        const last = bks[bks.length - 1].class_instances;
+                        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                        const dayOfWeek = dayNames[new Date(first.class_date).getDay()] + 's';
+                        const fmtDate = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+                        return (
+                          <div style={{ fontSize: '11px', color: MUTED, fontWeight: 600, marginBottom: '8px' }}>
+                            {dayOfWeek.toUpperCase()} · {fmtDate(first.class_date)} – {fmtDate(last.class_date)} · {first.start_time || ''}–{first.end_time || ''}
+                          </div>
+                        );
+                      })()}
                       {/* Row 2: Course Details toggle (left) + Booked/Attended (right) */}
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <button

@@ -159,6 +159,8 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
 
     const hasUpcoming = sorted.some(b => new Date(b.class_instance.class_date) >= today && b.status === 'booked');
     const allFuture = startDate && new Date(startDate) > today;
+    const hasDraft = sorted.some(b => b.class_instance.status === 'draft');
+    const courseStatus = hasDraft ? 'awaiting confirmation' : allFuture ? 'upcoming' : hasUpcoming ? 'current' : 'completed';
 
     courseHistory.push({
       id: enrollment ? `${enrollment.id}-${courseId}` : `course-${courseId}`,
@@ -170,8 +172,8 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
       startDate: startDate,
       endDate: endDate,
       instructor: instructor,
-      status: sorted.some(b => b.class_instance.status === 'draft') ? 'awaiting confirmation' : allFuture ? 'upcoming' : hasUpcoming ? 'current' : 'completed',
-      classesAttended: sorted.filter(b => isAttended(b)).length,
+      status: courseStatus,
+      classesAttended: courseStatus === 'completed' ? sorted.filter(b => isPast(b)).length : sorted.filter(b => isAttended(b)).length,
       classes: sorted.map(b => ({
         id: b.class_instance.id,
         date: b.class_instance.class_date,
@@ -214,14 +216,13 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
     return new Date(dateB) - new Date(dateA);
   });
 
-  // Count attended classes including completed enrollments without bookings
-  const completedWithoutBookings = courseHistory.filter(c => c.status === 'completed' && c.classes.length === 0);
-  const extraAttended = completedWithoutBookings.reduce((sum, c) => sum + (c.classesAttended || 0), 0);
+  // Sum attended from all course entries (already accounts for completed vs current logic)
+  const totalAttended = courseHistory.reduce((sum, c) => sum + (c.classesAttended || 0), 0);
 
   const response = {
     history: courseHistory,
-    totalClasses: bookings.length + extraAttended,
-    attendedClasses: bookings.filter(b => isAttended(b)).length + extraAttended
+    totalClasses: bookings.length,
+    attendedClasses: totalAttended
   };
 
   console.log('📤 Returning history:', JSON.stringify(response, null, 2));

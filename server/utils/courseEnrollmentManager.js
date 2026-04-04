@@ -654,6 +654,73 @@ async function activateDraftClasses(enrollment) {
     const activatedCount = updatedClasses ? updatedClasses.length : 0;
     console.log(`✅ Activated ${activatedCount} draft classes to ACTIVE status`);
 
+    // Award deferred VES Credits to all returning students in this cohort
+    try {
+      const { isReturningStudent, earnCredits, getCreditBalance } = require('./creditManager');
+      const { sendEmail } = require('./emailService');
+
+      // Find all enrollments in this cohort
+      const { data: cohortBookings } = await supabase
+        .from('bookings')
+        .select('course_enrollment_id, student_id')
+        .in('class_instance_id', classInstanceIds);
+
+      const enrollmentIds = [...new Set((cohortBookings || []).map(b => b.course_enrollment_id).filter(Boolean))];
+      const { data: cohortEnrollments } = await supabase
+        .from('course_enrollments')
+        .select('id, student_id, course_title, course_type')
+        .in('id', enrollmentIds);
+
+      for (const enr of (cohortEnrollments || [])) {
+        try {
+          const returning = await isReturningStudent(enr.student_id);
+          if (!returning) continue;
+
+          // Check if credit was already awarded for this enrollment
+          const { data: existingCredit } = await supabase
+            .from('ves_credits')
+            .select('id')
+            .eq('customer_id', enr.student_id)
+            .eq('source', 'course_purchase')
+            .eq('reference_id', enr.id.toString())
+            .maybeSingle();
+
+          if (existingCredit) continue;
+
+          await earnCredits({
+            customerId: enr.student_id,
+            amount: 20,
+            source: 'course_purchase',
+            referenceId: enr.id.toString(),
+            description: `Ves is 10 — $20 credit for ${enr.course_title || enr.course_type || 'course'}`,
+          });
+          console.log(`💰 Awarded deferred $20 VES Credit to student ${enr.student_id} (course confirmed)`);
+
+          // Send credit earned email
+          const { data: student } = await supabase.from('customers').select('email, first_name').eq('id', enr.student_id).single();
+          if (student?.email) {
+            try {
+              const { generate: generateCreditEarned } = require('../email-templates/credits-earned');
+              const newBalance = await getCreditBalance(enr.student_id);
+              const { subject, html } = generateCreditEarned({
+                firstName: student.first_name,
+                amountEarned: 20,
+                courseName: enr.course_title || enr.course_type || 'your course',
+                newBalance,
+              });
+              await sendEmail({ to: student.email, subject, html });
+            } catch (emailErr) {
+              console.error(`[Credits] Failed to send credit email to ${student.email}:`, emailErr);
+            }
+          }
+        } catch (creditErr) {
+          console.error(`[Credits] Failed to award deferred credit to student ${enr.student_id}:`, creditErr);
+        }
+      }
+    } catch (err) {
+      console.error('[Credits] Failed to process deferred credits on activation:', err);
+    }
+
     return activatedCount;
 
   } catch (error) {

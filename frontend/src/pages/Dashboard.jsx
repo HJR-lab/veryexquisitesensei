@@ -277,7 +277,9 @@ export default function Dashboard() {
   });
 
   // Greeting course count line: unique types, sum remaining
-  const greetingCounts = enrollmentsWithCounts.reduce((acc, { typeLabel, remaining, enrollment }) => {
+  const greetingCounts = enrollmentsWithCounts.reduce((acc, { typeLabel, remaining, enrollment, statusLabel }) => {
+    // Exclude completed and awaiting confirmation courses from hero count
+    if (statusLabel === 'completed' || statusLabel === 'pending') return acc;
     const isHB = (enrollment.course_type || '').toLowerCase().includes('handbuilding');
     if (!acc[typeLabel]) acc[typeLabel] = { remaining: 0, isHB: false };
     acc[typeLabel].remaining += remaining;

@@ -766,7 +766,7 @@ export default function AdminStudents() {
                   padding: isDual ? (isMobile ? '10px 10px' : '14px 16px') : (isMobile ? '8px 10px' : '12px 16px'),
                   borderBottom: i < visibleRows.length - 1 ? `1px solid ${RULE}` : 'none',
                   backgroundColor: isSelected ? TC_LIGHT : isDual ? '#FAFBFF' : hbAllUsed ? '#FAFAFA' : '#FFFFFF',
-                  alignItems: isDual ? 'start' : 'center',
+                  alignItems: (isDual || student._upcomingCourse) ? 'start' : 'center',
                   transition: 'background-color 0.1s',
                   cursor: 'pointer',
                   opacity: hbAllUsed ? 0.65 : 1,
@@ -811,16 +811,16 @@ export default function AdminStudents() {
                         <span style={{ fontFamily: 'monospace', fontSize: '9px', color: MUTED }}>{student.courseIdentifier}</span>
                       )}
                       {student._upcomingCourse && (
-                        <>
+                        <div style={{ marginTop: '10px' }}>
                           {student._upcomingCourse.variantTitle && (
-                            <span style={{ fontFamily: 'monospace', fontSize: '10px', fontWeight: 700, color: '#888', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '170px', marginTop: '4px' }}>
+                            <span style={{ fontFamily: 'monospace', fontSize: '10px', fontWeight: 700, color: '#888', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '170px', display: 'block' }}>
                               {student._upcomingCourse.variantTitle}
                             </span>
                           )}
                           <span style={{ fontFamily: 'monospace', fontSize: '9px', color: MUTED }}>
                             {student._upcomingCourse.courseIdentifier}
                           </span>
-                        </>
+                        </div>
                       )}
                     </>
                   )}
@@ -850,7 +850,9 @@ export default function AdminStudents() {
                     <AllocBar label="HB" used={student.classesAttended || 0} total={student._hbTotal} color={isHB && hbAllUsed ? '#2E7D32' : '#E65100'} />
                   )}
                   {student._upcomingCourse && (
-                    <AllocBar label="WT" used={0} total={student._upcomingCourse.numberOfWeeks || 6} color={MUTED} />
+                    <div style={{ marginTop: '6px' }}>
+                      <AllocBar label="WT" used={0} total={student._upcomingCourse.numberOfWeeks || 6} color={MUTED} />
+                    </div>
                   )}
                   {/* Member expiry progress bar */}
                   {isMember && membership && (
@@ -903,7 +905,9 @@ export default function AdminStudents() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
                   <StatusBadge status={statusKey} />
                   {student._upcomingCourse && (
-                    <StatusBadge status="upcoming" />
+                    <div style={{ marginTop: '6px' }}>
+                      <StatusBadge status="upcoming" />
+                    </div>
                   )}
                   {isDual && membership && (
                     <StatusBadge status={membership.membershipStatus || 'member'} />

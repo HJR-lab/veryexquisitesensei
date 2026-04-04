@@ -394,10 +394,10 @@ export default function Dashboard() {
               {dashboardData?.packageInfo?.totalCourses > 1 && (() => {
                 const pkg = dashboardData.packageInfo;
                 const used = pkg.totalCourses - (pkg.coursesRemaining || 0);
-                return <div><strong style={{ color: INK }}>{used}/{pkg.totalCourses}</strong> Courses · {pkg.coursesRemaining || 0} remaining</div>;
+                return <div><strong style={{ color: INK }}>{pkg.coursesRemaining || 0} of {pkg.totalCourses}</strong> courses remaining</div>;
               })()}
               {dashboardData?.studioAccessPasses?.remaining > 0 && (
-                <div><strong style={{ color: INK }}>{dashboardData.studioAccessPasses.remaining}</strong> studio access pass{dashboardData.studioAccessPasses.remaining !== 1 ? 'es' : ''}</div>
+                <div><strong style={{ color: INK }}>{dashboardData.studioAccessPasses.remaining} of {dashboardData.studioAccessPasses.total}</strong> passes remaining</div>
               )}
             </div>
           </div>
@@ -662,8 +662,8 @@ export default function Dashboard() {
               const currentCourse = pkg.currentCourse || (pkg.totalCourses - (pkg.coursesRemaining || 0));
               return (
                 <div style={{ marginTop: '10px', fontSize: '11px', color: MUTED }}>
-                  <span style={{ color: TC_DARK, fontWeight: 600 }}>Course {currentCourse} of {pkg.totalCourses}</span>
-                  {pkg.coursesRemaining > 0 && (
+                  <span style={{ color: TC_DARK, fontWeight: 600 }}>{pkg.coursesRemaining || 0} of {pkg.totalCourses} courses remaining</span>
+                  {false && pkg.coursesRemaining > 0 && (
                     <span> · {pkg.coursesRemaining} more course{pkg.coursesRemaining > 1 ? 's' : ''} remaining</span>
                   )}
                 </div>

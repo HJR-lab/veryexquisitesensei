@@ -511,9 +511,7 @@ export default function Dashboard() {
             const bWT = b.typeLabel.startsWith('Wheelthrowing');
             return aWT === bWT ? 0 : aWT ? -1 : 1;
           };
-          const coursesToShow = showCompletedCourses
-            ? [...currentCourses, ...completedCourses].sort(sortByType)
-            : [...currentCourses].sort(sortByType);
+          const coursesToShow = [...currentCourses].sort(sortByType);
           return (
           <section style={{ marginBottom: '28px' }}>
             <SectionLabel>My Courses</SectionLabel>
@@ -665,15 +663,6 @@ export default function Dashboard() {
                 </div>
               );
             })()}
-            {completedCourses.length > 0 && (
-              <button
-                onClick={() => setShowCompletedCourses(!showCompletedCourses)}
-                style={{ marginTop: '10px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', fontWeight: 600, color: MUTED, display: 'flex', alignItems: 'center', gap: '4px', padding: 0 }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>{showCompletedCourses ? 'expand_less' : 'expand_more'}</span>
-                {showCompletedCourses ? 'Hide' : 'Show'} {completedCourses.length} completed course{completedCourses.length !== 1 ? 's' : ''}
-              </button>
-            )}
           </section>
           );
         })()}

@@ -818,7 +818,7 @@ export default function AdminStudents() {
                             </span>
                           )}
                           <span style={{ fontFamily: 'monospace', fontSize: '9px', color: MUTED }}>
-                            {student._upcomingCourse.courseIdentifier} <span style={{ fontSize: '8px', color: '#E6A817', fontWeight: 700 }}>UPCOMING</span>
+                            {student._upcomingCourse.courseIdentifier}
                           </span>
                         </>
                       )}
@@ -902,6 +902,9 @@ export default function AdminStudents() {
                 {/* Status badge(s) */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
                   <StatusBadge status={statusKey} />
+                  {student._upcomingCourse && (
+                    <StatusBadge status="upcoming" />
+                  )}
                   {isDual && membership && (
                     <StatusBadge status={membership.membershipStatus || 'member'} />
                   )}

@@ -108,7 +108,7 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
           id: `${enrollment.id}-enrollment`,
           type: 'course',
           courseIdentifier: enrollment.course_identifier || enrollment.id.toString(),
-          courseTitle: enrollment.course_title || 'Wheelthrowing Course',
+          courseTitle: enrollment.course_title || ((enrollment.course_type || '').toLowerCase().includes('wheel') ? `Wheelthrowing Beginner/Ext ${enrollment.number_of_weeks || 6} Weeks` : 'Course'),
           courseType: enrollment.course_type || '',
           numberOfWeeks: enrollment.number_of_weeks || enrollment.class_credits_allocated || 6,
           startDate: enrollment.course_start_date,
@@ -124,11 +124,14 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
     }
 
     // Keep all bookings under the same enrollment together as one course
+    // Enrollment data is source of truth for title, dates, weeks
     const sortedBookings = [...courseBookings].sort((a, b) =>
       new Date(a.class_instance.class_date) - new Date(b.class_instance.class_date)
     );
-    const startDate = sortedBookings[0]?.class_instance.class_date;
-    const endDate = sortedBookings[sortedBookings.length - 1]?.class_instance.class_date;
+
+    // Use enrollment dates as source of truth, fallback to booking dates
+    const startDate = enrollment.course_start_date || sortedBookings[0]?.class_instance.class_date;
+    const endDate = enrollment.course_end_date || enrollment.course_expiry_date || sortedBookings[sortedBookings.length - 1]?.class_instance.class_date;
 
     const hasUpcomingClasses = courseBookings.some(b =>
       new Date(b.class_instance.class_date) >= today && b.status === 'booked'
@@ -140,14 +143,24 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
                       'VES Instructor';
 
     const courseId = enrollment.course_identifier || extractCourseIdentifier(sortedBookings[0]?.class_instance.class_type) || enrollment.id.toString();
+    const weeks = enrollment.number_of_weeks || enrollment.class_credits_allocated || 6;
+
+    // Derive course title from enrollment data
+    const ct = (enrollment.course_type || '').toLowerCase();
+    let courseTitle = enrollment.course_title;
+    if (!courseTitle) {
+      if (ct.includes('wheelthrowing') || ct.includes('wheel')) courseTitle = `Wheelthrowing Beginner/Ext ${weeks} Weeks`;
+      else if (ct.includes('handbuilding')) courseTitle = `Handbuilding ${weeks} Weeks`;
+      else courseTitle = `Course ${weeks} Weeks`;
+    }
 
     courseHistory.push({
       id: `${enrollment.id}-${courseId}`,
       type: 'course',
       courseIdentifier: courseId,
-      courseTitle: enrollment.course_title,
+      courseTitle: courseTitle,
       courseType: enrollment.course_type,
-      numberOfWeeks: enrollment.number_of_weeks || sortedBookings.length,
+      numberOfWeeks: weeks,
       startDate: startDate,
       endDate: endDate,
       instructor: instructor,

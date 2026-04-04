@@ -3123,6 +3123,31 @@ app.get('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asyn
   // Return all courses (client handles active/past filtering)
   const filteredCourses = courses;
 
+  // Fetch all instructor unavailability dates
+  const { data: unavailData } = await supabaseDb.supabase
+    .from('instructor_unavailability')
+    .select('instructor_id, unavailable_date, customers:instructor_id(first_name, last_name)');
+
+  // Build a map of instructor name -> set of unavailable dates
+  const instructorUnavailability = {};
+  (unavailData || []).forEach(u => {
+    const name = u.customers ? `${u.customers.first_name} ${u.customers.last_name}` : null;
+    if (name) {
+      if (!instructorUnavailability[name]) instructorUnavailability[name] = new Set();
+      instructorUnavailability[name].add(u.unavailable_date);
+    }
+  });
+
+  // Mark classes that fall on instructor unavailable dates
+  filteredCourses.forEach(course => {
+    course.classes.forEach(cls => {
+      const unavailDates = instructorUnavailability[cls.instructor];
+      if (unavailDates && unavailDates.has(cls.class_date)) {
+        cls.instructorUnavailable = true;
+      }
+    });
+  });
+
   console.log(`✅ Successfully fetched and processed ${allClassInstances.length} classes in ${filteredCourses.length} courses`);
 
   res.json({ courses: filteredCourses });

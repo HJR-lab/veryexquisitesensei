@@ -390,7 +390,7 @@ export default function AdminClasses() {
     wtCourses.forEach((c, idx) => {
       c.classes.forEach((cls, clsIdx) => {
         if (cls.class_date?.startsWith(dateStr)) {
-          evs.push({ kind: 'WT', course: c, courseIdx: idx, cls, weekNum: clsIdx + 1, cancelled: cls.status === 'cancelled' });
+          evs.push({ kind: 'WT', course: c, courseIdx: idx, cls, weekNum: clsIdx + 1, cancelled: cls.status === 'cancelled' || cls.instructorUnavailable });
         }
       });
     });
@@ -399,7 +399,7 @@ export default function AdminClasses() {
     getHBCourses().forEach(hb => {
       hb.classes.forEach(cls => {
         if (cls.class_date?.startsWith(dateStr)) {
-          evs.push({ kind: 'HB', hb, cancelled: cls.status === 'cancelled' });
+          evs.push({ kind: 'HB', hb, cancelled: cls.status === 'cancelled' || cls.instructorUnavailable });
         }
       });
     });

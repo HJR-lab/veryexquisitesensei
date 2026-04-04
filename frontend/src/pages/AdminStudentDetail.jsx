@@ -1030,7 +1030,7 @@ export default function AdminStudentDetail() {
                                     <span style={{ fontSize: '12px', fontWeight: isNext ? 700 : 500, color: isCancelled ? '#D93025' : isNext ? TC_DARK : INK, minWidth: '100px', textDecoration: isCancelled ? 'line-through' : 'none' }}>{dateStr}</span>
                                     <span style={{ fontSize: '11px', color: MUTED }}>{cls.start_time || ''}</span>
                                     <span style={{ fontSize: '12px', fontWeight: 600, marginLeft: 'auto' }}>{booked}<span style={{ fontWeight: 400, color: MUTED }}>/{clsCap}</span></span>
-                                    {isCancelled && <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 6px', backgroundColor: '#FDECEA', color: '#D93025', letterSpacing: '0.05em' }}>{unavailDates.has(cls.class_date) && cls.status !== 'cancelled' ? 'UNAVAILABLE' : 'CANCELLED'}</span>}
+                                    {isCancelled && <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 6px', backgroundColor: '#FDECEA', color: '#D93025', letterSpacing: '0.05em' }}>CANCELLED</span>}
                                     {isNext && <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 6px', backgroundColor: TC, color: '#FFF', letterSpacing: '0.05em' }}>NEXT</span>}
                                     {isPast && !isCancelled && <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 6px', backgroundColor: ALT, color: MUTED, letterSpacing: '0.05em' }}>DONE</span>}
                                   </div>

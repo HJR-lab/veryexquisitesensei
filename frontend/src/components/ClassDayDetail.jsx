@@ -56,7 +56,7 @@ export default function ClassDayDetail({
                 {/* Cancelled banner */}
                 {isCancelled && (
                   <div style={{ padding: '6px 14px', backgroundColor: '#FDECEA', borderBottom: `1px solid #E8A0A0`, fontSize: '11px', fontWeight: 700, color: '#D93025', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                    ✕ {classInstance.instructorUnavailable && classInstance.status !== 'cancelled' ? 'Instructor Unavailable' : 'Cancelled'}{classInstance.cancellation_reason ? ` — ${classInstance.cancellation_reason}` : ''}
+                    ✕ Cancelled{classInstance.cancellation_reason ? ` — ${classInstance.cancellation_reason}` : ''}
                   </div>
                 )}
                 {/* Class header */}

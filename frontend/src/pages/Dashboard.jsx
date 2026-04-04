@@ -376,19 +376,26 @@ export default function Dashboard() {
               )}
             </h1>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', color: MUTED }}>
-              {greetingEntries.length > 0 && greetingEntries.map(([label, info]) => (
-                <div key={label}>
-                  {info.isHB ? (
-                    <span>{label} · <strong style={{ color: INK }}>{info.remaining}</strong> credit{info.remaining !== 1 ? 's' : ''} remaining</span>
-                  ) : (
-                    <span><strong style={{ color: INK }}>{info.remaining}</strong> {label}</span>
-                  )}
-                  {nextClass && <span> · Next: <strong style={{ color: INK }}>{nextClass.date}</strong>, {nextClass.time}</span>}
-                </div>
-              ))}
+              {greetingEntries.length > 0 && greetingEntries.map(([label, info]) => {
+                const attended = stats ? (stats.attended || 0) : 0;
+                const total = info.isHB ? info.remaining : (stats?.totalClassesAllocated || 6);
+                return (
+                  <div key={label}>
+                    <div>{label}</div>
+                    {nextClass && (
+                      <div>Next: <strong style={{ color: INK }}>{nextClass.date} {nextClass.time}</strong> · {attended}/{info.isHB ? info.remaining : (enrollmentsWithCounts.find(e => e.statusLabel !== 'completed' && e.statusLabel !== 'pending')?.totalClasses || 6)}</div>
+                    )}
+                  </div>
+                );
+              })}
               {creditBalance > 0 && (
                 <div><strong style={{ color: INK }}>${creditBalance}</strong> Ves is 10 Credits</div>
               )}
+              {dashboardData?.packageInfo?.totalCourses > 1 && (() => {
+                const pkg = dashboardData.packageInfo;
+                const used = pkg.totalCourses - (pkg.coursesRemaining || 0);
+                return <div><strong style={{ color: INK }}>{used}/{pkg.totalCourses}</strong> Courses · {pkg.coursesRemaining || 0} remaining</div>;
+              })()}
               {dashboardData?.studioAccessPasses?.remaining > 0 && (
                 <div><strong style={{ color: INK }}>{dashboardData.studioAccessPasses.remaining}</strong> studio access pass{dashboardData.studioAccessPasses.remaining !== 1 ? 'es' : ''}</div>
               )}

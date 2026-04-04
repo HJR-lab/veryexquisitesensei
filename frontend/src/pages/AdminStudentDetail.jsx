@@ -952,7 +952,11 @@ export default function AdminStudentDetail() {
                   const now = new Date(); now.setHours(0,0,0,0);
                   const unavailDates = new Set((teachingData.unavailableDates || []).map(d => d?.split('T')[0]));
                   const isClassCancelled = (cls) => cls.status === 'cancelled' || unavailDates.has(cls.class_date?.split('T')[0]);
-                  const activeCourses = teachingData.courses.filter(c => (c.classes || []).some(cls => new Date(cls.class_date) >= now && !isClassCancelled(cls)));
+                  const getNextClassDate = (course) => {
+                    const cls = (course.classes || []).find(c => new Date(c.class_date) >= now && !isClassCancelled(c));
+                    return cls ? new Date(cls.class_date) : new Date('9999-12-31');
+                  };
+                  const activeCourses = teachingData.courses.filter(c => (c.classes || []).some(cls => new Date(cls.class_date) >= now && !isClassCancelled(cls))).sort((a, b) => getNextClassDate(a) - getNextClassDate(b));
                   const completedCourses = teachingData.courses.filter(c => !(c.classes || []).some(cls => new Date(cls.class_date) >= now && !isClassCancelled(cls)));
                   const renderCourse = (course, { isCompleted } = {}) => {
                       const classes = course.classes || [];

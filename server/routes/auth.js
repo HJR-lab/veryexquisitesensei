@@ -598,48 +598,62 @@ app.get('/api/students/me/dashboard', authenticateToken, asyncHandler(async (req
     bookingsByEnrollment[enrollmentId].push(booking);
   });
 
+  // Helper: check if a class has ended (accounts for end_time on today's classes)
+  const isClassOver = (booking) => {
+    const now = new Date();
+    const ci = booking.class_instances;
+    const classDate = new Date(ci.class_date);
+    classDate.setHours(0, 0, 0, 0);
+    const todayMidnight = new Date();
+    todayMidnight.setHours(0, 0, 0, 0);
+
+    if (classDate < todayMidnight) return true;
+    if (classDate > todayMidnight) return false;
+
+    // Today's class: check end_time
+    if (ci.end_time) {
+      const match = ci.end_time.trim().toLowerCase().match(/(\d{1,2}):?(\d{2})?\s*(am|pm)?/);
+      if (match) {
+        let h = parseInt(match[1], 10);
+        const mins = parseInt(match[2] || '0', 10);
+        const ampm = match[3];
+        if (ampm === 'pm' && h !== 12) h += 12;
+        if (ampm === 'am' && h === 12) h = 0;
+        return now.getHours() > h || (now.getHours() === h && now.getMinutes() >= mins);
+      }
+    }
+    return false; // Today but no end_time parsed, treat as not over
+  };
+
   // Helper function to determine enrollment status
   const getEnrollmentStatus = (enrollment, bookingsForEnrollment) => {
     if (!bookingsForEnrollment || bookingsForEnrollment.length === 0) {
       return 'pending'; // No bookings yet = pending schedule
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const now = new Date();
+    const todayMidnight = new Date();
+    todayMidnight.setHours(0, 0, 0, 0);
 
-    const allDates = bookingsForEnrollment.map(b => new Date(b.class_instances.class_date));
-    const earliestDate = new Date(Math.min(...allDates));
-    const latestDate = new Date(Math.max(...allDates));
+    // Check if all classes are over (including today's finished ones)
+    const allOver = bookingsForEnrollment.every(b => isClassOver(b));
+    if (allOver) return 'completed';
 
-    earliestDate.setHours(0, 0, 0, 0);
-    latestDate.setHours(0, 0, 0, 0);
+    // Check if all classes are in the future (none started)
+    const noneStarted = bookingsForEnrollment.every(b => {
+      const d = new Date(b.class_instances.class_date);
+      d.setHours(0, 0, 0, 0);
+      return d > todayMidnight;
+    });
 
-    // Special logic for package courses: if it's a 3-course package, treat as upcoming
+    // Special logic for package courses
     if (enrollment.package_total_courses && enrollment.package_total_courses > 1) {
-      // Package courses should show as upcoming if their classes start in the future
-      if (earliestDate > today) {
-        return 'upcoming';
-      }
-      // Even if some classes are current/past, if most classes are future, show as upcoming
-      const futureClasses = allDates.filter(date => {
-        const d = new Date(date);
-        d.setHours(0, 0, 0, 0);
-        return d > today;
-      });
-      if (futureClasses.length >= allDates.length / 2) {
-        return 'upcoming';
-      }
+      if (noneStarted) return 'upcoming';
+      const futureCount = bookingsForEnrollment.filter(b => !isClassOver(b)).length;
+      if (futureCount >= bookingsForEnrollment.length / 2) return 'upcoming';
     }
 
-    // All classes in the future = upcoming
-    if (earliestDate > today) {
-      return 'upcoming';
-    }
-
-    // All classes in the past = completed
-    if (latestDate < today) {
-      return 'completed';
-    }
+    if (noneStarted) return 'upcoming';
 
     // Some past, some future = active
     return 'active';

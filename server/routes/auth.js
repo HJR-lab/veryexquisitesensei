@@ -575,7 +575,8 @@ app.get('/api/students/me/dashboard', authenticateToken, asyncHandler(async (req
         start_time,
         end_time,
         instructor,
-        room
+        room,
+        status
       )
     `)
     .eq('student_id', dbCustomerId)
@@ -658,7 +659,12 @@ app.get('/api/students/me/dashboard', authenticateToken, asyncHandler(async (req
     const status = getEnrollmentStatus(enrollment, bookingsForEnrollment);
 
     const isWTCourse = (enrollment.course_type || '').toLowerCase().includes('wheelthrowing');
-    const isPendingThreshold = isWTCourse && enrollment.pending_student_count != null && enrollment.pending_student_count < 4;
+    // Check if any associated class instances are still in draft (not yet activated)
+    const hasDraftClasses = isWTCourse && (
+      (bookingsForEnrollment.length > 0 && bookingsForEnrollment.some(b => b.class_instances?.status === 'draft')) ||
+      (bookingsForEnrollment.length === 0 && enrollment.pending_student_count != null && enrollment.pending_student_count < 4)
+    );
+    const isPendingThreshold = hasDraftClasses;
 
     const enrollmentWithBookings = {
       ...enrollment,

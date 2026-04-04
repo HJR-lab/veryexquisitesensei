@@ -1107,6 +1107,37 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
             error: `You can only reschedule to classes within your cohort period (${startStr} - ${endStr}).`
           });
         }
+
+        // Pre-glazing rule: the last class before glazing must be at least 5 full days before glazing date
+        // This ensures enough drying time. Applies to week 5/6 (6-week) or week 6/7 (7-week) courses.
+        const isPreGlazingClass = oldClass.class_type?.match(/\b(6\.5|7\.6)\b/);
+        if (isPreGlazingClass) {
+          // Find the student's glazing class booking for this enrollment
+          const { data: glazingBooking } = await supabaseDb.supabase
+            .from('bookings')
+            .select('class_instance_id, class_instances!bookings_class_instance_id_fkey(class_date, class_type)')
+            .eq('student_id', dbCustomerId)
+            .eq('course_enrollment_id', currentBooking.course_enrollment_id)
+            .eq('status', 'booked');
+
+          const glazingClass = (glazingBooking || []).find(b =>
+            b.class_instances?.class_type?.includes('Glazing')
+          );
+
+          if (glazingClass) {
+            const glazingDate = new Date(glazingClass.class_instances.class_date);
+            const fiveDaysBefore = new Date(glazingDate.getTime() - 5 * 24 * 60 * 60 * 1000);
+            const newDate = new Date(newClass.class_date);
+
+            if (newDate > fiveDaysBefore) {
+              const glazingStr = glazingDate.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+              const deadlineStr = fiveDaysBefore.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+              return res.status(400).json({
+                error: `Your last class before glazing must be at least 5 days before your glazing date (${glazingStr}). Please pick a class on or before ${deadlineStr}.`
+              });
+            }
+          }
+        }
       }
     }
   }

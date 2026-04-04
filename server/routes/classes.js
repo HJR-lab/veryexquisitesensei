@@ -96,7 +96,8 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
     return match ? match[1] : classType;
   };
 
-  const isAttended = (b) => b.attended === true || b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && new Date(b.class_instance.class_date) < today);
+  const isPast = (b) => b.class_instance && new Date(b.class_instance.class_date) < today;
+  const isAttended = (b) => isPast(b) && (b.attended === true || b.status === 'attended' || b.status === 'completed' || b.status === 'booked');
 
   // Step 1: Group ALL bookings by base course identifier (source of truth)
   const courseGroups = {};
@@ -170,7 +171,7 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
       endDate: endDate,
       instructor: instructor,
       status: sorted.some(b => b.class_instance.status === 'draft') ? 'awaiting confirmation' : allFuture ? 'upcoming' : hasUpcoming ? 'current' : 'completed',
-      classesAttended: (!hasUpcoming && !allFuture && enrollment) ? (enrollment.number_of_weeks || enrollment.class_credits_allocated || sorted.filter(b => isAttended(b)).length) : sorted.filter(b => isAttended(b)).length,
+      classesAttended: sorted.filter(b => isAttended(b)).length,
       classes: sorted.map(b => ({
         id: b.class_instance.id,
         date: b.class_instance.class_date,
@@ -220,7 +221,7 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
   const response = {
     history: courseHistory,
     totalClasses: bookings.length + extraAttended,
-    attendedClasses: bookings.filter(b => b.attended || b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && new Date(b.class_instance.class_date) < today)).length + extraAttended
+    attendedClasses: bookings.filter(b => isAttended(b)).length + extraAttended
   };
 
   console.log('📤 Returning history:', JSON.stringify(response, null, 2));

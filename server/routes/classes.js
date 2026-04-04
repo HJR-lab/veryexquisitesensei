@@ -152,7 +152,7 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
       endDate: endDate,
       instructor: instructor,
       status: allClassesFuture ? 'upcoming' : hasUpcomingClasses ? 'current' : 'completed',
-      classesAttended: sortedBookings.filter(b => b.attended === true || b.status === 'attended' || b.status === 'completed').length,
+      classesAttended: sortedBookings.filter(b => b.attended === true || b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && new Date(b.class_instance.class_date) < today)).length,
       classes: sortedBookings.map(b => ({
         id: b.class_instance.id,
         date: b.class_instance.class_date,
@@ -160,7 +160,7 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
         endTime: b.class_instance.end_time,
         classType: b.class_instance.class_type,
         instructor: b.class_instance.instructor,
-        attended: b.attended === true || b.status === 'attended' || b.status === 'completed',
+        attended: b.attended === true || b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && new Date(b.class_instance.class_date) < today),
         status: b.status
       }))
     });
@@ -271,7 +271,7 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
   const response = {
     history: courseHistory,
     totalClasses: bookings.length + extraAttended,
-    attendedClasses: bookings.filter(b => b.attended).length + extraAttended
+    attendedClasses: bookings.filter(b => b.attended || b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && new Date(b.class_instance.class_date) < today)).length + extraAttended
   };
 
   console.log('📤 Returning history:', JSON.stringify(response, null, 2));

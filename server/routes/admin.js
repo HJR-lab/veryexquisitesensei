@@ -3022,7 +3022,7 @@ app.get('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asyn
   const todayStr = new Date().toISOString().split('T')[0];
   const { data: allClassInstances, error: classesError } = await supabaseDb.supabase
     .from('class_instances')
-    .select('id, class_type, class_date, start_time, end_time, instructor, room, max_capacity, current_enrollment, class_title, class_description')
+    .select('id, class_type, class_date, start_time, end_time, instructor, room, max_capacity, current_enrollment, class_title, class_description, status, cancellation_reason')
     .gte('class_date', '2026-01-01')
     .order('class_date', { ascending: true });
 
@@ -3122,6 +3122,31 @@ app.get('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asyn
 
   // Return all courses (client handles active/past filtering)
   const filteredCourses = courses;
+
+  // Fetch all instructor unavailability dates
+  const { data: unavailData } = await supabaseDb.supabase
+    .from('instructor_unavailability')
+    .select('instructor_id, unavailable_date, customers:instructor_id(first_name, last_name)');
+
+  // Build a map of instructor name -> set of unavailable dates
+  const instructorUnavailability = {};
+  (unavailData || []).forEach(u => {
+    const name = u.customers ? `${u.customers.first_name} ${u.customers.last_name}` : null;
+    if (name) {
+      if (!instructorUnavailability[name]) instructorUnavailability[name] = new Set();
+      instructorUnavailability[name].add(u.unavailable_date?.split('T')[0]);
+    }
+  });
+
+  // Mark classes that fall on instructor unavailable dates
+  filteredCourses.forEach(course => {
+    course.classes.forEach(cls => {
+      const unavailDates = instructorUnavailability[cls.instructor];
+      if (unavailDates && unavailDates.has(cls.class_date?.split('T')[0])) {
+        cls.instructorUnavailable = true;
+      }
+    });
+  });
 
   console.log(`✅ Successfully fetched and processed ${allClassInstances.length} classes in ${filteredCourses.length} courses`);
 

@@ -950,16 +950,18 @@ export default function AdminStudentDetail() {
                   <div style={{ padding: '40px 0', textAlign: 'center', color: MUTED, fontSize: '13px' }}>No courses assigned to this instructor.</div>
                 ) : (() => {
                   const now = new Date(); now.setHours(0,0,0,0);
-                  const activeCourses = teachingData.courses.filter(c => (c.classes || []).some(cls => new Date(cls.class_date) >= now));
-                  const completedCourses = teachingData.courses.filter(c => !(c.classes || []).some(cls => new Date(cls.class_date) >= now));
+                  const unavailDates = new Set((teachingData.unavailableDates || []).map(d => d?.split('T')[0]));
+                  const isClassCancelled = (cls) => cls.status === 'cancelled' || unavailDates.has(cls.class_date?.split('T')[0]);
+                  const activeCourses = teachingData.courses.filter(c => (c.classes || []).some(cls => new Date(cls.class_date) >= now && !isClassCancelled(cls)));
+                  const completedCourses = teachingData.courses.filter(c => !(c.classes || []).some(cls => new Date(cls.class_date) >= now && !isClassCancelled(cls)));
                   const renderCourse = (course, { isCompleted } = {}) => {
                       const classes = course.classes || [];
                       const sampleClass = classes[0];
                       const typePrefix = (sampleClass?.class_type || '').match(/^(WT|HB|KD|CL)/)?.[1];
                       const typeLabel = typePrefix === 'WT' ? 'Wheelthrowing' : typePrefix === 'HB' ? 'Handbuilding' : typePrefix === 'KD' ? 'Kids' : '';
                       const today = now;
-                      const futureClasses = classes.filter(c => new Date(c.class_date) >= today);
-                      const pastClasses = classes.filter(c => new Date(c.class_date) < today);
+                      const futureClasses = classes.filter(c => new Date(c.class_date) >= today && !isClassCancelled(c));
+                      const pastClasses = classes.filter(c => new Date(c.class_date) < today || isClassCancelled(c));
                       const isExpanded = expandedClassId === course.identifier;
                       const nextClass = futureClasses[0];
                       const nextDateStr = nextClass ? new Date(nextClass.class_date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : null;
@@ -1011,8 +1013,9 @@ export default function AdminStudentDetail() {
                             <div style={{ borderTop: `1px solid ${RULE}` }}>
                               {classes.map((cls, i) => {
                                 const classDate = new Date(cls.class_date);
+                                const isCancelled = isClassCancelled(cls);
                                 const isPast = classDate < today;
-                                const isNext = !isPast && futureClasses[0]?.id === cls.id;
+                                const isNext = !isPast && !isCancelled && futureClasses[0]?.id === cls.id;
                                 const dateStr = classDate.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
                                 const booked = cls.bookingCount || 0;
                                 const clsCap = cls.max_capacity || 10;
@@ -1020,15 +1023,16 @@ export default function AdminStudentDetail() {
                                   <div key={cls.id} style={{
                                     display: 'flex', alignItems: 'center', gap: '10px',
                                     padding: '9px 18px', borderBottom: i < classes.length - 1 ? `1px solid ${RULE}` : 'none',
-                                    backgroundColor: isNext ? TC_LIGHT : isPast ? '#FAFAFA' : '#FFF',
-                                    opacity: isPast ? 0.5 : 1,
+                                    backgroundColor: isCancelled ? '#FDF2F2' : isNext ? TC_LIGHT : isPast ? '#FAFAFA' : '#FFF',
+                                    opacity: isPast || isCancelled ? 0.5 : 1,
                                   }}>
                                     <span style={{ fontSize: '11px', fontWeight: 700, color: MUTED, width: '28px' }}>W{i + 1}</span>
-                                    <span style={{ fontSize: '12px', fontWeight: isNext ? 700 : 500, color: isNext ? TC_DARK : INK, minWidth: '100px' }}>{dateStr}</span>
+                                    <span style={{ fontSize: '12px', fontWeight: isNext ? 700 : 500, color: isCancelled ? '#D93025' : isNext ? TC_DARK : INK, minWidth: '100px', textDecoration: isCancelled ? 'line-through' : 'none' }}>{dateStr}</span>
                                     <span style={{ fontSize: '11px', color: MUTED }}>{cls.start_time || ''}</span>
                                     <span style={{ fontSize: '12px', fontWeight: 600, marginLeft: 'auto' }}>{booked}<span style={{ fontWeight: 400, color: MUTED }}>/{clsCap}</span></span>
+                                    {isCancelled && <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 6px', backgroundColor: '#FDECEA', color: '#D93025', letterSpacing: '0.05em' }}>CANCELLED</span>}
                                     {isNext && <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 6px', backgroundColor: TC, color: '#FFF', letterSpacing: '0.05em' }}>NEXT</span>}
-                                    {isPast && <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 6px', backgroundColor: ALT, color: MUTED, letterSpacing: '0.05em' }}>DONE</span>}
+                                    {isPast && !isCancelled && <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 6px', backgroundColor: ALT, color: MUTED, letterSpacing: '0.05em' }}>DONE</span>}
                                   </div>
                                 );
                               })}

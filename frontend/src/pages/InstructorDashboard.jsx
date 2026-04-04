@@ -699,7 +699,7 @@ export default function InstructorDashboard() {
       {/* ── Cancel Class Modal ── */}
       {cancelTarget && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.4)' }} onClick={() => { if (!cancelling) { setCancelTarget(null); setCancelReason(''); } }}>
-          <div style={{ backgroundColor: '#FFFFFF', width: '90%', maxWidth: '420px', padding: '24px', boxShadow: '0 8px 32px rgba(0,0,0,0.15)' }} onClick={e => e.stopPropagation()}>
+          <div style={{ backgroundColor: '#FFFFFF', width: '90%', maxWidth: '420px', padding: '24px', boxShadow: '0 8px 32px rgba(0,0,0,0.15)' }} onClick={e => e.stopPropagation()} onTouchEnd={e => e.stopPropagation()}>
             <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#C03030', marginBottom: '16px' }}>Cancel Class</div>
             <div style={{ fontSize: '14px', fontWeight: 700, color: INK, marginBottom: '4px' }}>{cancelTarget.class_type}</div>
             <div style={{ fontSize: '12px', color: MUTED, marginBottom: '16px' }}>
@@ -707,7 +707,14 @@ export default function InstructorDashboard() {
               {cancelTarget.current_enrollment > 0 && <span style={{ color: '#C03030', fontWeight: 600 }}> · {cancelTarget.current_enrollment} student{cancelTarget.current_enrollment !== 1 ? 's' : ''} will be affected</span>}
             </div>
             <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: MUTED, marginBottom: '6px' }}>Reason for cancellation</label>
-            <textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)} placeholder="e.g. Vacation, personal emergency, studio maintenance..." rows={3} style={{ width: '100%', padding: '10px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box' }} autoFocus />
+            <textarea
+              value={cancelReason}
+              onChange={e => setCancelReason(e.target.value)}
+              onTouchEnd={e => { e.stopPropagation(); e.target.focus(); }}
+              placeholder="e.g. Vacation, personal emergency, studio maintenance..."
+              rows={4}
+              style={{ width: '100%', padding: '12px', border: '2px solid #CCC', borderRadius: '6px', fontSize: '16px', fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box', WebkitAppearance: 'none', appearance: 'none' }}
+            />
             <div style={{ display: 'flex', gap: '8px', marginTop: '16px', justifyContent: 'flex-end' }}>
               <button onClick={() => { setCancelTarget(null); setCancelReason(''); }} disabled={cancelling} style={{ padding: '10px 20px', border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF', cursor: 'pointer', fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: MUTED }}>Back</button>
               <button onClick={handleCancelClass} disabled={cancelling || !cancelReason.trim()} style={{ padding: '10px 20px', border: 'none', backgroundColor: cancelReason.trim() ? '#C03030' : '#DDD', cursor: cancelReason.trim() && !cancelling ? 'pointer' : 'not-allowed', fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#FFFFFF', opacity: cancelling ? 0.7 : 1 }}>{cancelling ? 'Cancelling…' : 'Confirm Cancel'}</button>

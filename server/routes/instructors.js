@@ -1013,7 +1013,15 @@ app.get('/api/admin/instructors/:id/teaching', authenticateToken, requireAdmin, 
     return { identifier, totalEnrollment: uniqueStudents.size, classes };
   });
 
-  res.json({ courses });
+  // Get instructor unavailable dates
+  const { data: unavailDates } = await supabaseDb.supabase
+    .from('instructor_unavailability')
+    .select('unavailable_date')
+    .eq('instructor_id', id);
+
+  const unavailableDates = (unavailDates || []).map(d => d.unavailable_date);
+
+  res.json({ courses, unavailableDates });
 }));
 
 // POST /api/admin/instructors/:id/profile-image - Admin uploads profile image for instructor

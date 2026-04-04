@@ -242,10 +242,10 @@ export default function Dashboard() {
     // Status badge
     const { active: activeEnrollments = [], upcoming: upcomingEnrollments = [] } = dashboardData?.enrollments || {};
     let statusLabel = 'enrolled';
-    if (activeEnrollments.find(e => e.id === enrollment.id)) statusLabel = 'active';
+    if (enrollment.pendingThreshold) statusLabel = 'pending';
+    else if (activeEnrollments.find(e => e.id === enrollment.id)) statusLabel = 'active';
     else if (upcomingEnrollments.find(e => e.id === enrollment.id)) statusLabel = 'upcoming';
     else if ((dashboardData?.enrollments?.completed || []).find(e => e.id === enrollment.id)) statusLabel = 'completed';
-    else if (enrollment.pendingThreshold) statusLabel = 'pending';
 
     return { enrollment, totalClasses, attendedCount, bookedCount, remaining, pct, typeLabel, statusLabel };
   });

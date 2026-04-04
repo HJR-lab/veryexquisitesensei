@@ -1133,7 +1133,7 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
               const glazingStr = glazingDate.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
               const deadlineStr = fiveDaysBefore.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
               return res.status(400).json({
-                error: `Your pieces need time to dry before they can be fired, and the firing process takes 3–4 days. To make sure everything is ready for your glazing session on ${glazingStr}, please pick a class on or before ${deadlineStr}.`
+                error: `Your pieces need time to dry before firing, which takes 3–4 days. To be ready for glazing on ${glazingDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}, pick a class by ${fiveDaysBefore.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}.`
               });
             }
           }

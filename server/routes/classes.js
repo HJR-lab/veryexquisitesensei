@@ -167,10 +167,53 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
   });
 
   // Add standalone bookings (not part of a course enrollment)
-  // Group by class_type base identifier so related classes appear together
+  // Try to merge into existing course entries first, then show remaining as standalone
   const standaloneBookings = bookings.filter(b => !b.course_enrollment_id);
-  const standaloneGrouped = {};
+  const unmatchedStandalone = [];
+
   standaloneBookings.forEach(booking => {
+    const ci = booking.class_instance;
+    const bookingDate = new Date(ci.class_date);
+
+    // Try to find a matching course entry by instructor + date proximity (within 8 weeks)
+    const match = courseHistory.find(course => {
+      if (course.type !== 'course') return false;
+      const courseStart = new Date(course.startDate);
+      const courseEnd = new Date(course.endDate);
+      // Extend range by 2 weeks on each side to catch makeups
+      courseStart.setDate(courseStart.getDate() - 14);
+      courseEnd.setDate(courseEnd.getDate() + 14);
+      return course.instructor === ci.instructor &&
+             bookingDate >= courseStart && bookingDate <= courseEnd;
+    });
+
+    if (match) {
+      // Merge into existing course entry
+      const classEntry = {
+        id: ci.id,
+        date: ci.class_date,
+        startTime: ci.start_time,
+        endTime: ci.end_time,
+        classType: ci.class_type,
+        instructor: ci.instructor,
+        attended: booking.attended === true || booking.status === 'attended' || booking.status === 'completed',
+        status: booking.status
+      };
+      match.classes.push(classEntry);
+      match.classes.sort((a, b) => new Date(a.date) - new Date(b.date));
+      // Update start/end dates
+      match.startDate = match.classes[0].date;
+      match.endDate = match.classes[match.classes.length - 1].date;
+      // Recount attended
+      match.classesAttended = match.classes.filter(c => c.attended).length;
+    } else {
+      unmatchedStandalone.push(booking);
+    }
+  });
+
+  // Group remaining unmatched standalone bookings
+  const standaloneGrouped = {};
+  unmatchedStandalone.forEach(booking => {
     const ci = booking.class_instance;
     const baseId = extractCourseIdentifier(ci.class_type) || `standalone-${booking.id}`;
     if (!standaloneGrouped[baseId]) standaloneGrouped[baseId] = [];

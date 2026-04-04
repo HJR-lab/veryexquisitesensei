@@ -657,10 +657,16 @@ app.get('/api/students/me/dashboard', authenticateToken, asyncHandler(async (req
     const bookingsForEnrollment = bookingsByEnrollment[enrollment.id] || [];
     const status = getEnrollmentStatus(enrollment, bookingsForEnrollment);
 
+    const isWTCourse = (enrollment.course_type || '').toLowerCase().includes('wheelthrowing');
+    const isPendingThreshold = isWTCourse && status === 'pending' && enrollment.pending_student_count < 4;
+
     const enrollmentWithBookings = {
       ...enrollment,
       bookings: bookingsForEnrollment,
-      computedStatus: status
+      computedStatus: status,
+      pendingThreshold: isPendingThreshold,
+      currentStudents: enrollment.pending_student_count || 0,
+      requiredStudents: 4,
     };
 
     // Check if this is part of a package

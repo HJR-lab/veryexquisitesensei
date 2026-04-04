@@ -245,6 +245,7 @@ export default function Dashboard() {
     if (activeEnrollments.find(e => e.id === enrollment.id)) statusLabel = 'active';
     else if (upcomingEnrollments.find(e => e.id === enrollment.id)) statusLabel = 'upcoming';
     else if ((dashboardData?.enrollments?.completed || []).find(e => e.id === enrollment.id)) statusLabel = 'completed';
+    else if (enrollment.pendingThreshold) statusLabel = 'pending';
 
     return { enrollment, totalClasses, attendedCount, bookedCount, remaining, pct, typeLabel, statusLabel };
   });
@@ -487,10 +488,10 @@ export default function Dashboard() {
                         <span style={{
                           fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
                           padding: '3px 6px', flexShrink: 0,
-                          backgroundColor: isActive ? TC_LIGHT : '#EBEBEB',
-                          color: isActive ? TC_DARK : MUTED,
+                          backgroundColor: statusLabel === 'pending' ? '#FFF7E6' : isActive ? TC_LIGHT : '#EBEBEB',
+                          color: statusLabel === 'pending' ? '#9E6200' : isActive ? TC_DARK : MUTED,
                         }}>
-                          {statusLabel}
+                          {statusLabel === 'pending' ? 'awaiting confirmation' : statusLabel}
                         </span>
                       </div>
                       {/* Row 2: Course Details toggle (left) + Booked/Attended (right) */}
@@ -530,6 +531,13 @@ export default function Dashboard() {
                         </div>
                       )}
                     </div>
+
+                    {/* Pending threshold message */}
+                    {enrollment.pendingThreshold && (
+                      <div style={{ padding: '10px 14px', backgroundColor: '#FFF7E6', borderTop: `1px solid #F0E4C8`, fontSize: '12px', color: '#6B4D00', lineHeight: 1.5 }}>
+                        <strong>You're registered!</strong> We need a minimum of {enrollment.requiredStudents} students for this class to run. Currently {enrollment.currentStudents}/{enrollment.requiredStudents} enrolled. You'll receive a confirmation email once the class is confirmed.
+                      </div>
+                    )}
 
                     {/* Expandable course details — 3 sections */}
                     {isExpanded && details && (

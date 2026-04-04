@@ -598,13 +598,20 @@ app.get('/api/students/me/dashboard', authenticateToken, asyncHandler(async (req
     bookingsByEnrollment[enrollmentId].push(booking);
   });
 
+  // Helper: get current time in Singapore timezone
+  const getSGTNow = () => {
+    const now = new Date();
+    const sgt = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));
+    return sgt;
+  };
+
   // Helper: check if a class has ended (accounts for end_time on today's classes)
   const isClassOver = (booking) => {
-    const now = new Date();
+    const now = getSGTNow();
     const ci = booking.class_instances;
     const classDate = new Date(ci.class_date);
     classDate.setHours(0, 0, 0, 0);
-    const todayMidnight = new Date();
+    const todayMidnight = new Date(now);
     todayMidnight.setHours(0, 0, 0, 0);
 
     if (classDate < todayMidnight) return true;

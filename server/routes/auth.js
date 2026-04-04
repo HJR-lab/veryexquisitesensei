@@ -39,7 +39,91 @@ function invalidateAuthCache(key) {
   else authCache.clear();
 }
 
-module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler }) {
+module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, getShopifyClient }) {
+
+// ============================================
+// On-demand Shopify order sync for new students
+// ============================================
+async function syncShopifyOrdersForCustomer(customer) {
+  try {
+    const client = getShopifyClient();
+    if (!client) return;
+
+    const email = customer.email;
+    console.log(`🔄 On-demand order sync for ${email}`);
+
+    const query = `
+      query {
+        orders(first: 10, query: "email:${email}", sortKey: CREATED_AT, reverse: true) {
+          edges {
+            node {
+              id
+              name
+              createdAt
+              customer {
+                id
+                email
+                firstName
+                lastName
+              }
+              lineItems(first: 20) {
+                edges {
+                  node {
+                    id
+                    title
+                    variantTitle
+                    quantity
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const response = await client.query({ data: { query } });
+    const orders = response?.body?.data?.orders?.edges || [];
+
+    if (orders.length === 0) return;
+
+    const { processCoursePurchase } = require('../utils/courseEnrollmentManager');
+
+    for (const { node: orderNode } of orders) {
+      const lineItems = orderNode.lineItems?.edges || [];
+      for (const { node: item } of lineItems) {
+        const title = (item.title || '').toLowerCase();
+        if (title.includes('wheelthrowing') || title.includes('handbuilding') || title.includes('pottery course')) {
+          // Extract numeric ID from Shopify GID
+          const orderId = orderNode.id.replace('gid://shopify/Order/', '');
+          const lineItemId = item.id.replace('gid://shopify/LineItem/', '');
+
+          const order = {
+            id: orderId,
+            customer: {
+              email: customer.email,
+              first_name: customer.first_name,
+              last_name: customer.last_name,
+            }
+          };
+          const lineItem = {
+            id: lineItemId,
+            title: item.title,
+            variantTitle: item.variantTitle || '',
+          };
+
+          const result = await processCoursePurchase(order, lineItem);
+          if (result.success && !result.skipped) {
+            console.log(`✅ On-demand enrollment created for ${email}: ${item.title}`);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('On-demand order sync failed:', err.message);
+    // Don't block login
+  }
+}
 
 // ============================================
 // AUTH ENDPOINTS
@@ -106,7 +190,21 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
       return res.json({ user: req.user });
     }
 
-    const hasActiveEnrollments = (activeEnrollmentRes.data || []).length > 0;
+    let hasActiveEnrollments = (activeEnrollmentRes.data || []).length > 0;
+
+    // If no enrollments found, try on-demand Shopify order sync
+    // This catches the case where the student signed in before the webhook arrived
+    if (!hasActiveEnrollments && customer && !req.user.isAdmin) {
+      await syncShopifyOrdersForCustomer(customer);
+      // Re-check enrollments after sync
+      const { data: recheckEnrollments } = await supabaseDb.supabase
+        .from('course_enrollments')
+        .select('id')
+        .eq('student_id', dbCustomerId)
+        .in('status', ['active', 'pending'])
+        .limit(1);
+      hasActiveEnrollments = (recheckEnrollments || []).length > 0;
+    }
 
     // Login tracking — fire-and-forget, non-blocking (1-hour deduplication)
     // Do NOT track impersonation sessions or admin (info@ves.sg)

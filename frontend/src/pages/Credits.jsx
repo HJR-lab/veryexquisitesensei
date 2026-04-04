@@ -309,7 +309,7 @@ export default function Credits() {
               </div>
               <div style={{ fontSize: '48px', fontWeight: 700, color: TC, lineHeight: 1, marginBottom: '8px' }}>
                 <span style={{ fontSize: '28px', fontWeight: 400, verticalAlign: 'top', marginRight: '2px' }}>$</span>{balance ?? 0}
-                <span style={{ fontSize: '16px', fontWeight: 400, color: TC_DARK, marginLeft: '6px' }}>Ves Credits</span>
+                <span style={{ fontSize: '16px', fontWeight: 400, color: TC_DARK, marginLeft: '6px' }}>Ves is 10 Credits</span>
               </div>
               <div style={{ fontSize: '11px', color: TC_DARK, opacity: 0.7 }}>
                 Expires 31 Dec 2026

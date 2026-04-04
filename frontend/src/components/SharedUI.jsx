@@ -126,14 +126,20 @@ export function formatDateParts(dateStr) {
 
 export function formatTime(timeStr) {
   if (!timeStr) return '';
-  // Already formatted like "1:00pm" or "9:30am" — return as-is
-  if (/\d{1,2}:\d{2}(am|pm)/i.test(timeStr)) return timeStr;
-  // 24h format "HH:MM" — convert
-  const [h, m] = timeStr.split(':');
-  const hour = parseInt(h, 10);
+  const s = timeStr.trim();
+  // Handle "1:00 PM", "9:30am", "1:00pm" — normalize to compact format
+  const ampmMatch = s.match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i);
+  if (ampmMatch) {
+    return `${parseInt(ampmMatch[1], 10)}:${ampmMatch[2]}${ampmMatch[3].toLowerCase()}`;
+  }
+  // 24h format "HH:MM" or "HH:MM:SS" — convert
+  const parts = s.split(':');
+  const hour = parseInt(parts[0], 10);
+  const min = (parts[1] || '00').replace(/\D/g, '').slice(0, 2);
+  if (isNaN(hour)) return s;
   const ampm = hour >= 12 ? 'pm' : 'am';
   const display = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
-  return `${display}:${m}${ampm}`;
+  return `${display}:${min}${ampm}`;
 }
 
 export function getClassLabel(classType) {

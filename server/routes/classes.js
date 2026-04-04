@@ -123,162 +123,46 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
       return;
     }
 
-    // If enrollment has a course_identifier set, use that and group all bookings together
-    if (enrollment.course_identifier) {
-      const sortedBookings = [...courseBookings].sort((a, b) =>
-        new Date(a.class_instance.class_date) - new Date(b.class_instance.class_date)
-      );
-      const startDate = sortedBookings[0]?.class_instance.class_date;
-      const endDate = sortedBookings[sortedBookings.length - 1]?.class_instance.class_date;
+    // Keep all bookings under the same enrollment together as one course
+    const sortedBookings = [...courseBookings].sort((a, b) =>
+      new Date(a.class_instance.class_date) - new Date(b.class_instance.class_date)
+    );
+    const startDate = sortedBookings[0]?.class_instance.class_date;
+    const endDate = sortedBookings[sortedBookings.length - 1]?.class_instance.class_date;
 
-      const hasUpcomingClasses = courseBookings.some(b =>
-        new Date(b.class_instance.class_date) >= today && b.status === 'booked'
-      );
-      const allClassesFuture = startDate && new Date(startDate) > today;
+    const hasUpcomingClasses = courseBookings.some(b =>
+      new Date(b.class_instance.class_date) >= today && b.status === 'booked'
+    );
+    const allClassesFuture = startDate && new Date(startDate) > today;
 
-      const instructor = sortedBookings[0]?.class_instance.instructor ||
-                        enrollment.instructor ||
-                        'VES Instructor';
+    const instructor = sortedBookings[0]?.class_instance.instructor ||
+                      enrollment.instructor ||
+                      'VES Instructor';
 
-      courseHistory.push({
-        id: `${enrollment.id}-${enrollment.course_identifier}`,
-        type: 'course',
-        courseIdentifier: enrollment.course_identifier,
-        courseTitle: enrollment.course_title,
-        courseType: enrollment.course_type,
-        numberOfWeeks: sortedBookings.length,
-        startDate: startDate,
-        endDate: endDate,
-        instructor: instructor,
-        status: allClassesFuture ? 'upcoming' : hasUpcomingClasses ? 'current' : 'completed',
-        classes: sortedBookings.map(b => ({
-          id: b.class_instance.id,
-          date: b.class_instance.class_date,
-          startTime: b.class_instance.start_time,
-          endTime: b.class_instance.end_time,
-          classType: b.class_instance.class_type,
-          instructor: b.class_instance.instructor,
-          attended: b.attended === true || b.status === 'attended' || b.status === 'completed',
-          status: b.status
-        }))
-      });
-      return; // Skip the normal per-course processing
-    }
+    const courseId = enrollment.course_identifier || extractCourseIdentifier(sortedBookings[0]?.class_instance.class_type) || enrollment.id.toString();
 
-    // Group bookings by course identifier
-    const bookingsByCourse = {};
-    courseBookings.forEach(booking => {
-      const courseId = extractCourseIdentifier(booking.class_instance.class_type);
-      if (courseId) {
-        if (!bookingsByCourse[courseId]) {
-          bookingsByCourse[courseId] = [];
-        }
-        bookingsByCourse[courseId].push(booking);
-      }
-    });
-
-    // Determine if we should split or keep together
-    // If all course identifiers have < 4 bookings, treat as one course with makeups
-    // If any course identifier has 4+ bookings, split into separate courses
-    const courseIds = Object.keys(bookingsByCourse);
-    const hasFullCourse = courseIds.some(id => bookingsByCourse[id].length >= 4);
-
-    // If no full courses detected, keep all bookings together as one course entry
-    if (!hasFullCourse && courseIds.length > 1) {
-      // Use the most common course identifier, or first one
-      const primaryCourseId = courseIds[0];
-      const allBookings = courseBookings;
-
-      const hasUpcomingClasses = allBookings.some(b =>
-        new Date(b.class_instance.class_date) >= today && b.status === 'booked'
-      );
-
-      const sortedBookings = [...allBookings].sort((a, b) =>
-        new Date(a.class_instance.class_date) - new Date(b.class_instance.class_date)
-      );
-      const startDate = sortedBookings[0]?.class_instance.class_date;
-      const endDate = sortedBookings[sortedBookings.length - 1]?.class_instance.class_date;
-
-      const instructor = sortedBookings[0]?.class_instance.instructor ||
-                        enrollment.instructor ||
-                        'VES Instructor';
-
-      const allClassesFuture = startDate && new Date(startDate) > today;
-
-      courseHistory.push({
-        id: `${enrollment.id}-${primaryCourseId}`,
-        type: 'course',
-        courseIdentifier: primaryCourseId,
-        courseTitle: enrollment.course_title,
-        courseType: enrollment.course_type,
-        numberOfWeeks: sortedBookings.length,
-        startDate: startDate,
-        endDate: endDate,
-        instructor: instructor,
-        status: allClassesFuture ? 'upcoming' : hasUpcomingClasses ? 'current' : 'completed',
-        classes: sortedBookings.map(b => ({
-          id: b.class_instance.id,
-          date: b.class_instance.class_date,
-          startTime: b.class_instance.start_time,
-          endTime: b.class_instance.end_time,
-          classType: b.class_instance.class_type,
-          instructor: b.class_instance.instructor,
-          attended: b.attended === true || b.status === 'attended' || b.status === 'completed',
-          status: b.status
-        }))
-      });
-      return; // Skip the normal per-course processing
-    }
-
-    // Create a separate history entry for each unique course
-    Object.entries(bookingsByCourse).forEach(([courseId, courseBookings]) => {
-      const hasUpcomingClasses = courseBookings.some(b =>
-        new Date(b.class_instance.class_date) >= today && b.status === 'booked'
-      );
-
-      // Calculate actual start and end dates from bookings
-      const sortedBookings = [...courseBookings].sort((a, b) =>
-        new Date(a.class_instance.class_date) - new Date(b.class_instance.class_date)
-      );
-      const startDate = sortedBookings[0]?.class_instance.class_date;
-      const endDate = sortedBookings[sortedBookings.length - 1]?.class_instance.class_date;
-
-      // Determine course status
-      const allClassesFuture = startDate && new Date(startDate) > today;
-      let courseStatus = 'completed';
-      if (allClassesFuture) {
-        courseStatus = 'upcoming';
-      } else if (hasUpcomingClasses) {
-        courseStatus = 'current';
-      }
-
-      // Get instructor from first booking or enrollment
-      const instructor = sortedBookings[0]?.class_instance.instructor ||
-                        enrollment.instructor ||
-                        'VES Instructor';
-
-      courseHistory.push({
-        id: `${enrollment.id}-${courseId}`,
-        type: 'course',
-        courseIdentifier: courseId,
-        courseTitle: enrollment.course_title,
-        courseType: enrollment.course_type,
-        numberOfWeeks: sortedBookings.length,
-        startDate: startDate,
-        endDate: endDate,
-        instructor: instructor,
-        status: courseStatus,
-        classes: sortedBookings.map(b => ({
-          id: b.class_instance.id,
-          date: b.class_instance.class_date,
-          startTime: b.class_instance.start_time,
-          endTime: b.class_instance.end_time,
-          classType: b.class_instance.class_type,
-          instructor: b.class_instance.instructor,
-          attended: b.attended === true || b.status === 'attended' || b.status === 'completed',
-          status: b.status
-        }))
-      });
+    courseHistory.push({
+      id: `${enrollment.id}-${courseId}`,
+      type: 'course',
+      courseIdentifier: courseId,
+      courseTitle: enrollment.course_title,
+      courseType: enrollment.course_type,
+      numberOfWeeks: enrollment.number_of_weeks || sortedBookings.length,
+      startDate: startDate,
+      endDate: endDate,
+      instructor: instructor,
+      status: allClassesFuture ? 'upcoming' : hasUpcomingClasses ? 'current' : 'completed',
+      classesAttended: sortedBookings.filter(b => b.attended === true || b.status === 'attended' || b.status === 'completed').length,
+      classes: sortedBookings.map(b => ({
+        id: b.class_instance.id,
+        date: b.class_instance.class_date,
+        startTime: b.class_instance.start_time,
+        endTime: b.class_instance.end_time,
+        classType: b.class_instance.class_type,
+        instructor: b.class_instance.instructor,
+        attended: b.attended === true || b.status === 'attended' || b.status === 'completed',
+        status: b.status
+      }))
     });
   });
 

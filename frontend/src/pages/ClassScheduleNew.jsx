@@ -267,11 +267,21 @@ export default function ClassScheduleNew() {
   // Classes for the selected date, filtered by UI filters
   const classesForSelectedDate = (() => {
     const all = getClassesForDate(selectedDate);
+    const now = new Date();
     return all.filter(c => {
       const cat = getClassCategory(c.classType);
       const typeMatch = filterType === 'all' || cat === filterType;
       const instMatch = filterInstructor === 'all' || c.instructor === filterInstructor;
-      return typeMatch && instMatch;
+      if (!typeMatch || !instMatch) return false;
+      // Hide today's classes that have already ended
+      const classDate = new Date(c.classDate);
+      classDate.setHours(0, 0, 0, 0);
+      const todayMid = new Date(); todayMid.setHours(0, 0, 0, 0);
+      if (classDate.getTime() === todayMid.getTime() && c.endTime) {
+        const endDT = parseClassDateTime(c.classDate, c.endTime);
+        if (endDT < now) return false;
+      }
+      return true;
     });
   })();
 

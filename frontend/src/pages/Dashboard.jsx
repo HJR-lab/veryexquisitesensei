@@ -148,18 +148,42 @@ export default function Dashboard() {
 
   // Split bookings into upcoming and past
   const classifyBookings = (allBookings) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const now = new Date();
 
     const upcoming = [];
     const past = [];
 
     allBookings.forEach(booking => {
       if (!booking.class_instances) return;
-      const classDate = new Date(booking.class_instances.class_date);
+      const ci = booking.class_instances;
+      const classDate = new Date(ci.class_date);
       classDate.setHours(0, 0, 0, 0);
+
+      // If class is on a past day, it's past
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
       if (classDate < today) {
         past.push(booking);
+      } else if (classDate.getTime() === today.getTime() && ci.end_time) {
+        // Today's class: check if end_time has passed
+        const timeStr = ci.end_time.trim().toLowerCase();
+        const match = timeStr.match(/(\d{1,2}):?(\d{2})?\s*(am|pm)?/);
+        if (match) {
+          let h = parseInt(match[1], 10);
+          const mins = parseInt(match[2] || '0', 10);
+          const ampm = match[3];
+          if (ampm === 'pm' && h !== 12) h += 12;
+          if (ampm === 'am' && h === 12) h = 0;
+          const endDate = new Date(now);
+          endDate.setHours(h, mins, 0, 0);
+          if (now > endDate) {
+            past.push(booking);
+          } else {
+            upcoming.push(booking);
+          }
+        } else {
+          upcoming.push(booking);
+        }
       } else {
         upcoming.push(booking);
       }

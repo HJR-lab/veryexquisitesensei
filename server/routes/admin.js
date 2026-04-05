@@ -2401,18 +2401,20 @@ app.get('/api/admin/dashboard/activity', authenticateToken, requireAdmin, asyncH
       .order('end_date', { ascending: true })
       .limit(6),
 
-    // Recent bookings + cancellations
+    // Recent bookings + cancellations (last 7 days only)
     supabaseDb.supabase
       .from('bookings')
       .select('id, status, created_at, student:customers!bookings_student_id_fkey(first_name, last_name), class_instance:class_instances!bookings_class_instance_id_fkey(class_date, class_type, start_time)')
       .in('status', ['booked', 'cancelled'])
+      .gte('created_at', thirtyDaysAgoStr)
       .order('created_at', { ascending: false })
       .limit(20),
 
-    // Recent memberships created
+    // Recent memberships created (last 30 days only)
     supabaseDb.supabase
       .from('memberships')
       .select('id, membership_type, created_at, customer:customers!memberships_customer_id_fkey(first_name, last_name)')
+      .gte('created_at', thirtyDaysAgoStr)
       .order('created_at', { ascending: false })
       .limit(5),
 
@@ -2453,10 +2455,11 @@ app.get('/api/admin/dashboard/activity', authenticateToken, requireAdmin, asyncH
       .select('id', { count: 'exact' })
       .eq('status', 'pending'),
 
-    // Recent studio access bookings (for activity feed)
+    // Recent studio access bookings (for activity feed, last 30 days)
     supabaseDb.supabase
       .from('studio_access_bookings')
       .select('id, booking_date, start_time, hours, amount_sgd, status, created_at, customer:customers(first_name, last_name)')
+      .gte('created_at', thirtyDaysAgoStr)
       .order('created_at', { ascending: false })
       .limit(10),
   ]);

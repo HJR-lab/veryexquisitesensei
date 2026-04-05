@@ -206,15 +206,19 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Static files & SPA fallback
-app.use(express.static('public'));
-app.get('*', (req, res, next) => {
-  if (!req.path.startsWith('/api')) {
-    res.sendFile('index.html', { root: 'public' });
-  } else {
-    next();
-  }
-});
+// Static files & SPA fallback (only if public/ exists)
+const fs = require('fs');
+const publicDir = require('path').join(__dirname, 'public');
+if (fs.existsSync(publicDir)) {
+  app.use(express.static('public'));
+  app.get('*', (req, res, next) => {
+    if (!req.path.startsWith('/api')) {
+      res.sendFile('index.html', { root: 'public' });
+    } else {
+      next();
+    }
+  });
+}
 
 // Export for Vercel serverless
 module.exports = app;

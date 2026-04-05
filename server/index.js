@@ -189,6 +189,7 @@ require('./routes/inventory')(app, deps);
 require('./routes/instructors')(app, deps);
 require('./routes/credits')(app, deps);
 require('./routes/pieces')(app, deps);
+require('./routes/notifications')(app, deps);
 
 // Manual trigger: mark all past bookings as attended
 app.post('/api/admin/mark-past-attended', deps.authenticateToken, deps.requireAdmin, deps.asyncHandler(async (req, res) => {

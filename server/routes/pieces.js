@@ -161,13 +161,23 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
 
     const batch = await supabaseDb.updatePieceBatchStatus(batchId, status);
 
-    // Send notification email when marking as ready
+    // Send notification + email when marking as ready
     if (status === 'ready' && batch.customers) {
       const student = batch.customers;
       const courseName = batch.course_enrollments?.course_title || batch.course_enrollments?.course_variant_title || 'your course';
       const photoUrl = batch.photo_urls && batch.photo_urls.length > 0 ? batch.photo_urls[0] : null;
       const appUrl = process.env.FRONTEND_URL || 'https://club.ves.sg';
 
+      // Create in-app notification
+      await supabaseDb.createNotification({
+        customerId: student.id,
+        type: 'pieces_ready',
+        title: 'Your pottery is ready!',
+        message: `Your ${batch.piece_count} piece${batch.piece_count !== 1 ? 's' : ''} from ${courseName} ${batch.piece_count !== 1 ? 'have' : 'has'} been fired and ${batch.piece_count !== 1 ? 'are' : 'is'} ready for collection.`,
+        data: { batchId: batch.id, pieceCount: batch.piece_count, courseName, photoUrl },
+      });
+
+      // Send email
       const piecesReadyTemplate = require('../email-templates/pieces/pieces-ready');
       const { subject, html } = piecesReadyTemplate.generate({
         studentName: student.first_name || 'there',
@@ -216,12 +226,21 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
       const batch = await supabaseDb.updatePieceBatchStatus(batchId, status);
       results.push(batch);
 
-      // Send ready email for each batch if status is 'ready'
+      // Send ready notification + email for each batch if status is 'ready'
       if (status === 'ready' && batch.customers) {
         const student = batch.customers;
         const courseName = batch.course_enrollments?.course_title || batch.course_enrollments?.course_variant_title || 'your course';
         const photoUrl = batch.photo_urls && batch.photo_urls.length > 0 ? batch.photo_urls[0] : null;
         const appUrl = process.env.FRONTEND_URL || 'https://club.ves.sg';
+
+        // Create in-app notification
+        await supabaseDb.createNotification({
+          customerId: student.id,
+          type: 'pieces_ready',
+          title: 'Your pottery is ready!',
+          message: `Your ${batch.piece_count} piece${batch.piece_count !== 1 ? 's' : ''} from ${courseName} ${batch.piece_count !== 1 ? 'have' : 'has'} been fired and ${batch.piece_count !== 1 ? 'are' : 'is'} ready for collection.`,
+          data: { batchId: batch.id, pieceCount: batch.piece_count, courseName, photoUrl },
+        });
 
         const piecesReadyTemplate = require('../email-templates/pieces/pieces-ready');
         const { subject, html } = piecesReadyTemplate.generate({

@@ -26,6 +26,8 @@ export default function AdminPiecePipeline() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState(null);
   const [selectedBatches, setSelectedBatches] = useState(new Set());
+  const [readyModal, setReadyModal] = useState(null);
+  const [expandedPhoto, setExpandedPhoto] = useState(null);
 
   const fetchPipeline = useCallback(async () => {
     try {
@@ -58,6 +60,16 @@ export default function AdminPiecePipeline() {
     } catch (err) {
       console.error('Status update failed:', err);
     }
+  };
+
+  const handleMarkReady = (batch) => {
+    setReadyModal(batch);
+  };
+
+  const handleConfirmReady = async () => {
+    if (!readyModal) return;
+    await handleStatusUpdate(readyModal.id, 'ready');
+    setReadyModal(null);
   };
 
   const handleComplete = async (batchId, type) => {
@@ -135,7 +147,7 @@ export default function AdminPiecePipeline() {
           <div style={{ marginTop: 12 }}>
             <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>{searchResults.length} result{searchResults.length !== 1 ? 's' : ''}</div>
             {searchResults.map(batch => (
-              <BatchCard key={batch.id} batch={batch} daysSince={daysSince} onStatusUpdate={handleStatusUpdate} onComplete={handleComplete} />
+              <BatchCard key={batch.id} batch={batch} daysSince={daysSince} onStatusUpdate={handleStatusUpdate} onMarkReady={handleMarkReady} onComplete={handleComplete} onExpandPhoto={setExpandedPhoto} />
             ))}
           </div>
         )}
@@ -168,7 +180,9 @@ export default function AdminPiecePipeline() {
                 batch={batch}
                 daysSince={daysSince}
                 onStatusUpdate={handleStatusUpdate}
+                onMarkReady={handleMarkReady}
                 onComplete={handleComplete}
+                onExpandPhoto={setExpandedPhoto}
                 selected={selectedBatches.has(batch.id)}
                 onToggleSelect={() => toggleSelect(batch.id)}
                 showCheckbox
@@ -177,15 +191,106 @@ export default function AdminPiecePipeline() {
           </div>
         );
       })}
+
+      {/* Mark Ready Confirmation Modal */}
+      {readyModal && (
+        <ConfirmReadyModal
+          batch={readyModal}
+          onConfirm={handleConfirmReady}
+          onClose={() => setReadyModal(null)}
+        />
+      )}
+
+      {/* Full-size Photo Viewer */}
+      {expandedPhoto && (
+        <div
+          onClick={() => setExpandedPhoto(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 20 }}
+        >
+          <img src={expandedPhoto} alt="Full size" style={{ maxWidth: '100%', maxHeight: '90vh', borderRadius: 8 }} />
+        </div>
+      )}
     </div>
   );
 }
 
-function BatchCard({ batch, daysSince, onStatusUpdate, onComplete, selected, onToggleSelect, showCheckbox }) {
+function ConfirmReadyModal({ batch, onConfirm, onClose }) {
+  const [submitting, setSubmitting] = useState(false);
   const student = batch.customers || {};
   const enrollment = batch.course_enrollments || {};
   const courseName = enrollment.course_title || enrollment.course_variant_title || 'Course';
-  const photoUrl = batch.photo_urls && batch.photo_urls.length > 0 ? batch.photo_urls[0] : null;
+  const photos = batch.photo_urls || [];
+
+  const handleConfirm = async () => {
+    setSubmitting(true);
+    await onConfirm();
+    setSubmitting(false);
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: 'white', borderRadius: 12, maxWidth: 480, width: '100%', maxHeight: '90vh', overflow: 'auto', padding: 24 }}>
+        <h2 style={{ margin: '0 0 4px', fontSize: 20, color: '#282828' }}>Confirm Pieces Ready</h2>
+        <p style={{ margin: '0 0 16px', fontSize: 13, color: '#888' }}>
+          Verify the fired pieces match the student's photos below. The student will be notified by email and in-app notification.
+        </p>
+
+        {/* Student info */}
+        <div style={{ background: '#F5F3F0', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+          <div style={{ fontWeight: 600, fontSize: 15 }}>{student.first_name} {student.last_name}</div>
+          <div style={{ fontSize: 13, color: '#666', marginTop: 2 }}>
+            {courseName} · {batch.piece_count} piece{batch.piece_count !== 1 ? 's' : ''} · Initials: <strong>{batch.initials}</strong>
+          </div>
+          {batch.notes && <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>{batch.notes}</div>}
+        </div>
+
+        {/* Student photos — large for verification */}
+        {photos.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#888', marginBottom: 8 }}>
+              Student's Photos ({photos.length})
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {photos.map((url, i) => (
+                <img key={i} src={url} alt={`Piece ${i + 1}`} style={{ width: '100%', maxHeight: 250, objectFit: 'cover', borderRadius: 8 }} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {photos.length === 0 && (
+          <div style={{ textAlign: 'center', padding: 20, color: '#E65100', background: '#FFF3E0', borderRadius: 8, marginBottom: 20, fontSize: 13 }}>
+            No photos uploaded by student
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={onClose}
+            style={{ flex: 1, padding: 14, background: '#f5f5f5', color: '#666', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 14, cursor: 'pointer' }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={submitting}
+            style={{ flex: 1, padding: 14, background: submitting ? '#aaa' : '#2D8C4E', color: 'white', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 14, cursor: 'pointer' }}
+          >
+            {submitting ? 'Notifying...' : 'Confirm Ready & Notify'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BatchCard({ batch, daysSince, onStatusUpdate, onMarkReady, onComplete, onExpandPhoto, selected, onToggleSelect, showCheckbox }) {
+  const student = batch.customers || {};
+  const enrollment = batch.course_enrollments || {};
+  const courseName = enrollment.course_title || enrollment.course_variant_title || 'Course';
+  const photos = batch.photo_urls || [];
+  const photoUrl = photos.length > 0 ? photos[0] : null;
   const nextStatus = NEXT_STATUS[batch.status];
   const isReady = ['ready', 'collecting', 'delivering'].includes(batch.status);
   const daysReady = isReady ? daysSince(batch.ready_at) : null;
@@ -194,59 +299,94 @@ function BatchCard({ batch, daysSince, onStatusUpdate, onComplete, selected, onT
   return (
     <div style={{
       background: 'white', border: `1px solid ${selected ? '#C4622D' : '#e0e0e0'}`,
-      borderRadius: 8, padding: 12, marginBottom: 8, display: 'flex', gap: 12, alignItems: 'center',
+      borderRadius: 8, padding: 12, marginBottom: 8,
     }}>
-      {showCheckbox && (
-        <input type="checkbox" checked={selected} onChange={onToggleSelect} style={{ cursor: 'pointer' }} />
-      )}
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        {showCheckbox && (
+          <input type="checkbox" checked={selected} onChange={onToggleSelect} style={{ cursor: 'pointer', flexShrink: 0 }} />
+        )}
 
-      {photoUrl && (
-        <img src={photoUrl} alt="Batch" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
-      )}
+        {/* Thumbnail — tap to expand */}
+        {photoUrl && (
+          <img
+            src={photoUrl}
+            alt="Pieces"
+            onClick={() => onExpandPhoto(photoUrl)}
+            style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 6, flexShrink: 0, cursor: 'pointer', border: '1px solid #e0e0e0' }}
+          />
+        )}
 
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 600, fontSize: 14 }}>{student.first_name} {student.last_name}</div>
-        <div style={{ fontSize: 12, color: '#888' }}>
-          {courseName} · {batch.piece_count} pcs · <strong>{batch.initials}</strong>
-          {daysReady !== null && ` · Ready ${daysReady}d ago`}
-          {batch.delivery_method === 'collect' && <span style={{ color: '#2D8C4E', fontWeight: 600 }}> · Collecting</span>}
-          {batch.delivery_method === 'deliver' && <span style={{ color: '#C4622D', fontWeight: 600 }}> · Delivery</span>}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>{student.first_name} {student.last_name}</div>
+          <div style={{ fontSize: 12, color: '#888' }}>
+            {courseName} · {batch.piece_count} pcs · <strong>{batch.initials}</strong>
+            {photos.length > 1 && <span style={{ color: '#C4622D' }}> · {photos.length} photos</span>}
+            {daysReady !== null && ` · Ready ${daysReady}d ago`}
+            {batch.delivery_method === 'collect' && <span style={{ color: '#2D8C4E', fontWeight: 600 }}> · Collecting</span>}
+            {batch.delivery_method === 'deliver' && <span style={{ color: '#C4622D', fontWeight: 600 }}> · Delivery</span>}
+          </div>
+          {batch.notes && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{batch.notes}</div>}
+          {noResponse && (
+            <div style={{ fontSize: 11, color: '#E65100', fontWeight: 600, marginTop: 2 }}>No response</div>
+          )}
         </div>
-        {noResponse && (
-          <div style={{ fontSize: 11, color: '#E65100', fontWeight: 600, marginTop: 2 }}>⚠️ No response</div>
-        )}
+
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+          {nextStatus && nextStatus !== 'ready' && (
+            <button
+              onClick={() => onStatusUpdate(batch.id, nextStatus)}
+              style={{
+                padding: '6px 12px', background: '#E65100',
+                color: 'white', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer', fontWeight: 600,
+              }}
+            >
+              {`→ ${STATUS_LABELS[nextStatus]}`}
+            </button>
+          )}
+          {nextStatus === 'ready' && (
+            <button
+              onClick={() => onMarkReady(batch)}
+              style={{
+                padding: '6px 12px', background: '#2D8C4E',
+                color: 'white', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer', fontWeight: 600,
+              }}
+            >
+              Mark Ready
+            </button>
+          )}
+          {isReady && (
+            <>
+              <button
+                onClick={() => onComplete(batch.id, 'collected')}
+                style={{ padding: '6px 12px', background: '#1565C0', color: 'white', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
+              >
+                Collected
+              </button>
+              <button
+                onClick={() => onComplete(batch.id, 'shipped')}
+                style={{ padding: '6px 12px', background: '#1565C0', color: 'white', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
+              >
+                Shipped
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-        {nextStatus && (
-          <button
-            onClick={() => onStatusUpdate(batch.id, nextStatus)}
-            style={{
-              padding: '6px 12px',
-              background: nextStatus === 'ready' ? '#2D8C4E' : '#E65100',
-              color: 'white', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer', fontWeight: 600,
-            }}
-          >
-            {nextStatus === 'ready' ? 'Mark Ready' : `→ ${STATUS_LABELS[nextStatus]}`}
-          </button>
-        )}
-        {isReady && (
-          <>
-            <button
-              onClick={() => onComplete(batch.id, 'collected')}
-              style={{ padding: '6px 12px', background: '#1565C0', color: 'white', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
-            >
-              Collected
-            </button>
-            <button
-              onClick={() => onComplete(batch.id, 'shipped')}
-              style={{ padding: '6px 12px', background: '#1565C0', color: 'white', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
-            >
-              Shipped
-            </button>
-          </>
-        )}
-      </div>
+      {/* Extra photos row — show thumbnails if > 1 photo */}
+      {photos.length > 1 && (
+        <div style={{ display: 'flex', gap: 6, marginTop: 8, marginLeft: showCheckbox ? 28 : 0, overflowX: 'auto' }}>
+          {photos.map((url, i) => (
+            <img
+              key={i}
+              src={url}
+              alt={`Photo ${i + 1}`}
+              onClick={() => onExpandPhoto(url)}
+              style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 4, cursor: 'pointer', flexShrink: 0, border: '1px solid #e0e0e0' }}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

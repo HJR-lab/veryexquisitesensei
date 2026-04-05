@@ -34,9 +34,9 @@ jobs:
 
       - name: Build
         working-directory: frontend
-        run: npm run build
+        run: npx vite build --base /veryexquisitesensei/
         env:
-          VITE_API_URL: https://ves-pottery-api-production.up.railway.app
+          VITE_API_URL: https://ves-pottery-api-production.up.railway.app/api
 
       - name: Add SPA fallback
         run: cp frontend/dist/index.html frontend/dist/404.html

@@ -167,7 +167,7 @@ function DashboardRoute() {
 
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '')}>
       <AuthProvider>
         <ErrorBoundary>
         <Suspense fallback={<PageLoader />}>

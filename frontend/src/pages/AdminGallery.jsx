@@ -1,400 +1,263 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../utils/api';
+
+const TC = '#C4622D';
+const INK = '#282828';
+const MUTED = '#888';
 
 export default function AdminGallery() {
   const navigate = useNavigate();
+  const [tab, setTab] = useState('before'); // 'before' | 'after'
 
+  // Before firing state (piece_batches)
+  const [batches, setBatches] = useState([]);
+  const [batchStats, setBatchStats] = useState({});
+  const [batchLoading, setBatchLoading] = useState(true);
+
+  // After firing state (pottery_pieces)
   const [pieces, setPieces] = useState([]);
+  const [pieceLoading, setPieceLoading] = useState(true);
   const [students, setStudents] = useState([]);
-  const [loading, setLoading] = useState(false);
 
-  // Filters
+  // Filters for after-firing
   const [selectedStudent, setSelectedStudent] = useState('all');
-  const [selectedClayType, setSelectedClayType] = useState('all');
-  const [selectedGlaze, setSelectedGlaze] = useState('all');
-  const [filterPublic, setFilterPublic] = useState('all'); // all, public, private
-  const [filterFeatured, setFilterFeatured] = useState('all'); // all, featured, not-featured
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Edit modal
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [selectedPiece, setSelectedPiece] = useState(null);
+  // Photo viewer
+  const [expandedPhoto, setExpandedPhoto] = useState(null);
 
   useEffect(() => {
-    loadData();
+    loadBatches();
+    loadPieces();
   }, []);
 
-  const loadData = async () => {
+  const loadBatches = async () => {
     try {
-      setLoading(true);
-
-      // Load all students
-      const studentsRes = await axios.get('/api/admin/customers');
-      setStudents(studentsRes.data.customers);
-
-      // Load all pottery pieces using dedicated endpoint
-      const piecesRes = await axios.get('/api/admin/pottery/all');
-      setPieces(piecesRes.data.pieces || []);
-    } catch (error) {
-      console.error('Failed to load data:', error);
+      const { data } = await api.get('/admin/pieces/pipeline');
+      // Flatten all batches from all statuses
+      const allBatches = [];
+      for (const status of ['logged', 'bisque_fired', 'glaze_fired', 'ready']) {
+        const items = data.batches?.[status] || [];
+        allBatches.push(...items);
+      }
+      setBatches(allBatches);
+      setBatchStats(data.stats || {});
+    } catch (err) {
+      console.error('Failed to load batches:', err);
     } finally {
-      setLoading(false);
+      setBatchLoading(false);
     }
   };
 
-  const toggleFeatured = async (piece) => {
+  const loadPieces = async () => {
     try {
-      const res = await axios.put(`/api/admin/pottery/${piece.id}/toggle-featured`);
-
-      // Update local state
-      setPieces(pieces.map(p =>
-        p.id === piece.id ? { ...p, featured: res.data.featured } : p
-      ));
-    } catch (error) {
-      console.error('Failed to toggle featured:', error);
-      alert('Failed to toggle featured status');
+      const [piecesRes, studentsRes] = await Promise.all([
+        api.get('/admin/pottery/all'),
+        api.get('/admin/customers'),
+      ]);
+      setPieces(piecesRes.data.pieces || []);
+      setStudents(studentsRes.data.customers || []);
+    } catch (err) {
+      console.error('Failed to load pieces:', err);
+    } finally {
+      setPieceLoading(false);
     }
   };
 
-  const togglePublic = async (piece) => {
-    try {
-      const res = await axios.put(`/api/admin/pottery/${piece.id}/toggle-public`);
+  const totalLogged = Object.values(batchStats).reduce((sum, s) => sum + (s?.pieces || 0), 0);
+  const totalFinished = pieces.length;
 
-      // Update local state
-      setPieces(pieces.map(p =>
-        p.id === piece.id ? { ...p, is_public: res.data.isPublic } : p
-      ));
-    } catch (error) {
-      console.error('Failed to toggle public:', error);
-      alert('Failed to toggle public status');
-    }
-  };
-
-  // Get unique values for filters
-  const uniqueClayTypes = [...new Set(pieces.map(p => p.clay_type).filter(Boolean))];
-  const uniqueGlazes = [...new Set(pieces.flatMap(p => p.glazes || []))].sort();
-
-  // Apply all filters
   const filteredPieces = pieces.filter(piece => {
     const matchesStudent = selectedStudent === 'all' || piece.studentId === parseInt(selectedStudent);
-    const matchesClayType = selectedClayType === 'all' || piece.clay_type === selectedClayType;
-    const matchesGlaze = selectedGlaze === 'all' || (piece.glazes && piece.glazes.includes(selectedGlaze));
-    const matchesPublic = filterPublic === 'all' ||
-      (filterPublic === 'public' && piece.is_public) ||
-      (filterPublic === 'private' && !piece.is_public);
-    const matchesFeatured = filterFeatured === 'all' ||
-      (filterFeatured === 'featured' && piece.featured) ||
-      (filterFeatured === 'not-featured' && !piece.featured);
     const matchesSearch = !searchTerm ||
       piece.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       piece.studentName?.toLowerCase().includes(searchTerm.toLowerCase());
-
-    return matchesStudent && matchesClayType && matchesGlaze && matchesPublic && matchesFeatured && matchesSearch;
+    return matchesStudent && matchesSearch;
   });
 
-  const clearFilters = () => {
-    setSelectedStudent('all');
-    setSelectedClayType('all');
-    setSelectedGlaze('all');
-    setFilterPublic('all');
-    setFilterFeatured('all');
-    setSearchTerm('');
-  };
-
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center gap-4 mb-4">
-            <button
-              onClick={() => navigate('/admin')}
-              className="flex items-center gap-2 text-text-muted hover:text-accent transition-colors"
-            >
-              <span className="material-symbols-outlined">arrow_back</span>
-              <span>Back to Dashboard</span>
-            </button>
-          </div>
+    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
+      <div style={{ maxWidth: 960, margin: '0 auto', padding: '24px 16px' }}>
 
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <h1 className="text-4xl font-bold text-text mb-2">Student Gallery</h1>
-              <p className="text-text-muted">
-                {filteredPieces.length} of {pieces.length} pieces
-                {filteredPieces.length !== pieces.length && ' (filtered)'}
-              </p>
-            </div>
-          </div>
+        {/* Header */}
+        <div style={{ marginBottom: 20 }}>
+          <button
+            onClick={() => navigate('/admin')}
+            style={{ background: 'none', border: 'none', color: MUTED, cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8, padding: 0 }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+            Back
+          </button>
+          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>Gallery</h1>
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-background-alt border border-border rounded-xl p-6">
-            <p className="text-sm text-text-muted mb-1">Total Pieces</p>
-            <p className="text-3xl font-bold text-text">{pieces.length}</p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24 }}>
+          <div
+            onClick={() => setTab('before')}
+            style={{
+              textAlign: 'center', padding: 20, background: 'white', borderRadius: 10,
+              border: `2px solid ${tab === 'before' ? TC : '#e0e0e0'}`, cursor: 'pointer',
+            }}
+          >
+            <div style={{ fontSize: 32, fontWeight: 700, color: tab === 'before' ? TC : INK }}>{totalLogged}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: tab === 'before' ? TC : MUTED }}>Before Firing</div>
+            <div style={{ fontSize: 11, color: MUTED }}>Pieces logged by students</div>
           </div>
-          <div className="bg-background-alt border border-border rounded-xl p-6">
-            <p className="text-sm text-text-muted mb-1">Public</p>
-            <p className="text-3xl font-bold text-green-500">
-              {pieces.filter(p => p.is_public).length}
-            </p>
-          </div>
-          <div className="bg-background-alt border border-border rounded-xl p-6">
-            <p className="text-sm text-text-muted mb-1">Featured</p>
-            <p className="text-3xl font-bold text-accent">
-              {pieces.filter(p => p.featured).length}
-            </p>
-          </div>
-          <div className="bg-background-alt border border-border rounded-xl p-6">
-            <p className="text-sm text-text-muted mb-1">Students</p>
-            <p className="text-3xl font-bold text-blue-500">{students.length}</p>
+          <div
+            onClick={() => setTab('after')}
+            style={{
+              textAlign: 'center', padding: 20, background: 'white', borderRadius: 10,
+              border: `2px solid ${tab === 'after' ? '#2D8C4E' : '#e0e0e0'}`, cursor: 'pointer',
+            }}
+          >
+            <div style={{ fontSize: 32, fontWeight: 700, color: tab === 'after' ? '#2D8C4E' : INK }}>{totalFinished}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: tab === 'after' ? '#2D8C4E' : MUTED }}>Finished Works</div>
+            <div style={{ fontSize: 11, color: MUTED }}>Added to gallery</div>
           </div>
         </div>
 
-        {/* Filters */}
-        <div className="bg-background-alt border border-border rounded-xl p-6 mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-text">Filters</h2>
-            {(selectedStudent !== 'all' || selectedClayType !== 'all' || selectedGlaze !== 'all' ||
-              filterPublic !== 'all' || filterFeatured !== 'all' || searchTerm) && (
+        {/* Before Firing Tab */}
+        {tab === 'before' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED }}>
+                Pieces Logged Before Firing
+              </div>
               <button
-                onClick={clearFilters}
-                className="text-sm text-accent hover:text-accent/80 transition-colors"
+                onClick={() => navigate('/admin/pieces')}
+                style={{ padding: '6px 14px', background: TC, color: 'white', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
               >
-                Clear all filters
+                Open Pipeline
               </button>
+            </div>
+
+            {batchLoading ? (
+              <div style={{ padding: 40, textAlign: 'center', color: MUTED }}>Loading...</div>
+            ) : batches.length === 0 ? (
+              <div style={{ padding: 40, textAlign: 'center', color: MUTED }}>No pieces logged yet</div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+                {batches.map(batch => {
+                  const student = batch.customers || {};
+                  const enrollment = batch.course_enrollments || {};
+                  const courseName = enrollment.course_title || enrollment.course_variant_title || 'Course';
+                  const photos = batch.photo_urls || [];
+                  const statusLabel = { logged: 'Drying', bisque_fired: 'Bisque Fired', glaze_fired: 'Glaze Fired', ready: 'Ready', collecting: 'Collecting', delivering: 'Delivery' }[batch.status] || batch.status;
+                  const statusColor = batch.status === 'ready' || batch.status === 'collecting' || batch.status === 'delivering' ? '#2D8C4E' : batch.status === 'logged' ? MUTED : '#E65100';
+
+                  return (
+                    <div key={batch.id} style={{ background: 'white', borderRadius: 10, border: '1px solid #e0e0e0', overflow: 'hidden' }}>
+                      {/* Photo grid */}
+                      {photos.length > 0 ? (
+                        <div
+                          style={{ position: 'relative', cursor: 'pointer' }}
+                          onClick={() => setExpandedPhoto(photos[0])}
+                        >
+                          <img src={photos[0]} alt="Pieces" style={{ width: '100%', height: 180, objectFit: 'cover' }} />
+                          {photos.length > 1 && (
+                            <span style={{ position: 'absolute', bottom: 8, right: 8, background: 'rgba(0,0,0,0.6)', color: 'white', fontSize: 11, padding: '2px 8px', borderRadius: 4 }}>
+                              +{photos.length - 1} more
+                            </span>
+                          )}
+                          <span style={{ position: 'absolute', top: 8, right: 8, background: statusColor, color: 'white', fontSize: 10, padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>
+                            {statusLabel}
+                          </span>
+                        </div>
+                      ) : (
+                        <div style={{ height: 80, background: '#f5f3f0', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                          <span style={{ color: '#ccc', fontSize: 13 }}>No photo</span>
+                          <span style={{ position: 'absolute', top: 8, right: 8, background: statusColor, color: 'white', fontSize: 10, padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>
+                            {statusLabel}
+                          </span>
+                        </div>
+                      )}
+                      <div style={{ padding: 12 }}>
+                        <div style={{ fontWeight: 600, fontSize: 14 }}>{student.first_name} {student.last_name}</div>
+                        <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>
+                          {courseName} · {batch.piece_count} piece{batch.piece_count !== 1 ? 's' : ''} · <strong>{batch.initials}</strong>
+                        </div>
+                        {batch.notes && <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>{batch.notes}</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Multi-photo row when expanded */}
+            {batches.some(b => (b.photo_urls || []).length > 1) && (
+              <div style={{ marginTop: 8 }} />
             )}
           </div>
+        )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {/* Search */}
-            <div>
-              <label className="block text-sm font-medium text-text mb-2">Search</label>
+        {/* After Firing Tab */}
+        {tab === 'after' && (
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: 12 }}>
+              Finished Works in Gallery
+            </div>
+
+            {/* Filters */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
               <input
                 type="text"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={e => setSearchTerm(e.target.value)}
                 placeholder="Search title or student..."
-                className="w-full px-4 py-2 bg-background border border-border rounded-lg text-text text-sm focus:outline-none focus:border-accent"
+                style={{ flex: 1, minWidth: 160, padding: 10, border: '1px solid #ddd', borderRadius: 8, fontSize: 14 }}
               />
-            </div>
-
-            {/* Student */}
-            <div>
-              <label className="block text-sm font-medium text-text mb-2">Student</label>
               <select
                 value={selectedStudent}
-                onChange={(e) => setSelectedStudent(e.target.value)}
-                className="w-full px-4 py-2 bg-background border border-border rounded-lg text-text text-sm focus:outline-none focus:border-accent"
+                onChange={e => setSelectedStudent(e.target.value)}
+                style={{ padding: 10, border: '1px solid #ddd', borderRadius: 8, fontSize: 14 }}
               >
                 <option value="all">All Students</option>
-                {students.map(student => (
-                  <option key={student.dbId} value={student.dbId}>
-                    {student.firstName} {student.lastName}
-                  </option>
+                {students.map(s => (
+                  <option key={s.dbId} value={s.dbId}>{s.firstName} {s.lastName}</option>
                 ))}
               </select>
             </div>
 
-            {/* Clay Type */}
-            <div>
-              <label className="block text-sm font-medium text-text mb-2">Clay Type</label>
-              <select
-                value={selectedClayType}
-                onChange={(e) => setSelectedClayType(e.target.value)}
-                className="w-full px-4 py-2 bg-background border border-border rounded-lg text-text text-sm focus:outline-none focus:border-accent"
-              >
-                <option value="all">All Types</option>
-                {uniqueClayTypes.map(type => (
-                  <option key={type} value={type}>{type}</option>
+            {pieceLoading ? (
+              <div style={{ padding: 40, textAlign: 'center', color: MUTED }}>Loading...</div>
+            ) : filteredPieces.length === 0 ? (
+              <div style={{ padding: 40, textAlign: 'center', color: MUTED }}>
+                {pieces.length === 0 ? 'No finished pieces yet' : 'No results match your filters'}
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+                {filteredPieces.map(piece => (
+                  <div key={piece.id} style={{ background: 'white', borderRadius: 10, border: '1px solid #e0e0e0', overflow: 'hidden' }}>
+                    <div
+                      style={{ width: '100%', height: 180, backgroundImage: `url('${piece.images?.[0] || ''}')`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundColor: '#f5f3f0', cursor: piece.images?.[0] ? 'pointer' : 'default' }}
+                      onClick={() => piece.images?.[0] && setExpandedPhoto(piece.images[0])}
+                    />
+                    <div style={{ padding: 12 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{piece.title || 'Untitled'}</div>
+                      <div style={{ fontSize: 12, color: TC, marginTop: 2 }}>{piece.studentName}</div>
+                      {piece.clay_type && <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>{piece.clay_type}</div>}
+                      {piece.date_completed && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{new Date(piece.date_completed).toLocaleDateString()}</div>}
+                    </div>
+                  </div>
                 ))}
-              </select>
-            </div>
-
-            {/* Glaze */}
-            <div>
-              <label className="block text-sm font-medium text-text mb-2">Glaze</label>
-              <select
-                value={selectedGlaze}
-                onChange={(e) => setSelectedGlaze(e.target.value)}
-                className="w-full px-4 py-2 bg-background border border-border rounded-lg text-text text-sm focus:outline-none focus:border-accent"
-              >
-                <option value="all">All Glazes</option>
-                {uniqueGlazes.map(glaze => (
-                  <option key={glaze} value={glaze}>{glaze}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Public/Private */}
-            <div>
-              <label className="block text-sm font-medium text-text mb-2">Visibility</label>
-              <select
-                value={filterPublic}
-                onChange={(e) => setFilterPublic(e.target.value)}
-                className="w-full px-4 py-2 bg-background border border-border rounded-lg text-text text-sm focus:outline-none focus:border-accent"
-              >
-                <option value="all">All</option>
-                <option value="public">Public Only</option>
-                <option value="private">Private Only</option>
-              </select>
-            </div>
-
-            {/* Featured */}
-            <div>
-              <label className="block text-sm font-medium text-text mb-2">Featured</label>
-              <select
-                value={filterFeatured}
-                onChange={(e) => setFilterFeatured(e.target.value)}
-                className="w-full px-4 py-2 bg-background border border-border rounded-lg text-text text-sm focus:outline-none focus:border-accent"
-              >
-                <option value="all">All</option>
-                <option value="featured">Featured Only</option>
-                <option value="not-featured">Not Featured</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Gallery Grid */}
-        {loading ? (
-          <div className="text-center py-12">
-            <p className="text-text-muted">Loading gallery...</p>
-          </div>
-        ) : filteredPieces.length === 0 ? (
-          <div className="bg-background-alt border border-border rounded-xl p-12 text-center">
-            <span className="material-symbols-outlined text-6xl text-text-muted mb-4 block">
-              photo_library
-            </span>
-            <h3 className="text-xl font-bold text-text mb-2">No Pieces Found</h3>
-            <p className="text-text-muted mb-6">
-              {pieces.length === 0 ? 'No pottery pieces in the gallery yet' : 'Try adjusting your filters'}
-            </p>
-            {pieces.length > 0 && (
-              <button
-                onClick={clearFilters}
-                className="px-6 py-2 bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors"
-              >
-                Clear Filters
-              </button>
+              </div>
             )}
           </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredPieces.map((piece) => (
-              <div
-                key={piece.id}
-                className="group bg-background-alt rounded-xl border border-border overflow-hidden hover:border-accent transition-all"
-              >
-                {/* Image */}
-                <div className="relative aspect-square">
-                  <div
-                    className="w-full h-full bg-cover bg-center"
-                    style={{ backgroundImage: `url('${piece.images?.[0] || 'https://via.placeholder.com/400'}')` }}
-                  />
+        )}
 
-                  {/* Quick Actions Overlay */}
-                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                    <button
-                      onClick={() => togglePublic(piece)}
-                      className={`p-3 rounded-lg ${
-                        piece.is_public ? 'bg-green-500' : 'bg-gray-500'
-                      } text-white hover:scale-110 transition-transform`}
-                      title={piece.is_public ? 'Make Private' : 'Make Public'}
-                    >
-                      <span className="material-symbols-outlined text-sm">
-                        {piece.is_public ? 'visibility' : 'visibility_off'}
-                      </span>
-                    </button>
-
-                    <button
-                      onClick={() => toggleFeatured(piece)}
-                      className={`p-3 rounded-lg ${
-                        piece.featured ? 'bg-accent' : 'bg-gray-500'
-                      } text-white hover:scale-110 transition-transform`}
-                      title={piece.featured ? 'Unfeature' : 'Feature'}
-                    >
-                      <span className="material-symbols-outlined text-sm">
-                        {piece.featured ? 'star' : 'star_border'}
-                      </span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setSelectedPiece(piece);
-                        setShowEditModal(true);
-                      }}
-                      className="p-3 rounded-lg bg-blue-500 text-white hover:scale-110 transition-transform"
-                      title="Edit"
-                    >
-                      <span className="material-symbols-outlined text-sm">edit</span>
-                    </button>
-                  </div>
-
-                  {/* Badges */}
-                  <div className="absolute top-2 right-2 flex gap-2">
-                    {piece.featured && (
-                      <span className="px-2 py-1 bg-accent/90 text-white rounded text-xs font-medium flex items-center gap-1">
-                        <span className="material-symbols-outlined text-xs">star</span>
-                        Featured
-                      </span>
-                    )}
-                    {piece.is_public && (
-                      <span className="px-2 py-1 bg-green-500/90 text-white rounded text-xs font-medium">
-                        Public
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Info */}
-                <div className="p-4">
-                  <h3 className="font-bold text-text mb-1 truncate">{piece.title}</h3>
-                  <p className="text-sm text-accent mb-2 truncate">{piece.studentName}</p>
-                  <div className="space-y-1">
-                    <p className="text-xs text-text-muted truncate">
-                      <span className="font-medium">Clay:</span> {piece.clay_type || 'N/A'}
-                    </p>
-                    {piece.glazes && piece.glazes.length > 0 && (
-                      <p className="text-xs text-text-muted truncate">
-                        <span className="font-medium">Glazes:</span> {piece.glazes.join(', ')}
-                      </p>
-                    )}
-                    {piece.date_completed && (
-                      <p className="text-xs text-text-muted">
-                        {new Date(piece.date_completed).toLocaleDateString()}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
+        {/* Full-size Photo Viewer */}
+        {expandedPhoto && (
+          <div
+            onClick={() => setExpandedPhoto(null)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 20 }}
+          >
+            <img src={expandedPhoto} alt="Full size" style={{ maxWidth: '100%', maxHeight: '90vh', borderRadius: 8 }} />
           </div>
         )}
-      </main>
-
-      {/* Edit Modal - Placeholder */}
-      {showEditModal && selectedPiece && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-background-alt border border-border rounded-xl max-w-md w-full p-6">
-            <h2 className="text-2xl font-bold text-text mb-4">Edit Piece</h2>
-            <p className="text-text-muted mb-6">
-              Editing: {selectedPiece.title}
-            </p>
-            <p className="text-sm text-text-muted mb-6">
-              Full edit modal coming soon. Use student gallery for detailed editing.
-            </p>
-            <button
-              onClick={() => setShowEditModal(false)}
-              className="w-full px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-
+      </div>
     </div>
   );
 }

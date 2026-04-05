@@ -2111,7 +2111,8 @@ app.get('/api/admin/dashboard/stats/summary', authenticateToken, requireAdmin, a
     { count: activeMemberships, error: e4 },
     { count: galleryPieces, error: e5 },
     { count: pendingStudioAccess, error: e6 },
-    { count: totalInstructors, error: e7 }
+    { count: totalInstructors, error: e7 },
+    { count: loggedPieces, error: e8 }
   ] = await Promise.all([
     supabaseDb.supabase
       .from('customers')
@@ -2138,10 +2139,14 @@ app.get('/api/admin/dashboard/stats/summary', authenticateToken, requireAdmin, a
     supabaseDb.supabase
       .from('customers')
       .select('*', { count: 'exact', head: true })
-      .eq('role', 'instructor')
+      .eq('role', 'instructor'),
+    supabaseDb.supabase
+      .from('piece_batches')
+      .select('*', { count: 'exact', head: true })
+      .not('status', 'in', '("collected","shipped","recycled")')
   ]);
 
-  const err = e1 || e2 || e3 || e4 || e5 || e6 || e7;
+  const err = e1 || e2 || e3 || e4 || e5 || e6 || e7 || e8;
   if (err) throw err;
 
   res.json({
@@ -2150,6 +2155,7 @@ app.get('/api/admin/dashboard/stats/summary', authenticateToken, requireAdmin, a
     totalBookings: totalBookings || 0,
     activeMemberships: activeMemberships || 0,
     galleryPieces: galleryPieces || 0,
+    loggedPieces: loggedPieces || 0,
     pendingStudioAccess: pendingStudioAccess || 0,
     totalInstructors: totalInstructors || 0
   });

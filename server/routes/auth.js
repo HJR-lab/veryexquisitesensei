@@ -682,9 +682,11 @@ app.get('/api/students/me/dashboard', authenticateToken, asyncHandler(async (req
     const status = getEnrollmentStatus(enrollment, bookingsForEnrollment);
 
     const isWTCourse = (enrollment.course_type || '').toLowerCase().includes('wheelthrowing');
-    // Check if any associated class instances are still in draft (not yet activated)
-    const hasDraftClasses = isWTCourse && (
-      (bookingsForEnrollment.length > 0 && bookingsForEnrollment.some(b => b.class_instances?.status === 'draft')) ||
+    // Check if ALL associated class instances are still in draft (not yet activated)
+    // If any class is already active, the course is confirmed and running
+    const hasActiveClasses = bookingsForEnrollment.some(b => b.class_instances?.status === 'active');
+    const hasDraftClasses = isWTCourse && !hasActiveClasses && (
+      (bookingsForEnrollment.length > 0 && bookingsForEnrollment.every(b => b.class_instances?.status === 'draft')) ||
       (bookingsForEnrollment.length === 0 && enrollment.pending_student_count != null && enrollment.pending_student_count < 4)
     );
     const isPendingThreshold = hasDraftClasses;

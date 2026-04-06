@@ -4797,6 +4797,24 @@ app.post('/api/admin/clay-types/:id/image', authenticateToken, requireAdmin, upl
   res.json({ success: true, image_url: url });
 }));
 
+// Get flex credits for a student (from any 10-class package enrollment)
+app.get('/api/admin/students/:studentId/flex-credits', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { studentId } = req.params;
+  const { data: enrollments } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('id, number_of_weeks, class_credits_allocated, class_credits_remaining, class_credits_used, status')
+    .eq('student_id', parseInt(studentId))
+    .eq('number_of_weeks', 10);
+
+  const pkg = (enrollments || []).find(e => e.class_credits_allocated > 0) || (enrollments || [])[0];
+  res.json({
+    remaining: pkg?.class_credits_remaining || 0,
+    allocated: pkg?.class_credits_allocated || 0,
+    used: pkg?.class_credits_used || 0,
+    enrollmentId: pkg?.id || null,
+  });
+}));
+
 // Create glaze
 app.post('/api/admin/glazes', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { name, description, color, cone, active, glaze_type, stock_status } = req.body;

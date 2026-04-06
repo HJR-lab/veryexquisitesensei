@@ -136,6 +136,7 @@ export default function AdminStudentDetail() {
   const [enrollment, setEnrollment]   = useState(null);
   const [bookings, setBookings]       = useState([]);
   const [fees, setFees]               = useState([]);
+  const [flexCredits, setFlexCredits] = useState(null);
   const [updatingFeeId, setUpdatingFeeId] = useState(null);
 
   // ── Edit form ────────────────────────────────────────────────────────────
@@ -344,6 +345,8 @@ export default function AdminStudentDetail() {
         );
         api.get(`/credits/balance/${studentData.id}`).then(r => setCreditBalance(r.data.balance || 0)).catch(() => {});
         api.get(`/credits/history/${studentData.id}`).then(r => setCreditHistory(r.data.history || [])).catch(() => {});
+        // Check for 10-class package flex credits across all enrollments
+        api.get(`/admin/students/${studentData.id}/flex-credits`).then(r => setFlexCredits(r.data)).catch(() => {});
       }
 
       const results = await Promise.all(parallelCalls);
@@ -822,11 +825,10 @@ export default function AdminStudentDetail() {
   const enrollmentAllocated = isHBEnrollment ? hbCreditsAllocated : (enrollment?.number_of_weeks || 0);
   const totalAllocated = Math.max(allBookedCount, enrollmentAllocated);
   const is10ClassPkg = enrollment?.number_of_weeks === 10;
+  const flexRemaining = flexCredits?.remaining || (is10ClassPkg ? (enrollment?.class_credits_remaining || 0) : 0);
   const unbookedCount  = isHBEnrollment
     ? Math.max(0, hbCreditsRemaining)
-    : is10ClassPkg
-      ? Math.max(0, enrollment?.class_credits_remaining || 0)
-      : 0;
+    : Math.max(0, flexRemaining);
 
   const filteredBookings = [...(showCompletedCourses ? bookings : activeBookings)]
     .filter(b => statusFilter === 'all' || b.status === statusFilter)

@@ -1146,7 +1146,7 @@ export default function AdminStudentDetail() {
                           </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                             <span style={{ fontSize: '11px', color: MUTED }}>
-                              {enrAttendedCount} attended · {Math.max(0, enrBookedCount - enrAttendedCount)} booked
+                              {enrBookedCount} booked · {enrAttendedCount} attended
                             </span>
                             <span style={{ fontSize: '11px', color: TC_DARK, fontWeight: 700 }}>
                               {enrIsHB

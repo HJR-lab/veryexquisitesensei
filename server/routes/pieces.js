@@ -192,7 +192,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
     const batchId = parseInt(req.params.id);
     const { status } = req.body;
 
-    const validStatuses = ['logged', 'bisque_fired', 'glaze_fired', 'ready', 'collecting', 'delivering', 'collected', 'shipped', 'recycled'];
+    const validStatuses = ['logged', 'bisque_fired', 'glaze_fired', 'ready', 'in_cabinet', 'collecting', 'delivering', 'collected', 'shipped', 'recycled'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ error: 'Invalid status' });
     }
@@ -325,7 +325,15 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
       await supabaseDb.updatePieceBatchStatus(batchId, newStatus);
     }
 
-    res.json({ success: true, run });
+    // Update run status to firing with timestamp
+    const { data: updatedRun } = await supabaseDb.supabase
+      .from('firing_runs')
+      .update({ status: 'firing', fired_at: new Date().toISOString() })
+      .eq('id', run.id)
+      .select()
+      .single();
+
+    res.json({ success: true, run: updatedRun });
   }));
 
   // List firing runs (active + recent)

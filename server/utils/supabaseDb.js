@@ -264,7 +264,8 @@ async function getAllPotteryPieces() {
         id,
         first_name,
         last_name,
-        email
+        email,
+        initials
       )
     `)
     .order('date_completed', { ascending: false });

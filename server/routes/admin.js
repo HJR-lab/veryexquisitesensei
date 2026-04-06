@@ -2104,6 +2104,11 @@ app.post('/api/admin/enrollments/:id/complete', authenticateToken, requireAdmin,
 app.get('/api/admin/dashboard/stats/summary', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const todayStr = new Date().toISOString().split('T')[0];
 
+  // Get month boundaries for "this month" counts
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+
   const [
     { count: totalStudents, error: e1 },
     { count: totalClasses, error: e2 },
@@ -2112,7 +2117,9 @@ app.get('/api/admin/dashboard/stats/summary', authenticateToken, requireAdmin, a
     { count: galleryPieces, error: e5 },
     { count: pendingStudioAccess, error: e6 },
     { count: totalInstructors, error: e7 },
-    { count: loggedPieces, error: e8 }
+    { count: loggedPieces, error: e8 },
+    { data: monthClasses, error: e9 },
+    { data: activeEnrollments, error: e10 }
   ] = await Promise.all([
     supabaseDb.supabase
       .from('customers')
@@ -2143,11 +2150,35 @@ app.get('/api/admin/dashboard/stats/summary', authenticateToken, requireAdmin, a
     supabaseDb.supabase
       .from('piece_batches')
       .select('*', { count: 'exact', head: true })
-      .not('status', 'in', '("collected","shipped","recycled")')
+      .not('status', 'in', '("collected","shipped","recycled")'),
+    // Classes this month with type
+    supabaseDb.supabase
+      .from('class_instances')
+      .select('class_type')
+      .gte('class_date', monthStart)
+      .lte('class_date', monthEnd + 'T23:59:59'),
+    // Active enrollments with course type for WT/HB student breakdown
+    supabaseDb.supabase
+      .from('course_enrollments')
+      .select('student_id, course_type')
+      .eq('status', 'active')
   ]);
 
-  const err = e1 || e2 || e3 || e4 || e5 || e6 || e7 || e8;
+  const err = e1 || e2 || e3 || e4 || e5 || e6 || e7 || e8 || e9 || e10;
   if (err) throw err;
+
+  // Count WT/HB classes this month
+  const wtClassesThisMonth = (monthClasses || []).filter(c => (c.class_type || '').startsWith('WT')).length;
+  const hbClassesThisMonth = (monthClasses || []).filter(c => (c.class_type || '').startsWith('HB')).length;
+
+  // Count unique WT/HB students
+  const wtStudentIds = new Set();
+  const hbStudentIds = new Set();
+  (activeEnrollments || []).forEach(e => {
+    const ct = (e.course_type || '').toLowerCase();
+    if (ct.includes('wheelthrowing') || ct.startsWith('wt')) wtStudentIds.add(e.student_id);
+    else if (ct.includes('handbuilding') || ct.startsWith('hb')) hbStudentIds.add(e.student_id);
+  });
 
   res.json({
     totalStudents: totalStudents || 0,
@@ -2157,7 +2188,12 @@ app.get('/api/admin/dashboard/stats/summary', authenticateToken, requireAdmin, a
     galleryPieces: galleryPieces || 0,
     loggedPieces: loggedPieces || 0,
     pendingStudioAccess: pendingStudioAccess || 0,
-    totalInstructors: totalInstructors || 0
+    totalInstructors: totalInstructors || 0,
+    classesThisMonth: (monthClasses || []).length,
+    wtClassesThisMonth,
+    hbClassesThisMonth,
+    wtStudents: wtStudentIds.size,
+    hbStudents: hbStudentIds.size,
   });
 }));
 

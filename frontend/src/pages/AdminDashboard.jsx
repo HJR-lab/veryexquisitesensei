@@ -76,13 +76,14 @@ export default function AdminDashboard() {
     }
   };
 
+  const ss = summaryStats || {};
   const modules = [
-    { label: 'Classes',   icon: 'event',           href: '/admin/classes',     desc: 'Schedule & bookings',    stat: loading ? (summaryStats?.classes?.total ?? null) : (stats?.classes?.total ?? null),      sub: loading ? '' : `${stats?.classes?.availableSpots ?? 0} open spots` },
-    { label: 'Users',     icon: 'group',          href: '/admin/students',    desc: 'Students & members',     stat: loading ? (summaryStats ? (summaryStats.students?.total ?? 0) + (summaryStats.memberships?.total ?? 0) : null) : ((stats?.students?.total ?? 0) + (stats?.memberships?.total ?? 0)),  sub: loading ? '' : `${stats?.memberships?.expiringSoon ?? 0} memberships expiring` },
-    { label: 'Studio Access', icon: 'door_open',  href: '/admin/studio-access', desc: 'Studio access bookings', stat: loading ? (summaryStats?.studioAccess?.pending ?? null) : (stats?.studioAccess?.confirmed ?? null), sub: loading ? (summaryStats?.studioAccess?.pending != null ? 'pending' : '') : `${stats?.studioAccess?.confirmed ?? 0} confirmed · ${stats?.studioAccess?.pending ?? 0} pending` },
-    { label: 'Gallery',   icon: 'photo_library',   href: '/admin/gallery',     desc: 'Student pottery works',  stat: loading ? (summaryStats?.galleryPieces ?? null) : (stats?.gallery?.total ?? null),      sub: summaryStats ? `${summaryStats.loggedPieces || 0} in firing · ${summaryStats.galleryPieces || 0} finished` : '' },
+    { label: 'Classes',   icon: 'event',           href: '/admin/classes',     desc: 'Schedule & bookings',    stat: ss.classesThisMonth ?? null, sub: ss.classesThisMonth != null ? `${ss.wtClassesThisMonth || 0} WT · ${ss.hbClassesThisMonth || 0} HB this month` : '' },
+    { label: 'Users',     icon: 'group',          href: '/admin/students',    desc: 'Students & members',     stat: ss.totalStudents ?? null, sub: ss.wtStudents != null ? `${ss.wtStudents} WT · ${ss.hbStudents} HB · ${ss.activeMemberships || 0} members` : '' },
+    { label: 'Studio Access', icon: 'door_open',  href: '/admin/studio-access', desc: 'Studio access bookings', stat: loading ? (ss.pendingStudioAccess ?? null) : (stats?.studioAccess?.confirmed ?? null), sub: loading ? '' : `${stats?.studioAccess?.confirmed ?? 0} confirmed · ${stats?.studioAccess?.pending ?? 0} pending` },
+    { label: 'Gallery',   icon: 'photo_library',   href: '/admin/gallery',     desc: 'Student pottery works',  stat: ss.galleryPieces ?? null, sub: `${ss.loggedPieces || 0} in firing · ${ss.galleryPieces || 0} finished` },
     { label: 'Reschedules', icon: 'swap_horiz',     href: '/admin/reschedules', desc: 'Reschedule log',         stat: reschedules.length || null, sub: reschedules.length ? `${reschedules.length} movements` : '' },
-    { label: 'Credits',   icon: 'payments',        href: '/admin/credits',     desc: 'Student credit balances', stat: creditStats ? `$${creditStats.totalBalance}` : null, sub: creditStats ? `${creditStats.totalTransactions} transactions · ${creditStats.todayTransactions} today` : '' },
+    { label: 'Credits',   icon: 'payments',        href: '/admin/credits',     desc: 'Student credit balances', stat: creditStats ? `$${creditStats.totalBalance}` : null, sub: '0 transactions' },
   ];
 
   const dateStr = new Date().toLocaleDateString('en-GB', {

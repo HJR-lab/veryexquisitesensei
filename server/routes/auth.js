@@ -644,7 +644,9 @@ app.get('/api/students/me/dashboard', authenticateToken, asyncHandler(async (req
 
     // Check if all classes are over (including today's finished ones)
     const allOver = bookingsForEnrollment.every(b => isClassOver(b));
-    if (allOver) return 'completed';
+    // Don't mark as completed if student still has flex credits to use (e.g. 10-class packages)
+    if (allOver && !(enrollment.class_credits_remaining > 0)) return 'completed';
+    if (allOver && enrollment.class_credits_remaining > 0) return 'active';
 
     // Check if all classes are in the future (none started)
     const noneStarted = bookingsForEnrollment.every(b => {

@@ -19,10 +19,10 @@ async function autoCompleteFinishedEnrollments() {
   try {
     const todayStr = new Date().toISOString().split('T')[0];
 
-    // Get all active enrollments (include credit fields for HB check)
+    // Get all active enrollments (include credit + package fields)
     const { data: activeEnrollments, error } = await supabaseDb.supabase
       .from('course_enrollments')
-      .select('id, student_id, course_identifier, course_type, class_credits_remaining')
+      .select('id, student_id, course_identifier, course_type, number_of_weeks, total_weeks, class_credits_allocated, class_credits_remaining')
       .in('status', ['active']);
 
     if (error || !activeEnrollments?.length) return 0;
@@ -50,6 +50,28 @@ async function autoCompleteFinishedEnrollments() {
         const isHB = enrollment.course_type && enrollment.course_type.toLowerCase().includes('handbuilding');
         if (isHB && enrollment.class_credits_remaining > 0) {
           continue; // Student still has credits to use
+        }
+
+        // 10-class packages (number_of_weeks=10, total_weeks=6): allocate 4 flex credits
+        // when WT course completes, instead of marking as completed
+        const is10ClassPackage = enrollment.number_of_weeks === 10 && (enrollment.total_weeks === 6 || bookings.length === 6);
+        if (is10ClassPackage && !enrollment.class_credits_allocated) {
+          const flexCredits = enrollment.number_of_weeks - (enrollment.total_weeks || 6);
+          await supabaseDb.supabase
+            .from('course_enrollments')
+            .update({
+              class_credits_allocated: flexCredits,
+              class_credits_remaining: flexCredits,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', enrollment.id);
+          console.log(`Allocated ${flexCredits} flex credits for 10-class package enrollment ${enrollment.id} (${enrollment.course_identifier})`);
+          continue; // Don't complete yet — student has flex credits to use
+        }
+
+        // Skip if enrollment still has flex credits remaining
+        if (enrollment.class_credits_remaining > 0) {
+          continue;
         }
 
         await supabaseDb.supabase

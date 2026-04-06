@@ -1181,6 +1181,7 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
         original_class_instance_id: parseInt(oldClassId),
         rescheduled_from_date: oldClass.class_date,
         reschedule_fee_paid: 0,
+        reschedule_source: 'student',
         updated_at: new Date().toISOString()
       })
       .eq('id', targetBookingAnyStatus.id)
@@ -1200,7 +1201,8 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
       isGlazingReschedule: isOldClassGlazing,
       originalClassInstanceId: parseInt(oldClassId),
       rescheduledFromDate: oldClass.class_date,
-      rescheduleFeePaid: 0 // Fee is pending payment
+      rescheduleFeePaid: 0, // Fee is pending payment
+      rescheduleSource: 'student'
     });
   }
 
@@ -2030,6 +2032,119 @@ app.post('/api/classes/waitlist/process-expired', authenticateToken, requireAdmi
     processedCount: processedEntries.length,
     entries: processedEntries
   });
+}));
+
+// ============================================
+// WHEEL PICKER ENDPOINTS
+// ============================================
+
+// Get wheel assignments for a class
+app.get('/api/classes/:classId/wheels', authenticateToken, asyncHandler(async (req, res) => {
+  const { classId } = req.params;
+
+  const { data: bookings } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id, student_id, wheel_number, customers!bookings_student_id_fkey(first_name, last_name)')
+    .eq('class_instance_id', parseInt(classId))
+    .in('status', ['booked', 'attended'])
+    .not('wheel_number', 'is', null);
+
+  const wheels = {};
+  (bookings || []).forEach(b => {
+    wheels[b.wheel_number] = {
+      bookingId: b.id,
+      studentId: b.student_id,
+      name: `${b.customers?.first_name || ''} ${b.customers?.last_name || ''}`.trim(),
+    };
+  });
+
+  res.json({ wheels });
+}));
+
+// Set wheel number for a booking
+app.post('/api/classes/bookings/:bookingId/wheel', authenticateToken, asyncHandler(async (req, res) => {
+  const { bookingId } = req.params;
+  const { wheelNumber } = req.body;
+  const { dbCustomerId, isAdmin } = req.user;
+
+  if (!wheelNumber || wheelNumber < 1 || wheelNumber > 10) {
+    return res.status(400).json({ error: 'Wheel number must be 1-10' });
+  }
+
+  // Get the booking
+  const { data: booking, error: fetchError } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id, student_id, class_instance_id, status')
+    .eq('id', parseInt(bookingId))
+    .single();
+
+  if (fetchError || !booking) {
+    return res.status(404).json({ error: 'Booking not found' });
+  }
+
+  // Only the student or admin can set wheel
+  if (booking.student_id !== dbCustomerId && !isAdmin) {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  // Check if wheel is already taken by someone else in this class
+  const { data: existing } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id, student_id')
+    .eq('class_instance_id', booking.class_instance_id)
+    .eq('wheel_number', wheelNumber)
+    .in('status', ['booked', 'attended'])
+    .neq('id', parseInt(bookingId))
+    .limit(1);
+
+  if (existing && existing.length > 0) {
+    return res.status(409).json({ error: 'Wheel already taken' });
+  }
+
+  const { error: updateError } = await supabaseDb.supabase
+    .from('bookings')
+    .update({ wheel_number: wheelNumber, updated_at: new Date().toISOString() })
+    .eq('id', parseInt(bookingId));
+
+  if (updateError) throw updateError;
+
+  // Also sync to customer wheel_preference so admin/instructor views see it
+  await supabaseDb.supabase
+    .from('customers')
+    .update({ wheel_preference: wheelNumber })
+    .eq('id', booking.student_id);
+
+  res.json({ success: true, wheelNumber });
+}));
+
+// Clear wheel assignment
+app.delete('/api/classes/bookings/:bookingId/wheel', authenticateToken, asyncHandler(async (req, res) => {
+  const { bookingId } = req.params;
+  const { dbCustomerId, isAdmin } = req.user;
+
+  const { data: booking } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id, student_id')
+    .eq('id', parseInt(bookingId))
+    .single();
+
+  if (!booking) return res.status(404).json({ error: 'Booking not found' });
+  if (booking.student_id !== dbCustomerId && !isAdmin) {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  await supabaseDb.supabase
+    .from('bookings')
+    .update({ wheel_number: null, updated_at: new Date().toISOString() })
+    .eq('id', parseInt(bookingId));
+
+  // Clear customer wheel_preference too
+  await supabaseDb.supabase
+    .from('customers')
+    .update({ wheel_preference: null })
+    .eq('id', booking.student_id);
+
+  res.json({ success: true });
 }));
 
 };

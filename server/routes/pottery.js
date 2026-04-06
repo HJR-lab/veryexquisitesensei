@@ -331,7 +331,8 @@ app.get('/api/reference/clay-types', authenticateToken, asyncHandler(async (req,
 }));
 
 app.get('/api/reference/glazes', authenticateToken, asyncHandler(async (req, res) => {
-  const glazes = await supabaseDb.getGlazes();
+  const includeInactive = req.user?.isAdmin || false;
+  const glazes = await supabaseDb.getGlazes(includeInactive);
   res.json({ glazes });
 }));
 

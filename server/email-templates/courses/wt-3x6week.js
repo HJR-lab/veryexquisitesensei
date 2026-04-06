@@ -4,7 +4,7 @@ const { wrapEmailTemplate } = require('../base');
  * Generate course detail email for 3-Course Wheelthrowing Package (3x 6-week)
  */
 function generate({ dayOfWeek, startDate, endDate, timeSlot, holidayExclusions, specialNotes }) {
-  const subject = `VES Course Details: 3-Course Wheelthrowing Package — ${dayOfWeek}s, ${startDate} - ${endDate} (${timeSlot})`;
+  const subject = `VES Course: Wheelthrowing Beginner/Ext 6 Weeks - 3x Course Package — ${dayOfWeek}s, ${startDate} - ${endDate} (${timeSlot})`;
 
   const holidayLine = holidayExclusions
     ? `<p style="margin: 0 0 2px; font-size: 14px; color: #282828;"><strong>Holiday exclusions:</strong> ${holidayExclusions}</p>`

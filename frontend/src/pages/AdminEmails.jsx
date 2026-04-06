@@ -43,6 +43,7 @@ export default function AdminEmails() {
   const [loading,        setLoading]        = useState(true);
   const [saveStatus,     setSaveStatus]     = useState(null); // null | 'saving' | 'saved' | 'error'
   const [statusMsg,      setStatusMsg]      = useState(null); // { type: 'success'|'error', text }
+  const [expandedEmail,  setExpandedEmail]  = useState(null); // email id for expanded detail
 
   const showStatus = (type, text) => {
     setStatusMsg({ type, text });
@@ -592,38 +593,120 @@ export default function AdminEmails() {
                 ) : (
                   <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFF' }}>
                     {/* Table header */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '140px 90px 140px 1fr 80px 140px', padding: '8px 16px', borderBottom: `1px solid ${RULE}`, backgroundColor: ALT }}>
-                      {['Date', 'Type', 'Course', 'Subject', 'Recipients', 'Sent By'].map(h => (
+                    <div style={{ display: 'grid', gridTemplateColumns: '140px 90px 140px 1fr 80px', padding: '8px 16px', borderBottom: `1px solid ${RULE}`, backgroundColor: ALT }}>
+                      {['Date', 'Type', 'Course', 'Subject', 'Recipients'].map(h => (
                         <span key={h} style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED }}>{h}</span>
                       ))}
                     </div>
-                    {history.map((email, i) => (
-                      <div
-                        key={email.id || i}
-                        style={{
-                          display: 'grid', gridTemplateColumns: '140px 90px 140px 1fr 80px 140px',
-                          padding: '11px 16px', alignItems: 'center',
-                          borderBottom: i < history.length - 1 ? `1px solid ${RULE}` : 'none',
-                        }}
-                      >
-                        <div style={{ fontSize: '12px', color: INK }}>{fmtDateTime(email.sent_at)}</div>
-                        <div>
-                          <span style={{
-                            fontSize: '10px', fontWeight: 700, padding: '2px 7px',
-                            backgroundColor: email.sent_by === 'system' ? ALT : TC_LIGHT,
-                            color: email.sent_by === 'system' ? MUTED : TC,
-                          }}>
-                            {email.sent_by === 'system' ? 'Auto' : 'Manual'}
-                          </span>
+                    {history.map((email, i) => {
+                      const isExpanded = expandedEmail === email.id;
+                      const emails = email.recipient_emails || [];
+                      return (
+                        <div key={email.id || i}>
+                          {/* Summary row */}
+                          <div
+                            onClick={() => setExpandedEmail(isExpanded ? null : email.id)}
+                            style={{
+                              display: 'grid', gridTemplateColumns: '140px 90px 140px 1fr 80px',
+                              padding: '11px 16px', alignItems: 'center',
+                              borderBottom: (!isExpanded && i < history.length - 1) ? `1px solid ${RULE}` : 'none',
+                              cursor: 'pointer',
+                              backgroundColor: isExpanded ? TC_LIGHT : '#FFF',
+                              transition: 'background-color 0.15s',
+                            }}
+                          >
+                            <div style={{ fontSize: '12px', color: INK }}>{fmtDateTime(email.sent_at)}</div>
+                            <div>
+                              <span style={{
+                                fontSize: '10px', fontWeight: 700, padding: '2px 7px',
+                                backgroundColor: email.sent_by === 'system' ? ALT : TC_LIGHT,
+                                color: email.sent_by === 'system' ? MUTED : TC,
+                              }}>
+                                {email.sent_by === 'system' ? 'Auto' : 'Manual'}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '12px', color: INK, fontWeight: 600 }}>{email.course_identifier || '—'}</div>
+                            <div style={{ fontSize: '12px', color: INK, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: '8px' }}>{email.subject || '—'}</div>
+                            <div style={{ fontSize: '12px', color: MUTED, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              {email.recipient_count ?? '—'}
+                              <span style={{ fontSize: '10px', color: MUTED, transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>&#9660;</span>
+                            </div>
+                          </div>
+
+                          {/* Expanded detail panel */}
+                          {isExpanded && (
+                            <div style={{
+                              padding: '16px 20px 20px',
+                              backgroundColor: '#FDFBF9',
+                              borderBottom: i < history.length - 1 ? `1px solid ${RULE}` : 'none',
+                              borderTop: `1px solid ${RULE}`,
+                            }}>
+                              {/* Detail grid */}
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                                <div>
+                                  <div style={labelSt}>Subject</div>
+                                  <div style={{ fontSize: '13px', color: INK }}>{email.subject || '—'}</div>
+                                </div>
+                                <div>
+                                  <div style={labelSt}>Sent By</div>
+                                  <div style={{ fontSize: '13px', color: INK }}>
+                                    {email.sent_by === 'system' ? 'Automatic (on purchase)' : email.sent_by || '—'}
+                                  </div>
+                                </div>
+                                <div>
+                                  <div style={labelSt}>Email Type</div>
+                                  <div style={{ fontSize: '13px', color: INK }}>{email.email_type || '—'}</div>
+                                </div>
+                              </div>
+
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                                <div>
+                                  <div style={labelSt}>Course</div>
+                                  <div style={{ fontSize: '13px', color: INK, fontWeight: 600 }}>{email.course_identifier || '—'}</div>
+                                </div>
+                                <div>
+                                  <div style={labelSt}>Date & Time</div>
+                                  <div style={{ fontSize: '13px', color: INK }}>{fmtDateTime(email.sent_at)}</div>
+                                </div>
+                                <div>
+                                  <div style={labelSt}>Resend ID</div>
+                                  <div style={{ fontSize: '11px', color: MUTED, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                                    {email.resend_message_id || '—'}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Recipient list */}
+                              <div>
+                                <div style={{ ...labelSt, marginBottom: '8px' }}>
+                                  Recipients ({emails.length})
+                                </div>
+                                <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFF' }}>
+                                  {emails.length === 0 ? (
+                                    <div style={{ padding: '12px 14px', color: MUTED, fontSize: '12px' }}>No recipient data recorded.</div>
+                                  ) : (
+                                    emails.map((addr, j) => (
+                                      <div
+                                        key={j}
+                                        style={{
+                                          padding: '8px 14px',
+                                          fontSize: '13px', color: INK,
+                                          borderBottom: j < emails.length - 1 ? `1px solid ${RULE}` : 'none',
+                                          display: 'flex', alignItems: 'center', gap: '8px',
+                                        }}
+                                      >
+                                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: GREEN, flexShrink: 0 }} />
+                                        {addr}
+                                      </div>
+                                    ))
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                        <div style={{ fontSize: '12px', color: INK, fontWeight: 600 }}>{email.course_identifier || '—'}</div>
-                        <div style={{ fontSize: '12px', color: INK, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: '8px' }}>{email.subject || '—'}</div>
-                        <div style={{ fontSize: '12px', color: MUTED }}>{email.recipient_count ?? '—'}</div>
-                        <div style={{ fontSize: '11px', color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {email.sent_by === 'system' ? 'Auto' : email.sent_by || '—'}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

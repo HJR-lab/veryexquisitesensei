@@ -2634,7 +2634,7 @@ app.get('/api/admin/dashboard/activity', authenticateToken, requireAdmin, asyncH
 // Dashboard engagement metrics (active users 1d/7d/30d, never logged in, recent logins)
 app.get('/api/admin/dashboard/engagement', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const now = new Date();
-  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -2658,7 +2658,7 @@ app.get('/api/admin/dashboard/engagement', authenticateToken, requireAdmin, asyn
       .from('customers')
       .select('*', { count: 'exact', head: true })
       .neq('email', ADMIN_EMAIL)
-      .gte('last_login_at', oneDayAgo),
+      .gte('last_login_at', todayStart),
     supabaseDb.supabase
       .from('customers')
       .select('*', { count: 'exact', head: true })
@@ -4334,6 +4334,92 @@ app.post('/api/admin/students/:studentId/resume', authenticateToken, requireAdmi
   res.json({ message: 'Student resumed successfully', student });
 }));
 
+// GET /api/admin/reschedules — list all reschedule movements
+app.get('/api/admin/reschedules', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  // Get all bookings that were rescheduled (have original_class_instance_id set)
+  const { data: rescheduledFrom, error: fromError } = await supabaseDb.supabase
+    .from('bookings')
+    .select(`
+      id,
+      student_id,
+      status,
+      booking_type,
+      created_at,
+      updated_at,
+      class_instance_id,
+      original_class_instance_id,
+      rescheduled_from_date,
+      reschedule_reason,
+      reschedule_fee_paid,
+      is_glazing_reschedule,
+      reschedule_source,
+      course_enrollment_id,
+      customers!bookings_student_id_fkey(id, first_name, last_name, email),
+      class_instances!bookings_class_instance_id_fkey(id, class_date, start_time, end_time, class_type)
+    `)
+    .not('original_class_instance_id', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  if (fromError) throw fromError;
+
+  // For each rescheduled-to booking, get the original class info
+  const originalClassIds = [...new Set(rescheduledFrom.map(b => b.original_class_instance_id).filter(Boolean))];
+
+  let originalClassMap = {};
+  if (originalClassIds.length > 0) {
+    const { data: originalClasses } = await supabaseDb.supabase
+      .from('class_instances')
+      .select('id, class_date, start_time, end_time, class_type')
+      .in('id', originalClassIds);
+
+    if (originalClasses) {
+      originalClasses.forEach(c => { originalClassMap[c.id] = c; });
+    }
+  }
+
+  // Also get reschedule fees
+  const bookingIds = rescheduledFrom.map(b => b.id);
+  let feeMap = {};
+  if (bookingIds.length > 0) {
+    const { data: fees } = await supabaseDb.supabase
+      .from('reschedule_fees')
+      .select('*')
+      .in('booking_id', bookingIds);
+
+    if (fees) {
+      fees.forEach(f => { feeMap[f.booking_id] = f; });
+    }
+  }
+
+  const reschedules = rescheduledFrom.map(booking => {
+    const originalClass = originalClassMap[booking.original_class_instance_id];
+    const fee = feeMap[booking.id];
+    return {
+      id: booking.id,
+      student: booking.customers ? {
+        id: booking.customers.id,
+        name: `${booking.customers.first_name || ''} ${booking.customers.last_name || ''}`.trim(),
+        email: booking.customers.email,
+      } : null,
+      fromDate: originalClass?.class_date || booking.rescheduled_from_date,
+      fromTime: originalClass?.start_time,
+      fromType: originalClass?.class_type,
+      toDate: booking.class_instances?.class_date,
+      toTime: booking.class_instances?.start_time,
+      toType: booking.class_instances?.class_type,
+      reason: booking.reschedule_reason,
+      fee: fee ? { amount: fee.amount, status: fee.payment_status, type: fee.fee_type } : null,
+      isGlazing: booking.is_glazing_reschedule,
+      source: booking.reschedule_source || 'admin',
+      status: booking.status,
+      createdAt: booking.created_at,
+    };
+  });
+
+  res.json({ reschedules });
+}));
+
 // Reschedule a booking
 app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
@@ -4387,6 +4473,7 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
         reschedule_fee_paid: fee || 0,
         is_makeup_class: fee > 0,
         is_glazing_reschedule: isGlazingReschedule || false,
+        reschedule_source: 'admin',
         updated_at: new Date().toISOString()
       })
       .eq('id', existingBooking.id)
@@ -4411,6 +4498,7 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
         reschedule_fee_paid: fee || 0,
         is_makeup_class: fee > 0,
         is_glazing_reschedule: isGlazingReschedule || false,
+        reschedule_source: 'admin',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })
@@ -4706,9 +4794,26 @@ app.delete('/api/admin/clay-types/:id', authenticateToken, requireAdmin, asyncHa
   res.json({ success: true, message: 'Clay type deleted' });
 }));
 
+const { upload, uploadImageToSupabase } = require('../utils/imageUpload');
+
+// Upload clay type image
+app.post('/api/admin/clay-types/:id/image', authenticateToken, requireAdmin, upload.single('image'), asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!req.file) return res.status(400).json({ error: 'No image file provided' });
+
+  const { url } = await uploadImageToSupabase(req.file.buffer, req.file.originalname, req.file.mimetype, 'clay-types');
+
+  await supabaseDb.supabase
+    .from('clay_types')
+    .update({ image_url: url })
+    .eq('id', parseInt(id));
+
+  res.json({ success: true, image_url: url });
+}));
+
 // Create glaze
 app.post('/api/admin/glazes', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
-  const { name, description, color, cone, active } = req.body;
+  const { name, description, color, cone, active, glaze_type, stock_status } = req.body;
 
   if (!name) {
     return res.status(400).json({ error: 'Glaze name is required' });
@@ -4719,7 +4824,9 @@ app.post('/api/admin/glazes', authenticateToken, requireAdmin, asyncHandler(asyn
     description: description || null,
     color: color || null,
     cone: cone || null,
-    active: active !== undefined ? active : true
+    active: active !== undefined ? active : true,
+    glaze_type: glaze_type || 'glaze',
+    stock_status: stock_status || 'in_stock'
   });
 
   res.json({ success: true, glaze });
@@ -4728,17 +4835,34 @@ app.post('/api/admin/glazes', authenticateToken, requireAdmin, asyncHandler(asyn
 // Update glaze
 app.put('/api/admin/glazes/:id', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { name, description, color, cone, active } = req.body;
+  const { name, description, color, cone, active, glaze_type, stock_status } = req.body;
 
   const glaze = await supabaseDb.updateGlaze(parseInt(id), {
     name,
     description,
     color,
     cone,
-    active
+    active,
+    glaze_type,
+    stock_status
   });
 
   res.json({ success: true, glaze });
+}));
+
+// Upload glaze image
+app.post('/api/admin/glazes/:id/image', authenticateToken, requireAdmin, upload.single('image'), asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!req.file) return res.status(400).json({ error: 'No image file provided' });
+
+  const { url } = await uploadImageToSupabase(req.file.buffer, req.file.originalname, req.file.mimetype, `glazes`);
+
+  await supabaseDb.supabase
+    .from('glazes')
+    .update({ image_url: url })
+    .eq('id', parseInt(id));
+
+  res.json({ success: true, image_url: url });
 }));
 
 // Delete glaze

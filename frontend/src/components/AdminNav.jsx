@@ -104,10 +104,9 @@ export default function AdminNav({ active, onSyncComplete }) {
             {showSettings && (
               <div style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, backgroundColor: '#FFF', border: `1px solid ${RULE}`, minWidth: '140px', zIndex: 100 }}>
                 {[
-                  { label: 'Gallery', href: '/admin/gallery' },
                   { label: 'Instructors', href: '/admin/instructors' },
-                  { label: 'Credits', href: '/admin/credits' },
                   { label: 'Events', href: '/admin/events' },
+                  { label: 'Courses', href: '/admin/course-config' },
                   { label: 'Policy', href: '/admin/policy' },
                   { label: 'Reference', href: '/admin/reference' },
                   { label: 'Emails', href: '/admin/emails' },

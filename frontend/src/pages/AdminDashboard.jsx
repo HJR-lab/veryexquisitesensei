@@ -22,6 +22,7 @@ export default function AdminDashboard() {
   const [alerts, setAlerts] = useState([]);
   const [activity, setActivity] = useState([]);
   const [engagement, setEngagement] = useState(null);
+  const [reschedules, setReschedules] = useState([]);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   useEffect(() => {
@@ -38,6 +39,11 @@ export default function AdminDashboard() {
     // Credit stats (parallel, independent)
     api.get('/admin/credits/stats').then(({ data }) => {
       setCreditStats(data);
+    }).catch(() => {});
+
+    // Reschedule log
+    api.get('/admin/reschedules').then(({ data }) => {
+      setReschedules(data.reschedules || []);
     }).catch(() => {});
 
     // Phase 2: full stats + activity
@@ -75,12 +81,8 @@ export default function AdminDashboard() {
     { label: 'Users',     icon: 'group',          href: '/admin/students',    desc: 'Students & members',     stat: loading ? (summaryStats ? (summaryStats.students?.total ?? 0) + (summaryStats.memberships?.total ?? 0) : null) : ((stats?.students?.total ?? 0) + (stats?.memberships?.total ?? 0)),  sub: loading ? '' : `${stats?.memberships?.expiringSoon ?? 0} memberships expiring` },
     { label: 'Studio Access', icon: 'door_open',  href: '/admin/studio-access', desc: 'Studio access bookings', stat: loading ? (summaryStats?.studioAccess?.pending ?? null) : (stats?.studioAccess?.confirmed ?? null), sub: loading ? (summaryStats?.studioAccess?.pending != null ? 'pending' : '') : `${stats?.studioAccess?.confirmed ?? 0} confirmed · ${stats?.studioAccess?.pending ?? 0} pending` },
     { label: 'Gallery',   icon: 'photo_library',   href: '/admin/gallery',     desc: 'Student pottery works',  stat: loading ? (summaryStats?.galleryPieces ?? null) : (stats?.gallery?.total ?? null),      sub: summaryStats ? `${summaryStats.loggedPieces || 0} in firing · ${summaryStats.galleryPieces || 0} finished` : '' },
-    { label: 'Instructors', icon: 'person_apron',   href: '/admin/instructors',  desc: 'Profiles & portfolios', stat: summaryStats?.totalInstructors ?? null, sub: summaryStats?.totalInstructors != null ? `${summaryStats.totalInstructors} active` : '' },
+    { label: 'Reschedules', icon: 'swap_horiz',     href: '/admin/reschedules', desc: 'Reschedule log',         stat: reschedules.length || null, sub: reschedules.length ? `${reschedules.length} movements` : '' },
     { label: 'Credits',   icon: 'payments',        href: '/admin/credits',     desc: 'Student credit balances', stat: creditStats ? `$${creditStats.totalBalance}` : null, sub: creditStats ? `${creditStats.totalTransactions} transactions · ${creditStats.todayTransactions} today` : '' },
-    { label: 'Courses',   icon: 'school',          href: '/admin/course-config', desc: 'Course templates' },
-    { label: 'Events',    icon: 'celebration',     href: '/admin/events',      desc: 'Sales & collaborations' },
-    { label: 'Policy',    icon: 'gavel',           href: '/admin/policy',      desc: 'Studio rules & terms' },
-    { label: 'Reference', icon: 'inventory_2',     href: '/admin/reference',   desc: 'Clay types & glazes' },
   ];
 
   const dateStr = new Date().toLocaleDateString('en-GB', {
@@ -114,7 +116,7 @@ export default function AdminDashboard() {
             </div>
             <div style={{
               display: 'grid',
-              gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)',
+              gridTemplateColumns: 'repeat(3, 1fr)',
               gap: '1px',
               backgroundColor: RULE,
               border: `1px solid ${RULE}`,
@@ -275,7 +277,7 @@ export default function AdminDashboard() {
                   <div style={{ padding: '14px', fontSize: '12px', color: MUTED }}>Loading activity…</div>
                 ) : activity.length === 0 ? (
                   <div style={{ padding: '14px', fontSize: '12px', color: MUTED }}>No recent activity</div>
-                ) : activity.map((r, i) => {
+                ) : activity.slice(0, 6).map((r, i, activity) => {
                   const actionStyles = {
                     Booked: { color: '#059669', icon: 'event_available' },
                     Cancelled: { color: '#DC2626', icon: 'event_busy' },
@@ -307,6 +309,83 @@ export default function AdminDashboard() {
                         </div>
                         <div style={{ fontSize: '12px', fontWeight: 600 }}>{r.who}</div>
                         <div style={{ fontSize: '11px', color: MUTED }}>{r.detail}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Reschedules */}
+            <div>
+              <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, marginBottom: '12px' }}>
+                Reschedules
+              </div>
+              <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
+                {reschedules.length === 0 ? (
+                  <div style={{ padding: '14px', fontSize: '12px', color: MUTED }}>No reschedules</div>
+                ) : reschedules.slice(0, 6).map((r, i, arr) => {
+                  const fmtDate = (d) => {
+                    if (!d) return '—';
+                    // Handle both YYYY-MM-DD and full ISO timestamps
+                    const dt = d.length === 10 ? new Date(d + 'T00:00:00') : new Date(d);
+                    if (isNaN(dt.getTime())) return '—';
+                    return `${dt.getDate()} ${dt.toLocaleString('en-GB', { month: 'short' })}`;
+                  };
+                  const fmtTime = (t) => t ? t.slice(0, 5) : '';
+                  const typeShort = (t) => {
+                    if (!t) return '';
+                    const l = t.toLowerCase();
+                    return l.includes('wheel') ? 'WT' : l.includes('hand') ? 'HB' : t.substring(0, 2).toUpperCase();
+                  };
+                  const from = r.fromDate ? `${fmtDate(r.fromDate)}${r.fromTime ? ' · ' + fmtTime(r.fromTime) : ''}${r.fromType ? ' · ' + typeShort(r.fromType) : ''}` : '—';
+                  const to = r.toDate ? `${fmtDate(r.toDate)}${r.toTime ? ' · ' + fmtTime(r.toTime) : ''}${r.toType ? ' · ' + typeShort(r.toType) : ''}` : '—';
+                  return (
+                    <div
+                      key={r.id}
+                      style={{
+                        padding: '11px 14px',
+                        borderBottom: i < arr.length - 1 ? `1px solid ${RULE}` : 'none',
+                        display: 'flex',
+                        gap: '10px',
+                      }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: '14px', color: '#D97706', flexShrink: 0, marginTop: '2px' }}>
+                        swap_horiz
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          {r.student?.name || 'Unknown'}
+                          <span style={{
+                            fontSize: '8px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em',
+                            padding: '1px 4px', borderRadius: '2px',
+                            backgroundColor: r.source === 'student' ? '#DBEAFE' : '#FEE2E2',
+                            color: r.source === 'student' ? '#1E40AF' : '#991B1B',
+                          }}>
+                            {r.source === 'student' ? 'Rescheduled' : 'Cancelled'}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '11px', color: MUTED }}>
+                          {from} → {to}
+                        </div>
+                        {r.reason && (
+                          <div style={{ fontSize: '10px', color: MUTED, fontStyle: 'italic', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {r.reason}
+                          </div>
+                        )}
+                        {r.fee && (
+                          <div style={{ fontSize: '10px', marginTop: '2px' }}>
+                            <span style={{ fontWeight: 600 }}>${r.fee.amount}</span>{' '}
+                            <span style={{
+                              fontSize: '8px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em',
+                              padding: '1px 4px', borderRadius: '2px',
+                              backgroundColor: r.fee.status === 'paid' ? '#DEF7EC' : r.fee.status === 'waived' ? '#E5E7EB' : '#FEF3C7',
+                              color: r.fee.status === 'paid' ? '#03543F' : r.fee.status === 'waived' ? '#374151' : '#92400E',
+                            }}>
+                              {r.fee.status}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );

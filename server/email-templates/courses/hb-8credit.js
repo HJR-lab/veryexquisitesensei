@@ -4,7 +4,7 @@ const { wrapEmailTemplate } = require('../base');
  * Generate course detail email for Handbuilding 8-Credit Package
  */
 function generate({ specialNotes }) {
-  const subject = 'VES Course Details: Handbuilding 8-Credit Package';
+  const subject = 'VES Course: Handbuilding 8 Weeks';
 
   const specialNotesBlock = specialNotes
     ? `<table width="100%" cellpadding="0" cellspacing="0" style="background-color: #FFF8F5; border-left: 3px solid #C4622D; border-radius: 4px; margin: 0 0 20px;">
@@ -19,7 +19,7 @@ function generate({ specialNotes }) {
 
   const body = `
     <h1 style="margin: 0 0 8px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">
-      Handbuilding 8-Credit Package
+      Handbuilding 8 Weeks Package
     </h1>
     <p style="margin: 0 0 24px; font-size: 14px; color: #888888; text-align: center;">Course Details &amp; Studio Information</p>
 

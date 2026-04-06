@@ -548,7 +548,12 @@ export default function ClassScheduleNew() {
     if (!classType) return 'Class';
     if (classType.includes('6.6') || classType.includes('7.7')) return 'Glazing';
     const cat = getClassCategory(classType);
-    if (cat === 'wheelthrowing') return 'Wheelthrowing Beginners/Ext';
+    if (cat === 'wheelthrowing') {
+      // 7-week courses (e.g. WT1104AM_DL7.1) are intermediate
+      const match = classType.match(/_\w+(\d)\./);
+      if (match && match[1] === '7') return 'Wheelthrowing Intermediate 7 Weeks';
+      return 'Wheelthrowing Beginners/Ext 6 Weeks';
+    }
     if (cat === 'handbuilding')  return 'Handbuilding';
     if (cat === 'kids')          return 'Kids';
     return classType;

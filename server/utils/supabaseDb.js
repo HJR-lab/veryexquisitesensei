@@ -450,15 +450,20 @@ async function getClayTypes() {
 /**
  * Get glazes
  */
-async function getGlazes() {
-  const { data, error } = await supabase
+async function getGlazes(includeInactive = false) {
+  let query = supabase
     .from('glazes')
     .select('*')
-    .eq('active', true)
     .order('name', { ascending: true });
 
+  if (!includeInactive) {
+    query = query.eq('active', true);
+  }
+
+  const { data, error } = await query;
   if (error) throw error;
-  return data || [];
+  // Map color_hex to color for frontend compatibility
+  return (data || []).map(g => ({ ...g, color: g.color_hex }));
 }
 
 /**
@@ -521,9 +526,11 @@ async function createGlaze(glazeData) {
     .insert([{
       name: glazeData.name,
       description: glazeData.description,
-      color: glazeData.color,
+      color_hex: glazeData.color || null,
       cone: glazeData.cone,
-      active: glazeData.active !== undefined ? glazeData.active : true
+      active: glazeData.active !== undefined ? glazeData.active : true,
+      glaze_type: glazeData.glaze_type || 'glaze',
+      stock_status: glazeData.stock_status || 'in_stock',
     }])
     .select()
     .single();
@@ -539,9 +546,11 @@ async function updateGlaze(glazeId, updates) {
   const dbUpdates = {};
   if (updates.name !== undefined) dbUpdates.name = updates.name;
   if (updates.description !== undefined) dbUpdates.description = updates.description;
-  if (updates.color !== undefined) dbUpdates.color = updates.color;
+  if (updates.color !== undefined) dbUpdates.color_hex = updates.color;
   if (updates.cone !== undefined) dbUpdates.cone = updates.cone;
   if (updates.active !== undefined) dbUpdates.active = updates.active;
+  if (updates.glaze_type !== undefined) dbUpdates.glaze_type = updates.glaze_type;
+  if (updates.stock_status !== undefined) dbUpdates.stock_status = updates.stock_status;
 
   const { data, error } = await supabase
     .from('glazes')
@@ -786,6 +795,9 @@ async function createBooking(bookingData) {
   }
   if (bookingData.rescheduleFeePaid !== undefined) {
     insertData.reschedule_fee_paid = bookingData.rescheduleFeePaid;
+  }
+  if (bookingData.rescheduleSource !== undefined) {
+    insertData.reschedule_source = bookingData.rescheduleSource;
   }
 
   const { data, error} = await supabase

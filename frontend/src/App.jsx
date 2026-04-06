@@ -46,6 +46,7 @@ const AdminCourseConfig = lazy(() => import('./pages/AdminCourseConfig'));
 const AdminPlatformStats = lazy(() => import('./pages/AdminPlatformStats'));
 const AdminPiecePipeline = lazy(() => import('./pages/AdminPiecePipeline'));
 const AdminCredits = lazy(() => import('./pages/AdminCredits'));
+const AdminReschedules = lazy(() => import('./pages/AdminReschedules'));
 
 const Policies = lazy(() => import('./pages/Policies'));
 
@@ -221,6 +222,7 @@ function App() {
             <Route path="platform-stats" element={<AdminPlatformStats />} />
             <Route path="pieces" element={<AdminPiecePipeline />} />
             <Route path="credits" element={<AdminCredits />} />
+            <Route path="reschedules" element={<AdminReschedules />} />
 
           </Route>
 

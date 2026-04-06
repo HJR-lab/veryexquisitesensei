@@ -26,7 +26,7 @@ export default function AdminReference() {
   const [editingClay, setEditingClay] = useState(null);
   const [clayForm, setClayForm] = useState({ name: '', description: '', active: true });
 
-  // Glazes
+  // Glazes (includes underglazes)
   const [glazes, setGlazes] = useState([]);
   const [showGlazeModal, setShowGlazeModal] = useState(false);
   const [editingGlaze, setEditingGlaze] = useState(null);
@@ -35,7 +35,9 @@ export default function AdminReference() {
     description: '',
     color: '',
     cone: '',
-    active: true
+    active: true,
+    glaze_type: 'glaze',
+    stock_status: 'in_stock'
   });
 
   useEffect(() => {
@@ -125,11 +127,13 @@ export default function AdminReference() {
         description: glaze.description || '',
         color: glaze.color || '',
         cone: glaze.cone || '',
-        active: glaze.active
+        active: glaze.active,
+        glaze_type: glaze.glaze_type || 'glaze',
+        stock_status: glaze.stock_status || 'in_stock'
       });
     } else {
       setEditingGlaze(null);
-      setGlazeForm({ name: '', description: '', color: '', cone: '', active: true });
+      setGlazeForm({ name: '', description: '', color: '', cone: '', active: true, glaze_type: activeTab === 'underglazes' ? 'underglaze' : 'glaze', stock_status: 'in_stock' });
     }
     setShowGlazeModal(true);
   };
@@ -221,7 +225,7 @@ export default function AdminReference() {
             >
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
                 <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>add</span>
-                Add {activeTab === 'clay' ? 'Clay Type' : 'Glaze'}
+                Add {activeTab === 'clay' ? 'Clay Type' : activeTab === 'underglazes' ? 'Underglaze' : 'Glaze'}
               </span>
             </button>
           </div>
@@ -231,7 +235,8 @@ export default function AdminReference() {
         <div style={{ display: 'flex', gap: '0', borderBottom: `1px solid ${RULE}`, marginBottom: '24px' }}>
           {[
             { key: 'clay', label: `Clay Types (${clayTypes.length})` },
-            { key: 'glazes', label: `Glazes (${glazes.length})` },
+            { key: 'glazes', label: `Glazes (${glazes.filter(g => g.glaze_type !== 'underglaze').length})` },
+            { key: 'underglazes', label: `Underglazes (${glazes.filter(g => g.glaze_type === 'underglaze').length})` },
           ].map(tab => (
             <button
               key={tab.key}
@@ -276,6 +281,11 @@ export default function AdminReference() {
                       opacity: clay.active ? 1 : 0.55,
                     }}
                   >
+                    {clay.image_url && (
+                      <div style={{ marginBottom: '10px', borderRadius: '4px', overflow: 'hidden', backgroundColor: ALT }}>
+                        <img src={clay.image_url} alt={clay.name} style={{ width: '100%', height: '100px', objectFit: 'cover', display: 'block' }} />
+                      </div>
+                    )}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: '14px', fontWeight: 700, marginBottom: '3px' }}>{clay.name}</div>
@@ -309,67 +319,96 @@ export default function AdminReference() {
           </div>
         )}
 
-        {/* Glazes Tab */}
-        {activeTab === 'glazes' && (
-          <div>
-            {glazes.length === 0 ? (
-              <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF', padding: '48px 24px', textAlign: 'center' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: '40px', color: MUTED, display: 'block', marginBottom: '12px' }}>palette</span>
-                <div style={{ fontSize: '14px', fontWeight: 700, marginBottom: '4px' }}>No Glazes Yet</div>
-                <div style={{ fontSize: '12px', color: MUTED, marginBottom: '16px' }}>Add your first glaze to get started</div>
-                <button onClick={() => openGlazeModal()} style={btnAccentSt}>Add Glaze</button>
-              </div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: '1px', backgroundColor: RULE, border: `1px solid ${RULE}` }}>
-                {glazes.map(glaze => (
-                  <div
-                    key={glaze.id}
-                    style={{
-                      backgroundColor: '#FFFFFF',
-                      padding: '16px 18px',
-                      opacity: glaze.active ? 1 : 0.55,
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
-                          <span style={{ fontSize: '14px', fontWeight: 700 }}>{glaze.name}</span>
-                          {glaze.color && (
-                            <span style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: glaze.color, border: `1px solid ${RULE}`, display: 'inline-block', flexShrink: 0 }} />
-                          )}
+        {/* Glazes / Underglazes Tab */}
+        {(activeTab === 'glazes' || activeTab === 'underglazes') && (() => {
+          const filterType = activeTab === 'underglazes' ? 'underglaze' : 'glaze';
+          const filtered = glazes.filter(g => (g.glaze_type || 'glaze') === filterType);
+          const typeLabel = activeTab === 'underglazes' ? 'Underglaze' : 'Glaze';
+          const stockColors = {
+            in_stock: { bg: 'rgba(5,150,105,0.08)', color: '#059669', label: 'In Stock' },
+            low: { bg: '#FEF3C7', color: '#92400E', label: 'Low Stock' },
+            out_of_stock: { bg: 'rgba(220,38,38,0.08)', color: '#DC2626', label: 'Out of Stock' },
+          };
+          return (
+            <div>
+              {filtered.length === 0 ? (
+                <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF', padding: '48px 24px', textAlign: 'center' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '40px', color: MUTED, display: 'block', marginBottom: '12px' }}>palette</span>
+                  <div style={{ fontSize: '14px', fontWeight: 700, marginBottom: '4px' }}>No {typeLabel}s Yet</div>
+                  <div style={{ fontSize: '12px', color: MUTED, marginBottom: '16px' }}>Add your first {typeLabel.toLowerCase()} to get started</div>
+                  <button onClick={() => openGlazeModal()} style={btnAccentSt}>Add {typeLabel}</button>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: '1px', backgroundColor: RULE, border: `1px solid ${RULE}` }}>
+                  {filtered.map(glaze => {
+                    const stock = stockColors[glaze.stock_status] || stockColors.in_stock;
+                    return (
+                      <div
+                        key={glaze.id}
+                        style={{
+                          backgroundColor: '#FFFFFF',
+                          padding: '16px 18px',
+                          opacity: glaze.active ? 1 : 0.55,
+                        }}
+                      >
+                          {glaze.image_url && (
+                          <div style={{ marginBottom: '10px', borderRadius: '4px', overflow: 'hidden', backgroundColor: ALT }}>
+                            <img src={glaze.image_url} alt={glaze.name} style={{ width: '100%', height: '100px', objectFit: 'cover', display: 'block' }} />
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
+                              <span style={{ fontSize: '14px', fontWeight: 700 }}>{glaze.name}</span>
+                              {glaze.color && (
+                                <span style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: glaze.color, border: `1px solid ${RULE}`, display: 'inline-block', flexShrink: 0 }} />
+                              )}
+                            </div>
+                            {glaze.description && (
+                              <div style={{ fontSize: '11px', color: MUTED, lineHeight: 1.4, marginBottom: '2px' }}>{glaze.description}</div>
+                            )}
+                            {glaze.cone && (
+                              <div style={{ fontSize: '10px', color: MUTED }}>Cone: {glaze.cone}</div>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', alignItems: 'flex-end', flexShrink: 0 }}>
+                            <span style={{
+                              fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', padding: '2px 6px',
+                              backgroundColor: stock.bg, color: stock.color,
+                            }}>
+                              {stock.label}
+                            </span>
+                            {!glaze.active && (
+                              <span style={{
+                                fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', padding: '2px 6px',
+                                backgroundColor: 'rgba(220,38,38,0.08)', color: '#DC2626',
+                              }}>
+                                Inactive
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        {glaze.description && (
-                          <div style={{ fontSize: '11px', color: MUTED, lineHeight: 1.4, marginBottom: '2px' }}>{glaze.description}</div>
-                        )}
-                        {glaze.cone && (
-                          <div style={{ fontSize: '10px', color: MUTED }}>Cone: {glaze.cone}</div>
-                        )}
+                        <div style={{ display: 'flex', gap: '6px', marginTop: '12px' }}>
+                          <button onClick={() => openGlazeModal(glaze)} style={{ ...btnSt, flex: 1, padding: '5px 10px', fontSize: '11px' }}>Edit</button>
+                          <button onClick={() => {
+                            const statuses = ['in_stock', 'low', 'out_of_stock'];
+                            const next = statuses[(statuses.indexOf(glaze.stock_status || 'in_stock') + 1) % statuses.length];
+                            api.put(`/admin/glazes/${glaze.id}`, { stock_status: next }).then(() => {
+                              setGlazes(glazes.map(g => g.id === glaze.id ? { ...g, stock_status: next } : g));
+                            });
+                          }} style={{ ...btnSt, flex: 1, padding: '5px 10px', fontSize: '11px' }}>
+                            Stock ↻
+                          </button>
+                          <button onClick={() => deleteGlaze(glaze)} style={{ ...btnDangerSt, padding: '5px 10px', fontSize: '11px' }}>Delete</button>
+                        </div>
                       </div>
-                      <span style={{
-                        fontSize: '9px',
-                        fontWeight: 700,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.04em',
-                        padding: '2px 6px',
-                        backgroundColor: glaze.active ? 'rgba(5,150,105,0.08)' : 'rgba(220,38,38,0.08)',
-                        color: glaze.active ? '#059669' : '#DC2626',
-                      }}>
-                        {glaze.active ? 'Active' : 'Inactive'}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', gap: '6px', marginTop: '12px' }}>
-                      <button onClick={() => openGlazeModal(glaze)} style={{ ...btnSt, flex: 1, padding: '5px 10px', fontSize: '11px' }}>Edit</button>
-                      <button onClick={() => toggleGlazeActive(glaze)} style={{ ...btnSt, flex: 1, padding: '5px 10px', fontSize: '11px' }}>
-                        {glaze.active ? 'Deactivate' : 'Activate'}
-                      </button>
-                      <button onClick={() => deleteGlaze(glaze)} style={{ ...btnDangerSt, padding: '5px 10px', fontSize: '11px' }}>Delete</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </main>
 
       {/* Clay Type Modal */}
@@ -400,6 +439,36 @@ export default function AdminReference() {
                   placeholder="Optional description..."
                 />
               </div>
+              {editingClay && (
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelSt}>Image</label>
+                  {editingClay.image_url && (
+                    <div style={{ marginBottom: '8px', borderRadius: '4px', overflow: 'hidden', backgroundColor: ALT }}>
+                      <img src={editingClay.image_url} alt={editingClay.name} style={{ width: '100%', height: '80px', objectFit: 'cover', display: 'block' }} />
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={async (e) => {
+                      const file = e.target.files[0];
+                      if (!file) return;
+                      const formData = new FormData();
+                      formData.append('image', file);
+                      try {
+                        const { data } = await api.post(`/admin/clay-types/${editingClay.id}/image`, formData, {
+                          headers: { 'Content-Type': 'multipart/form-data' },
+                        });
+                        setEditingClay({ ...editingClay, image_url: data.image_url });
+                        setClayTypes(clayTypes.map(c => c.id === editingClay.id ? { ...c, image_url: data.image_url } : c));
+                      } catch (err) {
+                        alert('Failed to upload image');
+                      }
+                    }}
+                    style={{ fontSize: '12px' }}
+                  />
+                </div>
+              )}
               <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <input
                   type="checkbox"
@@ -425,7 +494,7 @@ export default function AdminReference() {
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '16px' }}>
           <div style={{ backgroundColor: '#FFFFFF', border: `1px solid ${RULE}`, maxWidth: '420px', width: '100%', padding: '24px' }}>
             <h2 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px', margin: '0 0 20px' }}>
-              {editingGlaze ? 'Edit Glaze' : 'Add Glaze'}
+              {editingGlaze ? 'Edit' : 'Add'} {glazeForm.glaze_type === 'underglaze' ? 'Underglaze' : 'Glaze'}
             </h2>
             <form onSubmit={handleGlazeSubmit}>
               <div style={{ marginBottom: '14px' }}>
@@ -469,6 +538,61 @@ export default function AdminReference() {
                   />
                 </div>
               </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+                <div>
+                  <label style={labelSt}>Type</label>
+                  <select
+                    value={glazeForm.glaze_type}
+                    onChange={(e) => setGlazeForm({ ...glazeForm, glaze_type: e.target.value })}
+                    style={inputSt}
+                  >
+                    <option value="glaze">Glaze</option>
+                    <option value="underglaze">Underglaze</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={labelSt}>Stock Status</label>
+                  <select
+                    value={glazeForm.stock_status}
+                    onChange={(e) => setGlazeForm({ ...glazeForm, stock_status: e.target.value })}
+                    style={inputSt}
+                  >
+                    <option value="in_stock">In Stock</option>
+                    <option value="low">Low Stock</option>
+                    <option value="out_of_stock">Out of Stock</option>
+                  </select>
+                </div>
+              </div>
+              {editingGlaze && (
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelSt}>Image</label>
+                  {editingGlaze.image_url && (
+                    <div style={{ marginBottom: '8px', borderRadius: '4px', overflow: 'hidden', backgroundColor: ALT }}>
+                      <img src={editingGlaze.image_url} alt={editingGlaze.name} style={{ width: '100%', height: '80px', objectFit: 'cover', display: 'block' }} />
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={async (e) => {
+                      const file = e.target.files[0];
+                      if (!file) return;
+                      const formData = new FormData();
+                      formData.append('image', file);
+                      try {
+                        const { data } = await api.post(`/admin/glazes/${editingGlaze.id}/image`, formData, {
+                          headers: { 'Content-Type': 'multipart/form-data' },
+                        });
+                        setEditingGlaze({ ...editingGlaze, image_url: data.image_url });
+                        setGlazes(glazes.map(g => g.id === editingGlaze.id ? { ...g, image_url: data.image_url } : g));
+                      } catch (err) {
+                        alert('Failed to upload image');
+                      }
+                    }}
+                    style={{ fontSize: '12px' }}
+                  />
+                </div>
+              )}
               <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <input
                   type="checkbox"

@@ -10,6 +10,7 @@ import {
   SectionLabel, Divider, TopBar, BottomTabBar, ScrollBody, PageShell,
   ClassRow, getClassLabel,
 } from '../components/SharedUI';
+import WheelPicker from '../components/WheelPicker';
 
 // ─── Membership badge ────────────────────────────────────────────────────────
 const BADGE_TIERS = {
@@ -52,7 +53,11 @@ const STUDENT_TABS = [
 function getShortCourseLabel(classType) {
   if (!classType) return '';
   if (classType.includes('6.6') || classType.includes('7.7')) return 'Glazing';
-  if (classType.startsWith('WT')) return 'Wheelthrowing Beginners/Ext';
+  if (classType.startsWith('WT')) {
+    const match = classType.match(/_\w+(\d)\./);
+    if (match && match[1] === '7') return 'Wheelthrowing Intermediate 7 Weeks';
+    return 'Wheelthrowing Beginners/Ext 6 Weeks';
+  }
   if (classType.startsWith('HB')) return 'Handbuilding';
   return classType.split('.')[0];
 }
@@ -72,6 +77,7 @@ export default function Dashboard() {
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   const [showCompletedCourses, setShowCompletedCourses] = useState(false);
   const [creditBalance, setCreditBalance] = useState(null);
+  const [wheelSelections, setWheelSelections] = useState({});
 
   useEffect(() => {
     fetchDashboardData();
@@ -254,7 +260,8 @@ export default function Dashboard() {
   };
 
   const enrollmentsWithCounts = enrollments.map(enrollment => {
-    const totalClasses = enrollment.class_credits_allocated || enrollment.number_of_weeks || 6;
+    const is10Pkg = enrollment.number_of_weeks === 10 && (enrollment.total_weeks === 6 || enrollment.class_credits_allocated === 4);
+    const totalClasses = is10Pkg ? 10 : (enrollment.class_credits_allocated || enrollment.number_of_weeks || 6);
     const enrollmentBookings = enrollment.bookings || [];
     const bookingAttendedCount = enrollmentBookings.filter(b => {
       if (b.status === 'attended' || b.status === 'completed') return true;
@@ -278,12 +285,12 @@ export default function Dashboard() {
 
     let typeLabel = 'Course';
     if (is10ClassPkg) {
-      typeLabel = 'Wheelthrowing / Handbuilding';
+      typeLabel = `Wheelthrowing 6 Weeks 10 Class No Expiry`;
     } else {
       const lower = (classType + ' ' + courseTitle).toLowerCase();
       const isWT = classType.startsWith('WT') || lower.includes('wheel');
       const isHB = classType.startsWith('HB') || lower.includes('handbuild');
-      if (isWT) typeLabel = `Wheelthrowing Beginners/Ext ${weeks} Wks`;
+      if (isWT) typeLabel = weeks === 7 ? `Wheelthrowing Intermediate 7 Weeks` : `Wheelthrowing Beginners/Ext 6 Weeks`;
       else if (isHB) typeLabel = `Handbuilding ${weeks} Weeks`;
     }
 
@@ -295,7 +302,7 @@ export default function Dashboard() {
     else if (upcomingEnrollments.find(e => e.id === enrollment.id)) statusLabel = 'upcoming';
     else if ((dashboardData?.enrollments?.completed || []).find(e => e.id === enrollment.id)) statusLabel = 'completed';
 
-    return { enrollment, totalClasses, attendedCount, bookedCount, remaining, pct, typeLabel, statusLabel };
+    return { enrollment, totalClasses, attendedCount, bookedCount, remaining, pct, typeLabel, statusLabel, is10Pkg };
   });
 
   // Greeting course count line: unique types, sum remaining
@@ -380,15 +387,25 @@ export default function Dashboard() {
                 const currentCourse = enrollmentsWithCounts.find(e => e.statusLabel === 'active' || e.statusLabel === 'upcoming');
                 const courseAttended = currentCourse?.attendedCount || 0;
                 const courseTotal = currentCourse?.totalClasses || 6;
+                const pkgTotal = dashboardData?.packageInfo?.totalCourses;
                 return (
                   <div key={label}>
-                    <div>{label}</div>
+                    <div>{label}{pkgTotal > 1 ? ` · ${pkgTotal} Course` : ''}</div>
                     {nextClass && (
-                      <div>Next: <strong style={{ color: INK }}>{nextClass.date} {nextClass.time}</strong> · {courseAttended}/{courseTotal}</div>
+                      <div>Next: <strong style={{ color: INK }}>{nextClass.date} {nextClass.time}</strong></div>
                     )}
                   </div>
                 );
               })}
+              {(() => {
+                const flexEnrollment = enrollmentsWithCounts.find(e => {
+                  const is10 = (e.enrollment.number_of_weeks === 10) && (e.enrollment.total_weeks === 6 || e.totalClasses === 10);
+                  return is10 && (e.enrollment.class_credits_remaining > 0) && e.statusLabel !== 'completed';
+                });
+                return flexEnrollment ? (
+                  <div>You have <strong style={{ color: INK }}>{flexEnrollment.enrollment.class_credits_remaining} class credit{flexEnrollment.enrollment.class_credits_remaining !== 1 ? 's' : ''}</strong> available</div>
+                ) : null;
+              })()}
               {creditBalance > 0 && (
                 <div><strong style={{ color: INK }}>${creditBalance}</strong> Ves is 10 Credits</div>
               )}
@@ -523,7 +540,7 @@ export default function Dashboard() {
           <section style={{ marginBottom: '28px' }}>
             <SectionLabel>My Courses</SectionLabel>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
-              {coursesToShow.map(({ enrollment, totalClasses, attendedCount, bookedCount, pct, typeLabel, statusLabel }, i) => {
+              {coursesToShow.map(({ enrollment, totalClasses, attendedCount, bookedCount, remaining, pct, typeLabel, statusLabel, is10Pkg }, i) => {
                 const isActive = statusLabel === 'active';
                 const isExpanded = expandedCourse === enrollment.id;
                 const details = getCourseDetails(enrollment);
@@ -535,7 +552,7 @@ export default function Dashboard() {
                       {/* Row 1: Title + Status badge */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: enrollment.pendingThreshold ? '4px' : '8px' }}>
                         <div style={{ fontSize: '12px', fontWeight: 700, color: INK, lineHeight: '1.3', flex: 1, minWidth: 0 }}>
-                          {typeLabel}
+                          {typeLabel}{enrollment.package_total_courses > 1 ? ` · ${enrollment.package_total_courses} Course` : ''}
                         </div>
                         <span style={{
                           fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
@@ -574,22 +591,35 @@ export default function Dashboard() {
                           </button>
                         )}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
-                          <div style={{ width: '60px' }}>
-                            <div style={{ fontSize: '10px', color: MUTED, marginBottom: '2px' }}>
-                              Booked <strong style={{ color: INK }}>{bookedCount}/{totalClasses}</strong>
+                          {is10Pkg ? (
+                            <div>
+                              <div style={{ fontSize: '10px', color: MUTED, marginBottom: '2px', whiteSpace: 'nowrap' }}>
+                                <strong style={{ color: INK }}>{attendedCount}/{totalClasses}</strong> completed · <strong style={{ color: TC }}>{remaining} remaining</strong>
+                              </div>
+                              <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.08)' }}>
+                                <div style={{ height: '2px', width: `${pct}%`, backgroundColor: TC, transition: 'width 0.3s' }} />
+                              </div>
                             </div>
-                            <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.08)' }}>
-                              <div style={{ height: '2px', width: `${bookedPct}%`, backgroundColor: TC, transition: 'width 0.3s' }} />
-                            </div>
-                          </div>
-                          <div style={{ width: '60px' }}>
-                            <div style={{ fontSize: '10px', color: MUTED, marginBottom: '2px' }}>
-                              Attended <strong style={{ color: INK }}>{attendedCount}/{totalClasses}</strong>
-                            </div>
-                            <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.08)' }}>
-                              <div style={{ height: '2px', width: `${pct}%`, backgroundColor: TC, transition: 'width 0.3s' }} />
-                            </div>
-                          </div>
+                          ) : (
+                            <>
+                              <div style={{ width: '60px' }}>
+                                <div style={{ fontSize: '10px', color: MUTED, marginBottom: '2px' }}>
+                                  Booked <strong style={{ color: INK }}>{bookedCount}/{totalClasses}</strong>
+                                </div>
+                                <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.08)' }}>
+                                  <div style={{ height: '2px', width: `${bookedPct}%`, backgroundColor: TC, transition: 'width 0.3s' }} />
+                                </div>
+                              </div>
+                              <div style={{ width: '60px' }}>
+                                <div style={{ fontSize: '10px', color: MUTED, marginBottom: '2px' }}>
+                                  Attended <strong style={{ color: INK }}>{attendedCount}/{totalClasses}</strong>
+                                </div>
+                                <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.08)' }}>
+                                  <div style={{ height: '2px', width: `${pct}%`, backgroundColor: TC, transition: 'width 0.3s' }} />
+                                </div>
+                              </div>
+                            </>
+                          )}
                         </div>
                       </div>
                       {/* Course details toggle (separate row for non-pending) */}
@@ -605,11 +635,27 @@ export default function Dashboard() {
                           {isExpanded ? 'Hide details' : 'Course details'}
                         </button>
                       )}
-                      {enrollment.package_total_courses === 3 && typeLabel.startsWith('Wheelthrowing') && (
-                        <div style={{ fontSize: '11px', color: studentData?.wheel_preference ? TC_DARK : MUTED, fontWeight: 600, marginTop: '6px' }}>
-                          Wheel #{studentData?.wheel_preference || '—'}
-                        </div>
-                      )}
+                      {enrollment.package_total_courses === 3 && typeLabel.startsWith('Wheelthrowing') && (() => {
+                        const nextWTBooking = (enrollment.bookings || []).find(b => {
+                          if (b.status !== 'booked') return false;
+                          const cd = b.class_instances?.class_date;
+                          return cd && new Date(cd) >= new Date(new Date().toDateString());
+                        });
+                        const hasLockedWheel = !!studentData?.wheel_preference;
+                        return nextWTBooking ? (
+                          <WheelPicker
+                            classInstanceId={nextWTBooking.class_instances?.id}
+                            bookingId={nextWTBooking.id}
+                            currentWheel={wheelSelections[nextWTBooking.id] ?? nextWTBooking.wheel_number ?? studentData?.wheel_preference}
+                            onSelect={(num) => setWheelSelections(prev => ({ ...prev, [nextWTBooking.id]: num }))}
+                            locked={hasLockedWheel}
+                          />
+                        ) : (
+                          <div style={{ fontSize: '11px', color: MUTED, fontWeight: 600, marginTop: '6px' }}>
+                            Wheel #—
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* Pending threshold message */}

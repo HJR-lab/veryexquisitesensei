@@ -1,7 +1,7 @@
 const { wrapEmailTemplate } = require('../base');
 
 function generate({ dayOfWeek, startDate, timeSlot, specialNotes }) {
-  const subject = `VES Course Details: Kids Let's Play with Clay — ${startDate} (${timeSlot})`;
+  const subject = `VES Course: Kids Let's Play with Clay — ${startDate} (${timeSlot})`;
 
   const specialNotesBlock = specialNotes ? `<p style="margin: 16px 0 0; font-size: 14px; line-height: 1.5; color: #C4622D; font-weight: 600;">${specialNotes}</p>` : '';
 

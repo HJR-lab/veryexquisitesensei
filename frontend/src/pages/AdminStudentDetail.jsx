@@ -823,7 +823,7 @@ export default function AdminStudentDetail() {
   const totalAllocated = Math.max(allBookedCount, enrollmentAllocated);
   const unbookedCount  = isHBEnrollment
     ? Math.max(0, hbCreditsRemaining)
-    : Math.max(0, totalAllocated - allBookedCount);
+    : 0; // WT courses have all classes pre-booked, no unbooked placeholders
 
   const filteredBookings = [...(showCompletedCourses ? bookings : activeBookings)]
     .filter(b => statusFilter === 'all' || b.status === statusFilter)

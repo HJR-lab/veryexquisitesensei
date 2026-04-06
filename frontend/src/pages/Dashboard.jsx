@@ -272,7 +272,7 @@ export default function Dashboard() {
 
   const enrollmentsWithCounts = enrollments.map(enrollment => {
     const is10Pkg = enrollment.number_of_weeks === 10 && (enrollment.total_weeks === 6 || enrollment.class_credits_allocated === 4);
-    const totalClasses = is10Pkg ? 6 : (enrollment.class_credits_allocated || enrollment.number_of_weeks || 6);
+    const totalClasses = is10Pkg ? 10 : (enrollment.class_credits_allocated || enrollment.number_of_weeks || 6);
     const enrollmentBookings = enrollment.bookings || [];
     const bookingAttendedCount = enrollmentBookings.filter(b => {
       if (b.status === 'attended' || b.status === 'completed') return true;
@@ -614,6 +614,12 @@ export default function Dashboard() {
                           </>
                         </div>
                       </div>
+                      {/* Flex credits remaining for 10-class packages */}
+                      {is10Pkg && enrollment.class_credits_remaining > 0 && (
+                        <div style={{ fontSize: '10px', color: TC_DARK, fontWeight: 600, textAlign: 'right', marginBottom: '4px' }}>
+                          {enrollment.class_credits_remaining} class credit{enrollment.class_credits_remaining !== 1 ? 's' : ''} remaining
+                        </div>
+                      )}
                       {/* Course details toggle (separate row for non-pending) */}
                       {enrollment.pendingThreshold && (
                         <button

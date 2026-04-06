@@ -567,7 +567,7 @@ export default function Dashboard() {
                         </span>
                       </div>
                       {/* Row 2: Schedule (if pending) + Booked/Attended */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
                         {enrollment.pendingThreshold ? (() => {
                           const bks = (enrollment.bookings || []).filter(b => b.class_instances).sort((a, b) => new Date(a.class_instances.class_date) - new Date(b.class_instances.class_date));
                           if (bks.length === 0) return null;
@@ -593,7 +593,7 @@ export default function Dashboard() {
                             {isExpanded ? 'Hide details' : 'Course details'}
                           </button>
                         )}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: 'auto' }}>
                           <>
                             <div style={{ whiteSpace: 'nowrap' }}>
                               <div style={{ fontSize: '10px', color: MUTED, marginBottom: '2px' }}>

@@ -153,7 +153,9 @@ export default function AdminDashboard() {
           </div>
 
           {/* Right column */}
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr', gap: '24px', alignItems: 'start' }}>
+          <div style={isMobile ? { display: 'flex', gap: '24px', alignItems: 'flex-start' } : { display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            {/* Left sub-column */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', flex: 1, minWidth: 0 }}>
 
             {/* Alerts */}
             <div>
@@ -186,6 +188,59 @@ export default function AdminDashboard() {
                 })}
               </div>
             </div>
+
+            {/* Recent activity */}
+            <div>
+              <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, marginBottom: '12px' }}>
+                Recent Activity
+              </div>
+              <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
+                {loading ? (
+                  <div style={{ padding: '14px', fontSize: '12px', color: MUTED }}>Loading activity…</div>
+                ) : activity.length === 0 ? (
+                  <div style={{ padding: '14px', fontSize: '12px', color: MUTED }}>No recent activity</div>
+                ) : activity.slice(0, 6).map((r, i, activity) => {
+                  const actionStyles = {
+                    Booked: { color: '#059669', icon: 'event_available' },
+                    Cancelled: { color: '#DC2626', icon: 'event_busy' },
+                    Enrolled: { color: '#2563EB', icon: 'school' },
+                    Membership: { color: '#7C3AED', icon: 'card_membership' },
+                    Gallery: { color: '#D97706', icon: 'photo_library' },
+                    Studio: { color: '#0891B2', icon: 'door_open' },
+                  };
+                  const style = actionStyles[r.action] || { color: TC, icon: 'circle' };
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        padding: '11px 14px',
+                        borderBottom: i < activity.length - 1 ? `1px solid ${RULE}` : 'none',
+                        display: 'flex',
+                        gap: '10px',
+                      }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: '14px', color: style.color, flexShrink: 0, marginTop: '2px' }}>
+                        {style.icon}
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                          <span style={{ fontSize: '11px', fontWeight: 700, color: style.color, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            {r.action}
+                          </span>
+                          <span style={{ fontSize: '10px', color: MUTED }}>{r.when}</span>
+                        </div>
+                        <div style={{ fontSize: '12px', fontWeight: 600 }}>{r.who}</div>
+                        <div style={{ fontSize: '11px', color: MUTED }}>{r.detail}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            </div>{/* end left sub-column */}
+
+            {/* Right sub-column */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', flex: 1, minWidth: 0 }}>
 
             {/* Engagement */}
             {engagement && (
@@ -268,55 +323,6 @@ export default function AdminDashboard() {
               </div>
             )}
 
-            {/* Recent activity */}
-            <div>
-              <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, marginBottom: '12px' }}>
-                Recent Activity
-              </div>
-              <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
-                {loading ? (
-                  <div style={{ padding: '14px', fontSize: '12px', color: MUTED }}>Loading activity…</div>
-                ) : activity.length === 0 ? (
-                  <div style={{ padding: '14px', fontSize: '12px', color: MUTED }}>No recent activity</div>
-                ) : activity.slice(0, 6).map((r, i, activity) => {
-                  const actionStyles = {
-                    Booked: { color: '#059669', icon: 'event_available' },
-                    Cancelled: { color: '#DC2626', icon: 'event_busy' },
-                    Enrolled: { color: '#2563EB', icon: 'school' },
-                    Membership: { color: '#7C3AED', icon: 'card_membership' },
-                    Gallery: { color: '#D97706', icon: 'photo_library' },
-                    Studio: { color: '#0891B2', icon: 'door_open' },
-                  };
-                  const style = actionStyles[r.action] || { color: TC, icon: 'circle' };
-                  return (
-                    <div
-                      key={i}
-                      style={{
-                        padding: '11px 14px',
-                        borderBottom: i < activity.length - 1 ? `1px solid ${RULE}` : 'none',
-                        display: 'flex',
-                        gap: '10px',
-                      }}
-                    >
-                      <span className="material-symbols-outlined" style={{ fontSize: '14px', color: style.color, flexShrink: 0, marginTop: '2px' }}>
-                        {style.icon}
-                      </span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
-                          <span style={{ fontSize: '11px', fontWeight: 700, color: style.color, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                            {r.action}
-                          </span>
-                          <span style={{ fontSize: '10px', color: MUTED }}>{r.when}</span>
-                        </div>
-                        <div style={{ fontSize: '12px', fontWeight: 600 }}>{r.who}</div>
-                        <div style={{ fontSize: '11px', color: MUTED }}>{r.detail}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
             {/* Reschedules */}
             <div>
               <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, marginBottom: '12px' }}>
@@ -394,6 +400,7 @@ export default function AdminDashboard() {
               </div>
             </div>
 
+            </div>{/* end right sub-column */}
           </div>
         </div>
       </main>

@@ -627,14 +627,14 @@ export default function ClassScheduleNew() {
         {/* ── 10 CLASS PACKAGE CARD ─────────────────────────────────────── */}
         {is10ClassPackage && (() => {
           const booked = tenClassBookings;
-          const total = 6;
+          const total = 10;
           const creditsRemaining = tenClassEnrollment?.class_credits_remaining || (extraCreditsTotal - extraCreditsUsed);
           return (
             <div style={{ padding: '6px 20px 8px' }}>
               <div style={{ padding: '14px', backgroundColor: '#FFF8F0', border: `1px solid ${RULE}` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                   <span style={{ fontSize: '12px', fontWeight: 700, color: TC_DARK, letterSpacing: '0.03em' }}>
-                    Flex Credits · {creditsRemaining} of {extraCreditsTotal} available
+                    10 Class Package · Booked {booked} of {total}
                   </span>
                 </div>
                 <div style={{ height: '4px', backgroundColor: RULE, borderRadius: '2px', position: 'relative', marginBottom: '6px' }}>

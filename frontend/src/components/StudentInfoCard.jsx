@@ -33,6 +33,7 @@ export default function StudentInfoCard({
   handleCompleteCourse,
   setShowPauseModal,
   teachingData,
+  instructorNotes = [],
 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -189,6 +190,29 @@ export default function StudentInfoCard({
         </div>
 
       </div>
+
+      {/* Instructor Notes */}
+      {instructorNotes.length > 0 && (
+        <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF', padding: '14px' }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '10px' }}>
+            Instructor Notes ({instructorNotes.length})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {instructorNotes.slice(0, 5).map(note => {
+              const instructor = note.customers ? `${note.customers.first_name || ''} ${note.customers.last_name || ''}`.trim() : '';
+              const date = new Date(note.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+              return (
+                <div key={note.id} style={{ borderBottom: `1px solid ${RULE}`, paddingBottom: '8px' }}>
+                  <div style={{ fontSize: '12px', color: INK, lineHeight: 1.4, marginBottom: '4px' }}>{note.content}</div>
+                  <div style={{ fontSize: '10px', color: MUTED }}>
+                    {instructor && <span>{instructor} · </span>}{date}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Action buttons */}
       <div style={{ display: 'flex', flexDirection: isMobile ? 'row' : 'column', gap: '8px' }}>

@@ -138,6 +138,7 @@ export default function AdminStudentDetail() {
   const [bookings, setBookings]       = useState([]);
   const [fees, setFees]               = useState([]);
   const [flexCredits, setFlexCredits] = useState(null);
+  const [instructorNotes, setInstructorNotes] = useState([]);
   const [updatingFeeId, setUpdatingFeeId] = useState(null);
 
   // ── Edit form ────────────────────────────────────────────────────────────
@@ -348,6 +349,7 @@ export default function AdminStudentDetail() {
         api.get(`/credits/history/${studentData.id}`).then(r => setCreditHistory(r.data.history || [])).catch(() => {});
         // Check for 10-class package flex credits across all enrollments
         api.get(`/admin/students/${studentData.id}/flex-credits`).then(r => setFlexCredits(r.data)).catch(() => {});
+        api.get(`/admin/students/${studentData.id}/notes`).then(r => setInstructorNotes(r.data.notes || [])).catch(() => {});
       }
 
       const results = await Promise.all(parallelCalls);
@@ -915,6 +917,7 @@ export default function AdminStudentDetail() {
             handleImpersonate={handleImpersonate}
             handleCompleteCourse={handleCompleteCourse}
             setShowPauseModal={setShowPauseModal}
+            instructorNotes={instructorNotes}
             teachingData={teachingData}
           />
 

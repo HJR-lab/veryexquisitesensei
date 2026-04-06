@@ -1702,6 +1702,17 @@ app.get('/api/admin/students/:id/enrollment', authenticateToken, requireAdmin, a
   }
 }));
 
+// Get instructor notes for a student
+app.get('/api/admin/students/:id/notes', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const studentId = parseInt(req.params.id);
+  const { data } = await supabaseDb.supabase
+    .from('instructor_notes')
+    .select('id, content, note_type, created_at, instructor_id, class_instance_id, customers!instructor_notes_instructor_id_fkey(first_name, last_name)')
+    .eq('student_id', studentId)
+    .order('created_at', { ascending: false });
+  res.json({ notes: data || [] });
+}));
+
 // Check next available course for package continuation
 // Helper: derive schedule info from course identifier when enrollment fields are null
 // e.g., WT2802PM_DL6 → { schedulePattern: 'SATURDAY', classTime: '1:00 PM - 3:30 PM' }

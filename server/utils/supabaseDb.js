@@ -1630,6 +1630,95 @@ async function getReadyBatchesNeedingReminder() {
   });
 }
 
+// ==================== Firing Runs ====================
+
+async function createFiringRun({ firingType, notes, batchIds }) {
+  // Create the firing run
+  const { data: run, error: runError } = await supabase
+    .from('firing_runs')
+    .insert({
+      firing_type: firingType,
+      notes: notes || null,
+      status: 'loading',
+    })
+    .select()
+    .single();
+
+  if (runError) throw runError;
+
+  // Link batches to the run
+  const links = batchIds.map(batchId => ({
+    firing_run_id: run.id,
+    piece_batch_id: batchId,
+  }));
+
+  const { error: linkError } = await supabase
+    .from('firing_run_batches')
+    .insert(links);
+
+  if (linkError) throw linkError;
+
+  return run;
+}
+
+async function getFiringRuns({ status, limit = 20 } = {}) {
+  let query = supabase
+    .from('firing_runs')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (status) {
+    query = query.eq('status', status);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
+
+async function getFiringRunById(runId) {
+  const { data: run, error: runError } = await supabase
+    .from('firing_runs')
+    .select('*')
+    .eq('id', runId)
+    .single();
+
+  if (runError) throw runError;
+
+  const { data: links, error: linkError } = await supabase
+    .from('firing_run_batches')
+    .select('piece_batch_id')
+    .eq('firing_run_id', runId);
+
+  if (linkError) throw linkError;
+
+  // Fetch the actual batches with customer/enrollment info
+  const batchIds = (links || []).map(l => l.piece_batch_id);
+  if (batchIds.length === 0) return { ...run, batches: [] };
+
+  const { data: batches, error: batchError } = await supabase
+    .from('piece_batches')
+    .select('*, customers(id, first_name, last_name, email), course_enrollments(course_type, course_title, course_variant_title, course_identifier)')
+    .in('id', batchIds);
+
+  if (batchError) throw batchError;
+
+  return { ...run, batches: batches || [] };
+}
+
+async function completeFiringRun(runId) {
+  const { data, error } = await supabase
+    .from('firing_runs')
+    .update({ status: 'completed', completed_at: new Date().toISOString() })
+    .eq('id', runId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
 module.exports = {
   supabase,
   // Customer functions
@@ -1716,4 +1805,9 @@ module.exports = {
   markNotificationRead,
   markAllNotificationsRead,
   getUnreadNotificationCount,
+  // Firing run functions
+  createFiringRun,
+  getFiringRuns,
+  getFiringRunById,
+  completeFiringRun,
 };

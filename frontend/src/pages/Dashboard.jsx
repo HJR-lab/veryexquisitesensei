@@ -138,8 +138,19 @@ export default function Dashboard() {
           : null;
 
         const hbWeeks = enrollment.number_of_weeks || enrollment.class_credits_allocated || '';
-        const displayTitle = isHB ? `Handbuilding ${hbWeeks} Weeks` : enrollment.course_title;
         enrollment.bookings.forEach(booking => {
+          const ct = booking.class_instances?.class_type || '';
+          let displayTitle;
+          if (ct.startsWith('HB')) {
+            displayTitle = `Handbuilding`;
+          } else if (ct.startsWith('WT')) {
+            const weekMatch = ct.match(/_\w+(\d)\./);
+            displayTitle = weekMatch && weekMatch[1] === '7' ? 'Wheelthrowing Intermediate 7 Weeks' : 'Wheelthrowing Beginners/Ext 6 Weeks';
+          } else if (isHB) {
+            displayTitle = `Handbuilding ${hbWeeks} Weeks`;
+          } else {
+            displayTitle = enrollment.course_title;
+          }
           all.push({
             ...booking,
             _courseTitle: displayTitle,

@@ -1087,7 +1087,7 @@ export default function AdminStudentDetail() {
                         </div>
                         <div style={{ textAlign: 'right' }}>
                           <div style={{ fontSize: '22px', fontWeight: 700 }}>
-                            {allAttendedCount}<span style={{ fontSize: '14px', color: MUTED, fontWeight: 400 }}>/{totalAllocated}</span>
+                            {allAttendedCount}<span style={{ fontSize: '14px', color: MUTED, fontWeight: 400 }}>/{enrollment.number_of_weeks || totalAllocated}</span>
                           </div>
                           <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Attended</div>
                         </div>
@@ -1109,7 +1109,9 @@ export default function AdminStudentDetail() {
                         <span style={{ fontSize: '11px', color: TC_DARK, fontWeight: 700 }}>
                           {isHBEnrollment
                             ? `${hbCreditsRemaining} credits remaining`
-                            : `${unbookedCount} available`}
+                            : enrollment.number_of_weeks === 10
+                              ? `${enrollment.class_credits_remaining || 0} flex credits`
+                              : `${unbookedCount} available`}
                         </span>
                       </div>
                     </div>

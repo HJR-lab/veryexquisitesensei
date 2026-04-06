@@ -34,7 +34,10 @@ export default function StudentInfoCard({
   setShowPauseModal,
   teachingData,
   instructorNotes = [],
+  onAddNote,
 }) {
+  const [noteText, setNoteText] = useState('');
+  const [addingNote, setAddingNote] = useState(false);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
@@ -185,35 +188,65 @@ export default function StudentInfoCard({
                   <div style={{ fontSize: '13px', wordBreak: 'break-all' }}>{f.value}</div>
                 </div>
               ))}
+
+              {/* Notes section */}
+              <div style={{ marginTop: '8px', paddingTop: '12px', borderTop: `1px solid ${RULE}` }}>
+                <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '6px' }}>
+                  Notes{instructorNotes.length > 0 ? ` (${instructorNotes.length})` : ''}
+                </div>
+                {instructorNotes.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px' }}>
+                    {instructorNotes.slice(0, 5).map(note => {
+                      const instructor = note.customers ? `${note.customers.first_name || ''} ${note.customers.last_name || ''}`.trim() : '';
+                      const date = new Date(note.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+                      return (
+                        <div key={note.id}>
+                          <div style={{ fontSize: '12px', color: INK, lineHeight: 1.4 }}>{note.content}</div>
+                          <div style={{ fontSize: '10px', color: MUTED }}>
+                            {instructor && <span>{instructor} · </span>}{date}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {onAddNote && (
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <input
+                      value={noteText}
+                      onChange={e => setNoteText(e.target.value)}
+                      onKeyDown={async e => {
+                        if (e.key === 'Enter' && noteText.trim()) {
+                          setAddingNote(true);
+                          await onAddNote(noteText.trim());
+                          setNoteText('');
+                          setAddingNote(false);
+                        }
+                      }}
+                      placeholder="Add a note..."
+                      disabled={addingNote}
+                      style={{ flex: 1, padding: '6px 8px', fontSize: '11px', border: `1px solid ${RULE}`, outline: 'none', fontFamily: 'inherit' }}
+                    />
+                    <button
+                      onClick={async () => {
+                        if (!noteText.trim()) return;
+                        setAddingNote(true);
+                        await onAddNote(noteText.trim());
+                        setNoteText('');
+                        setAddingNote(false);
+                      }}
+                      disabled={addingNote || !noteText.trim()}
+                      style={{ padding: '6px 10px', fontSize: '10px', fontWeight: 700, border: 'none', backgroundColor: INK, color: '#FFF', cursor: addingNote || !noteText.trim() ? 'default' : 'pointer', opacity: addingNote || !noteText.trim() ? 0.4 : 1 }}
+                    >
+                      {addingNote ? '...' : 'Add'}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
 
-      </div>
-
-      {/* Instructor Notes */}
-      <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF', padding: '14px' }}>
-        <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: instructorNotes.length > 0 ? '10px' : 0 }}>
-          Notes{instructorNotes.length > 0 ? ` (${instructorNotes.length})` : ''}
-        </div>
-        {instructorNotes.length > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {instructorNotes.slice(0, 5).map(note => {
-              const instructor = note.customers ? `${note.customers.first_name || ''} ${note.customers.last_name || ''}`.trim() : '';
-              const date = new Date(note.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-              return (
-                <div key={note.id} style={{ borderBottom: `1px solid ${RULE}`, paddingBottom: '8px' }}>
-                  <div style={{ fontSize: '12px', color: INK, lineHeight: 1.4, marginBottom: '4px' }}>{note.content}</div>
-                  <div style={{ fontSize: '10px', color: MUTED }}>
-                    {instructor && <span>{instructor} · </span>}{date}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div style={{ fontSize: '12px', color: MUTED, marginTop: '6px' }}>No notes yet</div>
-        )}
       </div>
 
       {/* Action buttons */}

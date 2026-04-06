@@ -1713,6 +1713,28 @@ app.get('/api/admin/students/:id/notes', authenticateToken, requireAdmin, asyncH
   res.json({ notes: data || [] });
 }));
 
+// Add a note for a student (admin)
+app.post('/api/admin/students/:id/notes', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const studentId = parseInt(req.params.id);
+  const { content } = req.body;
+  if (!content || !content.trim()) return res.status(400).json({ error: 'Content required' });
+
+  // Use admin's customer ID as instructor_id
+  const { data, error } = await supabaseDb.supabase
+    .from('instructor_notes')
+    .insert({
+      instructor_id: req.user.dbCustomerId,
+      student_id: studentId,
+      note_type: 'student',
+      content: content.trim()
+    })
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: 'Failed to save note' });
+  res.json({ note: data });
+}));
+
 // Check next available course for package continuation
 // Helper: derive schedule info from course identifier when enrollment fields are null
 // e.g., WT2802PM_DL6 → { schedulePattern: 'SATURDAY', classTime: '1:00 PM - 3:30 PM' }

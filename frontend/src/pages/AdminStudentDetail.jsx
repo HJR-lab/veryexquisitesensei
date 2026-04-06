@@ -918,6 +918,13 @@ export default function AdminStudentDetail() {
             handleCompleteCourse={handleCompleteCourse}
             setShowPauseModal={setShowPauseModal}
             instructorNotes={instructorNotes}
+            onAddNote={async (content) => {
+              try {
+                await api.post('/admin/students/' + student.id + '/notes', { content });
+                const r = await api.get('/admin/students/' + student.id + '/notes');
+                setInstructorNotes(r.data.notes || []);
+              } catch (err) { console.error('Failed to add note:', err); }
+            }}
             teachingData={teachingData}
           />
 

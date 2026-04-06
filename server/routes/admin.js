@@ -2970,6 +2970,7 @@ app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, requireAdm
     status: booking.status,
     attended: booking.attended,
     class_instance_id: booking.class_instance_id,  // Include for double-booking prevention
+    course_enrollment_id: booking.course_enrollment_id,
     class_date: booking.class_instances.class_date,
     start_time: booking.class_instances.start_time,
     end_time: booking.class_instances.end_time,

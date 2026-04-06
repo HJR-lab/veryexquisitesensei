@@ -42,6 +42,7 @@ export default function AdminNav({ active, onSyncComplete }) {
       if (expired > 0) text += `, ${expired} membership${expired !== 1 ? 's' : ''} expired`;
       setSyncMessage({ type: 'ok', text });
       if (onSyncComplete) onSyncComplete();
+      setTimeout(() => window.location.reload(), 1500);
     } catch (error) {
       setSyncMessage({ type: 'err', text: 'Sync failed' });
     } finally {

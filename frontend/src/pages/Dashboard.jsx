@@ -272,7 +272,7 @@ export default function Dashboard() {
 
   const enrollmentsWithCounts = enrollments.map(enrollment => {
     const is10Pkg = enrollment.number_of_weeks === 10 && (enrollment.total_weeks === 6 || enrollment.class_credits_allocated === 4);
-    const totalClasses = is10Pkg ? 10 : (enrollment.class_credits_allocated || enrollment.number_of_weeks || 6);
+    const totalClasses = is10Pkg ? 6 : (enrollment.class_credits_allocated || enrollment.number_of_weeks || 6);
     const enrollmentBookings = enrollment.bookings || [];
     const bookingAttendedCount = enrollmentBookings.filter(b => {
       if (b.status === 'attended' || b.status === 'completed') return true;
@@ -394,20 +394,9 @@ export default function Dashboard() {
               )}
             </h1>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', color: MUTED }}>
-              {greetingEntries.length > 0 && greetingEntries.map(([label, info]) => {
-                const currentCourse = enrollmentsWithCounts.find(e => e.statusLabel === 'active' || e.statusLabel === 'upcoming');
-                const courseAttended = currentCourse?.attendedCount || 0;
-                const courseTotal = currentCourse?.totalClasses || 6;
-                const pkgTotal = dashboardData?.packageInfo?.totalCourses;
-                return (
-                  <div key={label}>
-                    <div>{label}{pkgTotal > 1 ? ` · ${pkgTotal} Course` : ''}</div>
-                    {nextClass && (
-                      <div>Next: <strong style={{ color: INK }}>{nextClass.date} {nextClass.time}</strong></div>
-                    )}
-                  </div>
-                );
-              })}
+              {nextClass && (
+                <div>Next: <strong style={{ color: INK }}>{nextClass.date} {nextClass.time}</strong></div>
+              )}
               {(() => {
                 const flexEnrollment = enrollmentsWithCounts.find(e => {
                   const is10 = (e.enrollment.number_of_weeks === 10) && (e.enrollment.total_weeks === 6 || e.totalClasses === 10);

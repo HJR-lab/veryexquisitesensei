@@ -329,7 +329,7 @@ export default function ClassScheduleNew() {
     if (!selectedClass || !studentData) return [];
     const classCategory = getClassCategory(selectedClass.classType);
     const twentyFourHoursFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    const has10ClassPackage = studentData.classes_allocated === 10 && !studentData.course_expiry_date;
+    const has10ClassPackage = is10ClassPackage;
     const has3CoursePackage = dashboardData?.packageInfo?.totalCourses === 3;
     const canSwapGlazingToWT = has3CoursePackage && (dashboardData?.packageInfo?.coursesRemaining >= 1);
     const totalBookings = myBookings.length;
@@ -520,10 +520,12 @@ export default function ClassScheduleNew() {
     (myBookings?.filter(b => b.status === 'booked' || b.status === 'attended').length || 0);
 
   // ── 10-class package: extra credits beyond the 6 scheduled classes ────────
-  const is10ClassPackage = studentData?.classes_allocated === 10 && !studentData?.course_expiry_date;
+  const allEnrollments = [...(dashboardData?.enrollments?.active || []), ...(dashboardData?.enrollments?.upcoming || [])];
+  const tenClassEnrollment = allEnrollments.find(e => e.number_of_weeks === 10);
+  const is10ClassPackage = !!tenClassEnrollment;
   const extraCreditsTotal = is10ClassPackage ? 4 : 0;
-  const bookedOrAttended = myBookings?.filter(b => b.status === 'booked' || b.status === 'attended').length || 0;
-  const extraCreditsUsed = is10ClassPackage ? Math.max(0, bookedOrAttended - 6) : 0;
+  const tenClassBookings = is10ClassPackage ? (tenClassEnrollment.bookings || []).filter(b => b.status === 'booked' || b.status === 'attended').length : 0;
+  const extraCreditsUsed = is10ClassPackage ? Math.max(0, tenClassBookings - 6) : 0;
 
   // Detect last HB booking as glazing (when all credits are booked)
   const hbLastBookingId = (() => {
@@ -624,15 +626,15 @@ export default function ClassScheduleNew() {
         {/* ── PACKAGE PROGRESS ──────────────────────────────────────────── */}
         {/* ── 10 CLASS PACKAGE CARD ─────────────────────────────────────── */}
         {is10ClassPackage && (() => {
-          const booked = bookedOrAttended;
-          const total = 10;
-          const creditsRemaining = extraCreditsTotal - extraCreditsUsed;
+          const booked = tenClassBookings;
+          const total = 6;
+          const creditsRemaining = tenClassEnrollment?.class_credits_remaining || (extraCreditsTotal - extraCreditsUsed);
           return (
             <div style={{ padding: '6px 20px 8px' }}>
               <div style={{ padding: '14px', backgroundColor: '#FFF8F0', border: `1px solid ${RULE}` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                   <span style={{ fontSize: '12px', fontWeight: 700, color: TC_DARK, letterSpacing: '0.03em' }}>
-                    10 Class Package · Booked {booked} of {total}
+                    Flex Credits · {creditsRemaining} of {extraCreditsTotal} available
                   </span>
                 </div>
                 <div style={{ height: '4px', backgroundColor: RULE, borderRadius: '2px', position: 'relative', marginBottom: '6px' }}>

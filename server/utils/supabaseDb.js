@@ -1719,6 +1719,50 @@ async function completeFiringRun(runId) {
   return data;
 }
 
+// ==================== Auto-Recycle ====================
+
+async function getExpiredPieceBatches() {
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from('piece_batches')
+    .select('*, customers(id, first_name, last_name, email), course_enrollments(course_type, course_title, course_variant_title, course_identifier)')
+    .in('status', ['ready', 'collecting', 'delivering'])
+    .lt('hold_expires_at', now)
+    .not('hold_expires_at', 'is', null);
+
+  if (error) throw error;
+  return data || [];
+}
+
+// ==================== Gallery Admin ====================
+
+async function searchPotteryPiecesByInitials(initials) {
+  // Join through customers to match initials
+  const { data: customers, error: custError } = await supabase
+    .from('customers')
+    .select('id')
+    .ilike('initials', `%${initials}%`);
+
+  if (custError) throw custError;
+  if (!customers || customers.length === 0) return [];
+
+  const customerIds = customers.map(c => c.id);
+
+  const { data, error } = await supabase
+    .from('pottery_pieces')
+    .select(`
+      *,
+      customer:customers!pottery_pieces_customer_id_fkey (
+        id, first_name, last_name, email, initials
+      )
+    `)
+    .in('customer_id', customerIds)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
 module.exports = {
   supabase,
   // Customer functions
@@ -1810,4 +1854,8 @@ module.exports = {
   getFiringRuns,
   getFiringRunById,
   completeFiringRun,
+  // Auto-recycle
+  getExpiredPieceBatches,
+  // Gallery admin
+  searchPotteryPiecesByInitials,
 };

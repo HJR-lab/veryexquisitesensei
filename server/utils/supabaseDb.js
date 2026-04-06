@@ -740,9 +740,18 @@ async function getStudentBookings(studentId) {
   // Filter to show bookings from ONLY active or paused enrollments
   // This ensures students only see their current course, not completed past courses
   // Completed courses are shown in Course History instead
+  // Check which enrollments have at least one active class (course is confirmed/running)
+  const enrollmentHasActiveClass = {};
+  (data || []).forEach(booking => {
+    if (booking.course_enrollment_id && booking.class_instance?.status === 'active') {
+      enrollmentHasActiveClass[booking.course_enrollment_id] = true;
+    }
+  });
+
   const activeBookings = (data || []).filter(booking => {
-    // Exclude bookings for draft class instances (awaiting confirmation / under threshold)
-    if (booking.class_instance?.status === 'draft') return false;
+    // Exclude bookings for draft class instances ONLY if the entire course is still draft
+    // If other classes in the same enrollment are active, the course is running
+    if (booking.class_instance?.status === 'draft' && !enrollmentHasActiveClass[booking.course_enrollment_id]) return false;
 
     // Include bookings without an enrollment (legacy data/standalone bookings)
     if (!booking.course_enrollment) return true;

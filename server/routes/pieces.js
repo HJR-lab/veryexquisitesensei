@@ -92,11 +92,11 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
     res.json({ success: true, batch: updated });
   }));
 
-  // Set delivery method
+  // Set delivery method (with optional collection date)
   app.put('/api/pieces/batches/:id/delivery', authenticateToken, asyncHandler(async (req, res) => {
     const batchId = parseInt(req.params.id);
     const customerId = req.user.customerId;
-    const { method } = req.body; // 'collect' or 'deliver'
+    const { method, collectionDate } = req.body; // 'collect' or 'deliver'
 
     if (!['collect', 'deliver'].includes(method)) {
       return res.status(400).json({ error: 'Method must be "collect" or "deliver"' });
@@ -113,7 +113,39 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
       status: method === 'collect' ? 'collecting' : 'delivering',
     };
 
+    // For collection, require a date at least 2 days out
+    if (method === 'collect') {
+      if (!collectionDate) {
+        return res.status(400).json({ error: 'Collection date is required' });
+      }
+      const chosen = new Date(collectionDate);
+      const minDate = new Date();
+      minDate.setDate(minDate.getDate() + 2);
+      minDate.setHours(0, 0, 0, 0);
+      if (chosen < minDate) {
+        return res.status(400).json({ error: 'Collection date must be at least 2 days from now' });
+      }
+      updates.collection_date = chosen.toISOString();
+    }
+
     const updated = await supabaseDb.updatePieceBatch(batchId, updates);
+    res.json({ success: true, batch: updated });
+  }));
+
+  // Student: Confirm collection
+  app.put('/api/pieces/batches/:id/confirm-collected', authenticateToken, asyncHandler(async (req, res) => {
+    const batchId = parseInt(req.params.id);
+    const customerId = req.user.customerId;
+
+    const batch = await supabaseDb.getPieceBatchById(batchId);
+    if (!batch || batch.customer_id !== customerId) {
+      return res.status(404).json({ error: 'Batch not found' });
+    }
+    if (batch.status !== 'in_cabinet') {
+      return res.status(400).json({ error: 'Batch is not in the cabinet yet' });
+    }
+
+    const updated = await supabaseDb.updatePieceBatchStatus(batchId, 'collected');
     res.json({ success: true, batch: updated });
   }));
 
@@ -127,14 +159,20 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
       logged: batches.filter(b => b.status === 'logged'),
       bisque_fired: batches.filter(b => b.status === 'bisque_fired'),
       glaze_fired: batches.filter(b => b.status === 'glaze_fired'),
-      ready: batches.filter(b => ['ready', 'collecting', 'delivering'].includes(b.status)),
+      ready: batches.filter(b => b.status === 'ready'),
+      collecting: batches.filter(b => b.status === 'collecting'),
+      in_cabinet: batches.filter(b => b.status === 'in_cabinet'),
     };
 
+    const makeStats = (arr) => ({ count: arr.length, pieces: arr.reduce((s, b) => s + b.piece_count, 0) });
+
     const stats = {
-      logged: { count: grouped.logged.length, pieces: grouped.logged.reduce((s, b) => s + b.piece_count, 0) },
-      bisque_fired: { count: grouped.bisque_fired.length, pieces: grouped.bisque_fired.reduce((s, b) => s + b.piece_count, 0) },
-      glaze_fired: { count: grouped.glaze_fired.length, pieces: grouped.glaze_fired.reduce((s, b) => s + b.piece_count, 0) },
-      ready: { count: grouped.ready.length, pieces: grouped.ready.reduce((s, b) => s + b.piece_count, 0) },
+      logged: makeStats(grouped.logged),
+      bisque_fired: makeStats(grouped.bisque_fired),
+      glaze_fired: makeStats(grouped.glaze_fired),
+      ready: makeStats(grouped.ready),
+      collecting: makeStats(grouped.collecting),
+      in_cabinet: makeStats(grouped.in_cabinet),
     };
 
     res.json({ success: true, batches: grouped, stats });
@@ -263,6 +301,181 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
     }
 
     res.json({ success: true, batches: results });
+  }));
+
+  // ==================== Firing Runs ====================
+
+  // Create a firing run + assign batches + advance statuses
+  app.post('/api/admin/pieces/firing-runs', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+    const { firingType, notes, batchIds } = req.body;
+
+    if (!['bisque', 'glaze'].includes(firingType)) {
+      return res.status(400).json({ error: 'firingType must be "bisque" or "glaze"' });
+    }
+    if (!Array.isArray(batchIds) || batchIds.length === 0) {
+      return res.status(400).json({ error: 'batchIds array required' });
+    }
+
+    // Create the run and link batches
+    const run = await supabaseDb.createFiringRun({ firingType, notes, batchIds });
+
+    // Advance all batches to the appropriate status
+    const newStatus = firingType === 'bisque' ? 'bisque_fired' : 'glaze_fired';
+    for (const batchId of batchIds) {
+      await supabaseDb.updatePieceBatchStatus(batchId, newStatus);
+    }
+
+    res.json({ success: true, run });
+  }));
+
+  // List firing runs (active + recent)
+  app.get('/api/admin/pieces/firing-runs', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+    const status = req.query.status || null;
+    const runs = await supabaseDb.getFiringRuns({ status });
+    res.json({ success: true, runs });
+  }));
+
+  // Get single firing run with batches
+  app.get('/api/admin/pieces/firing-runs/:id', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+    const runId = parseInt(req.params.id);
+    const run = await supabaseDb.getFiringRunById(runId);
+    res.json({ success: true, run });
+  }));
+
+  // Complete a firing run — advance all batches to next status
+  app.put('/api/admin/pieces/firing-runs/:id/complete', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+    const runId = parseInt(req.params.id);
+
+    const run = await supabaseDb.getFiringRunById(runId);
+    if (!run) return res.status(404).json({ error: 'Firing run not found' });
+
+    // Determine next status for batches
+    const nextStatus = run.firing_type === 'bisque' ? 'glaze_fired' : 'ready';
+
+    // Advance all batches in the run
+    for (const batch of run.batches) {
+      await supabaseDb.updatePieceBatchStatus(batch.id, nextStatus);
+
+      // Send ready email if advancing to 'ready'
+      if (nextStatus === 'ready' && batch.customers) {
+        const student = batch.customers;
+        const courseName = batch.course_enrollments?.course_title || batch.course_enrollments?.course_variant_title || 'your course';
+        const photoUrl = batch.photo_urls && batch.photo_urls.length > 0 ? batch.photo_urls[0] : null;
+        const appUrl = process.env.FRONTEND_URL || 'https://club.ves.sg';
+
+        const piecesReadyTemplate = require('../email-templates/pieces/pieces-ready');
+        const { subject, html } = piecesReadyTemplate.generate({
+          studentName: student.first_name || 'there',
+          courseName,
+          pieceCount: batch.piece_count,
+          photoUrl,
+          appUrl,
+        });
+
+        await sendAndLogEmail({
+          emailType: 'pieces-ready',
+          courseIdentifier: batch.course_enrollments?.course_identifier || `batch-${batch.id}`,
+          subject,
+          html,
+          recipientEmails: [student.email],
+          sentBy: 'system',
+        });
+      }
+    }
+
+    // Mark the run as completed
+    const completedRun = await supabaseDb.completeFiringRun(runId);
+
+    res.json({ success: true, run: completedRun });
+  }));
+
+  // ==================== Cabinet & Collection ====================
+
+  // Admin: Place pieces in cabinet
+  app.put('/api/admin/pieces/batches/:id/cabinet', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+    const batchId = parseInt(req.params.id);
+
+    const batch = await supabaseDb.updatePieceBatchStatus(batchId, 'in_cabinet', {
+      cabinet_placed_at: new Date().toISOString(),
+    });
+
+    // Send cabinet notification email
+    if (batch.customers) {
+      const student = batch.customers;
+      const photoUrl = batch.photo_urls && batch.photo_urls.length > 0 ? batch.photo_urls[0] : null;
+      const appUrl = process.env.FRONTEND_URL || 'https://club.ves.sg';
+
+      const cabinetTemplate = require('../email-templates/pieces/pieces-in-cabinet');
+      const { subject, html } = cabinetTemplate.generate({
+        studentName: student.first_name || 'there',
+        pieceCount: batch.piece_count,
+        photoUrl,
+        appUrl,
+      });
+
+      await sendAndLogEmail({
+        emailType: 'pieces-in-cabinet',
+        courseIdentifier: batch.course_enrollments?.course_identifier || `batch-${batchId}`,
+        subject,
+        html,
+        recipientEmails: [student.email],
+        sentBy: 'system',
+      });
+    }
+
+    res.json({ success: true, batch });
+  }));
+
+  // Admin: Mark collected (fallback)
+  app.put('/api/admin/pieces/batches/:id/mark-collected', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+    const batchId = parseInt(req.params.id);
+    const batch = await supabaseDb.updatePieceBatchStatus(batchId, 'collected');
+    res.json({ success: true, batch });
+  }));
+
+  // ==================== Admin Gallery ====================
+
+  // List all gallery pieces (paginated)
+  app.get('/api/admin/gallery/pieces', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+    const pieces = await supabaseDb.getAllPotteryPieces();
+    res.json({ success: true, pieces });
+  }));
+
+  // Search gallery pieces by student initials (min 3 chars)
+  app.get('/api/admin/gallery/search', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+    const { initials } = req.query;
+    if (!initials || initials.length < 3) {
+      return res.status(400).json({ error: 'Initials must be at least 3 characters' });
+    }
+    const pieces = await supabaseDb.searchPotteryPiecesByInitials(initials);
+    res.json({ success: true, pieces });
+  }));
+
+  // Toggle featured status
+  app.put('/api/admin/gallery/pieces/:id/feature', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+    const pieceId = parseInt(req.params.id);
+    const piece = await supabaseDb.getPotteryPieceById(pieceId);
+    if (!piece) return res.status(404).json({ error: 'Piece not found' });
+
+    const updated = await supabaseDb.updatePotteryPiece(pieceId, { featured: !piece.featured });
+    res.json({ success: true, piece: updated });
+  }));
+
+  // Toggle public/private
+  app.put('/api/admin/gallery/pieces/:id/visibility', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+    const pieceId = parseInt(req.params.id);
+    const piece = await supabaseDb.getPotteryPieceById(pieceId);
+    if (!piece) return res.status(404).json({ error: 'Piece not found' });
+
+    const updated = await supabaseDb.updatePotteryPiece(pieceId, { is_public: !piece.is_public });
+    res.json({ success: true, piece: updated });
+  }));
+
+  // Delete piece
+  app.delete('/api/admin/gallery/pieces/:id', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+    const pieceId = parseInt(req.params.id);
+    await supabaseDb.deletePotteryPiece(pieceId);
+    res.json({ success: true });
   }));
 
   // AI identify (optional, placeholder for now)

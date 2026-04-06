@@ -4438,76 +4438,26 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
 
   if (fetchError) throw fetchError;
 
-  // Update original booking to rescheduled status
-  const { error: updateError } = await supabaseDb.supabase
+  // Update the same booking to point to the new class (no new booking created)
+  const { data: updatedBooking, error: updateError } = await supabaseDb.supabase
     .from('bookings')
     .update({
-      status: 'rescheduled',
+      class_instance_id: newClassInstanceId,
+      status: 'booked',
+      original_class_instance_id: originalBooking.class_instance_id,
+      rescheduled_from_date: originalBooking.class_instances.class_date,
+      reschedule_reason: rescheduleReason || null,
+      reschedule_fee_paid: fee || 0,
+      is_glazing_reschedule: isGlazingReschedule || false,
+      reschedule_source: 'admin',
       updated_at: new Date().toISOString()
     })
-    .eq('id', bookingId);
-
-  if (updateError) throw updateError;
-
-  // Check if a booking already exists for this student+class (e.g., from a previous reschedule)
-  const { data: existingBooking } = await supabaseDb.supabase
-    .from('bookings')
-    .select('*')
-    .eq('student_id', originalBooking.student_id)
-    .eq('class_instance_id', newClassInstanceId)
+    .eq('id', bookingId)
+    .select()
     .single();
 
-  let newBooking;
-
-  if (existingBooking) {
-    // Update existing booking (allows rescheduling back into previously rescheduled classes)
-    const { data: updatedBooking, error: updateExistingError } = await supabaseDb.supabase
-      .from('bookings')
-      .update({
-        status: 'booked',
-        booking_type: 'makeup',
-        course_enrollment_id: originalBooking.course_enrollment_id || null,
-        original_class_instance_id: originalBooking.class_instance_id,
-        rescheduled_from_date: originalBooking.class_instances.class_date,
-        reschedule_reason: rescheduleReason || null,
-        reschedule_fee_paid: fee || 0,
-        is_makeup_class: fee > 0,
-        is_glazing_reschedule: isGlazingReschedule || false,
-        reschedule_source: 'admin',
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', existingBooking.id)
-      .select()
-      .single();
-
-    if (updateExistingError) throw updateExistingError;
-    newBooking = updatedBooking;
-  } else {
-    // Create new booking
-    const { data: createdBooking, error: createError } = await supabaseDb.supabase
-      .from('bookings')
-      .insert({
-        student_id: originalBooking.student_id,
-        class_instance_id: newClassInstanceId,
-        status: 'booked',
-        booking_type: 'makeup',
-        course_enrollment_id: originalBooking.course_enrollment_id || null,
-        original_class_instance_id: originalBooking.class_instance_id,
-        rescheduled_from_date: originalBooking.class_instances.class_date,
-        reschedule_reason: rescheduleReason || null,
-        reschedule_fee_paid: fee || 0,
-        is_makeup_class: fee > 0,
-        is_glazing_reschedule: isGlazingReschedule || false,
-        reschedule_source: 'admin',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-      .select()
-      .single();
-
-    if (createError) throw createError;
-    newBooking = createdBooking;
-  }
+  if (updateError) throw updateError;
+  const newBooking = updatedBooking;
 
   // If there's a fee, create a fee record
   if (fee && fee > 0) {

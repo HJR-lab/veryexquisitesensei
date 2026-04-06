@@ -1153,7 +1153,7 @@ export default function AdminStudentDetail() {
                                 ? `${enrHbCreditsRemaining} credits remaining`
                                 : enr.number_of_weeks === 10
                                   ? `${enr.class_credits_remaining || 0} flex credits`
-                                  : `${enrUnbooked} available`}
+                                  : enrUnbooked > 0 ? `${enrUnbooked} available` : ''}
                             </span>
                           </div>
 

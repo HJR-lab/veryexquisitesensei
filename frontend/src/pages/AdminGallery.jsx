@@ -1,263 +1,173 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
 import api from '../utils/api';
 
-const TC = '#C4622D';
-const INK = '#282828';
-const MUTED = '#888';
-
 export default function AdminGallery() {
-  const navigate = useNavigate();
-  const [tab, setTab] = useState('before'); // 'before' | 'after'
-
-  // Before firing state (piece_batches)
-  const [batches, setBatches] = useState([]);
-  const [batchStats, setBatchStats] = useState({});
-  const [batchLoading, setBatchLoading] = useState(true);
-
-  // After firing state (pottery_pieces)
   const [pieces, setPieces] = useState([]);
-  const [pieceLoading, setPieceLoading] = useState(true);
-  const [students, setStudents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
 
-  // Filters for after-firing
-  const [selectedStudent, setSelectedStudent] = useState('all');
-  const [searchTerm, setSearchTerm] = useState('');
-
-  // Photo viewer
-  const [expandedPhoto, setExpandedPhoto] = useState(null);
-
-  useEffect(() => {
-    loadBatches();
-    loadPieces();
+  const fetchPieces = useCallback(async () => {
+    try {
+      const { data } = await api.get('/admin/gallery/pieces');
+      setPieces(data.pieces || []);
+    } catch (err) {
+      console.error('Failed to fetch pieces:', err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const loadBatches = async () => {
+  useEffect(() => { fetchPieces(); }, [fetchPieces]);
+
+  const handleSearch = async () => {
+    const q = searchQuery.trim();
+    if (q.length < 3) return;
+    setIsSearching(true);
     try {
-      const { data } = await api.get('/admin/pieces/pipeline');
-      // Flatten all batches from all statuses
-      const allBatches = [];
-      for (const status of ['logged', 'bisque_fired', 'glaze_fired', 'ready']) {
-        const items = data.batches?.[status] || [];
-        allBatches.push(...items);
-      }
-      setBatches(allBatches);
-      setBatchStats(data.stats || {});
+      const { data } = await api.get(`/admin/gallery/search?initials=${encodeURIComponent(q)}`);
+      setPieces(data.pieces || []);
     } catch (err) {
-      console.error('Failed to load batches:', err);
+      console.error('Search failed:', err);
     } finally {
-      setBatchLoading(false);
+      setIsSearching(false);
     }
   };
 
-  const loadPieces = async () => {
+  const handleClearSearch = () => {
+    setSearchQuery('');
+    fetchPieces();
+  };
+
+  const handleToggleFeatured = async (pieceId) => {
     try {
-      const [piecesRes, studentsRes] = await Promise.all([
-        api.get('/admin/pottery/all'),
-        api.get('/admin/customers'),
-      ]);
-      setPieces(piecesRes.data.pieces || []);
-      setStudents(studentsRes.data.customers || []);
+      await api.put(`/admin/gallery/pieces/${pieceId}/feature`);
+      setPieces(prev => prev.map(p => p.id === pieceId ? { ...p, featured: !p.featured } : p));
     } catch (err) {
-      console.error('Failed to load pieces:', err);
-    } finally {
-      setPieceLoading(false);
+      console.error('Failed to toggle featured:', err);
     }
   };
 
-  const totalLogged = Object.values(batchStats).reduce((sum, s) => sum + (s?.pieces || 0), 0);
-  const totalFinished = pieces.length;
+  const handleToggleVisibility = async (pieceId) => {
+    try {
+      await api.put(`/admin/gallery/pieces/${pieceId}/visibility`);
+      setPieces(prev => prev.map(p => p.id === pieceId ? { ...p, is_public: !p.is_public } : p));
+    } catch (err) {
+      console.error('Failed to toggle visibility:', err);
+    }
+  };
 
-  const filteredPieces = pieces.filter(piece => {
-    const matchesStudent = selectedStudent === 'all' || piece.studentId === parseInt(selectedStudent);
-    const matchesSearch = !searchTerm ||
-      piece.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      piece.studentName?.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesStudent && matchesSearch;
-  });
+  const handleDelete = async (pieceId) => {
+    if (!window.confirm('Delete this piece? This cannot be undone.')) return;
+    try {
+      await api.delete(`/admin/gallery/pieces/${pieceId}`);
+      setPieces(prev => prev.filter(p => p.id !== pieceId));
+    } catch (err) {
+      console.error('Failed to delete piece:', err);
+    }
+  };
+
+  if (loading) {
+    return <div style={{ padding: 40, textAlign: 'center', color: '#888' }}>Loading gallery...</div>;
+  }
 
   return (
-    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <div style={{ maxWidth: 960, margin: '0 auto', padding: '24px 16px' }}>
+    <div style={{ maxWidth: 960, margin: '0 auto', padding: '24px 16px' }}>
+      <h1 style={{ margin: '0 0 20px', fontSize: 24, color: '#282828' }}>Gallery Management</h1>
 
-        {/* Header */}
-        <div style={{ marginBottom: 20 }}>
+      {/* Search */}
+      <div style={{ background: 'white', borderRadius: 10, padding: 16, marginBottom: 24, border: '1px solid #e0e0e0' }}>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleSearch()}
+            placeholder="Search by initials (min 3 characters)"
+            style={{ flex: 1, padding: 10, border: '1px solid #ddd', borderRadius: 8, fontSize: 16, letterSpacing: 2, fontWeight: 600 }}
+          />
           <button
-            onClick={() => navigate('/admin')}
-            style={{ background: 'none', border: 'none', color: MUTED, cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8, padding: 0 }}
+            onClick={handleSearch}
+            disabled={searchQuery.trim().length < 3 || isSearching}
+            style={{ padding: '10px 20px', background: searchQuery.trim().length < 3 ? '#ccc' : '#282828', color: 'white', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
-            Back
+            Search
           </button>
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>Gallery</h1>
+          {searchQuery && (
+            <button onClick={handleClearSearch} style={{ padding: '10px 16px', background: 'white', color: '#888', border: '1px solid #ddd', borderRadius: 8, cursor: 'pointer' }}>
+              Clear
+            </button>
+          )}
         </div>
-
-        {/* Stats */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24 }}>
-          <div
-            onClick={() => setTab('before')}
-            style={{
-              textAlign: 'center', padding: 20, background: 'white', borderRadius: 10,
-              border: `2px solid ${tab === 'before' ? TC : '#e0e0e0'}`, cursor: 'pointer',
-            }}
-          >
-            <div style={{ fontSize: 32, fontWeight: 700, color: tab === 'before' ? TC : INK }}>{totalLogged}</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: tab === 'before' ? TC : MUTED }}>Before Firing</div>
-            <div style={{ fontSize: 11, color: MUTED }}>Pieces logged by students</div>
-          </div>
-          <div
-            onClick={() => setTab('after')}
-            style={{
-              textAlign: 'center', padding: 20, background: 'white', borderRadius: 10,
-              border: `2px solid ${tab === 'after' ? '#2D8C4E' : '#e0e0e0'}`, cursor: 'pointer',
-            }}
-          >
-            <div style={{ fontSize: 32, fontWeight: 700, color: tab === 'after' ? '#2D8C4E' : INK }}>{totalFinished}</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: tab === 'after' ? '#2D8C4E' : MUTED }}>Finished Works</div>
-            <div style={{ fontSize: 11, color: MUTED }}>Added to gallery</div>
-          </div>
-        </div>
-
-        {/* Before Firing Tab */}
-        {tab === 'before' && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED }}>
-                Pieces Logged Before Firing
-              </div>
-              <button
-                onClick={() => navigate('/admin/pieces')}
-                style={{ padding: '6px 14px', background: TC, color: 'white', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-              >
-                Open Pipeline
-              </button>
-            </div>
-
-            {batchLoading ? (
-              <div style={{ padding: 40, textAlign: 'center', color: MUTED }}>Loading...</div>
-            ) : batches.length === 0 ? (
-              <div style={{ padding: 40, textAlign: 'center', color: MUTED }}>No pieces logged yet</div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-                {batches.map(batch => {
-                  const student = batch.customers || {};
-                  const enrollment = batch.course_enrollments || {};
-                  const courseName = enrollment.course_title || enrollment.course_variant_title || 'Course';
-                  const photos = batch.photo_urls || [];
-                  const statusLabel = { logged: 'Drying', bisque_fired: 'Bisque Fired', glaze_fired: 'Glaze Fired', ready: 'Ready', collecting: 'Collecting', delivering: 'Delivery' }[batch.status] || batch.status;
-                  const statusColor = batch.status === 'ready' || batch.status === 'collecting' || batch.status === 'delivering' ? '#2D8C4E' : batch.status === 'logged' ? MUTED : '#E65100';
-
-                  return (
-                    <div key={batch.id} style={{ background: 'white', borderRadius: 10, border: '1px solid #e0e0e0', overflow: 'hidden' }}>
-                      {/* Photo grid */}
-                      {photos.length > 0 ? (
-                        <div
-                          style={{ position: 'relative', cursor: 'pointer' }}
-                          onClick={() => setExpandedPhoto(photos[0])}
-                        >
-                          <img src={photos[0]} alt="Pieces" style={{ width: '100%', height: 180, objectFit: 'cover' }} />
-                          {photos.length > 1 && (
-                            <span style={{ position: 'absolute', bottom: 8, right: 8, background: 'rgba(0,0,0,0.6)', color: 'white', fontSize: 11, padding: '2px 8px', borderRadius: 4 }}>
-                              +{photos.length - 1} more
-                            </span>
-                          )}
-                          <span style={{ position: 'absolute', top: 8, right: 8, background: statusColor, color: 'white', fontSize: 10, padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>
-                            {statusLabel}
-                          </span>
-                        </div>
-                      ) : (
-                        <div style={{ height: 80, background: '#f5f3f0', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-                          <span style={{ color: '#ccc', fontSize: 13 }}>No photo</span>
-                          <span style={{ position: 'absolute', top: 8, right: 8, background: statusColor, color: 'white', fontSize: 10, padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>
-                            {statusLabel}
-                          </span>
-                        </div>
-                      )}
-                      <div style={{ padding: 12 }}>
-                        <div style={{ fontWeight: 600, fontSize: 14 }}>{student.first_name} {student.last_name}</div>
-                        <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>
-                          {courseName} · {batch.piece_count} piece{batch.piece_count !== 1 ? 's' : ''} · <strong>{batch.initials}</strong>
-                        </div>
-                        {batch.notes && <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>{batch.notes}</div>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Multi-photo row when expanded */}
-            {batches.some(b => (b.photo_urls || []).length > 1) && (
-              <div style={{ marginTop: 8 }} />
-            )}
-          </div>
-        )}
-
-        {/* After Firing Tab */}
-        {tab === 'after' && (
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: 12 }}>
-              Finished Works in Gallery
-            </div>
-
-            {/* Filters */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                placeholder="Search title or student..."
-                style={{ flex: 1, minWidth: 160, padding: 10, border: '1px solid #ddd', borderRadius: 8, fontSize: 14 }}
-              />
-              <select
-                value={selectedStudent}
-                onChange={e => setSelectedStudent(e.target.value)}
-                style={{ padding: 10, border: '1px solid #ddd', borderRadius: 8, fontSize: 14 }}
-              >
-                <option value="all">All Students</option>
-                {students.map(s => (
-                  <option key={s.dbId} value={s.dbId}>{s.firstName} {s.lastName}</option>
-                ))}
-              </select>
-            </div>
-
-            {pieceLoading ? (
-              <div style={{ padding: 40, textAlign: 'center', color: MUTED }}>Loading...</div>
-            ) : filteredPieces.length === 0 ? (
-              <div style={{ padding: 40, textAlign: 'center', color: MUTED }}>
-                {pieces.length === 0 ? 'No finished pieces yet' : 'No results match your filters'}
-              </div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
-                {filteredPieces.map(piece => (
-                  <div key={piece.id} style={{ background: 'white', borderRadius: 10, border: '1px solid #e0e0e0', overflow: 'hidden' }}>
-                    <div
-                      style={{ width: '100%', height: 180, backgroundImage: `url('${piece.images?.[0] || ''}')`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundColor: '#f5f3f0', cursor: piece.images?.[0] ? 'pointer' : 'default' }}
-                      onClick={() => piece.images?.[0] && setExpandedPhoto(piece.images[0])}
-                    />
-                    <div style={{ padding: 12 }}>
-                      <div style={{ fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{piece.title || 'Untitled'}</div>
-                      <div style={{ fontSize: 12, color: TC, marginTop: 2 }}>{piece.studentName}</div>
-                      {piece.clay_type && <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>{piece.clay_type}</div>}
-                      {piece.date_completed && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{new Date(piece.date_completed).toLocaleDateString()}</div>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Full-size Photo Viewer */}
-        {expandedPhoto && (
-          <div
-            onClick={() => setExpandedPhoto(null)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 20 }}
-          >
-            <img src={expandedPhoto} alt="Full size" style={{ maxWidth: '100%', maxHeight: '90vh', borderRadius: 8 }} />
-          </div>
-        )}
       </div>
+
+      {/* Stats */}
+      <div style={{ fontSize: 13, color: '#888', marginBottom: 16 }}>
+        {pieces.length} piece{pieces.length !== 1 ? 's' : ''}
+        {pieces.filter(p => p.featured).length > 0 && ` · ${pieces.filter(p => p.featured).length} featured`}
+        {pieces.filter(p => p.is_public).length > 0 && ` · ${pieces.filter(p => p.is_public).length} public`}
+      </div>
+
+      {/* Pieces Grid */}
+      {pieces.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 40, color: '#888' }}>No pieces found.</div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>
+          {pieces.map(piece => {
+            const student = piece.customer || {};
+            const thumbnail = piece.images && piece.images.length > 0 ? (piece.images[0].url || piece.images[0]) : null;
+
+            return (
+              <div key={piece.id} style={{
+                background: 'white', border: `1px solid ${piece.featured ? '#C4622D' : '#e0e0e0'}`,
+                borderRadius: 10, overflow: 'hidden',
+              }}>
+                {thumbnail ? (
+                  <img src={thumbnail} alt={piece.title || 'Piece'} style={{ width: '100%', height: 160, objectFit: 'cover' }} />
+                ) : (
+                  <div style={{ width: '100%', height: 160, background: '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ccc', fontSize: 32 }}>🏺</div>
+                )}
+
+                <div style={{ padding: 12 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: '#282828', marginBottom: 2 }}>
+                    {piece.title || 'Untitled'}
+                    {piece.featured && <span style={{ color: '#C4622D', marginLeft: 4 }}>★</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>
+                    {student.initials || `${student.first_name || ''} ${student.last_name || ''}`.trim() || 'Unknown'}
+                    {piece.clay_type && ` · ${piece.clay_type}`}
+                    {piece.created_at && ` · ${new Date(piece.created_at).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })}`}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      onClick={() => handleToggleFeatured(piece.id)}
+                      title={piece.featured ? 'Unfeature' : 'Feature'}
+                      style={{ padding: '4px 8px', background: piece.featured ? '#C4622D' : '#f5f5f5', color: piece.featured ? 'white' : '#888', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
+                    >
+                      {piece.featured ? '★ Featured' : '☆ Feature'}
+                    </button>
+                    <button
+                      onClick={() => handleToggleVisibility(piece.id)}
+                      title={piece.is_public ? 'Make private' : 'Make public'}
+                      style={{ padding: '4px 8px', background: piece.is_public ? '#E8F5E9' : '#f5f5f5', color: piece.is_public ? '#2D8C4E' : '#888', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
+                    >
+                      {piece.is_public ? 'Public' : 'Private'}
+                    </button>
+                    <button
+                      onClick={() => handleDelete(piece.id)}
+                      title="Delete piece"
+                      style={{ padding: '4px 8px', background: '#f5f5f5', color: '#D32F2F', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer', marginLeft: 'auto' }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

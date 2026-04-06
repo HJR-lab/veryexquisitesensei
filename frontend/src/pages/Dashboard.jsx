@@ -406,7 +406,7 @@ export default function Dashboard() {
                   return e.is10Pkg && (e.enrollment.class_credits_remaining > 0) && e.statusLabel !== 'completed';
                 });
                 return flexEnrollment ? (
-                  <div>You have <strong style={{ color: INK }}>{flexEnrollment.enrollment.class_credits_remaining} class credit{flexEnrollment.enrollment.class_credits_remaining !== 1 ? 's' : ''}</strong> available</div>
+                  <div>You have <strong style={{ color: INK }}>{flexEnrollment.enrollment.class_credits_remaining} Class Credit{flexEnrollment.enrollment.class_credits_remaining !== 1 ? 's' : ''}</strong> available</div>
                 ) : null;
               })()}
               {creditBalance > 0 && (
@@ -617,7 +617,7 @@ export default function Dashboard() {
                       {/* Flex credits remaining for 10-class packages */}
                       {is10Pkg && enrollment.class_credits_remaining > 0 && (
                         <div style={{ fontSize: '10px', color: TC_DARK, fontWeight: 600, textAlign: 'right', marginBottom: '4px' }}>
-                          {enrollment.class_credits_remaining} class credit{enrollment.class_credits_remaining !== 1 ? 's' : ''} remaining
+                          {enrollment.class_credits_remaining} Class Credit{enrollment.class_credits_remaining !== 1 ? 's' : ''} remaining
                         </div>
                       )}
                       {/* Course details toggle (separate row for non-pending) */}

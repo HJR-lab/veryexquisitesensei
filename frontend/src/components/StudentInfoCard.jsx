@@ -190,9 +190,9 @@ export default function StudentInfoCard({
               ))}
 
               {/* Notes section */}
-              <div style={{ marginTop: '8px', paddingTop: '12px', borderTop: `1px solid ${RULE}` }}>
+              <div>
                 <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '6px' }}>
-                  Notes{instructorNotes.length > 0 ? ` (${instructorNotes.length})` : ''}
+                  Notes
                 </div>
                 {instructorNotes.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px' }}>
@@ -211,36 +211,22 @@ export default function StudentInfoCard({
                   </div>
                 )}
                 {onAddNote && (
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <input
-                      value={noteText}
-                      onChange={e => setNoteText(e.target.value)}
-                      onKeyDown={async e => {
-                        if (e.key === 'Enter' && noteText.trim()) {
-                          setAddingNote(true);
-                          await onAddNote(noteText.trim());
-                          setNoteText('');
-                          setAddingNote(false);
-                        }
-                      }}
-                      placeholder="Add a note..."
-                      disabled={addingNote}
-                      style={{ flex: 1, padding: '6px 8px', fontSize: '11px', border: `1px solid ${RULE}`, outline: 'none', fontFamily: 'inherit' }}
-                    />
-                    <button
-                      onClick={async () => {
-                        if (!noteText.trim()) return;
+                  <textarea
+                    value={noteText}
+                    onChange={e => setNoteText(e.target.value)}
+                    onBlur={async () => {
+                      if (noteText.trim()) {
                         setAddingNote(true);
                         await onAddNote(noteText.trim());
                         setNoteText('');
                         setAddingNote(false);
-                      }}
-                      disabled={addingNote || !noteText.trim()}
-                      style={{ padding: '6px 10px', fontSize: '10px', fontWeight: 700, border: 'none', backgroundColor: INK, color: '#FFF', cursor: addingNote || !noteText.trim() ? 'default' : 'pointer', opacity: addingNote || !noteText.trim() ? 0.4 : 1 }}
-                    >
-                      {addingNote ? '...' : 'Add'}
-                    </button>
-                  </div>
+                      }
+                    }}
+                    placeholder="Add a note..."
+                    disabled={addingNote}
+                    rows={2}
+                    style={{ width: '100%', padding: '6px 8px', fontSize: '11px', border: `1px solid ${RULE}`, outline: 'none', fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box' }}
+                  />
                 )}
               </div>
             </div>

@@ -821,9 +821,12 @@ export default function AdminStudentDetail() {
   }).length;
   const enrollmentAllocated = isHBEnrollment ? hbCreditsAllocated : (enrollment?.number_of_weeks || 0);
   const totalAllocated = Math.max(allBookedCount, enrollmentAllocated);
+  const is10ClassPkg = enrollment?.number_of_weeks === 10;
   const unbookedCount  = isHBEnrollment
     ? Math.max(0, hbCreditsRemaining)
-    : 0; // WT courses have all classes pre-booked, no unbooked placeholders
+    : is10ClassPkg
+      ? Math.max(0, enrollment?.class_credits_remaining || 0)
+      : 0;
 
   const filteredBookings = [...(showCompletedCourses ? bookings : activeBookings)]
     .filter(b => statusFilter === 'all' || b.status === statusFilter)

@@ -1072,8 +1072,10 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
   }
 
   // For non-glazing classes, check if reschedule is within same cohort (no fee) or different cohort ($40 fee)
+  // HB (Handbuilding) courses are drop-in with no cohort — rescheduling is always free
   let rescheduleFee = 0;
-  if (!isOldClassGlazing) {
+  const isHBCourse = oldClass.class_type?.startsWith('HB') || newClass.class_type?.startsWith('HB');
+  if (!isOldClassGlazing && !isHBCourse) {
     // Determine if the new class is within the same cohort period
     let isSameCohort = false;
     if (currentBooking.course_enrollment_id) {

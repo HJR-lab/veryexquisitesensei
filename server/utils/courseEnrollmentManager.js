@@ -678,7 +678,7 @@ async function activateDraftClasses(enrollment) {
 
           // Check if credit was already awarded for this enrollment
           const { data: existingCredit } = await supabase
-            .from('ves_credits')
+            .from('credit_transactions')
             .select('id')
             .eq('customer_id', enr.student_id)
             .eq('source', 'course_purchase')

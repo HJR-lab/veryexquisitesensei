@@ -1,18 +1,22 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../utils/api';
 
-const STATUS_ORDER = ['ready', 'glaze_fired', 'bisque_fired', 'logged'];
+const STATUS_ORDER = ['ready', 'in_cabinet', 'collecting', 'glaze_fired', 'bisque_fired', 'logged'];
 const STATUS_LABELS = {
   logged: 'Logged / Drying',
   bisque_fired: 'Bisque Fired',
   glaze_fired: 'Glaze Fired',
   ready: 'Ready for Collection',
+  collecting: 'Collection Scheduled',
+  in_cabinet: 'In Cabinet',
 };
 const STATUS_COLORS = {
   logged: '#888',
   bisque_fired: '#E65100',
   glaze_fired: '#E65100',
   ready: '#2D8C4E',
+  collecting: '#2D8C4E',
+  in_cabinet: '#C4622D',
 };
 const NEXT_STATUS = {
   logged: 'bisque_fired',
@@ -26,8 +30,11 @@ export default function AdminPiecePipeline() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState(null);
   const [selectedBatches, setSelectedBatches] = useState(new Set());
-  const [readyModal, setReadyModal] = useState(null);
-  const [expandedPhoto, setExpandedPhoto] = useState(null);
+  const [firingRuns, setFiringRuns] = useState([]);
+  const [showFiringRunForm, setShowFiringRunForm] = useState(false);
+  const [firingRunType, setFiringRunType] = useState('bisque');
+  const [firingRunNotes, setFiringRunNotes] = useState('');
+  const [showRunHistory, setShowRunHistory] = useState(false);
 
   const fetchPipeline = useCallback(async () => {
     try {
@@ -41,6 +48,17 @@ export default function AdminPiecePipeline() {
   }, []);
 
   useEffect(() => { fetchPipeline(); }, [fetchPipeline]);
+
+  const fetchFiringRuns = useCallback(async () => {
+    try {
+      const { data } = await api.get('/admin/pieces/firing-runs');
+      setFiringRuns(data.runs || []);
+    } catch (err) {
+      console.error('Failed to fetch firing runs:', err);
+    }
+  }, []);
+
+  useEffect(() => { fetchFiringRuns(); }, [fetchFiringRuns]);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -62,16 +80,6 @@ export default function AdminPiecePipeline() {
     }
   };
 
-  const handleMarkReady = (batch) => {
-    setReadyModal(batch);
-  };
-
-  const handleConfirmReady = async () => {
-    if (!readyModal) return;
-    await handleStatusUpdate(readyModal.id, 'ready');
-    setReadyModal(null);
-  };
-
   const handleComplete = async (batchId, type) => {
     try {
       await api.put(`/admin/pieces/batches/${batchId}/complete`, { completionType: type });
@@ -89,6 +97,52 @@ export default function AdminPiecePipeline() {
       fetchPipeline();
     } catch (err) {
       console.error('Bulk update failed:', err);
+    }
+  };
+
+  const handleCreateFiringRun = async () => {
+    if (selectedBatches.size === 0) return;
+    try {
+      await api.post('/admin/pieces/firing-runs', {
+        firingType: firingRunType,
+        notes: firingRunNotes || null,
+        batchIds: Array.from(selectedBatches),
+      });
+      setSelectedBatches(new Set());
+      setShowFiringRunForm(false);
+      setFiringRunNotes('');
+      fetchPipeline();
+      fetchFiringRuns();
+    } catch (err) {
+      console.error('Failed to create firing run:', err);
+    }
+  };
+
+  const handleCompleteFiringRun = async (runId) => {
+    try {
+      await api.put(`/admin/pieces/firing-runs/${runId}/complete`);
+      fetchPipeline();
+      fetchFiringRuns();
+    } catch (err) {
+      console.error('Failed to complete firing run:', err);
+    }
+  };
+
+  const handlePlaceInCabinet = async (batchId) => {
+    try {
+      await api.put(`/admin/pieces/batches/${batchId}/cabinet`);
+      fetchPipeline();
+    } catch (err) {
+      console.error('Failed to place in cabinet:', err);
+    }
+  };
+
+  const handleMarkCollected = async (batchId) => {
+    try {
+      await api.put(`/admin/pieces/batches/${batchId}/mark-collected`);
+      fetchPipeline();
+    } catch (err) {
+      console.error('Failed to mark collected:', err);
     }
   };
 
@@ -117,8 +171,8 @@ export default function AdminPiecePipeline() {
       <h1 style={{ margin: '0 0 20px', fontSize: 24, color: '#282828' }}>Piece Pipeline</h1>
 
       {/* Stats Bar */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 24 }}>
-        {['logged', 'bisque_fired', 'glaze_fired', 'ready'].map(key => (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 24 }}>
+        {['logged', 'bisque_fired', 'glaze_fired', 'ready', 'collecting', 'in_cabinet'].map(key => (
           <div key={key} style={{ textAlign: 'center', padding: 16, background: 'white', borderRadius: 10, border: '1px solid #e0e0e0' }}>
             <div style={{ fontSize: 28, fontWeight: 700, color: STATUS_COLORS[key] }}>{stats[key]?.count || 0}</div>
             <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{STATUS_LABELS[key]}</div>
@@ -147,7 +201,7 @@ export default function AdminPiecePipeline() {
           <div style={{ marginTop: 12 }}>
             <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>{searchResults.length} result{searchResults.length !== 1 ? 's' : ''}</div>
             {searchResults.map(batch => (
-              <BatchCard key={batch.id} batch={batch} daysSince={daysSince} onStatusUpdate={handleStatusUpdate} onMarkReady={handleMarkReady} onComplete={handleComplete} onExpandPhoto={setExpandedPhoto} />
+              <BatchCard key={batch.id} batch={batch} daysSince={daysSince} onStatusUpdate={handleStatusUpdate} onComplete={handleComplete} onPlaceInCabinet={handlePlaceInCabinet} onMarkCollected={handleMarkCollected} />
             ))}
           </div>
         )}
@@ -155,12 +209,36 @@ export default function AdminPiecePipeline() {
 
       {/* Bulk Actions */}
       {selectedBatches.size > 0 && (
-        <div style={{ background: '#282828', color: 'white', borderRadius: 10, padding: 12, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12, position: 'sticky', top: 0, zIndex: 10 }}>
-          <span style={{ fontSize: 13 }}>{selectedBatches.size} selected</span>
-          <button onClick={() => handleBulkStatus('bisque_fired')} style={{ padding: '6px 12px', background: '#E65100', color: 'white', border: 'none', borderRadius: 4, fontSize: 12, cursor: 'pointer' }}>→ Bisque Fired</button>
-          <button onClick={() => handleBulkStatus('glaze_fired')} style={{ padding: '6px 12px', background: '#E65100', color: 'white', border: 'none', borderRadius: 4, fontSize: 12, cursor: 'pointer' }}>→ Glaze Fired</button>
-          <button onClick={() => handleBulkStatus('ready')} style={{ padding: '6px 12px', background: '#2D8C4E', color: 'white', border: 'none', borderRadius: 4, fontSize: 12, cursor: 'pointer' }}>→ Ready</button>
-          <button onClick={() => setSelectedBatches(new Set())} style={{ marginLeft: 'auto', padding: '6px 12px', background: 'transparent', color: '#aaa', border: '1px solid #555', borderRadius: 4, fontSize: 12, cursor: 'pointer' }}>Clear</button>
+        <div style={{ background: '#282828', color: 'white', borderRadius: 10, padding: 12, marginBottom: 16, position: 'sticky', top: 0, zIndex: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 13 }}>{selectedBatches.size} selected</span>
+            <button onClick={() => handleBulkStatus('bisque_fired')} style={{ padding: '6px 12px', background: '#E65100', color: 'white', border: 'none', borderRadius: 4, fontSize: 12, cursor: 'pointer' }}>→ Bisque Fired</button>
+            <button onClick={() => handleBulkStatus('glaze_fired')} style={{ padding: '6px 12px', background: '#E65100', color: 'white', border: 'none', borderRadius: 4, fontSize: 12, cursor: 'pointer' }}>→ Glaze Fired</button>
+            <button onClick={() => handleBulkStatus('ready')} style={{ padding: '6px 12px', background: '#2D8C4E', color: 'white', border: 'none', borderRadius: 4, fontSize: 12, cursor: 'pointer' }}>→ Ready</button>
+            <button onClick={() => setShowFiringRunForm(!showFiringRunForm)} style={{ padding: '6px 12px', background: '#C4622D', color: 'white', border: 'none', borderRadius: 4, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>Create Firing Run</button>
+            <button onClick={() => setSelectedBatches(new Set())} style={{ marginLeft: 'auto', padding: '6px 12px', background: 'transparent', color: '#aaa', border: '1px solid #555', borderRadius: 4, fontSize: 12, cursor: 'pointer' }}>Clear</button>
+          </div>
+
+          {showFiringRunForm && (
+            <div style={{ marginTop: 12, padding: 12, background: '#333', borderRadius: 8 }}>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div>
+                  <label style={{ fontSize: 11, color: '#aaa', display: 'block', marginBottom: 4 }}>Type</label>
+                  <select value={firingRunType} onChange={e => setFiringRunType(e.target.value)} style={{ padding: '6px 12px', borderRadius: 4, border: '1px solid #555', background: '#444', color: 'white', fontSize: 13 }}>
+                    <option value="bisque">Bisque</option>
+                    <option value="glaze">Glaze</option>
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 11, color: '#aaa', display: 'block', marginBottom: 4 }}>Notes (optional)</label>
+                  <input value={firingRunNotes} onChange={e => setFiringRunNotes(e.target.value)} placeholder="e.g. Large kiln, cone 6" style={{ width: '100%', padding: '6px 10px', borderRadius: 4, border: '1px solid #555', background: '#444', color: 'white', fontSize: 13, boxSizing: 'border-box' }} />
+                </div>
+                <button onClick={handleCreateFiringRun} style={{ padding: '8px 20px', background: '#E65100', color: 'white', border: 'none', borderRadius: 4, fontSize: 13, fontWeight: 600, cursor: 'pointer', alignSelf: 'flex-end' }}>
+                  Fire {selectedBatches.size} batch{selectedBatches.size !== 1 ? 'es' : ''}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -180,9 +258,9 @@ export default function AdminPiecePipeline() {
                 batch={batch}
                 daysSince={daysSince}
                 onStatusUpdate={handleStatusUpdate}
-                onMarkReady={handleMarkReady}
                 onComplete={handleComplete}
-                onExpandPhoto={setExpandedPhoto}
+                onPlaceInCabinet={handlePlaceInCabinet}
+                onMarkCollected={handleMarkCollected}
                 selected={selectedBatches.has(batch.id)}
                 onToggleSelect={() => toggleSelect(batch.id)}
                 showCheckbox
@@ -192,105 +270,60 @@ export default function AdminPiecePipeline() {
         );
       })}
 
-      {/* Mark Ready Confirmation Modal */}
-      {readyModal && (
-        <ConfirmReadyModal
-          batch={readyModal}
-          onConfirm={handleConfirmReady}
-          onClose={() => setReadyModal(null)}
-        />
-      )}
-
-      {/* Full-size Photo Viewer */}
-      {expandedPhoto && (
-        <div
-          onClick={() => setExpandedPhoto(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 20 }}
+      {/* Firing Run History */}
+      <div style={{ marginTop: 32 }}>
+        <button
+          onClick={() => setShowRunHistory(!showRunHistory)}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 600, color: '#888', padding: 0 }}
         >
-          <img src={expandedPhoto} alt="Full size" style={{ maxWidth: '100%', maxHeight: '90vh', borderRadius: 8 }} />
-        </div>
-      )}
-    </div>
-  );
-}
+          {showRunHistory ? '▼' : '▶'} Firing Run History ({firingRuns.length})
+        </button>
 
-function ConfirmReadyModal({ batch, onConfirm, onClose }) {
-  const [submitting, setSubmitting] = useState(false);
-  const student = batch.customers || {};
-  const enrollment = batch.course_enrollments || {};
-  const courseName = enrollment.course_title || enrollment.course_variant_title || 'Course';
-  const photos = batch.photo_urls || [];
-
-  const handleConfirm = async () => {
-    setSubmitting(true);
-    await onConfirm();
-    setSubmitting(false);
-  };
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: 'white', borderRadius: 12, maxWidth: 480, width: '100%', maxHeight: '90vh', overflow: 'auto', padding: 24 }}>
-        <h2 style={{ margin: '0 0 4px', fontSize: 20, color: '#282828' }}>Confirm Pieces Ready</h2>
-        <p style={{ margin: '0 0 16px', fontSize: 13, color: '#888' }}>
-          Verify the fired pieces match the student's photos below. The student will be notified by email and in-app notification.
-        </p>
-
-        {/* Student info */}
-        <div style={{ background: '#F5F3F0', borderRadius: 8, padding: 12, marginBottom: 16 }}>
-          <div style={{ fontWeight: 600, fontSize: 15 }}>{student.first_name} {student.last_name}</div>
-          <div style={{ fontSize: 13, color: '#666', marginTop: 2 }}>
-            {courseName} · {batch.piece_count} piece{batch.piece_count !== 1 ? 's' : ''} · Initials: <strong>{batch.initials}</strong>
-          </div>
-          {batch.notes && <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>{batch.notes}</div>}
-        </div>
-
-        {/* Student photos — large for verification */}
-        {photos.length > 0 && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#888', marginBottom: 8 }}>
-              Student's Photos ({photos.length})
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {photos.map((url, i) => (
-                <img key={i} src={url} alt={`Piece ${i + 1}`} style={{ width: '100%', maxHeight: 250, objectFit: 'cover', borderRadius: 8 }} />
-              ))}
-            </div>
+        {showRunHistory && (
+          <div style={{ marginTop: 12 }}>
+            {firingRuns.length === 0 && (
+              <div style={{ color: '#888', fontSize: 13 }}>No firing runs yet.</div>
+            )}
+            {firingRuns.map(run => (
+              <div key={run.id} style={{ background: 'white', border: '1px solid #e0e0e0', borderRadius: 8, padding: 12, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>
+                    {run.firing_type === 'bisque' ? 'Bisque' : 'Glaze'} Run
+                  </span>
+                  <span style={{ fontSize: 12, color: '#888', marginLeft: 8 }}>
+                    {new Date(run.created_at).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })}
+                  </span>
+                  {run.notes && <span style={{ fontSize: 12, color: '#aaa', marginLeft: 8 }}>— {run.notes}</span>}
+                  <span style={{
+                    marginLeft: 8, fontSize: 11, padding: '2px 8px', borderRadius: 4, fontWeight: 600,
+                    background: run.status === 'completed' ? '#E8F5E9' : '#FFF3E0',
+                    color: run.status === 'completed' ? '#2D8C4E' : '#E65100',
+                  }}>
+                    {run.status}
+                  </span>
+                </div>
+                {run.status !== 'completed' && (
+                  <button
+                    onClick={() => handleCompleteFiringRun(run.id)}
+                    style={{ padding: '6px 14px', background: '#2D8C4E', color: 'white', border: 'none', borderRadius: 4, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    Complete Run
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
         )}
-
-        {photos.length === 0 && (
-          <div style={{ textAlign: 'center', padding: 20, color: '#E65100', background: '#FFF3E0', borderRadius: 8, marginBottom: 20, fontSize: 13 }}>
-            No photos uploaded by student
-          </div>
-        )}
-
-        {/* Action buttons */}
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            onClick={onClose}
-            style={{ flex: 1, padding: 14, background: '#f5f5f5', color: '#666', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 14, cursor: 'pointer' }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={submitting}
-            style={{ flex: 1, padding: 14, background: submitting ? '#aaa' : '#2D8C4E', color: 'white', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 14, cursor: 'pointer' }}
-          >
-            {submitting ? 'Notifying...' : 'Confirm Ready & Notify'}
-          </button>
-        </div>
       </div>
     </div>
   );
 }
 
-function BatchCard({ batch, daysSince, onStatusUpdate, onMarkReady, onComplete, onExpandPhoto, selected, onToggleSelect, showCheckbox }) {
+function BatchCard({ batch, daysSince, onStatusUpdate, onComplete, onPlaceInCabinet, onMarkCollected, selected, onToggleSelect, showCheckbox }) {
   const student = batch.customers || {};
   const enrollment = batch.course_enrollments || {};
   const courseName = enrollment.course_title || enrollment.course_variant_title || 'Course';
-  const photos = batch.photo_urls || [];
-  const photoUrl = photos.length > 0 ? photos[0] : null;
+  const photoUrl = batch.photo_urls && batch.photo_urls.length > 0 ? batch.photo_urls[0] : null;
   const nextStatus = NEXT_STATUS[batch.status];
   const isReady = ['ready', 'collecting', 'delivering'].includes(batch.status);
   const daysReady = isReady ? daysSince(batch.ready_at) : null;
@@ -299,94 +332,76 @@ function BatchCard({ batch, daysSince, onStatusUpdate, onMarkReady, onComplete, 
   return (
     <div style={{
       background: 'white', border: `1px solid ${selected ? '#C4622D' : '#e0e0e0'}`,
-      borderRadius: 8, padding: 12, marginBottom: 8,
+      borderRadius: 8, padding: 12, marginBottom: 8, display: 'flex', gap: 12, alignItems: 'center',
     }}>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-        {showCheckbox && (
-          <input type="checkbox" checked={selected} onChange={onToggleSelect} style={{ cursor: 'pointer', flexShrink: 0 }} />
-        )}
+      {showCheckbox && (
+        <input type="checkbox" checked={selected} onChange={onToggleSelect} style={{ cursor: 'pointer' }} />
+      )}
 
-        {/* Thumbnail — tap to expand */}
-        {photoUrl && (
-          <img
-            src={photoUrl}
-            alt="Pieces"
-            onClick={() => onExpandPhoto(photoUrl)}
-            style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 6, flexShrink: 0, cursor: 'pointer', border: '1px solid #e0e0e0' }}
-          />
-        )}
+      {photoUrl && (
+        <img src={photoUrl} alt="Batch" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
+      )}
 
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 600, fontSize: 14 }}>{student.first_name} {student.last_name}</div>
-          <div style={{ fontSize: 12, color: '#888' }}>
-            {courseName} · {batch.piece_count} pcs · <strong>{batch.initials}</strong>
-            {photos.length > 1 && <span style={{ color: '#C4622D' }}> · {photos.length} photos</span>}
-            {daysReady !== null && ` · Ready ${daysReady}d ago`}
-            {batch.delivery_method === 'collect' && <span style={{ color: '#2D8C4E', fontWeight: 600 }}> · Collecting</span>}
-            {batch.delivery_method === 'deliver' && <span style={{ color: '#C4622D', fontWeight: 600 }}> · Delivery</span>}
-          </div>
-          {batch.notes && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{batch.notes}</div>}
-          {noResponse && (
-            <div style={{ fontSize: 11, color: '#E65100', fontWeight: 600, marginTop: 2 }}>No response</div>
-          )}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: 14 }}>{student.first_name} {student.last_name}</div>
+        <div style={{ fontSize: 12, color: '#888' }}>
+          {courseName} · {batch.piece_count} pcs · <strong>{batch.initials}</strong>
+          {daysReady !== null && ` · Ready ${daysReady}d ago`}
+          {batch.delivery_method === 'collect' && <span style={{ color: '#2D8C4E', fontWeight: 600 }}> · Collecting</span>}
+          {batch.delivery_method === 'deliver' && <span style={{ color: '#C4622D', fontWeight: 600 }}> · Delivery</span>}
+          {batch.collection_date && <span style={{ color: '#C4622D' }}> · Pickup: {new Date(batch.collection_date).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })}</span>}
         </div>
-
-        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-          {nextStatus && nextStatus !== 'ready' && (
-            <button
-              onClick={() => onStatusUpdate(batch.id, nextStatus)}
-              style={{
-                padding: '6px 12px', background: '#E65100',
-                color: 'white', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer', fontWeight: 600,
-              }}
-            >
-              {`→ ${STATUS_LABELS[nextStatus]}`}
-            </button>
-          )}
-          {nextStatus === 'ready' && (
-            <button
-              onClick={() => onMarkReady(batch)}
-              style={{
-                padding: '6px 12px', background: '#2D8C4E',
-                color: 'white', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer', fontWeight: 600,
-              }}
-            >
-              Mark Ready
-            </button>
-          )}
-          {isReady && (
-            <>
-              <button
-                onClick={() => onComplete(batch.id, 'collected')}
-                style={{ padding: '6px 12px', background: '#1565C0', color: 'white', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
-              >
-                Collected
-              </button>
-              <button
-                onClick={() => onComplete(batch.id, 'shipped')}
-                style={{ padding: '6px 12px', background: '#1565C0', color: 'white', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
-              >
-                Shipped
-              </button>
-            </>
-          )}
-        </div>
+        {noResponse && (
+          <div style={{ fontSize: 11, color: '#E65100', fontWeight: 600, marginTop: 2 }}>⚠️ No response</div>
+        )}
       </div>
 
-      {/* Extra photos row — show thumbnails if > 1 photo */}
-      {photos.length > 1 && (
-        <div style={{ display: 'flex', gap: 6, marginTop: 8, marginLeft: showCheckbox ? 28 : 0, overflowX: 'auto' }}>
-          {photos.map((url, i) => (
-            <img
-              key={i}
-              src={url}
-              alt={`Photo ${i + 1}`}
-              onClick={() => onExpandPhoto(url)}
-              style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 4, cursor: 'pointer', flexShrink: 0, border: '1px solid #e0e0e0' }}
-            />
-          ))}
-        </div>
-      )}
+      <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
+        {nextStatus && (
+          <button
+            onClick={() => onStatusUpdate(batch.id, nextStatus)}
+            style={{
+              padding: '6px 12px',
+              background: nextStatus === 'ready' ? '#2D8C4E' : '#E65100',
+              color: 'white', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer', fontWeight: 600,
+            }}
+          >
+            {nextStatus === 'ready' ? 'Mark Ready' : `→ ${STATUS_LABELS[nextStatus]}`}
+          </button>
+        )}
+        {batch.status === 'collecting' && (
+          <button
+            onClick={() => onPlaceInCabinet(batch.id)}
+            style={{ padding: '6px 12px', background: '#C4622D', color: 'white', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer', fontWeight: 600 }}
+          >
+            Place in Cabinet
+          </button>
+        )}
+        {batch.status === 'in_cabinet' && (
+          <button
+            onClick={() => onMarkCollected(batch.id)}
+            style={{ padding: '6px 12px', background: '#1565C0', color: 'white', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
+          >
+            Mark Collected
+          </button>
+        )}
+        {batch.status === 'ready' && (
+          <>
+            <button
+              onClick={() => onComplete(batch.id, 'collected')}
+              style={{ padding: '6px 12px', background: '#1565C0', color: 'white', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
+            >
+              Collected
+            </button>
+            <button
+              onClick={() => onComplete(batch.id, 'shipped')}
+              style={{ padding: '6px 12px', background: '#1565C0', color: 'white', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
+            >
+              Shipped
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }

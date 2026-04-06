@@ -593,9 +593,9 @@ export default function Dashboard() {
                             {isExpanded ? 'Hide details' : 'Course details'}
                           </button>
                         )}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
                           <>
-                            <div style={{ width: '60px' }}>
+                            <div style={{ whiteSpace: 'nowrap' }}>
                               <div style={{ fontSize: '10px', color: MUTED, marginBottom: '2px' }}>
                                 Booked <strong style={{ color: INK }}>{bookedCount}/{totalClasses}</strong>
                               </div>
@@ -603,7 +603,7 @@ export default function Dashboard() {
                                 <div style={{ height: '2px', width: `${bookedPct}%`, backgroundColor: TC, transition: 'width 0.3s' }} />
                               </div>
                             </div>
-                            <div style={{ width: '60px' }}>
+                            <div style={{ whiteSpace: 'nowrap' }}>
                               <div style={{ fontSize: '10px', color: MUTED, marginBottom: '2px' }}>
                                 Attended <strong style={{ color: INK }}>{attendedCount}/{totalClasses}</strong>
                               </div>

@@ -926,6 +926,24 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
     });
   }
 
+  // Beginners cannot reschedule into intermediate classes and vice versa
+  // Beginner WT classes use a 6-week identifier (e.g. WT____6.x), intermediate uses 7-week (WT____7.x)
+  const getWTLevel = (classType) => {
+    if (!classType || !classType.startsWith('WT')) return null;
+    const match = classType.match(/(\d+)\.\d+$/);
+    if (!match) return null;
+    return parseInt(match[1]) === 7 ? 'intermediate' : 'beginner';
+  };
+  const oldLevel = getWTLevel(oldClass.class_type);
+  const newLevel = getWTLevel(newClass.class_type);
+  if (oldLevel && newLevel && oldLevel !== newLevel) {
+    return res.status(400).json({
+      error: oldLevel === 'beginner'
+        ? 'Beginner students cannot reschedule into an intermediate class.'
+        : 'Intermediate students cannot reschedule into a beginner class.'
+    });
+  }
+
   // Check for 10-class package via the booking's enrollment (not the stale classes_allocated field)
   let has10ClassPackage = false;
   if (currentBooking.course_enrollment_id) {

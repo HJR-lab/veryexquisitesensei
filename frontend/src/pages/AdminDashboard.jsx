@@ -112,9 +112,6 @@ export default function AdminDashboard() {
 
           {/* Module grid */}
           <div style={{ gridColumn: isMobile ? '1' : 'span 2' }}>
-            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, marginBottom: '12px' }}>
-              Manage
-            </div>
             <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(3, 1fr)',

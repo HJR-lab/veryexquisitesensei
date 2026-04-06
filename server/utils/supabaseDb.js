@@ -1499,7 +1499,7 @@ async function updatePieceBatchStatus(batchId, status, extraFields = {}) {
     updateData.hold_expires_at = holdExpires.toISOString();
   }
 
-  if (status === 'collected' || status === 'shipped') {
+  if (status === 'collected' || status === 'shipped' || status === 'recycled') {
     updateData.completed_at = new Date().toISOString();
   }
 

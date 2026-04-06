@@ -99,13 +99,16 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
   const isPast = (b) => b.class_instance && new Date(b.class_instance.class_date) < today;
   const isAttended = (b) => isPast(b) && (b.attended === true || b.status === 'attended' || b.status === 'completed' || b.status === 'booked');
 
-  // Step 1: Group ALL bookings by base course identifier (source of truth)
+  // Step 1: Group ALL bookings by course_enrollment_id (source of truth for reschedules)
+  // Fall back to class_type pattern only for bookings without an enrollment
   const courseGroups = {};
   bookings.forEach(booking => {
-    const baseId = extractCourseIdentifier(booking.class_instance.class_type);
-    if (!baseId) return;
-    if (!courseGroups[baseId]) courseGroups[baseId] = [];
-    courseGroups[baseId].push(booking);
+    const groupKey = booking.course_enrollment_id
+      ? `enrollment_${booking.course_enrollment_id}`
+      : extractCourseIdentifier(booking.class_instance.class_type);
+    if (!groupKey) return;
+    if (!courseGroups[groupKey]) courseGroups[groupKey] = [];
+    courseGroups[groupKey].push(booking);
   });
 
   // Step 2: Build enrollment lookup — derive course_identifier from bookings if missing

@@ -1128,40 +1128,34 @@ export default function AdminStudentDetail() {
                               )}
                               <div style={{ fontSize: '10px', fontFamily: 'monospace', color: TC_DARK }}>{enr.course_identifier || ''}</div>
                             </div>
-                            {!isUpcoming && (
-                              <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontSize: '22px', fontWeight: 700 }}>
-                                  {enrAttendedCount}<span style={{ fontSize: '14px', color: MUTED, fontWeight: 400 }}>/{enr.number_of_weeks || enrTotalAllocated}</span>
-                                </div>
-                                <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Attended</div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: '22px', fontWeight: 700 }}>
+                                {enrAttendedCount}<span style={{ fontSize: '14px', color: MUTED, fontWeight: 400 }}>/{enr.number_of_weeks || enrTotalAllocated}</span>
                               </div>
-                            )}
+                              <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Attended</div>
+                            </div>
                           </div>
 
-                          {/* Progress bar — only for active courses */}
-                          {!isUpcoming && (
-                            <>
-                              <div style={{ height: '6px', backgroundColor: ALT, position: 'relative', marginBottom: '8px' }}>
-                                <div style={{
-                                  position: 'absolute', left: 0, top: 0, height: '100%',
-                                  width: `${Math.min(100, enrTotalAllocated > 0 ? (enrAttendedCount / enrTotalAllocated) * 100 : 0)}%`,
-                                  backgroundColor: TC,
-                                }} />
-                              </div>
-                              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ fontSize: '11px', color: MUTED }}>
-                                  {enrAttendedCount} attended · {Math.max(0, enrBookedCount - enrAttendedCount)} booked
-                                </span>
-                                <span style={{ fontSize: '11px', color: TC_DARK, fontWeight: 700 }}>
-                                  {enrIsHB
-                                    ? `${enrHbCreditsRemaining} credits remaining`
-                                    : enr.number_of_weeks === 10
-                                      ? `${enr.class_credits_remaining || 0} flex credits`
-                                      : `${enrUnbooked} available`}
-                                </span>
-                              </div>
-                            </>
-                          )}
+                          {/* Progress bar */}
+                          <div style={{ height: '6px', backgroundColor: ALT, position: 'relative', marginBottom: '8px' }}>
+                            <div style={{
+                              position: 'absolute', left: 0, top: 0, height: '100%',
+                              width: `${Math.min(100, enrTotalAllocated > 0 ? (enrAttendedCount / enrTotalAllocated) * 100 : 0)}%`,
+                              backgroundColor: TC,
+                            }} />
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: '11px', color: MUTED }}>
+                              {enrAttendedCount} attended · {Math.max(0, enrBookedCount - enrAttendedCount)} booked
+                            </span>
+                            <span style={{ fontSize: '11px', color: TC_DARK, fontWeight: 700 }}>
+                              {enrIsHB
+                                ? `${enrHbCreditsRemaining} credits remaining`
+                                : enr.number_of_weeks === 10
+                                  ? `${enr.class_credits_remaining || 0} flex credits`
+                                  : `${enrUnbooked} available`}
+                            </span>
+                          </div>
 
                           {/* Dates */}
                           {(enr.start_date || enr.end_date || enr.course_start_date) && (

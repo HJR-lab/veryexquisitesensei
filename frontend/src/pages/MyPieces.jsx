@@ -6,7 +6,8 @@ const STATUS_CONFIG = {
   bisque_fired: { label: 'Bisque Fired', color: '#888', bg: '#f5f5f5' },
   glaze_fired: { label: 'Glaze Firing', color: '#E65100', bg: '#FFF3E0' },
   ready: { label: 'Ready!', color: '#2D8C4E', bg: '#E8F5E9' },
-  collecting: { label: 'Collecting', color: '#2D8C4E', bg: '#E8F5E9' },
+  collecting: { label: 'Collection Scheduled', color: '#2D8C4E', bg: '#E8F5E9' },
+  in_cabinet: { label: 'In Cabinet', color: '#C4622D', bg: '#FFF3E0' },
   delivering: { label: 'Delivery', color: '#C4622D', bg: '#FFF3E0' },
   collected: { label: 'Collected', color: '#1565C0', bg: '#E3F2FD' },
   shipped: { label: 'Shipped', color: '#1565C0', bg: '#E3F2FD' },
@@ -29,6 +30,7 @@ export default function MyPieces() {
     photos: [],
   });
   const [uploading, setUploading] = useState(false);
+  const [collectionDates, setCollectionDates] = useState({});
 
   const fetchBatches = useCallback(async () => {
     try {
@@ -101,11 +103,32 @@ export default function MyPieces() {
 
   const handleDeliveryChoice = async (batchId, method) => {
     try {
-      await api.put(`/pieces/batches/${batchId}/delivery`, { method });
+      const payload = { method };
+      if (method === 'collect') {
+        const date = collectionDates[batchId];
+        if (!date) return;
+        payload.collectionDate = date;
+      }
+      await api.put(`/pieces/batches/${batchId}/delivery`, payload);
       fetchBatches();
     } catch (err) {
       console.error('Failed to set delivery:', err);
     }
+  };
+
+  const handleConfirmCollected = async (batchId) => {
+    try {
+      await api.put(`/pieces/batches/${batchId}/confirm-collected`);
+      fetchBatches();
+    } catch (err) {
+      console.error('Failed to confirm collection:', err);
+    }
+  };
+
+  const getMinCollectionDate = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 2);
+    return d.toISOString().split('T')[0];
   };
 
   if (loading) {
@@ -219,7 +242,6 @@ export default function MyPieces() {
 
       {batches.map(batch => {
         const statusConfig = STATUS_CONFIG[batch.status] || STATUS_CONFIG.logged;
-        const isReady = batch.status === 'ready';
         const photoUrl = batch.photo_urls && batch.photo_urls.length > 0 ? batch.photo_urls[0] : null;
         const courseName = batch.course_enrollments?.course_title || batch.course_enrollments?.course_variant_title || 'Course';
 
@@ -227,7 +249,7 @@ export default function MyPieces() {
           <div
             key={batch.id}
             style={{
-              background: statusConfig.bg, border: `1px solid ${isReady ? '#A5D6A7' : '#e0e0e0'}`,
+              background: statusConfig.bg, border: `1px solid ${batch.status === 'ready' ? '#A5D6A7' : '#e0e0e0'}`,
               borderRadius: 12, padding: 16, marginBottom: 12,
             }}
           >
@@ -262,31 +284,74 @@ export default function MyPieces() {
               <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>{batch.notes}</div>
             )}
 
-            {isReady && (
-              <div style={{ display: 'flex', gap: 8 }}>
+            {/* Ready — choose collect (with date) or deliver */}
+            {batch.status === 'ready' && (
+              <div>
+                <div style={{ marginBottom: 8 }}>
+                  <label style={{ display: 'block', fontSize: 12, color: '#666', marginBottom: 4 }}>Pick a collection date (at least 2 days from now)</label>
+                  <input
+                    type="date"
+                    min={getMinCollectionDate()}
+                    value={collectionDates[batch.id] || ''}
+                    onChange={e => setCollectionDates(prev => ({ ...prev, [batch.id]: e.target.value }))}
+                    style={{ padding: 8, border: '1px solid #ddd', borderRadius: 6, fontSize: 14, width: '100%', boxSizing: 'border-box' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={() => handleDeliveryChoice(batch.id, 'collect')}
+                    disabled={!collectionDates[batch.id]}
+                    style={{
+                      flex: 1, padding: 10, background: collectionDates[batch.id] ? '#2D8C4E' : '#ccc',
+                      color: 'white', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: 'pointer',
+                    }}
+                  >
+                    I'll Collect
+                  </button>
+                  <button
+                    onClick={() => handleDeliveryChoice(batch.id, 'deliver')}
+                    style={{ flex: 1, padding: 10, background: 'white', color: '#C4622D', border: '1px solid #C4622D', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+                  >
+                    Deliver ($10)
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Collecting — waiting for studio */}
+            {batch.status === 'collecting' && (
+              <div style={{ fontSize: 13, color: '#2D8C4E', fontWeight: 600, marginTop: 4 }}>
+                Collection scheduled for {new Date(batch.collection_date).toLocaleDateString('en-SG', { weekday: 'short', day: 'numeric', month: 'short' })}
+                <div style={{ fontSize: 12, color: '#888', fontWeight: 400, marginTop: 2 }}>Waiting for studio to prepare your pieces</div>
+              </div>
+            )}
+
+            {/* In Cabinet — confirm collection */}
+            {batch.status === 'in_cabinet' && (
+              <div>
+                <div style={{ fontSize: 13, color: '#C4622D', fontWeight: 600, marginBottom: 8 }}>
+                  Your pieces are in the glass cabinet outside — pick them up anytime!
+                </div>
                 <button
-                  onClick={() => handleDeliveryChoice(batch.id, 'collect')}
-                  style={{ flex: 1, padding: 10, background: '#2D8C4E', color: 'white', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+                  onClick={() => handleConfirmCollected(batch.id)}
+                  style={{ width: '100%', padding: 12, background: '#2D8C4E', color: 'white', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 14, cursor: 'pointer' }}
                 >
-                  I'll Collect
-                </button>
-                <button
-                  onClick={() => handleDeliveryChoice(batch.id, 'deliver')}
-                  style={{ flex: 1, padding: 10, background: 'white', color: '#C4622D', border: '1px solid #C4622D', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
-                >
-                  Deliver ($10)
+                  I've Collected My Pieces
                 </button>
               </div>
             )}
 
-            {(batch.status === 'collecting') && (
-              <div style={{ fontSize: 13, color: '#2D8C4E', fontWeight: 600, marginTop: 4 }}>
-                ✅ You chose to collect — come visit the studio!
+            {/* Delivering */}
+            {batch.status === 'delivering' && (
+              <div style={{ fontSize: 13, color: '#C4622D', fontWeight: 600, marginTop: 4 }}>
+                Delivery requested ($10) — we'll ship it to you!
               </div>
             )}
-            {(batch.status === 'delivering') && (
-              <div style={{ fontSize: 13, color: '#C4622D', fontWeight: 600, marginTop: 4 }}>
-                📦 Delivery requested ($10) — we'll ship it to you!
+
+            {/* Collected */}
+            {batch.status === 'collected' && (
+              <div style={{ fontSize: 13, color: '#1565C0', fontWeight: 600, marginTop: 4 }}>
+                Collected{batch.completed_at ? ` on ${new Date(batch.completed_at).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })}` : ''}
               </div>
             )}
           </div>

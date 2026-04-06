@@ -71,11 +71,11 @@ async function authenticateToken(req, res, next) {
       return res.status(403).json({ error: 'Invalid or expired token' });
     }
 
-    // Look up customer by email
+    // Look up customer by email (case-insensitive — Supabase Auth lowercases emails)
     const { data: customer, error: customerError } = await supabaseDb.supabase
       .from('customers')
       .select('id, email, first_name, last_name, shopify_customer_id, role')
-      .eq('email', authUser.email)
+      .ilike('email', authUser.email)
       .single();
 
     if (customerError || !customer) {

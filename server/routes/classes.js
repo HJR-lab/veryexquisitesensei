@@ -269,6 +269,21 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
       .limit(1)
       .single();
     if (enr) enrollmentId = enr.id;
+
+    // Fallback: if no match by course_identifier (e.g. HB student booking a different day),
+    // match by course type prefix (HB/WT). Students are in ONE course — the class day doesn't matter.
+    if (!enrollmentId) {
+      const prefix = baseId.substring(0, 2); // "HB" or "WT"
+      const { data: fallbackEnr } = await supabaseDb.supabase
+        .from('course_enrollments')
+        .select('id')
+        .eq('student_id', dbCustomerId)
+        .eq('status', 'active')
+        .like('course_identifier', `${prefix}%`)
+        .limit(1)
+        .single();
+      if (fallbackEnr) enrollmentId = fallbackEnr.id;
+    }
   }
 
   const booking = await supabaseDb.createBooking({
@@ -1948,6 +1963,20 @@ app.post('/api/classes/waitlist/claim', authenticateToken, asyncHandler(async (r
       .limit(1)
       .single();
     if (enr) waitlistEnrollmentId = enr.id;
+
+    // Fallback: match by course type prefix (HB/WT) if exact identifier didn't match
+    if (!waitlistEnrollmentId) {
+      const prefix = baseId.substring(0, 2);
+      const { data: fallbackEnr } = await supabaseDb.supabase
+        .from('course_enrollments')
+        .select('id')
+        .eq('student_id', dbCustomerId)
+        .eq('status', 'active')
+        .like('course_identifier', `${prefix}%`)
+        .limit(1)
+        .single();
+      if (fallbackEnr) waitlistEnrollmentId = fallbackEnr.id;
+    }
   }
 
   const booking = await supabaseDb.createBooking({

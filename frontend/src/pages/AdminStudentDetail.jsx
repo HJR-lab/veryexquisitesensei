@@ -808,15 +808,9 @@ export default function AdminStudentDetail() {
   // Scope counts to current enrollment only (not all historical bookings)
   // HB credit students can book into different class types, so match by enrollment ID
   const currentEnrollmentId = enrollment?.course_identifier;
-  const currentEnrollmentBookings = isHBEnrollment && enrollment?.id
+  const currentEnrollmentBookings = enrollment?.id
     ? bookings.filter(b => b.course_enrollment_id === enrollment.id)
-    : currentEnrollmentId
-      ? bookings.filter(b => {
-          const ci = b.course_identifier && b.course_identifier !== 'N/A' ? b.course_identifier : null;
-          const id = ci || b.class_type || '';
-          return id.startsWith(currentEnrollmentId.replace(/\.\d+$/, ''));
-        })
-      : bookings;
+    : bookings;
   const allBookedCount = isHBEnrollment ? hbCreditsUsed : currentEnrollmentBookings.length;
 
   // Count attended from current enrollment bookings only

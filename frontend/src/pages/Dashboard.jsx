@@ -284,7 +284,7 @@ export default function Dashboard() {
     const isHBCredit = (enrollment.course_type || '').toLowerCase().includes('handbuilding');
     const bookedCount = isHBCredit
       ? (enrollment.class_credits_used || attendedCount)
-      : enrollmentBookings.filter(b => b.status === 'booked' && !isBookingClassOver(b)).length;
+      : enrollmentBookings.filter(b => b.status === 'booked' || b.status === 'attended' || b.status === 'completed').length;
     const remaining = Math.max(totalClasses - attendedCount, 0);
     const pct = totalClasses > 0 ? Math.min(Math.round((attendedCount / totalClasses) * 100), 100) : 0;
 
@@ -292,11 +292,11 @@ export default function Dashboard() {
     const courseTitle = enrollment.course_title || '';
     const classType = enrollment.class_type || '';
     const weeks = enrollment.number_of_weeks || totalClasses;
-    const is10ClassPkg = totalClasses === 10 && !enrollment.course_expiry_date;
+    const is10ClassPkg = enrollment.number_of_weeks === 10 && !enrollment.course_expiry_date;
 
     let typeLabel = 'Course';
     if (is10ClassPkg) {
-      typeLabel = `Wheelthrowing 6 Weeks 10 Class No Expiry`;
+      typeLabel = `Wheelthrowing Beginners/Ext 6 Weeks 10 Class`;
     } else {
       const lower = (classType + ' ' + courseTitle).toLowerCase();
       const isWT = classType.startsWith('WT') || lower.includes('wheel');
@@ -394,13 +394,16 @@ export default function Dashboard() {
               )}
             </h1>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', color: MUTED }}>
+              {(() => {
+                const currentCourse = enrollmentsWithCounts.find(e => e.statusLabel === 'active' || e.statusLabel === 'upcoming');
+                return currentCourse ? <div>{currentCourse.typeLabel}</div> : null;
+              })()}
               {nextClass && (
                 <div>Next: <strong style={{ color: INK }}>{nextClass.date} {nextClass.time}</strong></div>
               )}
               {(() => {
                 const flexEnrollment = enrollmentsWithCounts.find(e => {
-                  const is10 = (e.enrollment.number_of_weeks === 10) && (e.enrollment.total_weeks === 6 || e.totalClasses === 10);
-                  return is10 && (e.enrollment.class_credits_remaining > 0) && e.statusLabel !== 'completed';
+                  return e.is10Pkg && (e.enrollment.class_credits_remaining > 0) && e.statusLabel !== 'completed';
                 });
                 return flexEnrollment ? (
                   <div>You have <strong style={{ color: INK }}>{flexEnrollment.enrollment.class_credits_remaining} class credit{flexEnrollment.enrollment.class_credits_remaining !== 1 ? 's' : ''}</strong> available</div>

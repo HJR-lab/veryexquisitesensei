@@ -541,6 +541,54 @@ async function checkPieceReminders() {
   }
 }
 
+async function autoRecycleExpiredBatches() {
+  try {
+    const supabaseDb = require('./supabaseDb');
+    const { sendAndLogEmail } = require('./emailService');
+    const recycledTemplate = require('../email-templates/pieces/pieces-recycled');
+    const appUrl = process.env.FRONTEND_URL || 'https://club.ves.sg';
+
+    const expiredBatches = await supabaseDb.getExpiredPieceBatches();
+    console.log(`[Auto-Processor] Found ${expiredBatches.length} expired piece batches to recycle`);
+
+    let recycled = 0;
+    for (const batch of expiredBatches) {
+      // Update status to recycled
+      await supabaseDb.updatePieceBatchStatus(batch.id, 'recycled');
+
+      // Send disposal email
+      const student = batch.customers;
+      if (student && student.email) {
+        const courseName = batch.course_enrollments?.course_title || batch.course_enrollments?.course_variant_title || 'your course';
+
+        const { subject, html } = recycledTemplate.generate({
+          studentName: student.first_name || 'there',
+          pieceCount: batch.piece_count,
+          courseName,
+          appUrl,
+        });
+
+        await sendAndLogEmail({
+          emailType: 'pieces-recycled',
+          courseIdentifier: batch.course_enrollments?.course_identifier || `batch-${batch.id}`,
+          subject,
+          html,
+          recipientEmails: [student.email],
+          sentBy: 'system',
+        });
+      }
+
+      recycled++;
+    }
+
+    console.log(`[Auto-Processor] ✅ Recycled ${recycled} expired piece batches`);
+    return { success: true, recycled };
+  } catch (error) {
+    console.error('[Auto-Processor] Error in autoRecycleExpiredBatches:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 /**
  * Schedule automatic processing (call this on server startup)
  */
@@ -551,6 +599,7 @@ function startAutomaticProcessing() {
     processReadyCohorts().catch(console.error);
     autoMarkPastBookingsAsAttended().catch(console.error);
     checkPieceReminders().catch(console.error);
+    autoRecycleExpiredBatches().catch(console.error);
   }, 5000);
 
   // Run daily at 2 AM
@@ -568,6 +617,7 @@ function startAutomaticProcessing() {
       checkUnconfirmedCourses().catch(console.error);
       checkWeeklyUnconfirmedRecheck().catch(console.error);
       checkPieceReminders().catch(console.error);
+      autoRecycleExpiredBatches().catch(console.error);
     }
   };
 
@@ -584,5 +634,6 @@ module.exports = {
   checkUnconfirmedCourses,
   checkWeeklyUnconfirmedRecheck,
   checkPieceReminders,
+  autoRecycleExpiredBatches,
   startAutomaticProcessing
 };

@@ -568,8 +568,8 @@ export default function Dashboard() {
                         <span style={{
                           fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
                           padding: '3px 6px', flexShrink: 0,
-                          backgroundColor: statusLabel === 'pending' ? '#FFF7E6' : isActive ? TC_LIGHT : '#EBEBEB',
-                          color: statusLabel === 'pending' ? '#9E6200' : isActive ? TC_DARK : MUTED,
+                          backgroundColor: statusLabel === 'pending' ? '#FFF7E6' : isActive ? '#ECFDF5' : '#EBEBEB',
+                          color: statusLabel === 'pending' ? '#9E6200' : isActive ? '#059669' : MUTED,
                         }}>
                           {statusLabel === 'pending' ? 'awaiting confirmation' : statusLabel}
                         </span>
@@ -602,35 +602,24 @@ export default function Dashboard() {
                           </button>
                         )}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
-                          {is10Pkg ? (
-                            <div>
-                              <div style={{ fontSize: '10px', color: MUTED, marginBottom: '2px', whiteSpace: 'nowrap' }}>
-                                <strong style={{ color: INK }}>{attendedCount}/{totalClasses}</strong> completed · <strong style={{ color: TC }}>{remaining} remaining</strong>
+                          <>
+                            <div style={{ width: '60px' }}>
+                              <div style={{ fontSize: '10px', color: MUTED, marginBottom: '2px' }}>
+                                Booked <strong style={{ color: INK }}>{bookedCount}/{totalClasses}</strong>
+                              </div>
+                              <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.08)' }}>
+                                <div style={{ height: '2px', width: `${bookedPct}%`, backgroundColor: TC, transition: 'width 0.3s' }} />
+                              </div>
+                            </div>
+                            <div style={{ width: '60px' }}>
+                              <div style={{ fontSize: '10px', color: MUTED, marginBottom: '2px' }}>
+                                Attended <strong style={{ color: INK }}>{attendedCount}/{totalClasses}</strong>
                               </div>
                               <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.08)' }}>
                                 <div style={{ height: '2px', width: `${pct}%`, backgroundColor: TC, transition: 'width 0.3s' }} />
                               </div>
                             </div>
-                          ) : (
-                            <>
-                              <div style={{ width: '60px' }}>
-                                <div style={{ fontSize: '10px', color: MUTED, marginBottom: '2px' }}>
-                                  Booked <strong style={{ color: INK }}>{bookedCount}/{totalClasses}</strong>
-                                </div>
-                                <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.08)' }}>
-                                  <div style={{ height: '2px', width: `${bookedPct}%`, backgroundColor: TC, transition: 'width 0.3s' }} />
-                                </div>
-                              </div>
-                              <div style={{ width: '60px' }}>
-                                <div style={{ fontSize: '10px', color: MUTED, marginBottom: '2px' }}>
-                                  Attended <strong style={{ color: INK }}>{attendedCount}/{totalClasses}</strong>
-                                </div>
-                                <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.08)' }}>
-                                  <div style={{ height: '2px', width: `${pct}%`, backgroundColor: TC, transition: 'width 0.3s' }} />
-                                </div>
-                              </div>
-                            </>
-                          )}
+                          </>
                         </div>
                       </div>
                       {/* Course details toggle (separate row for non-pending) */}

@@ -1622,77 +1622,81 @@ app.get('/api/admin/students/:id/enrollment', authenticateToken, requireAdmin, a
   const activeEnrollments = enrollments.filter(e => e.status === 'active' || e.status === 'paused');
   const completedEnrollments = enrollments.filter(e => e.status === 'completed');
 
-  // Separate individual courses from package courses (among active)
-  const individualCourses = activeEnrollments.filter(e => !e.package_total_courses || e.package_total_courses === null);
-  const packageCourses = activeEnrollments.filter(e => e.package_total_courses && e.package_total_courses > 0);
+  // Enrich all active enrollments
+  const enrichedEnrollments = [];
+  for (let enrollment of activeEnrollments) {
+    // If course_identifier is missing, derive it from bookings
+    if (!enrollment.course_identifier) {
+      const { data: bookings } = await supabaseDb.supabase
+        .from('bookings')
+        .select('class_instance_id')
+        .eq('student_id', studentId)
+        .eq('course_enrollment_id', enrollment.id)
+        .in('status', ['booked', 'attended', 'completed'])
+        .limit(1);
 
-  // If we have both individual and package courses, return individual as current
-  let currentEnrollment;
-  if (individualCourses.length > 0) {
-    currentEnrollment = individualCourses[0]; // Most recent individual course
-  } else if (packageCourses.length > 0) {
-    currentEnrollment = packageCourses[0]; // Most recent package if no individual
-  } else if (activeEnrollments.length > 0) {
-    currentEnrollment = activeEnrollments[0]; // Fallback to most recent active
-  } else if (completedEnrollments.length > 0) {
-    currentEnrollment = completedEnrollments[0]; // Fallback to most recent completed
-  } else {
-    currentEnrollment = null;
-  }
+      if (bookings && bookings.length > 0) {
+        const { data: cls } = await supabaseDb.supabase
+          .from('class_instances')
+          .select('class_type')
+          .eq('id', bookings[0].class_instance_id)
+          .single();
 
-  // If course_identifier is missing, derive it from the student's bookings for this enrollment
-  if (currentEnrollment && !currentEnrollment.course_identifier) {
-    const { data: bookings } = await supabaseDb.supabase
-      .from('bookings')
-      .select('class_instance_id')
-      .eq('student_id', studentId)
-      .eq('course_enrollment_id', currentEnrollment.id)
-      .in('status', ['booked', 'attended', 'completed'])
-      .limit(1);
-
-    if (bookings && bookings.length > 0) {
-      const { data: cls } = await supabaseDb.supabase
-        .from('class_instances')
-        .select('class_type')
-        .eq('id', bookings[0].class_instance_id)
-        .single();
-
-      if (cls?.class_type) {
-        const derived = cls.class_type.split('.')[0]; // e.g. WT0103AM_DL6.1 → WT0103AM_DL6
-        currentEnrollment = { ...currentEnrollment, course_identifier: derived };
-        // Backfill the DB so it's correct next time
-        await supabaseDb.supabase
-          .from('course_enrollments')
-          .update({ course_identifier: derived })
-          .eq('id', currentEnrollment.id);
+        if (cls?.class_type) {
+          const derived = cls.class_type.split('.')[0];
+          enrollment = { ...enrollment, course_identifier: derived };
+          await supabaseDb.supabase
+            .from('course_enrollments')
+            .update({ course_identifier: derived })
+            .eq('id', enrollment.id);
+        }
       }
     }
+
+    // If package enrollment, count completed courses
+    if (enrollment.package_total_courses && enrollment.package_total_courses > 1) {
+      const { data: allEnrollments } = await supabaseDb.supabase
+        .from('course_enrollments')
+        .select('id, status')
+        .eq('student_id', studentId)
+        .ilike('course_title', '%3 Course Package%');
+
+      const completedInPackage = (allEnrollments || []).filter(e => e.status === 'completed').length;
+      const activeInPackage = (allEnrollments || []).filter(e => e.status === 'active').length;
+      enrollment = {
+        ...enrollment,
+        package_courses_completed: completedInPackage,
+        package_current_course: completedInPackage + activeInPackage,
+        package_courses_remaining: enrollment.package_total_courses - completedInPackage - activeInPackage,
+      };
+    }
+
+    // Determine if upcoming (start_date in future) vs active
+    const today = new Date().toISOString().split('T')[0];
+    const isUpcoming = enrollment.course_start_date && enrollment.course_start_date > today;
+    enrollment = { ...enrollment, display_status: isUpcoming ? 'upcoming' : enrollment.status };
+
+    enrichedEnrollments.push(enrollment);
   }
 
-  // If this is a package enrollment, count completed courses in the package
-  if (currentEnrollment && currentEnrollment.package_total_courses && currentEnrollment.package_total_courses > 1) {
-    const { data: allEnrollments } = await supabaseDb.supabase
-      .from('course_enrollments')
-      .select('id, status')
-      .eq('student_id', studentId)
-      .ilike('course_title', '%3 Course Package%');
+  // Sort: active/paused first, then upcoming, by start date
+  enrichedEnrollments.sort((a, b) => {
+    if (a.display_status === 'upcoming' && b.display_status !== 'upcoming') return 1;
+    if (a.display_status !== 'upcoming' && b.display_status === 'upcoming') return -1;
+    return 0;
+  });
 
-    const completedInPackage = (allEnrollments || []).filter(e => e.status === 'completed').length;
-    const activeInPackage = (allEnrollments || []).filter(e => e.status === 'active').length;
-    currentEnrollment = {
-      ...currentEnrollment,
-      package_courses_completed: completedInPackage,
-      package_current_course: completedInPackage + activeInPackage,
-      package_courses_remaining: currentEnrollment.package_total_courses - completedInPackage - activeInPackage,
-    };
+  // Fall back to most recent completed if no active enrollments
+  if (enrichedEnrollments.length === 0 && completedEnrollments.length > 0) {
+    enrichedEnrollments.push({ ...completedEnrollments[0], display_status: 'completed' });
   }
 
-  // Return current enrollment with completed history attached
-  console.log(`[enrollment] student=${studentId} active=${activeEnrollments.length} completed=${completedEnrollments.length} current=${currentEnrollment?.id || 'null'} status=${currentEnrollment?.status || 'null'}`);
+  // Return all enrollments + backward-compat single enrollment (first one)
+  const currentEnrollment = enrichedEnrollments[0] || null;
+  console.log(`[enrollment] student=${studentId} active=${activeEnrollments.length} completed=${completedEnrollments.length} returning=${enrichedEnrollments.length}`);
   if (currentEnrollment) {
-    // Avoid circular reference: exclude currentEnrollment from completed_history
     const history = completedEnrollments.filter(e => e.id !== currentEnrollment.id);
-    res.json({ ...currentEnrollment, completed_history: history });
+    res.json({ ...currentEnrollment, completed_history: history, all_enrollments: enrichedEnrollments });
   } else {
     res.json(null);
   }

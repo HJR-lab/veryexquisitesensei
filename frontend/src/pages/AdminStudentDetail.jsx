@@ -134,6 +134,7 @@ export default function AdminStudentDetail() {
   const [saving, setSaving]           = useState(false);
   const [student, setStudent]         = useState(null);
   const [enrollment, setEnrollment]   = useState(null);
+  const [enrollments, setEnrollments] = useState([]);
   const [bookings, setBookings]       = useState([]);
   const [fees, setFees]               = useState([]);
   const [flexCredits, setFlexCredits] = useState(null);
@@ -359,6 +360,7 @@ export default function AdminStudentDetail() {
         const enrollmentResult = results[1];
         const enrollmentData = enrollmentResult ? enrollmentResult.data : null;
         setEnrollment(enrollmentData);
+        setEnrollments(enrollmentData?.all_enrollments || (enrollmentData ? [enrollmentData] : []));
 
         // Check for next package course if student has remaining courses
         if (enrollmentData?.package_total_courses > 1 && enrollmentData?.package_courses_remaining > 0) {
@@ -924,7 +926,7 @@ export default function AdminStudentDetail() {
               {[
                 ...(isInstructor ? [{ id: 'teaching', label: `Teaching (${teachingData?.courses?.length || 0})` }] : []),
                 ...(!isInstructor || isAlsoStudent ? [
-                  { id: 'enrollment', label: 'Enrollment' },
+                  { id: 'enrollment', label: `Enrollment${enrollments.length > 1 ? ` (${enrollments.length})` : ''}` },
                   { id: 'bookings',   label: `Bookings (${showCompletedCourses ? bookings.length : activeBookings.length})` },
                   { id: 'fees',       label: `Fees (${fees.length})` },
                   { id: 'access',     label: `Studio Access (${studioBookings.length})` },
@@ -1071,154 +1073,193 @@ export default function AdminStudentDetail() {
             {/* ── ENROLLMENT TAB ── */}
             {section === 'enrollment' && (
               <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF', padding: '24px' }}>
-                {!enrollment ? (
+                {enrollments.length === 0 ? (
                   <div style={{ padding: '20px 0', textAlign: 'center', color: MUTED, fontSize: '13px' }}>No active enrollment.</div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    {/* Single enrollment card */}
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                            <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 7px', backgroundColor: ALT, color: INK }}>
-                              {enrollment.course_type ? getTypeLabel(enrollment.course_type) : 'COURSE'}
-                            </span>
-                            <span style={{ fontSize: '13px', fontWeight: 700 }}>{enrollment.course_title || 'N/A'}</span>
-                          </div>
-                          {enrollment.course_variant_title && (
-                            <div style={{ fontSize: '12px', color: MUTED, marginBottom: '3px' }}>{enrollment.course_variant_title}</div>
-                          )}
-                          <div style={{ fontSize: '10px', fontFamily: 'monospace', color: TC_DARK }}>{enrollment.course_identifier || ''}</div>
-                        </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontSize: '22px', fontWeight: 700 }}>
-                            {allAttendedCount}<span style={{ fontSize: '14px', color: MUTED, fontWeight: 400 }}>/{enrollment.number_of_weeks || totalAllocated}</span>
-                          </div>
-                          <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Attended</div>
-                        </div>
-                      </div>
-                      {/* Progress bar */}
-                      <div style={{ height: '6px', backgroundColor: ALT, position: 'relative', marginBottom: '8px' }}>
-                        <div style={{
-                          position: 'absolute', left: 0, top: 0, height: '100%',
-                          width: `${Math.min(100, totalAllocated > 0 ? (allAttendedCount / totalAllocated) * 100 : 0)}%`,
-                          backgroundColor: TC,
-                        }} />
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: '11px', color: MUTED }}>
-                          {isHBEnrollment
-                            ? `${allAttendedCount} attended · ${Math.max(0, allBookedCount - allAttendedCount)} booked`
-                            : `${allAttendedCount} attended · ${Math.max(0, allBookedCount - allAttendedCount)} booked`}
-                        </span>
-                        <span style={{ fontSize: '11px', color: TC_DARK, fontWeight: 700 }}>
-                          {isHBEnrollment
-                            ? `${hbCreditsRemaining} credits remaining`
-                            : enrollment.number_of_weeks === 10
-                              ? `${enrollment.class_credits_remaining || 0} flex credits`
-                              : `${unbookedCount} available`}
-                        </span>
-                      </div>
-                    </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {enrollments.map((enr) => {
+                      const enrIsHB = (enr.course_type || '').toLowerCase().includes('handbuilding');
+                      const enrBookings = bookings.filter(b => b.course_enrollment_id === enr.id);
+                      const enrHbCreditsAllocated = enr.class_credits_allocated || enr.number_of_weeks || 0;
+                      const enrHbCreditsUsed = enr.class_credits_used || 0;
+                      const enrHbCreditsRemaining = enr.class_credits_remaining || 0;
+                      const enrBookedCount = enrIsHB ? enrHbCreditsUsed : enrBookings.length;
+                      const enrAttendedCount = enrBookings.filter(b => {
+                        const classDate = new Date(b.class_date);
+                        classDate.setHours(0, 0, 0, 0);
+                        return b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && classDate < today);
+                      }).length;
+                      const enrAllocated = enrIsHB ? enrHbCreditsAllocated : (enr.number_of_weeks || 0);
+                      const enrTotalAllocated = Math.max(enrBookedCount, enrAllocated);
+                      const enrIs10Class = enr.number_of_weeks === 10;
+                      const enrFlexRemaining = enr.id === enrollment?.id ? (flexCredits?.remaining || (enrIs10Class ? (enr.class_credits_remaining || 0) : 0)) : 0;
+                      const enrUnbooked = enrIsHB
+                        ? Math.max(0, enrHbCreditsRemaining)
+                        : Math.max(0, enrAllocated - enrBookedCount) + enrFlexRemaining;
+                      const isUpcoming = enr.display_status === 'upcoming';
+                      const isPrimary = enr.id === enrollment?.id;
+                      const statusLabel = isUpcoming ? 'UPCOMING' : enr.status === 'paused' ? 'PAUSED' : 'ACTIVE';
+                      const statusColor = isUpcoming ? '#6B7280' : enr.status === 'paused' ? '#D97706' : '#059669';
 
-                    {/* Status + dates — only show if dates are available */}
-                    {(enrollment.start_date || enrollment.end_date) && (
-                    <div style={{ paddingTop: '16px', borderTop: `1px solid ${RULE}`, display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                      {[
-                        enrollment.start_date ? formatDate(enrollment.start_date) : null,
-                        enrollment.end_date ? `→ ${formatDate(enrollment.end_date)}` : null,
-                      ].filter(Boolean).map((v, i) => (
-                        <span key={i} style={{ fontSize: '12px', color: MUTED }}>
-                          {v}
-                        </span>
-                      ))}
-                    </div>
-                    )}
-
-                    {/* Wheel preference — only for WT 6wk x3 packages */}
-                    {enrollment.package_total_courses === 3 && ((enrollment.course_type || '').toUpperCase().startsWith('WT') || (enrollment.course_title || '').toLowerCase().includes('wheelthrowing')) && (
-                      <div style={{ marginTop: '16px', padding: '14px 16px', backgroundColor: '#FFF8F0', border: `1px solid ${TC_LIGHT}`, borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: '12px', fontWeight: 700, color: TC_DARK }}>Preferred Wheel</span>
-                        <select
-                          value={student?.wheel_preference || ''}
-                          onChange={async (e) => {
-                            const val = e.target.value ? parseInt(e.target.value) : null;
-                            try {
-                              await api.put(`/admin/students/${encodeURIComponent(student.email)}`, { wheel_preference: val });
-                              setStudent(prev => ({ ...prev, wheel_preference: val }));
-                            } catch (err) {
-                              console.error('Failed to save wheel preference:', err);
-                            }
-                          }}
-                          style={{ padding: '4px 8px', fontSize: '13px', fontWeight: 700, border: `1px solid ${RULE}`, borderRadius: '4px', backgroundColor: '#FFF', color: INK, cursor: 'pointer' }}
-                        >
-                          <option value="">—</option>
-                          {[1,2,3,4,5,6,7,8,9,10].map(n => (
-                            <option key={n} value={n}>Wheel {n}</option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-
-                    {/* Package progress */}
-                    {enrollment.package_total_courses > 1 && (
-                      <div style={{ marginTop: '16px', padding: '14px 16px', backgroundColor: '#FFF8F0', border: `1px solid ${TC_LIGHT}`, borderRadius: '8px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                          <span style={{ fontSize: '12px', fontWeight: 700, color: TC_DARK }}>
-                            Course {enrollment.package_current_course} of {enrollment.package_total_courses}
-                          </span>
-                          <span style={{ fontSize: '11px', color: MUTED }}>
-                            {enrollment.package_total_courses}-Course Package
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
-                          {Array.from({ length: enrollment.package_total_courses }).map((_, i) => (
-                            <div key={i} style={{
-                              flex: 1, height: '4px', borderRadius: '2px',
-                              backgroundColor: i < enrollment.package_courses_completed ? TC
-                                : i < enrollment.package_current_course ? TC_LIGHT
-                                : RULE,
-                            }} />
-                          ))}
-                        </div>
-                        <div style={{ fontSize: '11px', color: MUTED }}>
-                          {enrollment.package_courses_completed} completed
-                          {enrollment.package_courses_remaining > 0 && (
-                            <span> · <span style={{ color: TC_DARK, fontWeight: 600 }}>{enrollment.package_courses_remaining} more course{enrollment.package_courses_remaining > 1 ? 's' : ''} remaining ({enrollment.package_courses_remaining * (enrollment.number_of_weeks || 6)} classes)</span></span>
-                          )}
-                        </div>
-                        {nextCourse?.available && enrollment.package_courses_remaining > 0 && (
-                          <div style={{ marginTop: '12px' }}>
-                            <button
-                              onClick={handleContinuePackage}
-                              disabled={continuingPackage}
-                              style={{
-                                width: '100%', padding: '10px 16px',
-                                backgroundColor: TC, color: '#fff', border: 'none', borderRadius: '6px',
-                                fontSize: '12px', fontWeight: 700,
-                                cursor: continuingPackage ? 'not-allowed' : 'pointer',
-                                opacity: continuingPackage ? 0.6 : 1,
-                              }}
-                            >
-                              {continuingPackage ? 'Enrolling...' : `Enroll in Next Course → ${nextCourse.nextCourse?.identifier || ''}`}
-                            </button>
-                            <div style={{ fontSize: '10px', color: MUTED, marginTop: '4px', textAlign: 'center' }}>
-                              {nextCourse.nextCourse?.startDate && new Date(nextCourse.nextCourse.startDate).toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' })}
-                              {nextCourse.nextCourse?.instructor && ` · ${nextCourse.nextCourse.instructor}`}
+                      return (
+                        <div key={enr.id} style={{
+                          border: `1px solid ${isUpcoming ? '#E5E7EB' : RULE}`,
+                          padding: '18px',
+                          backgroundColor: isUpcoming ? '#FAFAFA' : '#FFFFFF',
+                          opacity: isUpcoming ? 0.85 : 1,
+                        }}>
+                          {/* Header row: type badge + status badge */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 7px', backgroundColor: ALT, color: INK }}>
+                                  {enr.course_type ? getTypeLabel(enr.course_type) : 'COURSE'}
+                                </span>
+                                <span style={{
+                                  fontSize: '9px', fontWeight: 700, padding: '2px 6px', letterSpacing: '0.06em',
+                                  backgroundColor: statusColor + '18', color: statusColor, borderRadius: '2px',
+                                }}>
+                                  {statusLabel}
+                                </span>
+                                <span style={{ fontSize: '13px', fontWeight: 700 }}>{enr.course_title || 'N/A'}</span>
+                              </div>
+                              {enr.course_variant_title && (
+                                <div style={{ fontSize: '12px', color: MUTED, marginBottom: '3px' }}>{enr.course_variant_title}</div>
+                              )}
+                              <div style={{ fontSize: '10px', fontFamily: 'monospace', color: TC_DARK }}>{enr.course_identifier || ''}</div>
                             </div>
+                            {!isUpcoming && (
+                              <div style={{ textAlign: 'right' }}>
+                                <div style={{ fontSize: '22px', fontWeight: 700 }}>
+                                  {enrAttendedCount}<span style={{ fontSize: '14px', color: MUTED, fontWeight: 400 }}>/{enr.number_of_weeks || enrTotalAllocated}</span>
+                                </div>
+                                <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Attended</div>
+                              </div>
+                            )}
                           </div>
-                        )}
-                        {enrollment.package_courses_remaining > 0 && nextCourse !== null && !nextCourse?.available && (
-                          <div style={{ fontSize: '10px', color: MUTED, marginTop: '8px', fontStyle: 'italic' }}>
-                            No matching upcoming course launched yet
-                          </div>
-                        )}
-                      </div>
-                    )}
+
+                          {/* Progress bar — only for active courses */}
+                          {!isUpcoming && (
+                            <>
+                              <div style={{ height: '6px', backgroundColor: ALT, position: 'relative', marginBottom: '8px' }}>
+                                <div style={{
+                                  position: 'absolute', left: 0, top: 0, height: '100%',
+                                  width: `${Math.min(100, enrTotalAllocated > 0 ? (enrAttendedCount / enrTotalAllocated) * 100 : 0)}%`,
+                                  backgroundColor: TC,
+                                }} />
+                              </div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ fontSize: '11px', color: MUTED }}>
+                                  {enrAttendedCount} attended · {Math.max(0, enrBookedCount - enrAttendedCount)} booked
+                                </span>
+                                <span style={{ fontSize: '11px', color: TC_DARK, fontWeight: 700 }}>
+                                  {enrIsHB
+                                    ? `${enrHbCreditsRemaining} credits remaining`
+                                    : enr.number_of_weeks === 10
+                                      ? `${enr.class_credits_remaining || 0} flex credits`
+                                      : `${enrUnbooked} available`}
+                                </span>
+                              </div>
+                            </>
+                          )}
+
+                          {/* Dates */}
+                          {(enr.start_date || enr.end_date || enr.course_start_date) && (
+                            <div style={{ paddingTop: '12px', marginTop: isUpcoming ? 0 : '12px', borderTop: isUpcoming ? 'none' : `1px solid ${RULE}`, display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                              {[
+                                (enr.start_date || enr.course_start_date) ? formatDate(enr.start_date || enr.course_start_date) : null,
+                                enr.end_date ? `→ ${formatDate(enr.end_date)}` : null,
+                              ].filter(Boolean).map((v, i) => (
+                                <span key={i} style={{ fontSize: '12px', color: MUTED }}>{v}</span>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Wheel preference — only for WT 6wk x3 packages on primary enrollment */}
+                          {isPrimary && enr.package_total_courses === 3 && ((enr.course_type || '').toUpperCase().startsWith('WT') || (enr.course_title || '').toLowerCase().includes('wheelthrowing')) && (
+                            <div style={{ marginTop: '16px', padding: '14px 16px', backgroundColor: '#FFF8F0', border: `1px solid ${TC_LIGHT}`, borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <span style={{ fontSize: '12px', fontWeight: 700, color: TC_DARK }}>Preferred Wheel</span>
+                              <select
+                                value={student?.wheel_preference || ''}
+                                onChange={async (e) => {
+                                  const val = e.target.value ? parseInt(e.target.value) : null;
+                                  try {
+                                    await api.put(`/admin/students/${encodeURIComponent(student.email)}`, { wheel_preference: val });
+                                    setStudent(prev => ({ ...prev, wheel_preference: val }));
+                                  } catch (err) {
+                                    console.error('Failed to save wheel preference:', err);
+                                  }
+                                }}
+                                style={{ padding: '4px 8px', fontSize: '13px', fontWeight: 700, border: `1px solid ${RULE}`, borderRadius: '4px', backgroundColor: '#FFF', color: INK, cursor: 'pointer' }}
+                              >
+                                <option value="">—</option>
+                                {[1,2,3,4,5,6,7,8,9,10].map(n => (
+                                  <option key={n} value={n}>Wheel {n}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
+                          {/* Package progress — only on primary enrollment */}
+                          {isPrimary && enr.package_total_courses > 1 && (
+                            <div style={{ marginTop: '16px', padding: '14px 16px', backgroundColor: '#FFF8F0', border: `1px solid ${TC_LIGHT}`, borderRadius: '8px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                <span style={{ fontSize: '12px', fontWeight: 700, color: TC_DARK }}>
+                                  Course {enr.package_current_course} of {enr.package_total_courses}
+                                </span>
+                                <span style={{ fontSize: '11px', color: MUTED }}>
+                                  {enr.package_total_courses}-Course Package
+                                </span>
+                              </div>
+                              <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
+                                {Array.from({ length: enr.package_total_courses }).map((_, i) => (
+                                  <div key={i} style={{
+                                    flex: 1, height: '4px', borderRadius: '2px',
+                                    backgroundColor: i < enr.package_courses_completed ? TC
+                                      : i < enr.package_current_course ? TC_LIGHT
+                                      : RULE,
+                                  }} />
+                                ))}
+                              </div>
+                              <div style={{ fontSize: '11px', color: MUTED }}>
+                                {enr.package_courses_completed} completed
+                                {enr.package_courses_remaining > 0 && (
+                                  <span> · <span style={{ color: TC_DARK, fontWeight: 600 }}>{enr.package_courses_remaining} more course{enr.package_courses_remaining > 1 ? 's' : ''} remaining ({enr.package_courses_remaining * (enr.number_of_weeks || 6)} classes)</span></span>
+                                )}
+                              </div>
+                              {nextCourse?.available && enr.package_courses_remaining > 0 && (
+                                <div style={{ marginTop: '12px' }}>
+                                  <button
+                                    onClick={handleContinuePackage}
+                                    disabled={continuingPackage}
+                                    style={{
+                                      width: '100%', padding: '10px 16px',
+                                      backgroundColor: TC, color: '#fff', border: 'none', borderRadius: '6px',
+                                      fontSize: '12px', fontWeight: 700,
+                                      cursor: continuingPackage ? 'not-allowed' : 'pointer',
+                                      opacity: continuingPackage ? 0.6 : 1,
+                                    }}
+                                  >
+                                    {continuingPackage ? 'Enrolling...' : `Enroll in Next Course → ${nextCourse.nextCourse?.identifier || ''}`}
+                                  </button>
+                                  <div style={{ fontSize: '10px', color: MUTED, marginTop: '4px', textAlign: 'center' }}>
+                                    {nextCourse.nextCourse?.startDate && new Date(nextCourse.nextCourse.startDate).toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                    {nextCourse.nextCourse?.instructor && ` · ${nextCourse.nextCourse.instructor}`}
+                                  </div>
+                                </div>
+                              )}
+                              {enr.package_courses_remaining > 0 && nextCourse !== null && !nextCourse?.available && (
+                                <div style={{ fontSize: '10px', color: MUTED, marginTop: '8px', fontStyle: 'italic' }}>
+                                  No matching upcoming course launched yet
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
-
-                {/* Course history removed — shown in student history tab instead */}
 
                 {/* Move Course button */}
                 {enrollment && enrollment.status === 'active' && (

@@ -355,6 +355,10 @@ export default function ClassScheduleNew() {
         });
       });
     });
+    // Determine WT level (beginner=6, intermediate=7) from class_type
+    const getWTLevel = (ct) => { const m = ct?.match(/(\d+)\.\d+$/); return m ? parseInt(m[1]) : null; };
+    const oldLevel = getWTLevel(selectedClass.classType);
+
     return allClasses.filter(c => {
       const categoryMatch = getClassCategory(c.classType);
       const sameCategory = categoryMatch === classCategory;
@@ -364,6 +368,10 @@ export default function ClassScheduleNew() {
       const isAtLeast24HoursAway = classDateTime >= twentyFourHoursFromNow;
       const isValidTime = !isNaN(classDateTime.getTime());
       const isNewClassGlazing = c.classType?.includes('6.6');
+
+      // Beginners cannot see intermediate classes and vice versa
+      const newLevel = getWTLevel(c.classType);
+      if (oldLevel && newLevel && oldLevel !== newLevel) return false;
       if (is10thClass && !isNewClassGlazing) return false;
       let cohortRestrictionPasses = true;
       if (isOldClassGlazing) {

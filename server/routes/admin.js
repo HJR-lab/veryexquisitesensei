@@ -5095,7 +5095,7 @@ const { sendAndLogEmail, detectCourseTemplate } = require('../utils/emailService
 // Helper: format date as "14 March" style
 function formatDateNice(dateStr) {
   if (!dateStr) return '—';
-  const cleaned = String(dateStr).split('T')[0];
+  const cleaned = String(dateStr).split(/[T ]/)[0];
   const d = new Date(cleaned + 'T12:00:00');
   if (isNaN(d.getTime())) return '—';
   const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -5364,7 +5364,7 @@ app.get('/api/admin/course-emails/:courseId/draft', authenticateToken, requireAd
 
   if (classError) throw classError;
 
-  const classDates = (classInstances || []).map(c => String(c.class_date).split('T')[0]).sort();
+  const classDates = (classInstances || []).map(c => String(c.class_date).split(/[T ]/)[0]).sort();
   const startDate = classDates[0] || null;
   const endDate = classDates[classDates.length - 1] || null;
   const firstClass = (classInstances || [])[0] || null;

@@ -87,6 +87,8 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
 
   const courseHistory = [];
   const today = new Date();
+  const todayMidnight = new Date(today);
+  todayMidnight.setHours(0, 0, 0, 0);
 
   // Extract base course identifier from class_type
   // e.g., "WT1701AM_DL6.2" -> "WT1701AM_DL6"
@@ -96,7 +98,7 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
     return match ? match[1] : classType;
   };
 
-  const isPast = (b) => b.class_instance && new Date(b.class_instance.class_date) < today;
+  const isPast = (b) => b.class_instance && new Date(b.class_instance.class_date) < todayMidnight;
   const isAttended = (b) => isPast(b) && (b.attended === true || b.status === 'attended' || b.status === 'completed' || b.status === 'booked');
 
   // Step 1: Group ALL bookings by course_enrollment_id (source of truth for reschedules)
@@ -160,8 +162,8 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
       else courseTitle = courseId;
     }
 
-    const hasUpcoming = sorted.some(b => new Date(b.class_instance.class_date) >= today && b.status === 'booked');
-    const allFuture = startDate && new Date(startDate) > today;
+    const hasUpcoming = sorted.some(b => new Date(b.class_instance.class_date) >= todayMidnight && b.status === 'booked');
+    const allFuture = startDate && new Date(startDate) > todayMidnight;
     const hasDraft = sorted.some(b => b.class_instance.status === 'draft');
     const courseStatus = hasDraft ? 'awaiting confirmation' : allFuture ? 'upcoming' : hasUpcoming ? 'current' : 'completed';
 

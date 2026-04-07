@@ -482,16 +482,26 @@ export default function ClassScheduleNew() {
         alert(`Successfully booked ${courseWeeks}-week Handbuilding schedule!`);
       } else {
         const cat = getClassCategory(classItem.classType);
-        // HB-only students cannot book WT classes
+        // Cross-type booking restriction (exception: 10-class package)
         const allEnrollments = [
           ...(dashboardData?.enrollments?.active || []),
           ...(dashboardData?.enrollments?.upcoming || []),
         ];
-        const hasWTEnrollment = allEnrollments.some(e => e.courseType && !e.courseType.toLowerCase().includes('handbuilding'));
-        if (cat !== 'handbuilding' && !hasWTEnrollment && hbEnrollment) {
-          alert('Your enrollment is for Handbuilding classes only. Please book a Handbuilding class.');
-          setBookingLoading(false);
-          return;
+        const has10ClassPkg = allEnrollments.some(e => e.number_of_weeks === 10 || (e.courseType || '').includes('10 Classes'));
+        const hasHBEnrollment = allEnrollments.some(e => (e.courseType || '').toLowerCase().includes('handbuilding'));
+        const hasWTEnrollment = allEnrollments.some(e => (e.courseType || '').toLowerCase().includes('wheelthrowing'));
+
+        if (!has10ClassPkg) {
+          if (cat === 'wheelthrowing' && hasHBEnrollment && !hasWTEnrollment) {
+            alert('Your enrollment is for Handbuilding classes only. Please book a Handbuilding class.');
+            setBookingLoading(false);
+            return;
+          }
+          if (cat === 'handbuilding' && hasWTEnrollment && !hasHBEnrollment) {
+            alert('Your enrollment is for Wheelthrowing classes only. Please book a Wheelthrowing class.');
+            setBookingLoading(false);
+            return;
+          }
         }
         // Check if student has credits for a makeup / single class
         const remaining = (studentData?.classes_allocated || 0) -
@@ -779,79 +789,97 @@ export default function ClassScheduleNew() {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '28px' }}>
-              {[...classesForSelectedDate].sort((a, b) => {
-                // Sort wheel throwing first
-                const aWT = getClassCategory(a.classType) === 'wheelthrowing';
-                const bWT = getClassCategory(b.classType) === 'wheelthrowing';
-                return aWT === bWT ? 0 : aWT ? -1 : 1;
-              }).map(cls => {
-                const enrolled = isEnrolled(cls.id);
-                const isFull   = !enrolled && cls.isFull;
-                const action   = getCardAction(cls);
-                const typeLabel  = displayClassType(cls.classType, cls.classTitle);
-                const levelLabel = displayLevel(cls.classType);
+              {(() => {
+                // Determine cross-type restriction
+                const enrollList = [...(dashboardData?.enrollments?.active || []), ...(dashboardData?.enrollments?.upcoming || [])];
+                const has10ClassPkg = enrollList.some(e => e.number_of_weeks === 10 || (e.courseType || '').includes('10 Classes'));
+                const hasHBEnroll = enrollList.some(e => (e.courseType || '').toLowerCase().includes('handbuilding'));
+                const hasWTEnroll = enrollList.some(e => (e.courseType || '').toLowerCase().includes('wheelthrowing'));
+                const hasEnrollments = enrollList.length > 0;
 
-                return (
-                  <div
-                    key={cls.id}
-                    onClick={() => setShowDetailSheet(cls)}
-                    style={{
-                      padding: '12px',
-                      border: `1px solid ${enrolled ? TC : RULE}`,
-                      backgroundColor: enrolled ? TC_LIGHT : ALT,
-                      display: 'flex', alignItems: 'center', gap: '14px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {/* Date mini-cal */}
-                    <div style={{ width: '36px', flexShrink: 0, textAlign: 'center' }}>
-                      <div style={{ fontSize: '10px', fontWeight: 700, color: enrolled ? TC_DARK : MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1.2 }}>
-                        {DAY_LABELS[selectedDate.getDay()]}
+                return [...classesForSelectedDate].sort((a, b) => {
+                  const aWT = getClassCategory(a.classType) === 'wheelthrowing';
+                  const bWT = getClassCategory(b.classType) === 'wheelthrowing';
+                  return aWT === bWT ? 0 : aWT ? -1 : 1;
+                }).map(cls => {
+                  const enrolled = isEnrolled(cls.id);
+                  const isFull   = !enrolled && cls.isFull;
+                  const action   = getCardAction(cls);
+                  const typeLabel  = displayClassType(cls.classType, cls.classTitle);
+                  const levelLabel = displayLevel(cls.classType);
+                  const cat = getClassCategory(cls.classType);
+
+                  // Grey out classes the student can't book due to enrollment type mismatch
+                  const crossTypeBlocked = hasEnrollments && !has10ClassPkg && (
+                    (cat === 'wheelthrowing' && hasHBEnroll && !hasWTEnroll) ||
+                    (cat === 'handbuilding' && hasWTEnroll && !hasHBEnroll)
+                  );
+
+                  return (
+                    <div
+                      key={cls.id}
+                      onClick={() => !crossTypeBlocked && setShowDetailSheet(cls)}
+                      style={{
+                        padding: '12px',
+                        border: `1px solid ${enrolled ? TC : RULE}`,
+                        backgroundColor: crossTypeBlocked ? '#F5F5F5' : enrolled ? TC_LIGHT : ALT,
+                        opacity: crossTypeBlocked ? 0.5 : 1,
+                        display: 'flex', alignItems: 'center', gap: '14px',
+                        cursor: crossTypeBlocked ? 'default' : 'pointer',
+                      }}
+                    >
+                      {/* Date mini-cal */}
+                      <div style={{ width: '36px', flexShrink: 0, textAlign: 'center' }}>
+                        <div style={{ fontSize: '10px', fontWeight: 700, color: enrolled ? TC_DARK : MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1.2 }}>
+                          {DAY_LABELS[selectedDate.getDay()]}
+                        </div>
+                        <div style={{ fontSize: '18px', fontWeight: 700, lineHeight: 1.1 }}>{selectedDate.getDate()}</div>
+                        <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1.2 }}>
+                          {MONTH_LABELS[selectedDate.getMonth()]}
+                        </div>
                       </div>
-                      <div style={{ fontSize: '18px', fontWeight: 700, lineHeight: 1.1 }}>{selectedDate.getDate()}</div>
-                      <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1.2 }}>
-                        {MONTH_LABELS[selectedDate.getMonth()]}
+
+                      {/* Divider */}
+                      <div style={{ width: '1px', height: '42px', backgroundColor: enrolled ? 'rgba(196,98,45,0.2)' : RULE, flexShrink: 0 }} />
+
+                      {/* Detail */}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '13px', fontWeight: 700 }}>{typeLabel}</div>
+                        <div style={{ fontSize: '11px', color: MUTED }}>{cls.startTime} – {cls.endTime} · {cls.instructor}</div>
                       </div>
+
+                      {/* Action */}
+                      <div style={{ flexShrink: 0, textAlign: 'right' }}>
+                        {crossTypeBlocked ? (
+                          <div style={{ fontSize: '10px', color: MUTED }}>{spotsLeft(cls)} left</div>
+                        ) : enrolled ? (
+                          <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '5px 10px', backgroundColor: TC, color: '#FFF' }}>
+                            Booked
+                          </span>
+                        ) : isFull ? (
+                          <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '5px 10px', backgroundColor: '#EBEBEB', color: MUTED }}>
+                            Full
+                          </span>
+                        ) : (
+                          <>
+                            <button
+                              onClick={e => { e.stopPropagation(); handleBookClass(cls); }}
+                              style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '5px 12px', border: `1px solid ${TC}`, backgroundColor: 'transparent', color: TC, cursor: 'pointer', display: 'block', marginBottom: '3px' }}
+                            >
+                              {action === 'purchase' ? 'Purchase' : 'Book'}
+                            </button>
+                            {action !== 'purchase' && (
+                              <div style={{ fontSize: '10px', color: MUTED }}>{spotsLeft(cls)} left</div>
+                            )}
+                          </>
+                        )}
+                      </div>
+
+                      <span className="material-symbols-outlined" style={{ fontSize: '16px', color: 'rgba(40,40,40,0.2)', flexShrink: 0 }}>chevron_right</span>
                     </div>
-
-                    {/* Divider */}
-                    <div style={{ width: '1px', height: '42px', backgroundColor: enrolled ? 'rgba(196,98,45,0.2)' : RULE, flexShrink: 0 }} />
-
-                    {/* Detail */}
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '13px', fontWeight: 700 }}>{typeLabel}</div>
-                      <div style={{ fontSize: '11px', color: MUTED }}>{cls.startTime} – {cls.endTime} · {cls.instructor}</div>
-                    </div>
-
-                    {/* Action */}
-                    <div style={{ flexShrink: 0, textAlign: 'right' }}>
-                      {enrolled ? (
-                        <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '5px 10px', backgroundColor: TC, color: '#FFF' }}>
-                          Booked
-                        </span>
-                      ) : isFull ? (
-                        <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '5px 10px', backgroundColor: '#EBEBEB', color: MUTED }}>
-                          Full
-                        </span>
-                      ) : (
-                        <>
-                          <button
-                            onClick={e => { e.stopPropagation(); handleBookClass(cls); }}
-                            style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '5px 12px', border: `1px solid ${TC}`, backgroundColor: 'transparent', color: TC, cursor: 'pointer', display: 'block', marginBottom: '3px' }}
-                          >
-                            {action === 'purchase' ? 'Purchase' : 'Book'}
-                          </button>
-                          {action !== 'purchase' && (
-                            <div style={{ fontSize: '10px', color: MUTED }}>{spotsLeft(cls)} left</div>
-                          )}
-                        </>
-                      )}
-                    </div>
-
-                    <span className="material-symbols-outlined" style={{ fontSize: '16px', color: 'rgba(40,40,40,0.2)', flexShrink: 0 }}>chevron_right</span>
-                  </div>
-                );
-              })}
+                  );
+                });
+              })()}
             </div>
           )}
 

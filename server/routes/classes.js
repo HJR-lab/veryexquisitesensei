@@ -256,6 +256,34 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
     return res.status(400).json({ error: 'You are already booked for this class' });
   }
 
+  // Enforce cross-type booking restriction (HB can't book WT, WT can't book HB)
+  // Exception: 10-class package students can book both
+  const classIsHB = (classInstance.class_type || '').startsWith('HB');
+  const classIsWT = (classInstance.class_type || '').startsWith('WT');
+  if (classIsHB || classIsWT) {
+    const { data: activeEnrollments } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('id, course_type, course_identifier, number_of_weeks')
+      .eq('student_id', dbCustomerId)
+      .eq('status', 'active');
+
+    const has10ClassPackage = (activeEnrollments || []).some(e =>
+      e.number_of_weeks === 10 || (e.course_type || '').includes('10 Classes')
+    );
+
+    if (!has10ClassPackage && activeEnrollments && activeEnrollments.length > 0) {
+      const hasHBEnrollment = activeEnrollments.some(e => (e.course_type || '').toLowerCase().includes('handbuilding') || (e.course_identifier || '').startsWith('HB'));
+      const hasWTEnrollment = activeEnrollments.some(e => (e.course_type || '').toLowerCase().includes('wheelthrowing') || (e.course_identifier || '').startsWith('WT'));
+
+      if (classIsWT && hasHBEnrollment && !hasWTEnrollment) {
+        return res.status(400).json({ error: 'Your enrollment is for Handbuilding classes only. You cannot book Wheelthrowing classes.' });
+      }
+      if (classIsHB && hasWTEnrollment && !hasHBEnrollment) {
+        return res.status(400).json({ error: 'Your enrollment is for Wheelthrowing classes only. You cannot book Handbuilding classes.' });
+      }
+    }
+  }
+
   // Try to find a matching enrollment for this student + class type
   let enrollmentId = null;
   if (classInstance.class_type) {
@@ -359,6 +387,34 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
 
   if (existingBooking) {
     return res.status(400).json({ error: 'You are already booked for this class' });
+  }
+
+  // Enforce cross-type booking restriction (HB can't book WT, WT can't book HB)
+  // Exception: 10-class package students can book both
+  const classIsHB = (classInstance.class_type || '').startsWith('HB');
+  const classIsWT = (classInstance.class_type || '').startsWith('WT');
+  if (classIsHB || classIsWT) {
+    const { data: activeEnrollments } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('id, course_type, course_identifier, number_of_weeks')
+      .eq('student_id', dbCustomerId)
+      .eq('status', 'active');
+
+    const has10ClassPackage = (activeEnrollments || []).some(e =>
+      e.number_of_weeks === 10 || (e.course_type || '').includes('10 Classes')
+    );
+
+    if (!has10ClassPackage && activeEnrollments && activeEnrollments.length > 0) {
+      const hasHBEnrollment = activeEnrollments.some(e => (e.course_type || '').toLowerCase().includes('handbuilding') || (e.course_identifier || '').startsWith('HB'));
+      const hasWTEnrollment = activeEnrollments.some(e => (e.course_type || '').toLowerCase().includes('wheelthrowing') || (e.course_identifier || '').startsWith('WT'));
+
+      if (classIsWT && hasHBEnrollment && !hasWTEnrollment) {
+        return res.status(400).json({ error: 'Your enrollment is for Handbuilding classes only. You cannot book Wheelthrowing classes.' });
+      }
+      if (classIsHB && hasWTEnrollment && !hasHBEnrollment) {
+        return res.status(400).json({ error: 'Your enrollment is for Wheelthrowing classes only. You cannot book Handbuilding classes.' });
+      }
+    }
   }
 
   // Check if there's a cancelled booking for this class - if so, reactivate it instead of creating new

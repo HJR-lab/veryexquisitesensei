@@ -486,10 +486,12 @@ export default function ClassScheduleNew() {
         const allEnrollments = [
           ...(dashboardData?.enrollments?.active || []),
           ...(dashboardData?.enrollments?.upcoming || []),
+          ...(dashboardData?.enrollments?.pending || []),
         ];
-        const has10ClassPkg = allEnrollments.some(e => e.number_of_weeks === 10 || (e.courseType || '').includes('10 Classes'));
-        const hasHBEnrollment = allEnrollments.some(e => (e.courseType || '').toLowerCase().includes('handbuilding'));
-        const hasWTEnrollment = allEnrollments.some(e => (e.courseType || '').toLowerCase().includes('wheelthrowing'));
+        const getCT = (e) => (e.courseType || e.course_type || '').toLowerCase();
+        const has10ClassPkg = allEnrollments.some(e => e.number_of_weeks === 10 || getCT(e).includes('10 classes'));
+        const hasHBEnrollment = allEnrollments.some(e => getCT(e).includes('handbuilding'));
+        const hasWTEnrollment = allEnrollments.some(e => getCT(e).includes('wheelthrowing'));
 
         if (!has10ClassPkg) {
           if (cat === 'wheelthrowing' && hasHBEnrollment && !hasWTEnrollment) {
@@ -538,7 +540,7 @@ export default function ClassScheduleNew() {
     (myBookings?.filter(b => b.status === 'booked' || b.status === 'attended').length || 0);
 
   // ── 10-class package: extra credits beyond the 6 scheduled classes ────────
-  const allEnrollments = [...(dashboardData?.enrollments?.active || []), ...(dashboardData?.enrollments?.upcoming || [])];
+  const allEnrollments = [...(dashboardData?.enrollments?.active || []), ...(dashboardData?.enrollments?.upcoming || []), ...(dashboardData?.enrollments?.pending || [])];
   const tenClassEnrollment = allEnrollments.find(e => e.number_of_weeks === 10);
   const is10ClassPackage = !!tenClassEnrollment;
   const extraCreditsTotal = is10ClassPackage ? 4 : 0;
@@ -791,10 +793,11 @@ export default function ClassScheduleNew() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '28px' }}>
               {(() => {
                 // Determine cross-type restriction
-                const enrollList = [...(dashboardData?.enrollments?.active || []), ...(dashboardData?.enrollments?.upcoming || [])];
-                const has10ClassPkg = enrollList.some(e => e.number_of_weeks === 10 || (e.courseType || '').includes('10 Classes'));
-                const hasHBEnroll = enrollList.some(e => (e.courseType || '').toLowerCase().includes('handbuilding'));
-                const hasWTEnroll = enrollList.some(e => (e.courseType || '').toLowerCase().includes('wheelthrowing'));
+                const enrollList = [...(dashboardData?.enrollments?.active || []), ...(dashboardData?.enrollments?.upcoming || []), ...(dashboardData?.enrollments?.pending || [])];
+                const getCourseType = (e) => (e.courseType || e.course_type || '').toLowerCase();
+                const has10ClassPkg = enrollList.some(e => e.number_of_weeks === 10 || getCourseType(e).includes('10 classes'));
+                const hasHBEnroll = enrollList.some(e => getCourseType(e).includes('handbuilding'));
+                const hasWTEnroll = enrollList.some(e => getCourseType(e).includes('wheelthrowing'));
                 const hasEnrollments = enrollList.length > 0;
 
                 return [...classesForSelectedDate].sort((a, b) => {

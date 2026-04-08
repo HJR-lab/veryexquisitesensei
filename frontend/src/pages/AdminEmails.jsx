@@ -472,22 +472,13 @@ export default function AdminEmails() {
                         />
                       </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                         <div>
-                          <label style={labelSt}>Collection Start</label>
+                          <label style={labelSt}>Collection From</label>
                           <input
                             type="text"
                             value={draft.collectionStart}
                             onChange={e => updateDraftField('collectionStart', e.target.value)}
-                            style={inputSt}
-                          />
-                        </div>
-                        <div>
-                          <label style={labelSt}>Collection End</label>
-                          <input
-                            type="text"
-                            value={draft.collectionEnd}
-                            onChange={e => updateDraftField('collectionEnd', e.target.value)}
                             style={inputSt}
                           />
                         </div>

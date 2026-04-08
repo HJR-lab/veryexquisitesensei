@@ -5099,7 +5099,7 @@ function formatDateNice(dateStr) {
   const d = new Date(cleaned + 'T12:00:00');
   if (isNaN(d.getTime())) return '—';
   const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  return `${d.getDate()} ${months[d.getMonth()]}`;
+  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 // Helper: get day of week from date string

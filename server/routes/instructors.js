@@ -557,7 +557,7 @@ app.get('/api/instructor/classes/:classId/students', authenticateToken, asyncHan
   // Verify class belongs to this instructor
   const { data: classInstance } = await supabaseDb.supabase
     .from('class_instances')
-    .select('id, instructor')
+    .select('id, instructor, class_type')
     .eq('id', classId)
     .eq('instructor', instructorName)
     .single();
@@ -570,7 +570,7 @@ app.get('/api/instructor/classes/:classId/students', authenticateToken, asyncHan
     .from('bookings')
     .select('id, status, booking_type, is_makeup_class, attended, course_enrollment_id, customers:student_id(id, first_name, last_name, email, profile_image)')
     .eq('class_instance_id', classId)
-    .in('status', ['booked', 'completed', 'attended', 'forfeited']);
+    .in('status', ['booked', 'completed', 'attended', 'forfeited', 'absent', 'rescheduled']);
 
   const enrollmentIds = [...new Set((bookings || []).filter(b => b.course_enrollment_id).map(b => b.course_enrollment_id))];
   let enrollmentMap = {};
@@ -608,13 +608,19 @@ app.get('/api/instructor/classes/:classId/students', authenticateToken, asyncHan
     (sNotes || []).forEach(n => { studentNotesMap[n.booking_id] = { id: n.id, content: n.content }; });
   }
 
+  const getBase = (id) => { const i = (id || '').lastIndexOf('.'); return i > 0 ? id.substring(0, i) : id; };
+  const classBase = getBase(classInstance.class_type);
+
   const students = (bookings || []).filter(b => b.customers).map(b => {
     const enr = enrollmentMap[b.course_enrollment_id] || {};
+    const enrollmentBase = enr.course_identifier ? getBase(enr.course_identifier) : null;
+    const isMakeupByType = b.booking_type === 'makeup' || b.is_makeup_class;
+    const isMakeupByCourse = enrollmentBase && classBase && enrollmentBase !== classBase;
     return {
       ...b.customers,
       bookingId: b.id,
       bookingStatus: b.status,
-      bookingType: b.is_makeup_class ? 'makeup' : 'enrolled',
+      bookingType: (isMakeupByType || isMakeupByCourse) ? 'makeup' : 'enrolled',
       attended: b.attended,
       courseIdentifier: enr.course_identifier || null,
       classesAttended: enr.weeks_completed || enr.class_credits_used || 0,

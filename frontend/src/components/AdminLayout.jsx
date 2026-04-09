@@ -8,6 +8,7 @@ const getActiveNav = (pathname) => {
   if (pathname.includes('/admin/studio-access')) return 'studio-access';
   if (pathname.includes('/admin/course-config')) return 'course-config';
   if (pathname.includes('/admin/emails')) return 'emails';
+  if (pathname.includes('/admin/inbox')) return 'inbox';
   if (pathname.includes('/admin/gallery')) return 'gallery';
   if (pathname.includes('/admin/pieces')) return 'pieces';
   if (pathname.includes('/admin/reschedules')) return 'reschedules';

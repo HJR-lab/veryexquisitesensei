@@ -111,6 +111,7 @@ export default function AdminNav({ active, onSyncComplete }) {
                   { label: 'Policy', href: '/admin/policy' },
                   { label: 'Reference', href: '/admin/reference' },
                   { label: 'Emails', href: '/admin/emails' },
+                  { label: 'Inbox', href: '/admin/inbox' },
                   { label: 'Credits', href: '/admin/credits' },
                   { label: 'Platform Stats', href: '/admin/platform-stats' },
                 ].map((item, i, arr) => (

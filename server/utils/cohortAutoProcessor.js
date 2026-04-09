@@ -621,8 +621,8 @@ function startAutomaticProcessing() {
       autoRecycleExpiredBatches().catch(console.error);
     }
 
-    // Process inbox emails every 5 minutes
-    if (minute % 5 === 0) {
+    // Process inbox emails every 15 minutes
+    if (minute % 15 === 0) {
       inboxProcessor.processNewEmails().catch(err => {
         console.error('[Inbox Cron] Error processing emails:', err.message);
       });

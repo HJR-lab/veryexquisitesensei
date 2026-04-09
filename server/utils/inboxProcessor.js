@@ -215,7 +215,7 @@ function buildStudentInfoBlock(ctx) {
  * inbox_messages. Returns the count of newly processed emails.
  */
 async function processNewEmails() {
-  if (!isConnected()) {
+  if (!(await isConnected())) {
     console.log('[InboxProcessor] Gmail not connected — skipping inbox processing.');
     return 0;
   }
@@ -236,21 +236,34 @@ async function processNewEmails() {
   let processedCount = 0;
 
   for (const email of emails) {
+    // Normalize field names (gmailClient returns camelCase)
+    const msgId = email.gmailMessageId || email.gmail_message_id;
+    const threadId = email.gmailThreadId || email.gmail_thread_id || null;
+    const fromEmail = email.fromEmail || email.from_email;
+    const fromName = email.fromName || email.from_name || null;
+    const subject = email.subject || null;
+    const bodySnippet = (email.body || email.body_snippet || '').substring(0, 500);
+    const receivedAt = email.receivedAt || email.received_at || new Date().toISOString();
+
     try {
       // Skip if already in inbox_messages
       const { data: existing } = await supabase
         .from('inbox_messages')
         .select('id')
-        .eq('gmail_message_id', email.gmail_message_id)
+        .eq('gmail_message_id', msgId)
         .single();
 
       if (existing) continue;
 
       // Match sender to student
-      const studentContext = await getStudentContext(email.from_email);
+      const studentContext = await getStudentContext(fromEmail);
 
-      // Classify and generate draft reply
-      const { category, confidence, summary, draftReply } = await classifyAndDraft(email, studentContext);
+      // Classify and generate draft reply (add delay to respect rate limits)
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      const { category, confidence, summary, draftReply } = await classifyAndDraft(
+        { from_name: fromName, from_email: fromEmail, subject, body_snippet: bodySnippet },
+        studentContext
+      );
 
       // Determine status
       const status = draftReply ? 'draft_ready' : 'new';
@@ -259,13 +272,13 @@ async function processNewEmails() {
       const { error: insertError } = await supabase
         .from('inbox_messages')
         .insert([{
-          gmail_message_id: email.gmail_message_id,
-          gmail_thread_id: email.gmail_thread_id || null,
-          from_email: email.from_email,
-          from_name: email.from_name || null,
-          subject: email.subject || null,
-          body_snippet: email.body_snippet || null,
-          received_at: email.received_at || new Date().toISOString(),
+          gmail_message_id: msgId,
+          gmail_thread_id: threadId,
+          from_email: fromEmail,
+          from_name: fromName,
+          subject,
+          body_snippet: bodySnippet,
+          received_at: receivedAt,
           category,
           confidence,
           summary,
@@ -276,14 +289,14 @@ async function processNewEmails() {
         }]);
 
       if (insertError) {
-        console.error(`[InboxProcessor] Failed to insert message ${email.gmail_message_id}:`, insertError.message);
+        console.error(`[InboxProcessor] Failed to insert message ${msgId}:`, insertError.message);
         continue;
       }
 
       processedCount++;
-      console.log(`[InboxProcessor] Processed: "${email.subject}" from ${email.from_email} → category: ${category} (${(confidence * 100).toFixed(0)}%)`);
+      console.log(`[InboxProcessor] Processed: "${subject}" from ${fromEmail} → category: ${category} (${(confidence * 100).toFixed(0)}%)`);
     } catch (err) {
-      console.error(`[InboxProcessor] Error processing email ${email.gmail_message_id}:`, err.message);
+      console.error(`[InboxProcessor] Error processing email ${msgId}:`, err.message);
     }
   }
 

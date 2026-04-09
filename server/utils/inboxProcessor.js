@@ -138,7 +138,7 @@ Message:
 ${email.body_snippet || '(no body)'}`;
 
   const response = await openai.chat.completions.create({
-    model: 'google/gemini-2.0-flash-exp:free',
+    model: 'google/gemma-4-31b-it:free',
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },

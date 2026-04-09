@@ -418,7 +418,7 @@ export default function InstructorDashboard() {
                                 </div>
                                 <div style={{ fontSize: '11px', color: MUTED, marginTop: '2px' }}>
                                   {formatTime(cls.start_time)} – {formatTime(cls.end_time)}
-                                  {!isCancelled && (() => { const cnt = dayStudents[cls.id] ? dayStudents[cls.id].length : cls.current_enrollment; return cnt > 0 ? <span> · {cnt} student{cnt !== 1 ? 's' : ''}</span> : null; })()}
+                                  {!isCancelled && (() => { const all = dayStudents[cls.id]; const cnt = all ? all.filter(s => s.bookingStatus !== 'absent' && s.bookingStatus !== 'rescheduled').length : cls.current_enrollment; return cnt > 0 ? <span> · {cnt} student{cnt !== 1 ? 's' : ''}</span> : null; })()}
                                 </div>
                                 {isCancelled && cls.cancellation_reason && (
                                   <div style={{ fontSize: '11px', color: '#C03030', marginTop: '4px' }}>Reason: {cls.cancellation_reason}</div>

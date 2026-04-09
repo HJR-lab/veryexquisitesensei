@@ -1251,33 +1251,94 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
     }
   }
 
-  // Decrement old class enrollment count
-  if (currentBooking.status === 'booked') {
+  // Determine if this is a cross-course WT reschedule (different course identifier)
+  const oldCourseBase = oldClass.class_type?.replace(/\.\d+$/, '') || '';
+  const newCourseBase = newClass.class_type?.replace(/\.\d+$/, '') || '';
+  const isWTCrossCourse = oldCourseBase.startsWith('WT') && oldCourseBase !== newCourseBase;
+
+  let newBooking;
+
+  if (isWTCrossCourse) {
+    // Cross-course WT reschedule: mark original as absent, create new makeup booking
+    // Original booking stays in place (student shows as absent in their course)
+    await supabaseDb.supabase
+      .from('bookings')
+      .update({
+        status: 'absent',
+        original_class_instance_id: parseInt(oldClassId),
+        rescheduled_from_date: oldClass.class_date,
+        reschedule_source: 'student',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', currentBooking.id);
+
+    // Decrement old class enrollment (absent doesn't count)
     await supabaseDb.updateClassEnrollment(parseInt(oldClassId), -1);
+
+    // Create new makeup booking in the target class
+    let targetBooking = targetBookingAnyStatus;
+    if (targetBooking && ['cancelled', 'rescheduled'].includes(targetBooking.status)) {
+      // Reactivate existing cancelled booking
+      const { data: reactivated } = await supabaseDb.supabase
+        .from('bookings')
+        .update({ status: 'booked', booking_type: 'makeup', updated_at: new Date().toISOString() })
+        .eq('id', targetBooking.id)
+        .select()
+        .single();
+      newBooking = reactivated;
+    } else {
+      // Create fresh makeup booking
+      const { data: created, error: createError } = await supabaseDb.supabase
+        .from('bookings')
+        .insert({
+          student_id: dbCustomerId,
+          class_instance_id: parseInt(newClassId),
+          status: 'booked',
+          booking_type: 'makeup',
+          course_enrollment_id: currentBooking.course_enrollment_id,
+          original_class_instance_id: parseInt(oldClassId),
+          rescheduled_from_date: oldClass.class_date,
+          reschedule_source: 'student',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+      if (createError) throw createError;
+      newBooking = created;
+    }
+
+    // Increment new class enrollment count
+    await supabaseDb.updateClassEnrollment(parseInt(newClassId), 1);
+
+  } else {
+    // Same-course or HB reschedule: move the booking (existing behavior)
+    if (currentBooking.status === 'booked') {
+      await supabaseDb.updateClassEnrollment(parseInt(oldClassId), -1);
+    }
+
+    const { data: updatedBooking, error: updateBookingError } = await supabaseDb.supabase
+      .from('bookings')
+      .update({
+        class_instance_id: parseInt(newClassId),
+        status: 'booked',
+        original_class_instance_id: parseInt(oldClassId),
+        rescheduled_from_date: oldClass.class_date,
+        is_glazing_reschedule: isOldClassGlazing,
+        reschedule_fee_paid: 0,
+        reschedule_source: 'student',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', currentBooking.id)
+      .select()
+      .single();
+
+    if (updateBookingError) throw updateBookingError;
+    newBooking = updatedBooking;
+
+    // Increment new class enrollment count
+    await supabaseDb.updateClassEnrollment(parseInt(newClassId), 1);
   }
-
-  // Update the same booking to point to the new class (no new booking created)
-  const { data: updatedBooking, error: updateBookingError } = await supabaseDb.supabase
-    .from('bookings')
-    .update({
-      class_instance_id: parseInt(newClassId),
-      status: 'booked',
-      original_class_instance_id: parseInt(oldClassId),
-      rescheduled_from_date: oldClass.class_date,
-      is_glazing_reschedule: isOldClassGlazing,
-      reschedule_fee_paid: 0,
-      reschedule_source: 'student',
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', currentBooking.id)
-    .select()
-    .single();
-
-  if (updateBookingError) throw updateBookingError;
-  const newBooking = updatedBooking;
-
-  // Increment new class enrollment count
-  await supabaseDb.updateClassEnrollment(parseInt(newClassId), 1);
 
   // Auto-offer spot on old class to next person on waitlist
   try {

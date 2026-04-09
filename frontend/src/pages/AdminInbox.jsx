@@ -333,6 +333,9 @@ export default function AdminInbox() {
   const [refreshing,   setRefreshing]   = useState(false);
   const [expandedId,   setExpandedId]   = useState(null);
   const [statusMsg,    setStatusMsg]    = useState(null); // { type: 'success'|'error', text }
+  const [showPromptEditor, setShowPromptEditor] = useState(false);
+  const [promptInstructions, setPromptInstructions] = useState('');
+  const [promptSaving, setPromptSaving] = useState(false);
 
   const showStatus = (type, text) => {
     setStatusMsg({ type, text });
@@ -517,6 +520,55 @@ export default function AdminInbox() {
         {/* ── Main inbox UI ── */}
         {connected === true && (
           <>
+            {/* ── AI Instructions ── */}
+            <div style={{ marginBottom: '16px' }}>
+              <button
+                onClick={() => {
+                  if (!showPromptEditor) {
+                    api.get('/admin/inbox/prompt').then(r => setPromptInstructions(r.data.instructions || ''));
+                  }
+                  setShowPromptEditor(!showPromptEditor);
+                }}
+                style={{ padding: '6px 14px', border: `1px solid ${RULE}`, backgroundColor: 'transparent', fontSize: '11px', fontWeight: 600, color: MUTED, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>tune</span>
+                {showPromptEditor ? 'Hide AI Instructions' : 'AI Instructions'}
+              </button>
+              {showPromptEditor && (
+                <div style={{ marginTop: '10px', padding: '14px', border: `1px solid ${RULE}`, backgroundColor: '#FFF' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: '6px' }}>
+                    Custom instructions for the AI when drafting replies
+                  </div>
+                  <div style={{ fontSize: '11px', color: MUTED, marginBottom: '10px' }}>
+                    E.g. "Always mention rescheduling is free if 24h notice given" or "Sign off as Eve, not the studio"
+                  </div>
+                  <textarea
+                    value={promptInstructions}
+                    onChange={e => setPromptInstructions(e.target.value)}
+                    rows={5}
+                    placeholder="Add custom instructions for the AI here..."
+                    style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', lineHeight: 1.6, resize: 'vertical', boxSizing: 'border-box' }}
+                  />
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                    <button
+                      onClick={async () => {
+                        setPromptSaving(true);
+                        try {
+                          await api.put('/admin/inbox/prompt', { instructions: promptInstructions });
+                          showStatus('success', 'AI instructions saved');
+                        } catch { showStatus('error', 'Failed to save'); }
+                        setPromptSaving(false);
+                      }}
+                      disabled={promptSaving}
+                      style={{ padding: '6px 16px', backgroundColor: INK, color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      {promptSaving ? 'Saving...' : 'Save Instructions'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* ── Category tabs ── */}
             <div style={{
               display: 'flex', flexWrap: 'wrap', gap: '0',

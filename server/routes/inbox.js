@@ -113,7 +113,13 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler }
 
     if (fetchError) throw fetchError;
 
-    await sendReply(message);
+    await sendReply({
+      to: message.from_email,
+      subject: message.subject,
+      body: message.draft_reply,
+      threadId: message.gmail_thread_id,
+      messageId: message.gmail_message_id,
+    });
 
     const { data, error: updateError } = await supabase
       .from('inbox_messages')
@@ -139,5 +145,31 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler }
 
     if (error) throw error;
     res.json({ message: data });
+  }));
+
+  // GET /api/admin/inbox/prompt — get custom prompt instructions
+  app.get('/api/admin/inbox/prompt', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+    const { data } = await supabase
+      .from('admin_settings')
+      .select('setting_value')
+      .eq('setting_key', 'inbox_prompt_instructions')
+      .maybeSingle();
+
+    res.json({ instructions: data?.setting_value || '' });
+  }));
+
+  // PUT /api/admin/inbox/prompt — update custom prompt instructions
+  app.put('/api/admin/inbox/prompt', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+    const { instructions } = req.body;
+
+    const { error } = await supabase
+      .from('admin_settings')
+      .upsert(
+        { setting_key: 'inbox_prompt_instructions', setting_value: instructions || '', updated_at: new Date().toISOString() },
+        { onConflict: 'setting_key' }
+      );
+
+    if (error) throw error;
+    res.json({ success: true });
   }));
 };

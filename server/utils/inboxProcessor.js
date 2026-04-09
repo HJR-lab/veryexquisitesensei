@@ -98,6 +98,17 @@ async function classifyAndDraft(email, studentContext) {
     ? null // determined after classification
     : CATEGORY_LINKS.general;
 
+  // Load custom prompt instructions from admin_settings
+  let customInstructions = '';
+  try {
+    const { data: setting } = await supabase
+      .from('admin_settings')
+      .select('setting_value')
+      .eq('setting_key', 'inbox_prompt_instructions')
+      .maybeSingle();
+    if (setting?.setting_value) customInstructions = `\n\nAdditional instructions from the studio owner:\n${setting.setting_value}`;
+  } catch (e) { /* ignore */ }
+
   const systemPrompt = `You are Eve, an assistant at Ves Studio, a pottery studio in Singapore. Your job is to:
 1. Classify incoming emails into one of these categories: ${VALID_CATEGORIES.join(', ')}
 2. Write a warm, helpful draft reply on behalf of the studio
@@ -123,6 +134,7 @@ Guidelines for the draft reply:
 - Sign off as: Eve, Ves Studio
 - Do NOT include a subject line
 - Do NOT include placeholder text like [link] — the system will append the correct link
+${customInstructions}
 
 Respond ONLY with valid JSON in this exact format:
 {

@@ -265,7 +265,7 @@ export default function InstructorDashboard() {
     return (
       <div key={s.bookingId || j}>
         <div style={{ display: 'grid', gridTemplateColumns: '22px 1fr 50px 44px 44px 70px', padding: '8px 12px', borderTop: `1px solid ${RULE}`, backgroundColor: rowBg, alignItems: 'center' }}>
-          <span style={{ fontSize: '10px', color: MUTED, fontWeight: 600 }}>{j + 1}.</span>
+          <span style={{ fontSize: '10px', color: MUTED, fontWeight: 600 }}>{isRescheduled ? '' : (s._rowNum) + '.'}</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span style={{ fontSize: '12px', fontWeight: 600, color: nameColor }}>{s.first_name} {s.last_name}</span>
             {s.isWt3Course && <span style={{ fontSize: '9px', fontWeight: 700, padding: '1px 5px', backgroundColor: TC_LIGHT, color: s.wheelPreference ? TC_DARK : MUTED, borderRadius: '3px' }}>{s.wheelPreference ? `W${s.wheelPreference}` : 'W—'}</span>}
@@ -515,7 +515,7 @@ export default function InstructorDashboard() {
                                       const ordDiff = (b.orderCount || 0) - (a.orderCount || 0);
                                       if (ordDiff !== 0) return ordDiff;
                                       return (a.first_name + ' ' + a.last_name).localeCompare(b.first_name + ' ' + b.last_name);
-                                    }).map(renderStudentRow)}
+                                    }).map((s, i, arr) => { let num = 0; for (let k = 0; k <= i; k++) { const r = arr[k]; if (r.bookingStatus !== 'rescheduled' && r.bookingStatus !== 'absent') num++; } s._rowNum = num; return s; }).map(renderStudentRow)}
                                   </div>
                                 )}
                               </div>
@@ -560,7 +560,7 @@ export default function InstructorDashboard() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
                             {(() => { const active = students.filter(s => s.bookingStatus !== 'absent' && s.bookingStatus !== 'rescheduled' && s.attended !== false); return (
                             <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 8px', backgroundColor: active.length > 0 ? TC_LIGHT : ALT, color: active.length > 0 ? TC_DARK : MUTED }}>
-                              {active.length} student{active.length !== 1 ? 's' : ''}{students.length > active.length ? ` (+${students.length - active.length} away)` : ''}
+                              {active.length} student{active.length !== 1 ? 's' : ''}
                             </span>); })()}
                             <span className="material-symbols-outlined" style={{ fontSize: '16px', color: MUTED, transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>expand_more</span>
                           </div>

@@ -44,8 +44,8 @@ async function handleCallback(code) {
   const { error } = await supabase
     .from('admin_settings')
     .upsert(
-      { key: 'gmail_refresh_token', value: tokens.refresh_token, updated_at: now },
-      { onConflict: 'key' }
+      { setting_key: 'gmail_refresh_token', setting_value: tokens.refresh_token, updated_at: now },
+      { onConflict: 'setting_key' }
     );
 
   if (error) {
@@ -62,16 +62,16 @@ async function handleCallback(code) {
 async function getGmailClient() {
   const { data, error } = await supabase
     .from('admin_settings')
-    .select('value')
-    .eq('key', 'gmail_refresh_token')
+    .select('setting_value')
+    .eq('setting_key', 'gmail_refresh_token')
     .single();
 
-  if (error || !data || !data.value) {
+  if (error || !data || !data.setting_value) {
     return null;
   }
 
   const oauth2Client = createOAuth2Client();
-  oauth2Client.setCredentials({ refresh_token: data.value });
+  oauth2Client.setCredentials({ refresh_token: data.setting_value });
 
   return google.gmail({ version: 'v1', auth: oauth2Client });
 }

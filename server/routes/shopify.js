@@ -39,9 +39,9 @@ async function autoCompleteFinishedEnrollments() {
 
       if (!bookings || bookings.length === 0) continue;
 
-      // Check if ALL booking dates are in the past
+      // Check if ALL booking dates are in the past (use regex to handle both "T" and space separators)
       const allPast = bookings.every(b => {
-        const d = b.class_instances?.class_date?.split('T')[0];
+        const d = b.class_instances?.class_date?.split(/[T ]/)[0];
         return d && d < todayStr;
       });
 

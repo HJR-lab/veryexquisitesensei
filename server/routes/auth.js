@@ -507,7 +507,7 @@ app.get('/api/students/me', authenticateToken, asyncHandler(async (req, res) => 
     const now = new Date();
     const endedCount = allBookings.filter(b => {
       if (!b.class_instance) return false;
-      const classDate = b.class_instance.class_date.split('T')[0];
+      const classDate = b.class_instance.class_date.split(/[T ]/)[0];
       const endTime = b.class_instance.end_time;
 
       // Parse end time (e.g., "9:30pm")

@@ -168,7 +168,7 @@ async function autoMarkPastBookingsAsAttended() {
       if (!page || page.length === 0) break;
       // Filter for past class dates
       const pastInPage = page.filter(b => {
-        const d = b.class_instances?.class_date?.split('T')[0];
+        const d = b.class_instances?.class_date?.split(/[T ]/)[0];
         return d && d < todayStr;
       });
       allPastBookings = allPastBookings.concat(pastInPage);

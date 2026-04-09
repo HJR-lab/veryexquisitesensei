@@ -6,6 +6,7 @@
 const { supabase } = require('./supabaseDb');
 const { createClassesAndBookings, MINIMUM_STUDENTS_THRESHOLD } = require('./courseEnrollmentManager');
 const courseConfig = require('./courseConfig');
+const inboxProcessor = require('./inboxProcessor');
 
 /**
  * Main function to process all ready cohorts
@@ -618,6 +619,13 @@ function startAutomaticProcessing() {
       checkWeeklyUnconfirmedRecheck().catch(console.error);
       checkPieceReminders().catch(console.error);
       autoRecycleExpiredBatches().catch(console.error);
+    }
+
+    // Process inbox emails every 5 minutes
+    if (minute % 5 === 0) {
+      inboxProcessor.processNewEmails().catch(err => {
+        console.error('[Inbox Cron] Error processing emails:', err.message);
+      });
     }
   };
 

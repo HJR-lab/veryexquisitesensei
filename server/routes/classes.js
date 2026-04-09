@@ -224,13 +224,25 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
   // Sum attended from all course entries (already accounts for completed vs current logic)
   const totalAttended = courseHistory.reduce((sum, c) => sum + (c.classesAttended || 0), 0);
 
+  // Fetch historical overrides for pre-system courses
+  const { data: customer } = await supabaseDb.supabase
+    .from('customers')
+    .select('historical_courses, historical_completed, historical_attended')
+    .eq('id', dbCustomerId)
+    .single();
+
+  const hist = customer || {};
+  const totalCourses = courseHistory.length + (hist.historical_courses || 0);
+  const totalCompleted = courseHistory.filter(c => c.status === 'completed').length + (hist.historical_completed || 0);
+
   const response = {
     history: courseHistory,
     totalClasses: bookings.length,
-    attendedClasses: totalAttended
+    attendedClasses: totalAttended + (hist.historical_attended || 0),
+    totalCourses,
+    totalCompleted,
   };
 
-  console.log('📤 Returning history:', JSON.stringify(response, null, 2));
   res.json(response);
 }));
 

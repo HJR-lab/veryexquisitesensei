@@ -130,7 +130,9 @@ export default function Account() {
       setHistory(response.data.history || []);
       setStats({
         totalClasses: response.data.totalClasses || 0,
-        attendedClasses: response.data.attendedClasses || 0
+        attendedClasses: response.data.attendedClasses || 0,
+        totalCourses: response.data.totalCourses ?? (response.data.history || []).length,
+        totalCompleted: response.data.totalCompleted ?? (response.data.history || []).filter(c => c.status === 'completed').length,
       });
     } catch (error) {
       console.error('Failed to load class history:', error);
@@ -469,9 +471,9 @@ export default function Account() {
             {/* Stats strip */}
             <div style={{ display: 'flex', gap: '1px', marginBottom: '24px' }}>
               {[
-                { label: 'Courses',          value: history.filter(h => h.type === 'course').length },
-                { label: 'Completed',        value: history.filter(h => h.type === 'course' && h.status === 'completed').length },
-                { label: 'Classes Attended', value: history.reduce((s, h) => s + (h.classesAttended || h.classes?.filter(c => c.attended).length || 0), 0) },
+                { label: 'Courses',          value: stats.totalCourses ?? history.filter(h => h.type === 'course').length },
+                { label: 'Completed',        value: stats.totalCompleted ?? history.filter(h => h.type === 'course' && h.status === 'completed').length },
+                { label: 'Classes Attended', value: stats.attendedClasses || 0 },
               ].map((stat, i) => (
                 <div key={i} style={{ flex: 1, padding: '12px', backgroundColor: ALT, textAlign: 'center' }}>
                   <div style={{ fontSize: '22px', fontWeight: 700 }}>{stat.value}</div>

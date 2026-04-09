@@ -1236,7 +1236,7 @@ export default function AdminClasses() {
           >
             <span />
             <span style={{ fontSize: '12px', fontWeight: 600, color: '#9E6200' }}>{m.firstName} {m.lastName}</span>
-            <span style={{ fontSize: '10px', color: '#9E6200', minWidth: '80px', textAlign: 'center' }}>{m.status === 'rescheduled' ? 'Rescheduled' : 'Absent'}</span>
+            <span style={{ fontSize: '10px', color: '#9E6200', minWidth: '80px', textAlign: 'center' }}>{m.status === 'rescheduled' ? 'Rescheduled' : m.status === 'absent' ? 'Absent' : 'No-show'}</span>
             <div />
           </div>
         ))}

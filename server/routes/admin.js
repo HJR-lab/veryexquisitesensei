@@ -3467,9 +3467,9 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, requireAdmin, 
     if (booking.status === 'booked' || booking.status === 'attended' || booking.status === 'completed') {
       activeMembers.push(member);
     }
-    // Absent members: rescheduled or marked as not attended
+    // Absent members: rescheduled, absent (cross-course WT reschedule), or marked as not attended
     // Skip cancelled bookings from students not enrolled in this course (e.g. cancelled makeups)
-    else if (booking.status === 'rescheduled' || booking.attended === false) {
+    else if (booking.status === 'rescheduled' || booking.status === 'absent' || booking.attended === false) {
       // If rescheduled, add the new class info
       if (booking.status === 'rescheduled' && rescheduledToMap[booking.student_id]) {
         member.rescheduledTo = rescheduledToMap[booking.student_id];

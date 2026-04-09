@@ -254,10 +254,11 @@ export default function InstructorDashboard() {
   // ── Student row renderer (shared between home & classes tabs) ─────────────
   const renderStudentRow = (s, j) => {
     const isMakeup = s.bookingType === 'makeup';
-    const isAbsent = s.bookingStatus === 'forfeited';
+    const isRescheduled = s.bookingStatus === 'rescheduled' || s.bookingStatus === 'absent';
+    const isAbsent = s.attended === false && !isRescheduled;
     const isCompleted = s.bookingStatus === 'completed';
-    const rowBg = isAbsent ? '#FFFBF0' : isMakeup ? '#FAF8FF' : '#FFFFFF';
-    const nameColor = isAbsent ? ABSENT_COLOR : isMakeup ? MAKEUP_COLOR : TC_DARK;
+    const rowBg = (isAbsent || isRescheduled) ? '#FFFBF0' : isMakeup ? '#FAF8FF' : '#FFFFFF';
+    const nameColor = (isAbsent || isRescheduled) ? ABSENT_COLOR : isMakeup ? MAKEUP_COLOR : TC_DARK;
     const noteOpen = studentNoteOpen === s.bookingId;
     const hasNote = !!(studentNotes[s.bookingId]?.content || studentNoteInput[s.bookingId]);
 
@@ -268,11 +269,13 @@ export default function InstructorDashboard() {
             <span style={{ fontSize: '12px', fontWeight: 600, color: nameColor }}>{s.first_name} {s.last_name}</span>
             {s.isWt3Course && <span style={{ fontSize: '9px', fontWeight: 700, padding: '1px 5px', backgroundColor: TC_LIGHT, color: s.wheelPreference ? TC_DARK : MUTED, borderRadius: '3px' }}>{s.wheelPreference ? `W${s.wheelPreference}` : 'W—'}</span>}
           </div>
-          <div>{isMakeup ? <span style={{ fontSize: '10px', color: MAKEUP_COLOR, fontWeight: 600 }}>Makeup</span> : <span style={{ fontSize: '10px', color: MUTED }}>Enrolled</span>}</div>
+          <div>{isRescheduled ? <span style={{ fontSize: '10px', color: ABSENT_COLOR, fontWeight: 600 }}>Resched.</span> : isAbsent ? <span style={{ fontSize: '10px', color: ABSENT_COLOR, fontWeight: 600 }}>Absent</span> : isMakeup ? <span style={{ fontSize: '10px', color: MAKEUP_COLOR, fontWeight: 600 }}>Makeup</span> : <span style={{ fontSize: '10px', color: MUTED }}>Enrolled</span>}</div>
           <div style={{ textAlign: 'center' }}><span style={{ fontSize: '10px', fontWeight: 700, color: '#FFFFFF', backgroundColor: s.orderCount >= 4 ? TC_DARK : s.orderCount >= 2 ? TC : MUTED, padding: '1px 5px' }}>{s.orderCount || 0}</span></div>
           <div style={{ textAlign: 'center' }}><span style={{ fontSize: '11px', fontWeight: 600, color: INK }}>{s.classesAttended || 0}</span><span style={{ fontSize: '10px', color: MUTED }}>/{s.totalClasses || '?'}</span></div>
           <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end', alignItems: 'center' }}>
-            {isAbsent ? (
+            {isRescheduled ? (
+              <span style={{ fontSize: '9px', color: MUTED, fontStyle: 'italic' }}>—</span>
+            ) : isAbsent ? (
               <button
                 onClick={(e) => { e.stopPropagation(); handleMarkAttendance(s.bookingId, true); }}
                 disabled={markingAttendance[s.bookingId]}
@@ -501,6 +504,9 @@ export default function InstructorDashboard() {
                                       <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, textAlign: 'right' }}>Attend.</span>
                                     </div>
                                     {[...students].sort((a, b) => {
+                                      const absentA = (a.bookingStatus === 'absent' || a.bookingStatus === 'rescheduled' || a.attended === false) ? 1 : 0;
+                                      const absentB = (b.bookingStatus === 'absent' || b.bookingStatus === 'rescheduled' || b.attended === false) ? 1 : 0;
+                                      if (absentA !== absentB) return absentA - absentB;
                                       const typeA = a.bookingType === 'makeup' ? 1 : 0;
                                       const typeB = b.bookingType === 'makeup' ? 1 : 0;
                                       if (typeA !== typeB) return typeA - typeB;
@@ -550,9 +556,10 @@ export default function InstructorDashboard() {
                         onClick={() => setExpandedClass(isExpanded ? null : cls.id)}
                         rightContent={
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                            <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 8px', backgroundColor: students.length > 0 ? TC_LIGHT : ALT, color: students.length > 0 ? TC_DARK : MUTED }}>
-                              {students.length} student{students.length !== 1 ? 's' : ''}
-                            </span>
+                            {(() => { const active = students.filter(s => s.bookingStatus !== 'absent' && s.bookingStatus !== 'rescheduled' && s.attended !== false); return (
+                            <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 8px', backgroundColor: active.length > 0 ? TC_LIGHT : ALT, color: active.length > 0 ? TC_DARK : MUTED }}>
+                              {active.length} student{active.length !== 1 ? 's' : ''}{students.length > active.length ? ` (+${students.length - active.length} away)` : ''}
+                            </span>); })()}
                             <span className="material-symbols-outlined" style={{ fontSize: '16px', color: MUTED, transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>expand_more</span>
                           </div>
                         }

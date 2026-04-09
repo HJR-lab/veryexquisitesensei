@@ -407,7 +407,7 @@ app.get('/api/instructor/dashboard', authenticateToken, asyncHandler(async (req,
       .from('bookings')
       .select('id, class_instance_id, student_id, status, booking_type, is_makeup_class, attended, course_enrollment_id, customers:student_id(id, first_name, last_name, email, profile_image)')
       .in('class_instance_id', upcomingIds)
-      .in('status', ['booked', 'completed', 'forfeited']);
+      .in('status', ['booked', 'completed', 'forfeited', 'absent', 'rescheduled']);
 
     // Collect enrollment IDs for course info lookup
     const enrollmentIds = [...new Set((bookings || []).filter(b => b.course_enrollment_id).map(b => b.course_enrollment_id))];
@@ -457,7 +457,7 @@ app.get('/api/instructor/dashboard', authenticateToken, asyncHandler(async (req,
           ...b.customers,
           bookingId: b.id,
           bookingStatus: b.status,
-          bookingType: b.is_makeup_class ? 'makeup' : 'enrolled',
+          bookingType: (b.booking_type === 'makeup' || b.is_makeup_class) ? 'makeup' : 'enrolled',
           attended: b.attended,
           courseIdentifier: enr.course_identifier || null,
           classesAttended: enr.weeks_completed || enr.class_credits_used || 0,
@@ -479,7 +479,7 @@ app.get('/api/instructor/dashboard', authenticateToken, asyncHandler(async (req,
       .from('bookings')
       .select('id, class_instance_id, student_id, status, booking_type, is_makeup_class, attended, course_enrollment_id, customers:student_id(id, first_name, last_name)')
       .in('class_instance_id', recentIds)
-      .in('status', ['booked', 'attended', 'completed', 'forfeited']);
+      .in('status', ['booked', 'attended', 'completed', 'forfeited', 'absent', 'rescheduled']);
 
     (recentBookings || []).forEach(b => {
       if (!recentStudentsByClass[b.class_instance_id]) {
@@ -490,7 +490,7 @@ app.get('/api/instructor/dashboard', authenticateToken, asyncHandler(async (req,
           ...b.customers,
           bookingId: b.id,
           bookingStatus: b.status,
-          bookingType: b.is_makeup_class ? 'makeup' : 'enrolled',
+          bookingType: (b.booking_type === 'makeup' || b.is_makeup_class) ? 'makeup' : 'enrolled',
           attended: b.attended,
         });
       }

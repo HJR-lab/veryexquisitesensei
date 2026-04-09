@@ -5376,7 +5376,7 @@ app.get('/api/admin/course-emails/:courseId/draft', authenticateToken, requireAd
     const lastClassDate = new Date(endDate + 'T00:00:00');
     collectionStartDate = new Date(lastClassDate);
     collectionStartDate.setMonth(collectionStartDate.getMonth() + 1);
-    disposalDate = new Date(lastClassDate);
+    disposalDate = new Date(collectionStartDate);
     disposalDate.setMonth(disposalDate.getMonth() + 3);
   }
 

@@ -447,17 +447,27 @@ app.get('/api/instructor/dashboard', authenticateToken, asyncHandler(async (req,
       (sNotes || []).forEach(n => { dashStudentNotesMap[n.booking_id] = { id: n.id, content: n.content }; });
     }
 
+    // Build class ID -> course base map for makeup detection
+    const getBase = (id) => { const i = (id || '').lastIndexOf('.'); return i > 0 ? id.substring(0, i) : id; };
+    const classBaseMap = {};
+    (upcomingClasses || []).forEach(c => { classBaseMap[c.id] = getBase(c.class_type); });
+
     (bookings || []).forEach(b => {
       if (!studentsByClass[b.class_instance_id]) {
         studentsByClass[b.class_instance_id] = [];
       }
       if (b.customers) {
         const enr = enrollmentMap[b.course_enrollment_id] || {};
+        // Detect makeup: compare enrollment course base vs class course base
+        const enrollmentBase = enr.course_identifier ? getBase(enr.course_identifier) : null;
+        const classBase = classBaseMap[b.class_instance_id] || '';
+        const isMakeupByType = b.booking_type === 'makeup' || b.is_makeup_class;
+        const isMakeupByCourse = enrollmentBase && classBase && enrollmentBase !== classBase;
         studentsByClass[b.class_instance_id].push({
           ...b.customers,
           bookingId: b.id,
           bookingStatus: b.status,
-          bookingType: (b.booking_type === 'makeup' || b.is_makeup_class) ? 'makeup' : 'enrolled',
+          bookingType: (isMakeupByType || isMakeupByCourse) ? 'makeup' : 'enrolled',
           attended: b.attended,
           courseIdentifier: enr.course_identifier || null,
           classesAttended: enr.weeks_completed || enr.class_credits_used || 0,

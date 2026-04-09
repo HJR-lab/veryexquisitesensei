@@ -86,8 +86,8 @@ async function getStudentContext(email) {
 async function classifyAndDraft(email, studentContext) {
   const OpenAI = require('openai');
   const openai = new OpenAI({
-    apiKey: process.env.OPENROUTER_API_KEY,
-    baseURL: 'https://openrouter.ai/api/v1',
+    apiKey: process.env.GEMINI_API_KEY,
+    baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
   });
 
   const studentInfo = studentContext
@@ -138,7 +138,7 @@ Message:
 ${email.body_snippet || '(no body)'}`;
 
   const response = await openai.chat.completions.create({
-    model: 'openai/gpt-4o-mini',
+    model: 'gemini-2.0-flash',
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },

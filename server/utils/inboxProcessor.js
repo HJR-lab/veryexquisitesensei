@@ -85,7 +85,10 @@ async function getStudentContext(email) {
  */
 async function classifyAndDraft(email, studentContext) {
   const OpenAI = require('openai');
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const openai = new OpenAI({
+    apiKey: process.env.OPENROUTER_API_KEY,
+    baseURL: 'https://openrouter.ai/api/v1',
+  });
 
   const studentInfo = studentContext
     ? buildStudentInfoBlock(studentContext)
@@ -135,7 +138,7 @@ Message:
 ${email.body_snippet || '(no body)'}`;
 
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
+    model: 'openai/gpt-4o',
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },

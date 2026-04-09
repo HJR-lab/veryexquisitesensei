@@ -35,7 +35,9 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler }
         *,
         customers (
           id,
-          name
+          first_name,
+          last_name,
+          email
         )
       `)
       .order('received_at', { ascending: false })

@@ -61,6 +61,16 @@ export default function AdminPiecePipeline() {
   const [firingRunType, setFiringRunType] = useState('bisque');
   const [firingRunNotes, setFiringRunNotes] = useState('');
   const [showRunHistory, setShowRunHistory] = useState(false);
+  const [viewingBatch, setViewingBatch] = useState(null);
+  const [showLogForm, setShowLogForm] = useState(false);
+
+  // Close photo modal on Escape
+  useEffect(() => {
+    if (!viewingBatch) return;
+    const onKey = (e) => { if (e.key === 'Escape') setViewingBatch(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [viewingBatch]);
 
   const fetchPipeline = useCallback(async () => {
     try {
@@ -203,13 +213,18 @@ export default function AdminPiecePipeline() {
       <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '32px 24px 60px' }}>
 
         {/* Header */}
-        <div style={{ marginBottom: '28px' }}>
-          <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>
-            Admin
+        <div style={{ marginBottom: '28px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+          <div>
+            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>
+              Admin
+            </div>
+            <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>
+              Fire
+            </h1>
           </div>
-          <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>
-            Fire
-          </h1>
+          <button onClick={() => setShowLogForm(true)} style={btnAccentSt}>
+            + Log Batch
+          </button>
         </div>
 
         {/* Stats Bar */}
@@ -251,7 +266,7 @@ export default function AdminPiecePipeline() {
                 {searchResults.length} result{searchResults.length !== 1 ? 's' : ''}
               </div>
               {searchResults.map(batch => (
-                <BatchCard key={batch.id} batch={batch} daysSince={daysSince} onStatusUpdate={handleStatusUpdate} onComplete={handleComplete} onPlaceInCabinet={handlePlaceInCabinet} onMarkCollected={handleMarkCollected} />
+                <BatchCard key={batch.id} batch={batch} daysSince={daysSince} onStatusUpdate={handleStatusUpdate} onComplete={handleComplete} onPlaceInCabinet={handlePlaceInCabinet} onMarkCollected={handleMarkCollected} onOpenPhoto={setViewingBatch} />
               ))}
             </div>
           )}
@@ -334,6 +349,7 @@ export default function AdminPiecePipeline() {
                     onComplete={handleComplete}
                     onPlaceInCabinet={handlePlaceInCabinet}
                     onMarkCollected={handleMarkCollected}
+                    onOpenPhoto={setViewingBatch}
                     selected={selectedBatches.has(batch.id)}
                     onToggleSelect={() => toggleSelect(batch.id)}
                     showCheckbox
@@ -391,11 +407,289 @@ export default function AdminPiecePipeline() {
           )}
         </div>
       </main>
+
+      {/* Photo lightbox */}
+      {viewingBatch && (
+        <div
+          onClick={() => setViewingBatch(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.85)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '32px',
+            cursor: 'zoom-out',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'default' }}
+          >
+            <button
+              onClick={() => setViewingBatch(null)}
+              style={{ position: 'absolute', top: '-36px', right: 0, background: 'transparent', border: 'none', color: '#FFFFFF', fontSize: '24px', cursor: 'pointer', fontFamily: 'inherit', padding: 0, lineHeight: 1 }}
+              aria-label="Close"
+            >
+              ✕
+            </button>
+            {viewingBatch.photo_urls && viewingBatch.photo_urls.length > 0 ? (
+              <img
+                src={viewingBatch.photo_urls[0]}
+                alt="Batch"
+                style={{ maxWidth: '90vw', maxHeight: '80vh', objectFit: 'contain', backgroundColor: '#FFFFFF', border: `1px solid ${RULE}` }}
+              />
+            ) : (
+              <div style={{ padding: '40px', backgroundColor: '#FFFFFF', color: MUTED }}>No photo</div>
+            )}
+            <div style={{ marginTop: '12px', color: '#FFFFFF', fontSize: '13px', textAlign: 'center' }}>
+              <div style={{ fontWeight: 700 }}>
+                {viewingBatch.customers?.first_name} {viewingBatch.customers?.last_name}
+                {' · '}<strong>{viewingBatch.initials}</strong>
+                {' · '}{viewingBatch.piece_count} pcs
+              </div>
+              <div style={{ color: '#AAA', fontSize: '11px', marginTop: '2px' }}>
+                {viewingBatch.course_enrollments?.course_title || viewingBatch.course_enrollments?.course_variant_title || 'Course'}
+                {' · '}{STATUS_LABELS[viewingBatch.status] || viewingBatch.status}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Log Batch modal (admin-on-behalf-of-student) */}
+      {showLogForm && (
+        <LogBatchModal
+          onClose={() => setShowLogForm(false)}
+          onSaved={() => { setShowLogForm(false); fetchPipeline(); }}
+        />
+      )}
     </div>
   );
 }
 
-function BatchCard({ batch, daysSince, onStatusUpdate, onComplete, onPlaceInCabinet, onMarkCollected, selected, onToggleSelect, showCheckbox }) {
+function LogBatchModal({ onClose, onSaved }) {
+  const [studentQuery, setStudentQuery] = useState('');
+  const [studentResults, setStudentResults] = useState([]);
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [enrollments, setEnrollments] = useState([]);
+  const [selectedEnrollmentId, setSelectedEnrollmentId] = useState('');
+  const [pieceCount, setPieceCount] = useState('');
+  const [initials, setInitials] = useState('');
+  const [notes, setNotes] = useState('');
+  const [photoFile, setPhotoFile] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Close on Escape
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  // Debounced student search
+  useEffect(() => {
+    if (!studentQuery || studentQuery.trim().length < 2 || selectedStudent) {
+      setStudentResults([]);
+      return;
+    }
+    const t = setTimeout(() => {
+      api.get(`/admin/students/search?q=${encodeURIComponent(studentQuery.trim())}`)
+        .then(({ data }) => setStudentResults(data.students || []))
+        .catch(() => setStudentResults([]));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [studentQuery, selectedStudent]);
+
+  // Load enrollments when student selected
+  useEffect(() => {
+    if (!selectedStudent) { setEnrollments([]); return; }
+    api.get(`/admin/pieces/student/${selectedStudent.id}/enrollments`)
+      .then(({ data }) => setEnrollments(data.enrollments || []))
+      .catch(() => setEnrollments([]));
+  }, [selectedStudent]);
+
+  const pickStudent = (s) => {
+    setSelectedStudent(s);
+    setStudentQuery(`${s.first_name || ''} ${s.last_name || ''}`.trim());
+    setStudentResults([]);
+  };
+
+  const clearStudent = () => {
+    setSelectedStudent(null);
+    setStudentQuery('');
+    setEnrollments([]);
+    setSelectedEnrollmentId('');
+  };
+
+  const submit = async () => {
+    setError(null);
+    if (!selectedStudent) { setError('Select a student'); return; }
+    if (!pieceCount || parseInt(pieceCount) < 1) { setError('Enter piece count'); return; }
+    if (!initials.trim()) { setError('Enter initials'); return; }
+
+    setSaving(true);
+    try {
+      const fd = new FormData();
+      fd.append('customerId', String(selectedStudent.id));
+      if (selectedEnrollmentId) fd.append('courseEnrollmentId', selectedEnrollmentId);
+      fd.append('pieceCount', String(parseInt(pieceCount)));
+      fd.append('initials', initials.trim().toUpperCase());
+      if (notes.trim()) fd.append('notes', notes.trim());
+      if (photoFile) fd.append('photos', photoFile);
+
+      await api.post('/admin/pieces/log', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      onSaved();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to save batch');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1001, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ backgroundColor: '#FFFFFF', border: `1px solid ${RULE}`, width: '100%', maxWidth: '520px', maxHeight: '90vh', overflow: 'auto', padding: '24px', fontFamily: 'Atak, sans-serif', color: INK }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+          <div>
+            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '4px' }}>Admin</div>
+            <h2 style={{ fontSize: '20px', fontWeight: 700, margin: 0 }}>Log Batch</h2>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: '20px', cursor: 'pointer', color: MUTED, padding: 0 }} aria-label="Close">✕</button>
+        </div>
+
+        {/* Student search */}
+        <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '6px' }}>Student</label>
+        {selectedStudent ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '10px 12px', border: `1px solid ${RULE}`, backgroundColor: ALT, marginBottom: '14px' }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 700 }}>{selectedStudent.first_name} {selectedStudent.last_name}</div>
+              <div style={{ fontSize: '11px', color: MUTED }}>{selectedStudent.email}</div>
+            </div>
+            <button onClick={clearStudent} style={{ ...btnSt, padding: '4px 10px', fontSize: '10px' }}>Change</button>
+          </div>
+        ) : (
+          <div style={{ position: 'relative', marginBottom: '14px' }}>
+            <input
+              type="text"
+              value={studentQuery}
+              onChange={e => setStudentQuery(e.target.value)}
+              placeholder="Search name or email…"
+              style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+            />
+            {studentResults.length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: '#FFFFFF', border: `1px solid ${RULE}`, borderTop: 'none', maxHeight: '200px', overflowY: 'auto', zIndex: 2 }}>
+                {studentResults.map(s => (
+                  <button
+                    key={s.id}
+                    onClick={() => pickStudent(s)}
+                    style={{ display: 'block', width: '100%', padding: '8px 12px', textAlign: 'left', background: 'transparent', border: 'none', borderBottom: `1px solid ${RULE}`, cursor: 'pointer', fontFamily: 'inherit' }}
+                    onMouseEnter={e => e.currentTarget.style.backgroundColor = ALT}
+                    onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                  >
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: INK }}>{s.first_name} {s.last_name}</div>
+                    <div style={{ fontSize: '11px', color: MUTED }}>{s.email}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Enrollment picker */}
+        {selectedStudent && (
+          <>
+            <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '6px' }}>Course enrollment (optional)</label>
+            <select
+              value={selectedEnrollmentId}
+              onChange={e => setSelectedEnrollmentId(e.target.value)}
+              style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', marginBottom: '14px', backgroundColor: '#FFFFFF' }}
+            >
+              <option value="">— None —</option>
+              {enrollments.map(e => (
+                <option key={e.id} value={e.id} disabled={e.hasBatch}>
+                  {(e.course_identifier || e.course_title || 'Course')}
+                  {e.course_start_date ? ` · ${new Date(e.course_start_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}
+                  {e.hasBatch ? ' · already logged' : ''}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
+
+        {/* Piece count + initials */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+          <div>
+            <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '6px' }}>Piece count</label>
+            <input
+              type="number"
+              min="1"
+              value={pieceCount}
+              onChange={e => setPieceCount(e.target.value)}
+              placeholder="0"
+              style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '6px' }}>Initials</label>
+            <input
+              type="text"
+              value={initials}
+              onChange={e => setInitials(e.target.value.toUpperCase())}
+              placeholder="JL"
+              maxLength={5}
+              style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', letterSpacing: '2px', fontWeight: 600, outline: 'none', boxSizing: 'border-box' }}
+            />
+          </div>
+        </div>
+
+        {/* Photo */}
+        <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '6px' }}>Photo (optional)</label>
+        <input
+          type="file"
+          accept="image/*"
+          onChange={e => setPhotoFile(e.target.files?.[0] || null)}
+          style={{ width: '100%', padding: '8px 0', fontSize: '12px', fontFamily: 'inherit', marginBottom: '14px' }}
+        />
+        {photoFile && (
+          <div style={{ fontSize: '11px', color: MUTED, marginTop: '-8px', marginBottom: '14px' }}>{photoFile.name}</div>
+        )}
+
+        {/* Notes */}
+        <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '6px' }}>Notes (optional)</label>
+        <textarea
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          placeholder="e.g. 3 bowls, 2 mugs"
+          rows={2}
+          style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', marginBottom: '16px', resize: 'vertical' }}
+        />
+
+        {error && (
+          <div style={{ fontSize: '12px', color: WARN, marginBottom: '12px' }}>{error}</div>
+        )}
+
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={btnSt} disabled={saving}>Cancel</button>
+          <button onClick={submit} style={btnAccentSt} disabled={saving}>
+            {saving ? 'Saving…' : 'Log Batch'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BatchCard({ batch, daysSince, onStatusUpdate, onComplete, onPlaceInCabinet, onMarkCollected, onOpenPhoto, selected, onToggleSelect, showCheckbox }) {
   const student = batch.customers || {};
   const enrollment = batch.course_enrollments || {};
   const courseName = enrollment.course_title || enrollment.course_variant_title || 'Course';
@@ -419,7 +713,12 @@ function BatchCard({ batch, daysSince, onStatusUpdate, onComplete, onPlaceInCabi
       )}
 
       {photoUrl && (
-        <img src={photoUrl} alt="Batch" style={{ width: '48px', height: '48px', objectFit: 'cover', flexShrink: 0, border: `1px solid ${RULE}` }} />
+        <img
+          src={photoUrl}
+          alt="Batch"
+          onClick={() => onOpenPhoto && onOpenPhoto(batch)}
+          style={{ width: '72px', height: '72px', objectFit: 'cover', flexShrink: 0, border: `1px solid ${RULE}`, cursor: onOpenPhoto ? 'zoom-in' : 'default' }}
+        />
       )}
 
       <div style={{ flex: 1, minWidth: 0 }}>

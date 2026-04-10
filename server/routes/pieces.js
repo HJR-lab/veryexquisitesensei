@@ -178,6 +178,83 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
     res.json({ success: true, batches: grouped, stats });
   }));
 
+  // Admin: list a student's course enrollments (flat) for batch logging.
+  // Only returns non-cancelled enrollments, newest first. Each entry includes
+  // a `hasBatch` flag so the UI can indicate which courses already have one.
+  app.get('/api/admin/pieces/student/:id/enrollments', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+    const studentId = parseInt(req.params.id);
+    const { data: enrollments, error } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('id, course_identifier, course_title, course_variant_title, course_start_date, status, number_of_weeks')
+      .eq('student_id', studentId)
+      .neq('status', 'cancelled')
+      .order('course_start_date', { ascending: false });
+    if (error) throw error;
+
+    // Flag which enrollments already have a batch
+    const enrollmentIds = (enrollments || []).map(e => e.id);
+    let existing = [];
+    if (enrollmentIds.length > 0) {
+      const { data: batches } = await supabaseDb.supabase
+        .from('piece_batches')
+        .select('course_enrollment_id')
+        .in('course_enrollment_id', enrollmentIds);
+      existing = (batches || []).map(b => b.course_enrollment_id);
+    }
+    const withFlag = (enrollments || []).map(e => ({ ...e, hasBatch: existing.includes(e.id) }));
+    res.json({ enrollments: withFlag });
+  }));
+
+  // Admin: log a batch on behalf of a student
+  // Useful for onboarding — staff can upload photos themselves instead of
+  // waiting for students to use the MyPieces flow.
+  app.post('/api/admin/pieces/log', authenticateToken, requireAdmin, upload.array('photos', 5), asyncHandler(async (req, res) => {
+    const { customerId, courseEnrollmentId, pieceCount, initials, notes } = req.body;
+
+    if (!customerId) return res.status(400).json({ error: 'customerId required' });
+    if (!initials || !pieceCount) {
+      return res.status(400).json({ error: 'Initials and piece count are required' });
+    }
+
+    const custIdInt = parseInt(customerId);
+
+    // Upload photos if provided
+    let photoUrls = [];
+    if (req.files && req.files.length > 0) {
+      const { uploadImageToSupabase } = require('../utils/imageUpload');
+      for (const file of req.files) {
+        const { url } = await uploadImageToSupabase(file.buffer, file.originalname, file.mimetype, `customers/${custIdInt}/pieces`);
+        photoUrls.push(url);
+      }
+    }
+
+    // Also accept pre-uploaded URLs
+    if (req.body.photoUrls) {
+      const urls = typeof req.body.photoUrls === 'string' ? JSON.parse(req.body.photoUrls) : req.body.photoUrls;
+      photoUrls = photoUrls.concat(urls);
+    }
+
+    const batch = await supabaseDb.createPieceBatch({
+      courseEnrollmentId: courseEnrollmentId ? parseInt(courseEnrollmentId) : null,
+      customerId: custIdInt,
+      pieceCount: parseInt(pieceCount),
+      initials: initials.toUpperCase().trim(),
+      notes,
+      photoUrls,
+    });
+
+    // Seed customer initials if not set
+    const customer = await supabaseDb.getCustomerById(custIdInt);
+    if (customer && !customer.initials) {
+      await supabaseDb.supabase
+        .from('customers')
+        .update({ initials: initials.toUpperCase().trim() })
+        .eq('id', custIdInt);
+    }
+
+    res.json({ success: true, batch });
+  }));
+
   // Search by initials
   app.get('/api/admin/pieces/search', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
     const { initials } = req.query;

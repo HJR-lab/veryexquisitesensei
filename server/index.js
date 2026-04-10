@@ -8,6 +8,7 @@ const { shopifyApi, LATEST_API_VERSION } = require('@shopify/shopify-api');
 require('@shopify/shopify-api/adapters/node');
 const { upload, ensureBucketExists } = require('./utils/imageUpload');
 const { startAutomaticProcessing, autoMarkPastBookingsAsAttended } = require('./utils/cohortAutoProcessor');
+const { startCustomerPolling } = require('./utils/shopifySync');
 const courseConfig = require('./utils/courseConfig');
 
 const app = express();
@@ -231,6 +232,7 @@ if (require.main === module) {
     await courseConfig.loadConfig();
     await ensureBucketExists();
     startAutomaticProcessing();
+    startCustomerPolling(15);
   });
 
   process.on('SIGTERM', async () => {

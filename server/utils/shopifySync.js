@@ -90,8 +90,102 @@ async function getOrSyncCustomer(shopifyCustomerId, shopifyCustomerData) {
   }
 }
 
+/**
+ * Poll Shopify for customers created in the last N hours and sync any
+ * that are missing from the local database.
+ *
+ * Safety net for webhook delivery gaps — Shopify does not fire webhooks
+ * for changes initiated by the same app's access token, and occasional
+ * delivery failures can happen. This catches any customers the webhook
+ * flow missed.
+ */
+async function syncRecentShopifyCustomers(hoursAgo = 2) {
+  try {
+    const shopDomain = process.env.SHOPIFY_SHOP_DOMAIN;
+    const accessToken = process.env.SHOPIFY_ACCESS_TOKEN;
+    if (!shopDomain || !accessToken) {
+      console.warn('[poll] Shopify env vars not configured, skipping');
+      return { synced: 0, skipped: 0, checked: 0 };
+    }
+
+    const since = new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
+    const url = `https://${shopDomain}/admin/api/2025-10/customers.json?created_at_min=${encodeURIComponent(since)}&limit=250`;
+
+    const response = await fetch(url, {
+      headers: { 'X-Shopify-Access-Token': accessToken }
+    });
+
+    if (!response.ok) {
+      console.error(`[poll] Shopify customers fetch failed: ${response.status}`);
+      return { synced: 0, skipped: 0, checked: 0, error: `HTTP ${response.status}` };
+    }
+
+    const data = await response.json();
+    const customers = data.customers || [];
+
+    let synced = 0;
+    let skipped = 0;
+
+    for (const c of customers) {
+      if (!c.email || !c.id) {
+        skipped++;
+        continue;
+      }
+
+      const existing = await supabaseDb.findCustomerByShopifyId(c.id.toString());
+      if (existing) {
+        skipped++;
+        continue;
+      }
+
+      await supabaseDb.syncCustomer(
+        {
+          id: `gid://shopify/Customer/${c.id}`,
+          email: c.email,
+          firstName: c.first_name || '',
+          lastName: c.last_name || ''
+        },
+        c.id.toString()
+      );
+      synced++;
+      console.log(`[poll] ✅ Backfilled missing customer: ${c.email}`);
+    }
+
+    if (synced > 0) {
+      console.log(`[poll] Synced ${synced} missing customer(s) from last ${hoursAgo}h (checked ${customers.length})`);
+    }
+    return { synced, skipped, checked: customers.length };
+  } catch (err) {
+    console.error('[poll] Error in syncRecentShopifyCustomers:', err);
+    return { synced: 0, skipped: 0, checked: 0, error: err.message };
+  }
+}
+
+/**
+ * Start the recurring customer poll. Runs once immediately with a wider
+ * window (24h) to catch anything missed during downtime, then every
+ * intervalMinutes with a 2h window.
+ */
+function startCustomerPolling(intervalMinutes = 15) {
+  // Initial wider sweep on startup
+  syncRecentShopifyCustomers(24).catch(err =>
+    console.error('[poll] Initial sweep failed:', err)
+  );
+
+  // Recurring poll
+  setInterval(() => {
+    syncRecentShopifyCustomers(2).catch(err =>
+      console.error('[poll] Recurring sweep failed:', err)
+    );
+  }, intervalMinutes * 60 * 1000);
+
+  console.log(`[poll] Customer polling started (every ${intervalMinutes}m)`);
+}
+
 module.exports = {
   syncCustomer,
   migratePotteryPieces,
-  getOrSyncCustomer
+  getOrSyncCustomer,
+  syncRecentShopifyCustomers,
+  startCustomerPolling
 };

@@ -1018,6 +1018,20 @@ export default function AdminClasses() {
                 <span key={`open-${j}`} style={{ fontSize: '10px', padding: '5px 8px', border: `1px dashed ${RULE}`, color: '#CCC' }}>open</span>
               ))}
             </div>
+            <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
+              <button
+                onClick={e => { e.stopPropagation(); if (hb.classes[0]) handleOpenAddStudentModal(hb.classes[0].id); }}
+                style={{ flex: 1, padding: '7px', border: 'none', backgroundColor: INK, color: '#FFF', fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', cursor: 'pointer' }}
+              >
+                + Add Student
+              </button>
+              <button
+                onClick={e => { e.stopPropagation(); if (hb.classes[0]) handleOpenEditClassModal(hb.classes[0]); }}
+                style={{ padding: '7px 10px', border: `1px solid ${RULE}`, backgroundColor: '#FFF', color: INK, fontSize: '10px', fontWeight: 700, cursor: 'pointer' }}
+              >
+                Edit
+              </button>
+            </div>
           </div>
         )}
       </div>

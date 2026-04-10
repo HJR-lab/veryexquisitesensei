@@ -1281,7 +1281,15 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
       // Reactivate existing cancelled booking
       const { data: reactivated } = await supabaseDb.supabase
         .from('bookings')
-        .update({ status: 'booked', booking_type: 'makeup', updated_at: new Date().toISOString() })
+        .update({
+          status: 'booked',
+          booking_type: 'makeup',
+          course_enrollment_id: currentBooking.course_enrollment_id,
+          original_class_instance_id: parseInt(oldClassId),
+          rescheduled_from_date: oldClass.class_date,
+          reschedule_source: 'student',
+          updated_at: new Date().toISOString()
+        })
         .eq('id', targetBooking.id)
         .select()
         .single();

@@ -1259,12 +1259,12 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
   let newBooking;
 
   if (isWTCrossCourse) {
-    // Cross-course WT reschedule: mark original as absent, create new makeup booking
-    // Original booking stays in place (student shows as absent in their course)
+    // Cross-course WT reschedule: mark original as rescheduled, create new makeup booking
+    // Original booking stays in place (student shows as rescheduled in their course)
     await supabaseDb.supabase
       .from('bookings')
       .update({
-        status: 'absent',
+        status: 'rescheduled',
         original_class_instance_id: parseInt(oldClassId),
         rescheduled_from_date: oldClass.class_date,
         reschedule_source: 'student',
@@ -1272,7 +1272,7 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
       })
       .eq('id', currentBooking.id);
 
-    // Decrement old class enrollment (absent doesn't count)
+    // Decrement old class enrollment (rescheduled doesn't count)
     await supabaseDb.updateClassEnrollment(parseInt(oldClassId), -1);
 
     // Create new makeup booking in the target class

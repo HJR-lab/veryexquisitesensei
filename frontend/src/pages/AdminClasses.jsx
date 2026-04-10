@@ -804,7 +804,8 @@ export default function AdminClasses() {
     const bgColor     = isPending ? '#FFFCF4' : '#FFFFFF';
     const hoverBg     = isPending ? '#FFF3DC' : TC_LIGHT;
 
-    // Find all members from classMembers + absentMembers cache
+    // Course enrollment roster — only students enrolled in THIS course (not makeups from other courses)
+    // Includes rescheduled students (still enrolled in the course, just moving between weeks)
     const allMembersForCourse = [];
     const seenIds = new Set();
     course.classes.forEach(cls => {
@@ -815,7 +816,7 @@ export default function AdminClasses() {
           allMembersForCourse.push({ name: `${m.firstName} ${m.lastName}`, orders: m.returningCount || 1, studentId: m.studentId, email: m.email, bookingId: m.bookingId, classInstance: cls, isAway: false });
         }
       });
-      // Include rescheduled/absent students (enrolled but away)
+      // Include rescheduled students (still enrolled in course, rescheduled away from a specific week)
       const absent = absentMembers[cls.id] || [];
       absent.forEach(m => {
         if (!seenIds.has(m.studentId)) {
@@ -1284,7 +1285,7 @@ export default function AdminClasses() {
         <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>Admin</div>
-            <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Class Schedule</h1>
+            <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Courses &amp; Classes</h1>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <button
@@ -1310,8 +1311,12 @@ export default function AdminClasses() {
 
         {!loading && (
           <>
-            {/* ── COURSE PIPELINE ────────────────────────────────────── */}
-            <div style={{ marginBottom: '28px' }}>
+            {/* ── COURSE ENROLLMENT ────────────────────────────────────── */}
+            <div style={{ marginBottom: '8px', paddingBottom: '8px', borderBottom: `2px solid ${INK}` }}>
+              <h2 style={{ fontSize: isMobile ? '16px' : '18px', fontWeight: 700, margin: 0, letterSpacing: '-0.2px' }}>Course Enrollment</h2>
+              <div style={{ fontSize: '10px', color: MUTED, marginTop: '2px' }}>Students enrolled in each course — permanent roster</div>
+            </div>
+            <div style={{ marginBottom: '32px', marginTop: '14px' }}>
               {/* WT */}
               {wtCourses.length > 0 && (
                 <>
@@ -1339,8 +1344,14 @@ export default function AdminClasses() {
               )}
             </div>
 
+            {/* ── CLASS SCHEDULE ────────────────────────────────────── */}
+            <div style={{ marginBottom: '8px', paddingBottom: '8px', borderBottom: `2px solid ${INK}` }}>
+              <h2 style={{ fontSize: isMobile ? '16px' : '18px', fontWeight: 700, margin: 0, letterSpacing: '-0.2px' }}>Class Schedule</h2>
+              <div style={{ fontSize: '10px', color: MUTED, marginTop: '2px' }}>Individual class sessions for attendance — includes makeups and reschedules</div>
+            </div>
+
             {/* ── FILTERS ────────────────────────────────────────────── */}
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '10px', marginTop: '14px', marginBottom: '16px', flexWrap: 'wrap' }}>
               <div>
                 <label style={labelSt}>Type</label>
                 <select value={classTypeFilter} onChange={e => setClassTypeFilter(e.target.value)} style={{ ...selectSt, width: 'auto', padding: '7px 10px' }}>

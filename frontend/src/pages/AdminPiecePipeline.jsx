@@ -213,8 +213,8 @@ export default function AdminPiecePipeline() {
         </div>
 
         {/* Stats Bar */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '1px', backgroundColor: RULE, border: `1px solid ${RULE}`, marginBottom: '24px' }}>
-          {['logged', 'bisque_fired', 'glaze_fired', 'ready', 'collecting', 'in_cabinet'].map(key => (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1px', backgroundColor: RULE, border: `1px solid ${RULE}`, marginBottom: '24px' }}>
+          {['glaze_fired', 'ready', 'collecting', 'in_cabinet'].map(key => (
             <div key={key} style={{ padding: '20px 16px', backgroundColor: '#FFFFFF', textAlign: 'left' }}>
               <div style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.5px', lineHeight: 1, color: STATUS_COLORS[key], marginBottom: '8px' }}>
                 {stats[key]?.count || 0}

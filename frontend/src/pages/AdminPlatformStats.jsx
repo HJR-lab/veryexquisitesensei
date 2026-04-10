@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import AdminNav from '../components/AdminNav';
 import api from '../utils/api';
 
 const TC    = '#C4622D';
@@ -36,7 +35,6 @@ export default function AdminPlatformStats() {
 
   return (
     <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <AdminNav active="platform-stats" />
       <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '32px 24px 60px' }}>
 
         <div style={{ marginBottom: '28px' }}>

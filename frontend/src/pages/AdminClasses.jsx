@@ -1282,25 +1282,8 @@ export default function AdminClasses() {
       <main style={{ maxWidth: '1140px', margin: '0 auto', padding: isMobile ? '20px 16px 60px' : '32px 24px 60px' }}>
 
         {/* ── Page header ──────────────────────────────────────────────── */}
-        <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>Admin</div>
-            <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Courses &amp; Classes</h1>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <button
-              onClick={() => setShowAddSingleClass(true)}
-              style={{ padding: isMobile ? '9px 14px' : '10px 18px', backgroundColor: 'transparent', color: TC, border: `1px solid ${TC}`, fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
-            >
-              + Add Class
-            </button>
-            <button
-              onClick={() => setShowCreateClassModal(true)}
-              style={{ padding: isMobile ? '9px 14px' : '10px 18px', backgroundColor: TC, color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
-            >
-              + New Course
-            </button>
-          </div>
+        <div style={{ marginBottom: '24px' }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>Admin</div>
         </div>
 
         {loading && (
@@ -1312,9 +1295,17 @@ export default function AdminClasses() {
         {!loading && (
           <>
             {/* ── COURSE ENROLLMENT ────────────────────────────────────── */}
-            <div style={{ marginBottom: '8px', paddingBottom: '8px', borderBottom: `2px solid ${INK}` }}>
-              <h2 style={{ fontSize: isMobile ? '16px' : '18px', fontWeight: 700, margin: 0, letterSpacing: '-0.2px' }}>Course Enrollment</h2>
-              <div style={{ fontSize: '10px', color: MUTED, marginTop: '2px' }}>Students enrolled in each course — permanent roster</div>
+            <div style={{ marginBottom: '8px', paddingBottom: '8px', borderBottom: `2px solid ${INK}`, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+              <div>
+                <h2 style={{ fontSize: isMobile ? '16px' : '18px', fontWeight: 700, margin: 0, letterSpacing: '-0.2px' }}>Course Enrollment</h2>
+                <div style={{ fontSize: '10px', color: MUTED, marginTop: '2px' }}>Students enrolled in each course — permanent roster</div>
+              </div>
+              <button
+                onClick={() => setShowCreateClassModal(true)}
+                style={{ padding: isMobile ? '8px 12px' : '9px 16px', backgroundColor: TC, color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
+              >
+                + Add Course
+              </button>
             </div>
             <div style={{ marginBottom: '32px', marginTop: '14px' }}>
               {/* WT */}
@@ -1345,9 +1336,17 @@ export default function AdminClasses() {
             </div>
 
             {/* ── CLASS SCHEDULE ────────────────────────────────────── */}
-            <div style={{ marginBottom: '8px', paddingBottom: '8px', borderBottom: `2px solid ${INK}` }}>
-              <h2 style={{ fontSize: isMobile ? '16px' : '18px', fontWeight: 700, margin: 0, letterSpacing: '-0.2px' }}>Class Schedule</h2>
-              <div style={{ fontSize: '10px', color: MUTED, marginTop: '2px' }}>Individual class sessions for attendance — includes makeups and reschedules</div>
+            <div style={{ marginBottom: '8px', paddingBottom: '8px', borderBottom: `2px solid ${INK}`, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+              <div>
+                <h2 style={{ fontSize: isMobile ? '16px' : '18px', fontWeight: 700, margin: 0, letterSpacing: '-0.2px' }}>Class Schedule</h2>
+                <div style={{ fontSize: '10px', color: MUTED, marginTop: '2px' }}>Individual class sessions for attendance — includes makeups and reschedules</div>
+              </div>
+              <button
+                onClick={() => setShowAddSingleClass(true)}
+                style={{ padding: isMobile ? '8px 12px' : '9px 16px', backgroundColor: TC, color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
+              >
+                + Add Class
+              </button>
             </div>
 
             {/* ── FILTERS ────────────────────────────────────────────── */}

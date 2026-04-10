@@ -609,6 +609,12 @@ async function addStudentToExistingCohort(newEnrollment, existingEnrollment) {
 
     console.log(`✅ Added student to existing cohort with ${createdBookings.length} bookings (${baseCourseId})`);
 
+    // Sync affected class instances to Google Calendar (fire-and-forget)
+    try {
+      const calendarSync = require('./calendarSync');
+      classInstanceIds.forEach(id => calendarSync.syncClassInstance(id).catch(() => {}));
+    } catch (e) { /* ignore */ }
+
     return {
       thresholdMet: true,
       addedToExistingCohort: true,

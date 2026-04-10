@@ -70,21 +70,14 @@ export default function AdminEmails() {
       ]);
       setConfigs(cfgRes.data.configs || cfgRes.data || []);
 
-      // Filter out courses that have already started
+      // Keep courses until their last class has passed. The backend already
+      // applies this filter; this is a lightweight client-side safeguard.
       const now = new Date();
       const sgtNow = new Date(now.getTime() + (8 * 60 + now.getTimezoneOffset()) * 60000);
       const todayStr = sgtNow.toISOString().split('T')[0];
-      const currentYear = sgtNow.getFullYear();
       const allCourses = coursesRes.data.courses || [];
       const filtered = allCourses.filter(c => {
-        if (c.firstClassDate && c.firstClassDate <= todayStr) return false;
-        const id = c.courseIdentifier || '';
-        const match = id.match(/^(?:WT|HB)(\d{2})(\d{2})/);
-        if (match) {
-          const day = match[1], month = match[2];
-          const courseStart = `${currentYear}-${month}-${day}`;
-          if (courseStart <= todayStr) return false;
-        }
+        if (c.lastClassDate && c.lastClassDate < todayStr) return false;
         return true;
       });
       setCourses(filtered);

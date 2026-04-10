@@ -5216,14 +5216,16 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
   const today = sgtNow.toISOString().split('T')[0];
   const in14Days = new Date(sgtNow.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-  // Get class instances within the next 14 days — only courses that haven't started yet
-  // A course "hasn't started" if its first class is today or later
-  // We query classes in the window, then filter out courses whose first class is in the past
+  // Find any course that has at least one class today or in the future — this
+  // catches both upcoming courses and courses currently in progress. Courses
+  // whose last class has passed naturally have no future class_instances and
+  // will be excluded. We look ahead 90 days to cover long cohorts.
+  const in90Days = new Date(sgtNow.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const { data: classes, error: classError } = await supabaseDb.supabase
     .from('class_instances')
     .select('id, class_type, class_date, start_time, end_time')
-    .gt('class_date', today)
-    .lte('class_date', in14Days)
+    .gte('class_date', today)
+    .lte('class_date', in90Days)
     .order('class_date', { ascending: true });
 
   if (classError) throw classError;
@@ -5246,15 +5248,12 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
     courseMap[baseId].classDates.push(cls.class_date);
   }
 
-  // For each course, get enrollment count and email send status
-  // Scope historical lookups to a recent window so prior-year cohorts with the
-  // same identifier (identifiers don't include year) don't poison the "has it
-  // started?" check. 180 days is well beyond any course length but comfortably
-  // excludes same-identifier cohorts from prior seasons.
+  // For each course, compute its true start/end dates from ALL class_instances
+  // (not just the lookahead window above). Scope to the last 6 months so
+  // prior-year cohorts with the same year-less identifier don't leak in.
   const sixMonthsAgo = new Date(sgtNow.getTime() - 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const courses = [];
   for (const [courseId, course] of Object.entries(courseMap)) {
-    // Get the actual first class date for this course to determine if it has started
     const { data: allCourseClasses } = await supabaseDb.supabase
       .from('class_instances')
       .select('class_date')
@@ -5262,29 +5261,14 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
       .gte('class_date', sixMonthsAgo)
       .order('class_date', { ascending: true });
 
-    const firstClassDate = allCourseClasses?.[0]?.class_date;
+    const allDates = (allCourseClasses || []).map(c => String(c.class_date).split('T')[0]);
+    const firstClassDate = allDates[0];
+    const lastClassDate = allDates[allDates.length - 1];
 
-    // Also check enrollment course_start_date as a more reliable indicator
-    // (class instances may have been deleted for past weeks)
-    const { data: earliestEnrollment } = await supabaseDb.supabase
-      .from('course_enrollments')
-      .select('course_start_date')
-      .like('course_identifier', `${courseId}%`)
-      .not('course_start_date', 'is', null)
-      .gte('course_start_date', sixMonthsAgo)
-      .order('course_start_date', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    const enrollmentStartDate = earliestEnrollment?.course_start_date;
-
-    // Skip courses that have already started (first class is today or earlier).
-    // class_instances is authoritative for the actual class schedule — use it
-    // when available. enrollment.course_start_date can be off by a day (it's
-    // set at enrollment time and may not match the final class schedule), so
-    // only consult it as a fallback when there are no class_instances.
-    const effectiveStart = firstClassDate || enrollmentStartDate;
-    if (effectiveStart && effectiveStart <= today) {
+    // Skip courses whose last class has already passed. We want to keep
+    // showing a course until it has fully ended so students can still receive
+    // reminder emails mid-cohort.
+    if (lastClassDate && lastClassDate < today) {
       continue;
     }
 
@@ -5321,7 +5305,6 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
       .limit(1)
       .maybeSingle();
 
-    const sortedDates = course.classDates.sort();
     const fmtDate = (d) => {
       if (!d) return '';
       // Handle both "2026-04-11" and "2026-04-11T00:00:00" formats
@@ -5333,10 +5316,11 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
     courses.push({
       courseIdentifier: courseId,
       courseType: course.courseType,
-      numberOfWeeks: sampleEnrollment?.number_of_weeks || sortedDates.length,
-      startDate: sortedDates.length > 0 ? fmtDate(sortedDates[0]) : parseStartDateFromIdentifier(courseId) || '—',
-      endDate: sortedDates.length > 0 ? fmtDate(sortedDates[sortedDates.length - 1]) : '—',
-      firstClassDate: firstClassDate || enrollmentStartDate || sortedDates[0],
+      numberOfWeeks: sampleEnrollment?.number_of_weeks || allDates.length,
+      startDate: firstClassDate ? fmtDate(firstClassDate) : parseStartDateFromIdentifier(courseId) || '—',
+      endDate: lastClassDate ? fmtDate(lastClassDate) : '—',
+      firstClassDate: firstClassDate || null,
+      lastClassDate: lastClassDate || null,
       timeSlot: formatTimeSlot(course.startTime, course.endTime) || (courseId.includes('PM') ? '1pm – 3pm' : courseId.includes('AM') ? '9:30am – 12pm' : courseId.includes('NT') ? '7pm – 9:30pm' : ''),
       studentCount: studentCount || 0,
       emailSentAt: sentEmail?.sent_at || null,

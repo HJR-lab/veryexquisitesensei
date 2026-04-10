@@ -212,7 +212,7 @@ export default function Navigation() {
                         onClick={() => setControlDropdownOpen(false)}
                         className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
                       >
-                        Pieces
+                        Fire
                       </Link>
                       <Link
                         to="/admin/reference"
@@ -413,7 +413,7 @@ export default function Navigation() {
                         to="/admin/pieces"
                         onClick={() => setMobileMenuOpen(false)}
                       >
-                        Pieces
+                        Fire
                       </Link>
                       <Link
                         className={`text-sm font-normal uppercase tracking-wide ${isActive('/admin/reference') ? 'text-text font-bold' : 'text-text-muted'}`}

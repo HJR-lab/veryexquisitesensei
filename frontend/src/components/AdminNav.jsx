@@ -17,6 +17,7 @@ export default function AdminNav({ active, onSyncComplete }) {
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [inboxCount, setInboxCount] = useState(0);
   const dropdownRef = useRef(null);
 
   useEffect(() => {
@@ -27,6 +28,19 @@ export default function AdminNav({ active, onSyncComplete }) {
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Fetch inbox count for the notification badge
+  useEffect(() => {
+    let cancelled = false;
+    const fetchCount = () => {
+      api.get('/admin/inbox/stats')
+        .then(({ data }) => { if (!cancelled) setInboxCount(data?.total || 0); })
+        .catch(() => { /* silent */ });
+    };
+    fetchCount();
+    const interval = setInterval(fetchCount, 60 * 1000); // refresh every minute
+    return () => { cancelled = true; clearInterval(interval); };
   }, []);
 
   const handleSync = async () => {
@@ -95,12 +109,18 @@ export default function AdminNav({ active, onSyncComplete }) {
             <span className="material-symbols-outlined" style={{ fontSize: '10px' }}>sync</span>
             {syncing ? 'Syncing…' : 'Sync'}
           </button>
+          {/* Inbox icon with notification badge */}
           <a
             href="/admin/inbox"
             title="Inbox"
-            style={{ display: 'flex', alignItems: 'center', padding: '2px 6px', backgroundColor: 'transparent', border: `1px solid ${RULE}`, color: INK, textDecoration: 'none' }}
+            style={{ position: 'relative', display: 'flex', alignItems: 'center', padding: '2px 6px', backgroundColor: 'transparent', border: `1px solid ${RULE}`, color: INK, textDecoration: 'none' }}
           >
             <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>inbox</span>
+            {inboxCount > 0 && (
+              <span style={{ position: 'absolute', top: '-4px', right: '-4px', minWidth: '14px', height: '14px', padding: '0 3px', borderRadius: '7px', backgroundColor: TC, color: '#FFF', fontSize: '8px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>
+                {inboxCount > 99 ? '99+' : inboxCount}
+              </span>
+            )}
           </a>
           <div ref={dropdownRef} style={{ position: 'relative' }}>
             <button
@@ -112,15 +132,15 @@ export default function AdminNav({ active, onSyncComplete }) {
             {showSettings && (
               <div style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, backgroundColor: '#FFF', border: `1px solid ${RULE}`, minWidth: '140px', zIndex: 100 }}>
                 {[
-                  { label: 'Instructors', href: '/admin/instructors' },
-                  { label: 'Events', href: '/admin/events' },
-                  { label: 'Courses', href: '/admin/course-config' },
-                  { label: 'Policy', href: '/admin/policy' },
-                  { label: 'Reference', href: '/admin/reference' },
                   { label: 'Emails', href: '/admin/emails' },
-                  { label: 'Inbox', href: '/admin/inbox' },
+                  { label: 'Fire', href: '/admin/pieces' },
                   { label: 'Credits', href: '/admin/credits' },
-                  { label: 'Platform Stats', href: '/admin/platform-stats' },
+                  { label: 'Instructors', href: '/admin/instructors' },
+                  { label: 'Inventory', href: '/admin/reference' },
+                  { label: 'Course', href: '/admin/course-config' },
+                  { label: 'Event', href: '/admin/events' },
+                  { label: 'Stats', href: '/admin/platform-stats' },
+                  { label: 'Policy', href: '/admin/policy' },
                 ].map((item, i, arr) => (
                   <a
                     key={item.href}

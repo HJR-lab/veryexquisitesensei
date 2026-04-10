@@ -805,7 +805,7 @@ export default function AdminClasses() {
     const hoverBg     = isPending ? '#FFF3DC' : TC_LIGHT;
 
     // Course enrollment roster — only students enrolled in THIS course (not makeups from other courses)
-    // Includes rescheduled students (still enrolled in the course, just moving between weeks)
+    // Rescheduled students are still part of the course (class-level reschedules don't affect course enrollment)
     const allMembersForCourse = [];
     const seenIds = new Set();
     course.classes.forEach(cls => {
@@ -813,22 +813,21 @@ export default function AdminClasses() {
       members.filter(m => !m.isMakeup).forEach(m => {
         if (!seenIds.has(m.studentId)) {
           seenIds.add(m.studentId);
-          allMembersForCourse.push({ name: `${m.firstName} ${m.lastName}`, orders: m.returningCount || 1, studentId: m.studentId, email: m.email, bookingId: m.bookingId, classInstance: cls, isAway: false });
+          allMembersForCourse.push({ name: `${m.firstName} ${m.lastName}`, orders: m.returningCount || 1, studentId: m.studentId, email: m.email, bookingId: m.bookingId, classInstance: cls });
         }
       });
-      // Include rescheduled students (still enrolled in course, rescheduled away from a specific week)
+      // Include rescheduled students as regular enrolled (still in the course)
       const absent = absentMembers[cls.id] || [];
       absent.forEach(m => {
         if (!seenIds.has(m.studentId)) {
           seenIds.add(m.studentId);
-          allMembersForCourse.push({ name: `${m.firstName} ${m.lastName}`, orders: m.returningCount || 1, studentId: m.studentId, email: m.email, bookingId: m.bookingId, classInstance: cls, isAway: true, awayStatus: m.status });
+          allMembersForCourse.push({ name: `${m.firstName} ${m.lastName}`, orders: m.returningCount || 1, studentId: m.studentId, email: m.email, bookingId: m.bookingId, classInstance: cls });
         }
       });
     });
 
-    // Build open slots: use first class capacity minus active enrolled count (not away)
-    const activeMembers = allMembersForCourse.filter(m => !m.isAway);
-    const enrolled  = activeMembers.length > 0 ? activeMembers.length : course.enrolled;
+    // Build open slots: use first class capacity minus enrolled count
+    const enrolled  = allMembersForCourse.length > 0 ? allMembersForCourse.length : course.enrolled;
     const openSlots = Math.max(0, course.capacity - enrolled);
 
     return (
@@ -903,7 +902,7 @@ export default function AdminClasses() {
 
             {/* 2-column student grid with checkboxes */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px', marginBottom: '10px' }}>
-              {allMembersForCourse.filter(s => !s.isAway).map((s, j) => (
+              {allMembersForCourse.map((s, j) => (
                 <div
                   key={j}
                   onClick={e => { e.stopPropagation(); toggleStudentSelection(s.studentId); }}
@@ -916,20 +915,6 @@ export default function AdminClasses() {
                 >
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortName(s.name)}</span>
                   <span style={{ fontSize: '10px', fontWeight: 700, color: TC, flexShrink: 0 }}>{s.orders}</span>
-                </div>
-              ))}
-              {allMembersForCourse.filter(s => s.isAway).map((s, j) => (
-                <div
-                  key={`away-${j}`}
-                  style={{
-                    fontSize: '10px', fontWeight: 600, padding: '5px 8px',
-                    backgroundColor: '#FFFBF0',
-                    border: '1px solid rgba(158,98,0,0.2)',
-                    color: '#9E6200', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '3px', opacity: 0.7,
-                  }}
-                >
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'line-through' }}>{shortName(s.name)}</span>
-                  <span style={{ fontSize: '8px', fontWeight: 700, flexShrink: 0 }}>{s.awayStatus === 'rescheduled' ? 'RESCHED' : 'ABSENT'}</span>
                 </div>
               ))}
               {Array.from({ length: openSlots }).map((_, j) => (

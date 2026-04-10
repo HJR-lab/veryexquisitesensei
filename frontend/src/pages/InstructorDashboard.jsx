@@ -611,7 +611,8 @@ export default function InstructorDashboard() {
                                     style={{ width: '100%', padding: '6px 8px', border: `1px solid ${RULE}`, fontSize: '12px', fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box', color: INK }}
                                   />
                                 </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 50px 44px 44px 70px', backgroundColor: ALT, padding: '6px 12px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '22px 1fr 90px 44px 44px 70px', backgroundColor: ALT, padding: '6px 12px' }}>
+                                  <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED }}>#</span>
                                   <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED }}>Student</span>
                                   <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED }}>Type</span>
                                   <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, textAlign: 'center' }}>Ord.</span>

@@ -1411,6 +1411,13 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
     console.error('Failed to send reschedule confirmation email:', emailErr);
   }
 
+  // Sync affected classes to Google Calendar (fire-and-forget)
+  try {
+    const calendarSync = require('../utils/calendarSync');
+    calendarSync.syncClassInstance(parseInt(oldClassId)).catch(() => {});
+    calendarSync.syncClassInstance(parseInt(newClassId)).catch(() => {});
+  } catch (e) { /* ignore */ }
+
   res.json({
     success: true,
     booking: {

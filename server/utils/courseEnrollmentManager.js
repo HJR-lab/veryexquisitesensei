@@ -498,6 +498,12 @@ async function createClassesAndBookings(cohortEnrollments, classStatus = 'active
 
     console.log(`✅ Created ${createdBookings.length} bookings`);
 
+    // Sync new class instances to Google Calendar (fire-and-forget)
+    try {
+      const calendarSync = require('./calendarSync');
+      createdClasses.forEach(c => calendarSync.syncClassInstance(c.id).catch(() => {}));
+    } catch (e) { /* ignore */ }
+
     // Derive course_identifier from created class instances
     const baseCourseId = createdClasses.length > 0
       ? (createdClasses[0].class_type || '').replace(/\.\d+$/, '')

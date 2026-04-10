@@ -3694,6 +3694,14 @@ app.post('/api/admin/classes/:classId/add-student', authenticateToken, requireAd
   }
 
   console.log(`✅ Added student ${studentId} to ${baseCourseId}: ${newBookings.length} new bookings, ${alreadyBookedIds.size} existing`);
+
+  // Sync all affected class instances to Google Calendar
+  try {
+    const calendarSync = require('../utils/calendarSync');
+    const classIds = [...new Set(newBookings.map(b => b.class_instance_id))];
+    classIds.forEach(id => calendarSync.syncClassInstance(id).catch(() => {}));
+  } catch (e) { /* ignore */ }
+
   res.json({ message: `Student added to all ${newBookings.length + alreadyBookedIds.size} weeks of ${baseCourseId}`, bookings: newBookings });
 }));
 
@@ -3704,13 +3712,21 @@ app.delete('/api/admin/bookings/:bookingId', authenticateToken, requireAdmin, as
   // Check if booking exists
   const { data: booking, error: fetchError } = await supabaseDb.supabase
     .from('bookings')
-    .select('id, status, course_enrollment_id')
+    .select('id, status, course_enrollment_id, class_instance_id')
     .eq('id', bookingId)
     .single();
 
   if (fetchError || !booking) {
     return res.status(404).json({ error: 'Booking not found' });
   }
+
+  const affectedClassId = booking.class_instance_id;
+  const syncCalendar = () => {
+    try {
+      const calendarSync = require('../utils/calendarSync');
+      calendarSync.syncClassInstance(affectedClassId).catch(() => {});
+    } catch (e) { /* ignore */ }
+  };
 
   // If booking is already cancelled or rescheduled, delete it entirely from the database
   // This allows admins to clean up the absent/rescheduled list
@@ -3725,6 +3741,7 @@ app.delete('/api/admin/bookings/:bookingId', authenticateToken, requireAdmin, as
       return res.status(500).json({ error: 'Failed to delete booking' });
     }
 
+    syncCalendar();
     return res.json({ message: 'Booking deleted successfully' });
   }
 
@@ -3762,6 +3779,7 @@ app.delete('/api/admin/bookings/:bookingId', authenticateToken, requireAdmin, as
     }
   }
 
+  syncCalendar();
   res.json({ message: 'Student removed successfully' });
 }));
 
@@ -4207,6 +4225,13 @@ app.post('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asy
   }
 
   console.log(`✅ Successfully created ${numberOfClasses} classes for course: ${classType}`);
+
+  // Sync new classes to Google Calendar
+  try {
+    const calendarSync = require('../utils/calendarSync');
+    createdClasses.forEach(c => calendarSync.syncClassInstance(c.id).catch(() => {}));
+  } catch (e) { /* ignore */ }
+
   res.json({
     message: `${numberOfClasses} class${numberOfClasses > 1 ? 'es' : ''} created successfully`,
     classes: createdClasses
@@ -4268,6 +4293,12 @@ app.delete('/api/admin/classes/:classId', authenticateToken, requireAdmin, async
   if (bookings && bookings.length > 0) {
     return res.status(400).json({ error: 'Cannot delete class with enrolled students. Please remove all students first.' });
   }
+
+  // Remove from Google Calendar before deleting
+  try {
+    const calendarSync = require('../utils/calendarSync');
+    await calendarSync.deleteClassInstance(parseInt(classId));
+  } catch (e) { /* ignore */ }
 
   // Delete the class
   const { error: deleteError } = await supabaseDb.supabase
@@ -4594,6 +4625,13 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
   } catch (emailErr) {
     console.error('Failed to send reschedule confirmation email:', emailErr);
   }
+
+  // Sync affected classes to Google Calendar
+  try {
+    const calendarSync = require('../utils/calendarSync');
+    calendarSync.syncClassInstance(originalBooking.class_instance_id).catch(() => {});
+    calendarSync.syncClassInstance(parseInt(newClassInstanceId)).catch(() => {});
+  } catch (e) { /* ignore */ }
 
   res.json({ message: 'Booking rescheduled successfully', newBooking });
 }));

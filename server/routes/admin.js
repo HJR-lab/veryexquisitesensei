@@ -5305,6 +5305,16 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
       .limit(1)
       .maybeSingle();
 
+    const emailSentAt = sentEmail?.sent_at || null;
+
+    // If the course has already started and the course-details email was
+    // never sent, hide it — the initial email is only meaningful before the
+    // course begins. Courses with a sent email stay visible until they end
+    // so the "Sent" status remains visible mid-cohort.
+    if (!emailSentAt && firstClassDate && firstClassDate <= today) {
+      continue;
+    }
+
     const fmtDate = (d) => {
       if (!d) return '';
       // Handle both "2026-04-11" and "2026-04-11T00:00:00" formats
@@ -5323,7 +5333,7 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
       lastClassDate: lastClassDate || null,
       timeSlot: formatTimeSlot(course.startTime, course.endTime) || (courseId.includes('PM') ? '1pm – 3pm' : courseId.includes('AM') ? '9:30am – 12pm' : courseId.includes('NT') ? '7pm – 9:30pm' : ''),
       studentCount: studentCount || 0,
-      emailSentAt: sentEmail?.sent_at || null,
+      emailSentAt,
     });
   }
 

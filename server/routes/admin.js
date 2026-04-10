@@ -3235,8 +3235,8 @@ app.get('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asyn
   while (hasMore) {
     const { data, error } = await supabaseDb.supabase
       .from('bookings')
-      .select('class_instance_id, student_id, status')
-      .in('status', ['booked', 'attended', 'completed'])
+      .select('class_instance_id, student_id, status, booking_type, is_makeup_class, course_enrollment_id')
+      .in('status', ['booked', 'attended', 'completed', 'rescheduled'])
       .range(page * pageSize, (page + 1) * pageSize - 1);
 
     if (error) {
@@ -3251,26 +3251,44 @@ app.get('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asyn
 
   console.log(`✅ Fetched ${bookingCounts.length} bookings`);
 
+  // Build enrollment map to determine each booking's actual enrolled course base
+  const enrollmentIds = [...new Set(bookingCounts.filter(b => b.course_enrollment_id).map(b => b.course_enrollment_id))];
+  let enrollmentCourseMap = {};
+  if (enrollmentIds.length > 0) {
+    const { data: enrs } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('id, course_identifier')
+      .in('id', enrollmentIds);
+    (enrs || []).forEach(e => { enrollmentCourseMap[e.id] = e.course_identifier; });
+  }
+
   const bookingCountsByClass = {};
   bookingCounts.forEach(b => {
-    if (!bookingCountsByClass[b.class_instance_id]) {
-      bookingCountsByClass[b.class_instance_id] = 0;
+    if (b.status !== 'rescheduled' && (b.booking_type !== 'makeup' && !b.is_makeup_class)) {
+      if (!bookingCountsByClass[b.class_instance_id]) {
+        bookingCountsByClass[b.class_instance_id] = 0;
+      }
+      bookingCountsByClass[b.class_instance_id]++;
     }
-    bookingCountsByClass[b.class_instance_id]++;
   });
 
   // Add booking counts to classes and calculate UNIQUE students per course
+  // Only count students whose enrollment matches this course's identifier (excludes makeups from other courses)
   courses.forEach(course => {
-    // Count unique students across all weeks of this course
+    const courseIdentifier = course.identifier;
     const uniqueStudents = new Set();
     course.classes.forEach(cls => {
       cls.bookingCount = bookingCountsByClass[cls.id] || 0;
-      // Add all students from this class to the set
       bookingCounts
         .filter(b => b.class_instance_id === cls.id)
+        .filter(b => b.booking_type !== 'makeup' && !b.is_makeup_class)
+        .filter(b => {
+          const enrCourse = enrollmentCourseMap[b.course_enrollment_id];
+          return !enrCourse || enrCourse === courseIdentifier;
+        })
         .forEach(b => uniqueStudents.add(b.student_id));
     });
-    course.totalEnrollment = uniqueStudents.size; // Count of unique students
+    course.totalEnrollment = uniqueStudents.size;
   });
 
   // Return all courses (client handles active/past filtering)

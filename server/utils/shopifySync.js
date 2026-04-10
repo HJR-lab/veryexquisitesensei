@@ -132,6 +132,14 @@ async function syncRecentShopifyCustomers(hoursAgo = 2) {
         continue;
       }
 
+      // Only sync customers who have actually purchased something — matches
+      // the existing admin sync filter and avoids importing disabled/spam
+      // accounts that never bought a course.
+      if (!c.orders_count || c.orders_count < 1) {
+        skipped++;
+        continue;
+      }
+
       const existing = await supabaseDb.findCustomerByShopifyId(c.id.toString());
       if (existing) {
         skipped++;

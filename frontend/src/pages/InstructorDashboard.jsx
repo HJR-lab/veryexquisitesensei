@@ -270,7 +270,10 @@ export default function InstructorDashboard() {
             <span style={{ fontSize: '12px', fontWeight: 600, color: nameColor }}>{s.first_name} {s.last_name}</span>
             {s.isWt3Course && <span style={{ fontSize: '9px', fontWeight: 700, padding: '1px 5px', backgroundColor: TC_LIGHT, color: s.wheelPreference ? TC_DARK : MUTED, borderRadius: '3px' }}>{s.wheelPreference ? `W${s.wheelPreference}` : 'W—'}</span>}
           </div>
-          <div>{isRescheduled ? <span style={{ fontSize: '10px', color: ABSENT_COLOR, fontWeight: 600 }}>Resched.</span> : isAbsent ? <span style={{ fontSize: '10px', color: ABSENT_COLOR, fontWeight: 600 }}>Absent</span> : isMakeup ? <span style={{ fontSize: '10px', color: MAKEUP_COLOR, fontWeight: 600 }}>Makeup</span> : <span style={{ fontSize: '10px', color: MUTED }}>Enrolled</span>}</div>
+          <div>
+            {isRescheduled ? <span style={{ fontSize: '10px', color: ABSENT_COLOR, fontWeight: 600 }}>Resched.</span> : isAbsent ? <span style={{ fontSize: '10px', color: ABSENT_COLOR, fontWeight: 600 }}>Absent</span> : isMakeup ? <span style={{ fontSize: '10px', color: MAKEUP_COLOR, fontWeight: 600 }}>Makeup</span> : <span style={{ fontSize: '10px', color: MUTED }}>Enrolled</span>}
+            {isMakeup && s.courseIdentifier && <div style={{ fontSize: '8px', color: MAKEUP_COLOR, marginTop: '1px' }}>from {s.courseIdentifier}</div>}
+          </div>
           <div style={{ textAlign: 'center' }}><span style={{ fontSize: '10px', fontWeight: 700, color: '#FFFFFF', backgroundColor: s.orderCount >= 4 ? TC_DARK : s.orderCount >= 2 ? TC : MUTED, padding: '1px 5px' }}>{s.orderCount || 0}</span></div>
           <div style={{ textAlign: 'center' }}><span style={{ fontSize: '11px', fontWeight: 600, color: INK }}>{s.classesAttended || 0}</span><span style={{ fontSize: '10px', color: MUTED }}>/{s.totalClasses || '?'}</span></div>
           <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end', alignItems: 'center' }}>

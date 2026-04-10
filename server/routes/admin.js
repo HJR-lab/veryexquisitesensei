@@ -5247,6 +5247,11 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
   }
 
   // For each course, get enrollment count and email send status
+  // Scope historical lookups to a recent window so prior-year cohorts with the
+  // same identifier (identifiers don't include year) don't poison the "has it
+  // started?" check. 180 days is well beyond any course length but comfortably
+  // excludes same-identifier cohorts from prior seasons.
+  const sixMonthsAgo = new Date(sgtNow.getTime() - 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const courses = [];
   for (const [courseId, course] of Object.entries(courseMap)) {
     // Get the actual first class date for this course to determine if it has started
@@ -5254,6 +5259,7 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
       .from('class_instances')
       .select('class_date')
       .like('class_type', `${courseId}%`)
+      .gte('class_date', sixMonthsAgo)
       .order('class_date', { ascending: true });
 
     const firstClassDate = allCourseClasses?.[0]?.class_date;
@@ -5265,14 +5271,20 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
       .select('course_start_date')
       .like('course_identifier', `${courseId}%`)
       .not('course_start_date', 'is', null)
+      .gte('course_start_date', sixMonthsAgo)
       .order('course_start_date', { ascending: true })
       .limit(1)
       .maybeSingle();
 
     const enrollmentStartDate = earliestEnrollment?.course_start_date;
 
-    // Skip courses that have already started (first class is today or earlier)
-    if ((firstClassDate && firstClassDate <= today) || (enrollmentStartDate && enrollmentStartDate <= today)) {
+    // Skip courses that have already started (first class is today or earlier).
+    // class_instances is authoritative for the actual class schedule — use it
+    // when available. enrollment.course_start_date can be off by a day (it's
+    // set at enrollment time and may not match the final class schedule), so
+    // only consult it as a fallback when there are no class_instances.
+    const effectiveStart = firstClassDate || enrollmentStartDate;
+    if (effectiveStart && effectiveStart <= today) {
       continue;
     }
 

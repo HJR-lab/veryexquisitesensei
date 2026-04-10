@@ -28,6 +28,10 @@ build/
 *.swo
 *~
 
+# Agent/tooling scratch
+.claude/worktrees/
+.superpowers/
+
 # OS
 .DS_Store
 Thumbs.db

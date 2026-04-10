@@ -620,6 +620,9 @@ export default function InstructorDashboard() {
                                   <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, textAlign: 'right' }}>Attend.</span>
                                 </div>
                                 {[...students].sort((a, b) => {
+                                  const absentA = (a.bookingStatus === 'absent' || a.bookingStatus === 'rescheduled' || a.attended === false) ? 1 : 0;
+                                  const absentB = (b.bookingStatus === 'absent' || b.bookingStatus === 'rescheduled' || b.attended === false) ? 1 : 0;
+                                  if (absentA !== absentB) return absentA - absentB;
                                   const typeA = a.bookingType === 'makeup' ? 1 : 0;
                                   const typeB = b.bookingType === 'makeup' ? 1 : 0;
                                   if (typeA !== typeB) return typeA - typeB;

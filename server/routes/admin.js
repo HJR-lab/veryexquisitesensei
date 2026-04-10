@@ -5288,25 +5288,13 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
       continue;
     }
 
-    // Get student count from BOOKINGS on first class instance (most accurate — catches 3x6wk students too)
+    // Student count comes from course_enrollments — this is the source of
+    // truth for "who is enrolled in the course". Booking status can change
+    // (completed/rescheduled) without affecting enrollment, so counting
+    // bookings on week 1 gave inconsistent numbers after attendance marking
+    // or reschedules.
     let studentCount = 0;
-    const { data: firstInst } = await supabaseDb.supabase
-      .from('class_instances')
-      .select('id')
-      .eq('class_type', `${courseId}.1`)
-      .limit(1)
-      .maybeSingle();
-
-    if (firstInst) {
-      const { count } = await supabaseDb.supabase
-        .from('bookings')
-        .select('*', { count: 'exact', head: true })
-        .eq('class_instance_id', firstInst.id)
-        .in('status', ['booked', 'attended']);
-      studentCount = count || 0;
-    }
-    // Fallback to enrollment count if no class instances yet
-    if (studentCount === 0) {
+    {
       const { count } = await supabaseDb.supabase
         .from('course_enrollments')
         .select('*', { count: 'exact', head: true })
@@ -5362,58 +5350,32 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
 app.get('/api/admin/course-emails/:courseId/draft', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { courseId } = req.params;
 
-  // Get students from bookings on first class instance (most accurate)
-  // This catches 3x6wk students whose enrollment identifier differs from class identifier
+  // Get students from course_enrollments — enrollment is the source of truth
+  // for "who is in the course" (booking statuses like completed/rescheduled
+  // don't change enrollment).
   let students = [];
-  const { data: firstInst } = await supabaseDb.supabase
-    .from('class_instances')
-    .select('id')
-    .like('class_type', `${courseId}.1`)
-    .limit(1)
-    .maybeSingle();
+  const { data: studentEnrollments, error: enrollError } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('student_id, customers(id, first_name, last_name, email)')
+    .like('course_identifier', `${courseId}%`)
+    .in('status', ['active', 'pending', 'upcoming']);
 
-  if (firstInst) {
-    const { data: bookings } = await supabaseDb.supabase
-      .from('bookings')
-      .select('student_id, customers(id, first_name, last_name, email)')
-      .eq('class_instance_id', firstInst.id)
-      .in('status', ['booked', 'attended']);
-
-    if (bookings && bookings.length > 0) {
-      // Dedupe by student_id
-      const seen = new Set();
-      students = bookings.filter(b => b.customers && !seen.has(b.student_id) && seen.add(b.student_id))
-        .map(b => ({
-          id: b.customers.id,
-          firstName: b.customers.first_name,
-          lastName: b.customers.last_name,
-          email: b.customers.email,
-          name: `${b.customers.first_name} ${b.customers.last_name}`.trim(),
-        }));
-    }
+  if (enrollError) throw enrollError;
+  if (!studentEnrollments || studentEnrollments.length === 0) {
+    return res.status(404).json({ error: 'No students found for this course' });
   }
 
-  // Fallback: get from enrollments if no bookings found
-  if (students.length === 0) {
-    const { data: enrollments, error: enrollError } = await supabaseDb.supabase
-      .from('course_enrollments')
-      .select('*, customers(id, first_name, last_name, email)')
-      .like('course_identifier', `${courseId}%`)
-      .in('status', ['active', 'pending', 'upcoming']);
-
-    if (enrollError) throw enrollError;
-    if (!enrollments || enrollments.length === 0) {
-      return res.status(404).json({ error: 'No students found for this course' });
-    }
-
-    students = enrollments.filter(e => e.customers).map(e => ({
+  // Dedupe by student_id in case of duplicate enrollments
+  const seen = new Set();
+  students = studentEnrollments
+    .filter(e => e.customers && !seen.has(e.student_id) && seen.add(e.student_id))
+    .map(e => ({
       id: e.customers.id,
       firstName: e.customers.first_name,
       lastName: e.customers.last_name,
       email: e.customers.email,
       name: `${e.customers.first_name} ${e.customers.last_name}`.trim(),
     }));
-  }
 
   // Get a sample enrollment for template detection
   const { data: enrollments } = await supabaseDb.supabase

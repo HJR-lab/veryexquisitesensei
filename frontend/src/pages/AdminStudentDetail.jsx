@@ -777,18 +777,14 @@ export default function AdminStudentDetail() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  // Group bookings by course base identifier to identify completed courses
-  const getBaseId = (b) => {
-    const ci = b.course_identifier && b.course_identifier !== 'N/A' ? b.course_identifier : null;
-    const id = ci || b.class_type || '';
-    const dot = id.lastIndexOf('.');
-    return dot > 0 ? id.substring(0, dot) : id;
-  };
+  // Group bookings by enrollment ID to identify completed courses
+  // This ensures makeup bookings in other courses stay grouped with the student's actual enrollment
+  const getGroupKey = (b) => b.course_enrollment_id || b.class_type || 'unknown';
   const courseGroups = {};
   bookings.forEach(b => {
-    const base = getBaseId(b);
-    if (!courseGroups[base]) courseGroups[base] = [];
-    courseGroups[base].push(b);
+    const key = getGroupKey(b);
+    if (!courseGroups[key]) courseGroups[key] = [];
+    courseGroups[key].push(b);
   });
   const isCompletedCourse = (group) => {
     return group.every(b => {
@@ -797,7 +793,7 @@ export default function AdminStudentDetail() {
     });
   };
   const [showCompletedCourses, setShowCompletedCourses] = useState(false);
-  const activeBookings = bookings.filter(b => !isCompletedCourse(courseGroups[getBaseId(b)] || []));
+  const activeBookings = bookings.filter(b => !isCompletedCourse(courseGroups[getGroupKey(b)] || []));
   const completedCourseCount = Object.values(courseGroups).filter(g => isCompletedCourse(g)).length;
 
   const attendedCount = activeBookings.filter(b => {

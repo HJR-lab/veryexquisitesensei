@@ -12,7 +12,7 @@ function generateCourseUnconfirmedEmail({ courseType, dayOfWeek, startDate, time
     <h1 style="margin: 0 0 16px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">
       Course Update
     </h1>
-    <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">Dear VES Student,</p>
+    <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">Dear Ves Student,</p>
     <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">
       We regret to inform you that your <strong>${displayType}</strong> course scheduled for <strong>${dayOfWeek}s</strong> starting <strong>${startDate}</strong> (${timeSlot}) has not yet reached the minimum of 4 students required to proceed.
     </p>
@@ -34,7 +34,7 @@ function generateCourseUnconfirmedEmail({ courseType, dayOfWeek, startDate, time
 
     <p style="margin: 0 0 24px; font-size: 14px; line-height: 1.6; color: #282828;">
       We appreciate your patience and look forward to seeing you at the studio!<br />
-      <strong>Eve</strong><br />
+      <br />
       Ves Studio
     </p>
 

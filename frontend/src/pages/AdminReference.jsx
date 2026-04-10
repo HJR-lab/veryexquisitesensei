@@ -217,7 +217,7 @@ export default function AdminReference() {
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>
-              Reference Data
+              Inventory
             </h1>
             <button
               onClick={() => activeTab === 'clay' ? openClayModal() : openGlazeModal()}

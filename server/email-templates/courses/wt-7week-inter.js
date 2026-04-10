@@ -51,8 +51,8 @@ function generate({ dayOfWeek, startDate, endDate, timeSlot, holidayExclusions, 
     <p style="margin: 0 0 4px; font-size: 14px; line-height: 1.7; color: #282828;">The following items are required and available for purchase at the studio:</p>
     <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 20px;">
       <tr>
-        <td style="padding: 4px 0; font-size: 14px; color: #282828;">Tool set</td>
-        <td style="padding: 4px 0; font-size: 14px; color: #282828; text-align: right;">$18</td>
+        <td style="padding: 4px 0; font-size: 14px; color: #282828;">Advanced Trimming Tool</td>
+        <td style="padding: 4px 0; font-size: 14px; color: #282828; text-align: right;">$12</td>
       </tr>
       <tr>
         <td style="padding: 4px 0; font-size: 14px; color: #282828;">Apron</td>

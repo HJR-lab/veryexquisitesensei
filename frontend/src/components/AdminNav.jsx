@@ -95,6 +95,13 @@ export default function AdminNav({ active, onSyncComplete }) {
             <span className="material-symbols-outlined" style={{ fontSize: '10px' }}>sync</span>
             {syncing ? 'Syncing…' : 'Sync'}
           </button>
+          <a
+            href="/admin/inbox"
+            title="Inbox"
+            style={{ display: 'flex', alignItems: 'center', padding: '2px 6px', backgroundColor: 'transparent', border: `1px solid ${RULE}`, color: INK, textDecoration: 'none' }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>inbox</span>
+          </a>
           <div ref={dropdownRef} style={{ position: 'relative' }}>
             <button
               onClick={() => setShowSettings(s => !s)}

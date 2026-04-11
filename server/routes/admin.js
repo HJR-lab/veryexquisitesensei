@@ -2864,7 +2864,7 @@ app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, requireAdm
       )
     `)
     .eq('student_id', student.id)
-    .in('status', ['booked', 'completed', 'attended'])
+    .in('status', ['booked', 'completed', 'attended', 'forfeited', 'absent'])
     .order('class_instances(class_date)', { ascending: false });
 
   // Filter bookings: keep those from active/paused enrollments, or without enrollment link
@@ -2997,10 +2997,14 @@ app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, requireAdm
     }
   });
 
-  // Flatten the data for easier use
+  // Flatten the data for easier use. Normalize "forfeited" and "absent"
+  // to "missed" so the admin UI's Missed filter + BOOKING_STYLE.missed work
+  // out of the box. The raw status on the bookings row is unchanged — this
+  // is display-only.
+  const STATUS_DISPLAY = { forfeited: 'missed', absent: 'missed' };
   const formattedBookings = bookings.map(booking => ({
     id: booking.id,
-    status: booking.status,
+    status: STATUS_DISPLAY[booking.status] || booking.status,
     attended: booking.attended,
     class_instance_id: booking.class_instance_id,  // Include for double-booking prevention
     course_enrollment_id: booking.course_enrollment_id,

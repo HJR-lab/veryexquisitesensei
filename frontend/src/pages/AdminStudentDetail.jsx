@@ -565,12 +565,12 @@ export default function AdminStudentDetail() {
         });
         alert('Student booked successfully!');
       } else {
-        await api.delete(`/admin/bookings/${selectedBookingForMakeup.id}`);
-        await api.post('/admin/bookings', {
-          studentId:       student.id,
-          classInstanceId: newClassId,
-          bookingType:     'makeup',
-          status:          'booked',
+        // Use the atomic reschedule endpoint — updates the same booking row
+        // in place, preserving the enrollment link and credit accounting.
+        // Previously this was DELETE+POST, which created orphan bookings
+        // and double-spent flex credits on 10-class packages.
+        await api.post(`/admin/bookings/${selectedBookingForMakeup.id}/reschedule`, {
+          newClassInstanceId: newClassId,
         });
         alert('Student rescheduled successfully!');
       }

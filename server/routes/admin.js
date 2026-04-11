@@ -3777,20 +3777,24 @@ app.delete('/api/admin/bookings/:bookingId', authenticateToken, requireAdmin, as
     return res.status(500).json({ error: 'Failed to cancel booking' });
   }
 
-  // Restore HB credit when booking is cancelled
+  // Restore flex credit when booking is cancelled. This covers HB credit
+  // enrollments and 10-class WT packages (both track credits via
+  // class_credits_allocated once credits are live). Cap refund at allocated
+  // so repeated cancels can't inflate the remaining count.
   if (booking.course_enrollment_id) {
     const { data: enr } = await supabaseDb.supabase
       .from('course_enrollments')
-      .select('id, course_type, class_credits_used, class_credits_remaining')
+      .select('id, course_type, class_credits_allocated, class_credits_used, class_credits_remaining')
       .eq('id', booking.course_enrollment_id)
       .single();
 
-    if (enr && (enr.course_type || '').toLowerCase().includes('handbuilding')) {
+    if (enr && (enr.class_credits_allocated || 0) > 0) {
+      const allocated = enr.class_credits_allocated || 0;
       await supabaseDb.supabase
         .from('course_enrollments')
         .update({
           class_credits_used: Math.max(0, (enr.class_credits_used || 0) - 1),
-          class_credits_remaining: (enr.class_credits_remaining || 0) + 1,
+          class_credits_remaining: Math.min(allocated, (enr.class_credits_remaining || 0) + 1),
           updated_at: new Date().toISOString()
         })
         .eq('id', enr.id);
@@ -3913,7 +3917,9 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
     return res.status(400).json({ error: 'Student ID and class instance ID are required' });
   }
 
-  // If no enrollment ID provided, try to find the active HB enrollment for this student
+  // If no enrollment ID provided, try to find an active enrollment with flex
+  // credits (covers both HB credit-based enrollments and 10-class WT packages
+  // that have had their flex credits allocated after the base course).
   let enrollmentId = courseEnrollmentId || null;
   if (!enrollmentId) {
     const { data: activeEnrollment } = await supabaseDb.supabase
@@ -3921,7 +3927,6 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
       .select('id, course_type, class_credits_remaining')
       .eq('student_id', studentId)
       .eq('status', 'active')
-      .ilike('course_type', '%handbuilding%')
       .gt('class_credits_remaining', 0)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -4005,15 +4010,17 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
     console.error('Error updating class capacity:', capacityError);
   }
 
-  // Decrement HB credits if linked to an enrollment
+  // Decrement flex credits if the enrollment is tracking them. This covers
+  // both HB credit enrollments and 10-class WT packages (both set
+  // class_credits_allocated once credits are live).
   if (enrollmentId) {
     const { data: enr } = await supabaseDb.supabase
       .from('course_enrollments')
-      .select('course_type, class_credits_used, class_credits_remaining')
+      .select('course_type, class_credits_allocated, class_credits_used, class_credits_remaining')
       .eq('id', enrollmentId)
       .single();
 
-    if (enr && (enr.course_type || '').toLowerCase().includes('handbuilding')) {
+    if (enr && (enr.class_credits_allocated || 0) > 0) {
       await supabaseDb.supabase
         .from('course_enrollments')
         .update({

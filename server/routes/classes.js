@@ -996,22 +996,51 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
     });
   }
 
-  // Beginners cannot reschedule into intermediate classes and vice versa
-  // Beginner WT classes use a 6-week identifier (e.g. WT____6.x), intermediate uses 7-week (WT____7.x)
+  // Level-based reschedule rules
+  //   Beginner WT: 6-week identifier (e.g. WT1104PM_DL6.x)
+  //   Intermediate WT: 7-week identifier (e.g. WT1104AM_DL7.x)
+  // Default: students cannot cross levels.
+  // Exception A: Beginner → Intermediate allowed if student has >2 course purchases.
+  // Exception B: Intermediate cohort WT1104AM_DL → beginner cohort WT1204AM_DL is
+  //              explicitly allowed (cohort-specific one-way pairing).
   const getWTLevel = (classType) => {
     if (!classType || !classType.startsWith('WT')) return null;
     const match = classType.match(/(\d+)\.\d+$/);
     if (!match) return null;
     return parseInt(match[1]) === 7 ? 'intermediate' : 'beginner';
   };
+  const getWTBase = (classType) => {
+    if (!classType) return null;
+    return classType.replace(/\d+\.\d+$/, '');
+  };
   const oldLevel = getWTLevel(oldClass.class_type);
   const newLevel = getWTLevel(newClass.class_type);
   if (oldLevel && newLevel && oldLevel !== newLevel) {
-    return res.status(400).json({
-      error: oldLevel === 'beginner'
-        ? 'Beginner students cannot reschedule into an intermediate class.'
-        : 'Intermediate students cannot reschedule into a beginner class.'
-    });
+    if (oldLevel === 'beginner' && newLevel === 'intermediate') {
+      // Exception A: allow if customer has more than 2 course purchases
+      const { data: customerRow } = await supabaseDb.supabase
+        .from('customers')
+        .select('course_purchase_count')
+        .eq('id', dbCustomerId)
+        .single();
+      const purchaseCount = customerRow?.course_purchase_count || 0;
+      if (purchaseCount <= 2) {
+        return res.status(400).json({
+          error: 'Beginner students can only reschedule into an intermediate class after completing more than 2 courses.'
+        });
+      }
+    } else {
+      // intermediate → beginner: only allowed for the WT1104AM_DL → WT1104PM_DL pairing
+      const oldBase = getWTBase(oldClass.class_type);
+      const newBase = getWTBase(newClass.class_type);
+      const allowedIntermediateToBeginner =
+        oldBase === 'WT1104AM_DL' && newBase === 'WT1204AM_DL';
+      if (!allowedIntermediateToBeginner) {
+        return res.status(400).json({
+          error: 'Intermediate students cannot reschedule into a beginner class.'
+        });
+      }
+    }
   }
 
   // Check for 10-class package via the booking's enrollment (not the stale classes_allocated field)

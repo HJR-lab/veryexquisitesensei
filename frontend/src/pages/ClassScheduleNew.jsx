@@ -357,7 +357,10 @@ export default function ClassScheduleNew() {
     });
     // Determine WT level (beginner=6, intermediate=7) from class_type
     const getWTLevel = (ct) => { const m = ct?.match(/(\d+)\.\d+$/); return m ? parseInt(m[1]) : null; };
+    const getWTBase = (ct) => ct ? ct.replace(/\d+\.\d+$/, '') : null;
     const oldLevel = getWTLevel(selectedClass.classType);
+    const oldBase = getWTBase(selectedClass.classType);
+    const coursePurchaseCount = user?.coursePurchaseCount || 0;
 
     return allClasses.filter(c => {
       const categoryMatch = getClassCategory(c.classType);
@@ -369,9 +372,18 @@ export default function ClassScheduleNew() {
       const isValidTime = !isNaN(classDateTime.getTime());
       const isNewClassGlazing = c.classType?.includes('6.6');
 
-      // Beginners cannot see intermediate classes and vice versa
+      // Cross-level reschedule rules (must match server in routes/classes.js)
+      //  - Beginner(6) → Intermediate(7): allowed if coursePurchaseCount > 2
+      //  - Intermediate(7) → Beginner(6): only WT1104AM_DL → WT1204AM_DL
       const newLevel = getWTLevel(c.classType);
-      if (oldLevel && newLevel && oldLevel !== newLevel) return false;
+      if (oldLevel && newLevel && oldLevel !== newLevel) {
+        if (oldLevel === 6 && newLevel === 7) {
+          if (coursePurchaseCount <= 2) return false;
+        } else {
+          const newBase = getWTBase(c.classType);
+          if (!(oldBase === 'WT1104AM_DL' && newBase === 'WT1204AM_DL')) return false;
+        }
+      }
       if (is10thClass && !isNewClassGlazing) return false;
       let cohortRestrictionPasses = true;
       if (isOldClassGlazing) {

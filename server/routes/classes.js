@@ -1364,6 +1364,9 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
         is_glazing_reschedule: isOldClassGlazing,
         reschedule_fee_paid: 0,
         reschedule_source: 'student',
+        // Rescheduling moves this booking to a new future class — clear any prior attendance record
+        attended: null,
+        attendance_marked_at: null,
         updated_at: new Date().toISOString()
       })
       .eq('id', currentBooking.id)

@@ -4584,6 +4584,9 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
       reschedule_fee_paid: fee || 0,
       is_glazing_reschedule: isGlazingReschedule || false,
       reschedule_source: 'admin',
+      // Rescheduling moves this booking to a new future class — clear any prior attendance record
+      attended: null,
+      attendance_marked_at: null,
       updated_at: new Date().toISOString()
     })
     .eq('id', bookingId)

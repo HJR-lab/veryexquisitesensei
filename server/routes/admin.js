@@ -3266,9 +3266,11 @@ app.get('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asyn
     (enrs || []).forEach(e => { enrollmentCourseMap[e.id] = e.course_identifier; });
   }
 
+  // Count every student physically in the class — regular + makeup — so admins
+  // can ensure there are enough wheels/seats. Rescheduled bookings still excluded.
   const bookingCountsByClass = {};
   bookingCounts.forEach(b => {
-    if (b.status !== 'rescheduled' && (b.booking_type !== 'makeup' && !b.is_makeup_class)) {
+    if (b.status !== 'rescheduled') {
       if (!bookingCountsByClass[b.class_instance_id]) {
         bookingCountsByClass[b.class_instance_id] = 0;
       }

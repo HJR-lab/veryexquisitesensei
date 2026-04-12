@@ -4667,6 +4667,85 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
     calendarSync.syncClassInstance(parseInt(newClassInstanceId)).catch(() => {});
   } catch (e) { /* ignore */ }
 
+  // If this booking moved to a different course, check whether the enrollment metadata
+  // should be updated (e.g., student moved from Thursday to Tuesday course).
+  // Only update once ALL active bookings for the enrollment are in the new course.
+  if (originalBooking.course_enrollment_id) {
+    try {
+      const { data: newClassData } = await supabaseDb.supabase
+        .from('class_instances')
+        .select('class_type')
+        .eq('id', newClassInstanceId)
+        .single();
+      const newBase = newClassData?.class_type?.replace(/\.\d+$/, '') || '';
+
+      const { data: enrollment } = await supabaseDb.supabase
+        .from('course_enrollments')
+        .select('id, course_identifier')
+        .eq('id', originalBooking.course_enrollment_id)
+        .single();
+
+      if (enrollment && newBase && newBase !== enrollment.course_identifier) {
+        // Check if ALL active bookings for this enrollment are now in the new course
+        const { data: activeBookings } = await supabaseDb.supabase
+          .from('bookings')
+          .select('id, class_instance_id')
+          .eq('course_enrollment_id', enrollment.id)
+          .in('status', ['booked', 'attended']);
+
+        const activeClassIds = (activeBookings || []).map(b => b.class_instance_id);
+        let allInNewCourse = true;
+        if (activeClassIds.length > 0) {
+          const { data: activeClasses } = await supabaseDb.supabase
+            .from('class_instances')
+            .select('id, class_type')
+            .in('id', activeClassIds);
+          allInNewCourse = (activeClasses || []).every(c =>
+            (c.class_type?.replace(/\.\d+$/, '') || '') === newBase
+          );
+        }
+
+        if (allInNewCourse) {
+          // All bookings moved — update enrollment metadata from the new course's class instances
+          const { data: newCourseClasses } = await supabaseDb.supabase
+            .from('class_instances')
+            .select('class_date, start_time, end_time')
+            .like('class_type', `${newBase}.%`)
+            .order('class_date', { ascending: true });
+
+          if (newCourseClasses && newCourseClasses.length > 0) {
+            const firstDate = new Date(newCourseClasses[0].class_date);
+            const lastDate = new Date(newCourseClasses[newCourseClasses.length - 1].class_date);
+            const dayNames = ['SUNDAYS', 'MONDAYS', 'TUESDAYS', 'WEDNESDAYS', 'THURSDAYS', 'FRIDAYS', 'SATURDAYS'];
+            const dayName = dayNames[firstDate.getDay()];
+            const schedulePattern = dayName.replace(/S$/, ''); // TUESDAY
+            const fmtShort = (d) => `${d.getDate()} ${d.toLocaleString('en-GB', { month: 'short' })}`;
+            const timeStr = `${newCourseClasses[0].start_time} - ${newCourseClasses[0].end_time}`;
+            const variantTitle = `${dayName} • ${fmtShort(firstDate)}–${fmtShort(lastDate)} • ${timeStr.toLowerCase()}`;
+
+            await supabaseDb.supabase
+              .from('course_enrollments')
+              .update({
+                course_identifier: newBase,
+                schedule_pattern: schedulePattern,
+                course_variant_title: variantTitle,
+                course_start_date: firstDate.toISOString().split('T')[0],
+                course_end_date: lastDate.toISOString().split('T')[0],
+                class_time: timeStr,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', enrollment.id);
+
+            console.log(`✅ Updated enrollment ${enrollment.id} metadata: ${enrollment.course_identifier} → ${newBase} (${variantTitle})`);
+          }
+        }
+      }
+    } catch (metaErr) {
+      console.error('Failed to update enrollment metadata after course move:', metaErr);
+      // Non-blocking — the reschedule itself succeeded
+    }
+  }
+
   res.json({ message: 'Booking rescheduled successfully', newBooking });
 }));
 

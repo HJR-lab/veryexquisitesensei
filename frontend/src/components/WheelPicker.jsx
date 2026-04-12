@@ -52,8 +52,8 @@ export default function WheelPicker({ classInstanceId, bookingId, currentWheel, 
 
   if (loading) return null;
 
-  const topRow = [10, 9, 8, 7, 6]; // top row, reversed so 6 is right
-  const bottomRow = [5, 4, 3, 2, 1]; // bottom row, reversed so 1 is right
+  const topRow = [6, 7, 8, 9, 10]; // top row (back of studio)
+  const bottomRow = [1, 2, 3, 4, 5]; // bottom row (front of studio)
 
   const renderWheel = (num) => {
     const taken = wheels[num];

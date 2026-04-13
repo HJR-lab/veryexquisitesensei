@@ -68,8 +68,32 @@ function FeeBadge({ fee }) {
   );
 }
 
+function TypeBadge({ item }) {
+  let label, bg, color;
+  if (item.source === 'booking') {
+    if (item.status === 'cancelled') {
+      label = 'Cancelled'; bg = '#FEE2E2'; color = '#991B1B';
+    } else if (item.status === 'forfeited') {
+      label = 'Missed'; bg = '#FFF0F0'; color = '#C03030';
+    } else {
+      label = 'Booked'; bg = '#DEF7EC'; color = '#03543F';
+    }
+  } else {
+    label = item.source === 'student' ? 'Rescheduled' : 'Admin Resched.';
+    bg = item.source === 'student' ? '#DBEAFE' : '#FEE2E2';
+    color = item.source === 'student' ? '#1E40AF' : '#991B1B';
+  }
+  return (
+    <span style={{
+      fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em',
+      padding: '2px 5px', borderRadius: '2px', backgroundColor: bg, color,
+    }}>{label}</span>
+  );
+}
+
 export default function AdminReschedules() {
-  const [reschedules, setReschedules] = useState([]);
+  const [items, setItems] = useState([]);
+  const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [hoveredRow, setHoveredRow] = useState(null);
@@ -77,14 +101,24 @@ export default function AdminReschedules() {
   useEffect(() => {
     api.get('/admin/reschedules')
       .then(({ data }) => {
-        setReschedules(data.reschedules || []);
+        const all = [
+          ...(data.reschedules || []).map(r => ({ ...r, _kind: 'reschedule' })),
+          ...(data.bookings || []).map(b => ({ ...b, _kind: 'booking' })),
+        ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        setItems(all);
       })
       .catch(err => {
-        console.error('Failed to load reschedules:', err);
-        setError('Failed to load reschedules');
+        console.error('Failed to load activity:', err);
+        setError('Failed to load activity');
       })
       .finally(() => setLoading(false));
   }, []);
+
+  const filtered = filter === 'all' ? items
+    : filter === 'reschedules' ? items.filter(i => i._kind === 'reschedule')
+    : filter === 'bookings' ? items.filter(i => i.source === 'booking' && !['cancelled','forfeited'].includes(i.status))
+    : filter === 'cancelled' ? items.filter(i => i.status === 'cancelled' || i.status === 'forfeited')
+    : items;
 
   const columns = ['Student', 'Type', 'From', 'To', 'Reason', 'Fee', 'Date'];
 
@@ -98,8 +132,23 @@ export default function AdminReschedules() {
             VES Pottery Studio
           </div>
           <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>
-            Reschedules
+            Booking Activity
           </h1>
+          <div style={{ display: 'flex', gap: '6px', marginTop: '12px' }}>
+            {[
+              { key: 'all', label: 'All' },
+              { key: 'reschedules', label: 'Reschedules' },
+              { key: 'bookings', label: 'Bookings' },
+              { key: 'cancelled', label: 'Cancelled / Missed' },
+            ].map(f => (
+              <button key={f.key} onClick={() => setFilter(f.key)} style={{
+                padding: '5px 12px', border: `1px solid ${filter === f.key ? TC : RULE}`,
+                backgroundColor: filter === f.key ? TC_LIGHT : 'transparent',
+                fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
+                color: filter === f.key ? TC_DARK : MUTED, cursor: 'pointer',
+              }}>{f.label}</button>
+            ))}
+          </div>
         </div>
 
         {/* Content */}
@@ -111,9 +160,9 @@ export default function AdminReschedules() {
           <div style={{ padding: '40px 0', textAlign: 'center', fontSize: '13px', color: '#C0392B' }}>
             {error}
           </div>
-        ) : reschedules.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div style={{ padding: '40px 0', textAlign: 'center', fontSize: '13px', color: MUTED }}>
-            No reschedules found.
+            No activity found.
           </div>
         ) : (
           <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFF', overflowX: 'auto' }}>
@@ -141,9 +190,9 @@ export default function AdminReschedules() {
                 </tr>
               </thead>
               <tbody>
-                {reschedules.map((r, i) => (
+                {filtered.map((r, i) => (
                   <tr
-                    key={r.id}
+                    key={`${r._kind}-${r.id}`}
                     onMouseEnter={() => setHoveredRow(i)}
                     onMouseLeave={() => setHoveredRow(null)}
                     style={{
@@ -166,14 +215,7 @@ export default function AdminReschedules() {
                       )}
                     </td>
                     <td style={{ padding: '10px 14px', borderBottom: `1px solid ${RULE}`, whiteSpace: 'nowrap' }}>
-                      <span style={{
-                        fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em',
-                        padding: '2px 5px', borderRadius: '2px',
-                        backgroundColor: r.source === 'student' ? '#DBEAFE' : '#FEE2E2',
-                        color: r.source === 'student' ? '#1E40AF' : '#991B1B',
-                      }}>
-                        {r.source === 'student' ? 'Rescheduled' : 'Cancelled'}
-                      </span>
+                      <TypeBadge item={r} />
                     </td>
                     <td style={{ padding: '10px 14px', borderBottom: `1px solid ${RULE}`, whiteSpace: 'nowrap' }}>
                       {r.fromDate ? (

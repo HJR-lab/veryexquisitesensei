@@ -4553,7 +4553,53 @@ app.get('/api/admin/reschedules', authenticateToken, requireAdmin, asyncHandler(
     };
   });
 
-  res.json({ reschedules });
+  // Also fetch recent bookings (new bookings, cancellations, forfeits) so
+  // the admin page doubles as a booking activity log, not just reschedules.
+  const { data: recentBookings, error: bookingsError } = await supabaseDb.supabase
+    .from('bookings')
+    .select(`
+      id,
+      student_id,
+      status,
+      booking_type,
+      created_at,
+      updated_at,
+      class_instance_id,
+      original_class_instance_id,
+      course_enrollment_id,
+      customers!bookings_student_id_fkey(id, first_name, last_name, email),
+      class_instances!bookings_class_instance_id_fkey(id, class_date, start_time, end_time, class_type)
+    `)
+    .is('original_class_instance_id', null)
+    .in('status', ['booked', 'cancelled', 'forfeited', 'attended', 'completed'])
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  if (bookingsError) throw bookingsError;
+
+  const bookings = (recentBookings || []).map(b => ({
+    id: b.id,
+    student: b.customers ? {
+      id: b.customers.id,
+      name: `${b.customers.first_name || ''} ${b.customers.last_name || ''}`.trim(),
+      email: b.customers.email,
+    } : null,
+    fromDate: null,
+    fromTime: null,
+    fromType: null,
+    toDate: b.class_instances?.class_date,
+    toTime: b.class_instances?.start_time,
+    toType: b.class_instances?.class_type,
+    reason: null,
+    fee: null,
+    isGlazing: false,
+    source: 'booking',
+    status: b.status,
+    bookingType: b.booking_type,
+    createdAt: b.created_at,
+  }));
+
+  res.json({ reschedules, bookings });
 }));
 
 // Reschedule a booking

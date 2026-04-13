@@ -1135,16 +1135,32 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
         }
         // No date restriction for glazing - can reschedule to any future cohort's glazing class
       } else {
-        // Regular class (Weeks 1-5): must stay within cohort dates
-        const cohortStartDate = new Date(enrollment.course_start_date);
-        const cohortEndDate = new Date(enrollment.course_end_date);
+        // Regular class (Weeks 1-5): must stay within the cohort period.
+        // Use global cohort_periods table first (admin-managed date windows).
+        // Fall back to enrollment dates if no cohort period is defined.
+        const oldClassDateStr = (oldClass.class_date || '').split(/[T ]/)[0];
+        const { data: cohortPeriod } = await supabaseDb.supabase
+          .from('cohort_periods')
+          .select('*')
+          .lte('start_date', oldClassDateStr)
+          .gte('end_date', oldClassDateStr)
+          .limit(1)
+          .maybeSingle();
+
+        const cohortStartDate = cohortPeriod
+          ? new Date(cohortPeriod.start_date)
+          : new Date(enrollment.course_start_date);
+        const cohortEndDate = cohortPeriod
+          ? new Date(cohortPeriod.end_date)
+          : new Date(enrollment.course_end_date);
         const newClassDate = new Date(newClass.class_date);
 
         if (newClassDate < cohortStartDate || newClassDate > cohortEndDate) {
+          const periodName = cohortPeriod ? cohortPeriod.name : 'your cohort';
           const startStr = cohortStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
           const endStr = cohortEndDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
           return res.status(400).json({
-            error: `You can only reschedule to classes within your cohort period (${startStr} - ${endStr}).`
+            error: `You can only reschedule to classes within ${periodName} (${startStr} - ${endStr}).`
           });
         }
 

@@ -4884,93 +4884,72 @@ app.delete('/api/admin/fees/:feeId', authenticateToken, requireAdmin, asyncHandl
 
 // ── Cohort Dates endpoints ──────────────────────────────────────────────
 
-app.get('/api/admin/cohort-dates', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
-  // Fetch active/upcoming wheelthrowing enrollments
-  const { data: wtEnrollments, error: wtError } = await supabaseDb.supabase
-    .from('course_enrollments')
-    .select('course_identifier, course_type, course_start_date, course_end_date, instructor')
-    .in('status', ['active', 'upcoming'])
-    .ilike('course_type', '%wheelthrowing%')
-    .order('course_start_date', { ascending: true });
+// ── Cohort Periods (WT reschedule windows) ────────────────────────────
+// Simple date ranges. WT students can reschedule to any WT class within
+// the same cohort period their original class falls in.
 
-  if (wtError) throw wtError;
-
-  // Fetch active/upcoming handbuilding enrollments that have dates set
-  const { data: hbEnrollments, error: hbError } = await supabaseDb.supabase
-    .from('course_enrollments')
-    .select('course_identifier, course_type, course_start_date, course_end_date, instructor')
-    .in('status', ['active', 'upcoming'])
-    .ilike('course_type', '%handbuilding%')
-    .not('course_start_date', 'is', null)
-    .not('course_end_date', 'is', null)
-    .order('course_start_date', { ascending: true });
-
-  if (hbError) throw hbError;
-
-  const allEnrollments = [...(wtEnrollments || []), ...(hbEnrollments || [])];
-
-  // Group by course_identifier and deduplicate
-  const cohortMap = {};
-  for (const enrollment of allEnrollments) {
-    const key = enrollment.course_identifier;
-    if (!key) continue;
-    if (!cohortMap[key]) {
-      cohortMap[key] = {
-        courseIdentifier: key,
-        courseType: enrollment.course_type,
-        startDate: enrollment.course_start_date,
-        endDate: enrollment.course_end_date,
-        studentCount: 1,
-        instructor: enrollment.instructor
-      };
-    } else {
-      cohortMap[key].studentCount += 1;
-    }
-  }
-
-  const cohorts = Object.values(cohortMap).sort((a, b) => {
-    if (!a.startDate) return 1;
-    if (!b.startDate) return -1;
-    return new Date(a.startDate) - new Date(b.startDate);
-  });
-
-  res.json({ cohorts });
+app.get('/api/admin/cohort-periods', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { data, error } = await supabaseDb.supabase
+    .from('cohort_periods')
+    .select('*')
+    .order('start_date', { ascending: true });
+  if (error) throw error;
+  res.json({ periods: data || [] });
 }));
 
-app.put('/api/admin/cohort-dates/:courseIdentifier', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
-  const { courseIdentifier } = req.params;
-  const { startDate, endDate } = req.body;
-
-  if (!startDate || !endDate) {
-    return res.status(400).json({ error: 'Both startDate and endDate are required' });
+app.post('/api/admin/cohort-periods', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { name, startDate, endDate } = req.body;
+  if (!name || !startDate || !endDate) {
+    return res.status(400).json({ error: 'name, startDate and endDate are required' });
   }
+  const { data, error } = await supabaseDb.supabase
+    .from('cohort_periods')
+    .insert({ name, start_date: startDate, end_date: endDate })
+    .select()
+    .single();
+  if (error) throw error;
+  res.json({ period: data });
+}));
 
-  // Update all enrollments matching the course_identifier
-  const { data: updated, error: updateError } = await supabaseDb.supabase
-    .from('course_enrollments')
-    .update({ course_start_date: startDate, course_end_date: endDate })
-    .eq('course_identifier', courseIdentifier)
-    .select('id');
+app.put('/api/admin/cohort-periods/:id', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { name, startDate, endDate } = req.body;
+  const updates = { updated_at: new Date().toISOString() };
+  if (name !== undefined) updates.name = name;
+  if (startDate !== undefined) updates.start_date = startDate;
+  if (endDate !== undefined) updates.end_date = endDate;
+  const { data, error } = await supabaseDb.supabase
+    .from('cohort_periods')
+    .update(updates)
+    .eq('id', parseInt(id))
+    .select()
+    .single();
+  if (error) throw error;
+  res.json({ period: data });
+}));
 
-  if (updateError) throw updateError;
+app.delete('/api/admin/cohort-periods/:id', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { error } = await supabaseDb.supabase
+    .from('cohort_periods')
+    .delete()
+    .eq('id', parseInt(req.params.id));
+  if (error) throw error;
+  res.json({ message: 'Cohort period deleted' });
+}));
 
-  const updatedCount = updated ? updated.length : 0;
-
-  // Trigger calendar sync for affected class instances
-  const { data: classInstances, error: classError } = await supabaseDb.supabase
-    .from('class_instances')
-    .select('id, class_date')
-    .like('class_type', `${courseIdentifier}%`);
-
-  if (classError) {
-    console.error('Error fetching class instances for calendar sync:', classError);
-  }
-
-  res.json({
-    message: `Updated ${updatedCount} enrollment(s) for cohort ${courseIdentifier}`,
-    updatedCount,
-    affectedClassInstances: classInstances ? classInstances.length : 0
-  });
+// Public endpoint for the student reschedule flow to look up cohort period
+app.get('/api/cohort-period-for-date', authenticateToken, asyncHandler(async (req, res) => {
+  const { date } = req.query;
+  if (!date) return res.status(400).json({ error: 'date query param required' });
+  const { data, error } = await supabaseDb.supabase
+    .from('cohort_periods')
+    .select('*')
+    .lte('start_date', date)
+    .gte('end_date', date)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  res.json({ period: data || null });
 }));
 
 app.get('/api/admin/customers/:customerId/pieces', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {

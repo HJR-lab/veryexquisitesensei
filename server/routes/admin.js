@@ -4882,6 +4882,97 @@ app.delete('/api/admin/fees/:feeId', authenticateToken, requireAdmin, asyncHandl
   res.json({ message: 'Fee deleted successfully' });
 }));
 
+// ── Cohort Dates endpoints ──────────────────────────────────────────────
+
+app.get('/api/admin/cohort-dates', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  // Fetch active/upcoming wheelthrowing enrollments
+  const { data: wtEnrollments, error: wtError } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('course_identifier, course_type, course_start_date, course_end_date, instructor')
+    .in('status', ['active', 'upcoming'])
+    .ilike('course_type', '%wheelthrowing%')
+    .order('course_start_date', { ascending: true });
+
+  if (wtError) throw wtError;
+
+  // Fetch active/upcoming handbuilding enrollments that have dates set
+  const { data: hbEnrollments, error: hbError } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('course_identifier, course_type, course_start_date, course_end_date, instructor')
+    .in('status', ['active', 'upcoming'])
+    .ilike('course_type', '%handbuilding%')
+    .not('course_start_date', 'is', null)
+    .not('course_end_date', 'is', null)
+    .order('course_start_date', { ascending: true });
+
+  if (hbError) throw hbError;
+
+  const allEnrollments = [...(wtEnrollments || []), ...(hbEnrollments || [])];
+
+  // Group by course_identifier and deduplicate
+  const cohortMap = {};
+  for (const enrollment of allEnrollments) {
+    const key = enrollment.course_identifier;
+    if (!key) continue;
+    if (!cohortMap[key]) {
+      cohortMap[key] = {
+        courseIdentifier: key,
+        courseType: enrollment.course_type,
+        startDate: enrollment.course_start_date,
+        endDate: enrollment.course_end_date,
+        studentCount: 1,
+        instructor: enrollment.instructor
+      };
+    } else {
+      cohortMap[key].studentCount += 1;
+    }
+  }
+
+  const cohorts = Object.values(cohortMap).sort((a, b) => {
+    if (!a.startDate) return 1;
+    if (!b.startDate) return -1;
+    return new Date(a.startDate) - new Date(b.startDate);
+  });
+
+  res.json({ cohorts });
+}));
+
+app.put('/api/admin/cohort-dates/:courseIdentifier', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { courseIdentifier } = req.params;
+  const { startDate, endDate } = req.body;
+
+  if (!startDate || !endDate) {
+    return res.status(400).json({ error: 'Both startDate and endDate are required' });
+  }
+
+  // Update all enrollments matching the course_identifier
+  const { data: updated, error: updateError } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .update({ course_start_date: startDate, course_end_date: endDate })
+    .eq('course_identifier', courseIdentifier)
+    .select('id');
+
+  if (updateError) throw updateError;
+
+  const updatedCount = updated ? updated.length : 0;
+
+  // Trigger calendar sync for affected class instances
+  const { data: classInstances, error: classError } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('id, class_date')
+    .like('class_type', `${courseIdentifier}%`);
+
+  if (classError) {
+    console.error('Error fetching class instances for calendar sync:', classError);
+  }
+
+  res.json({
+    message: `Updated ${updatedCount} enrollment(s) for cohort ${courseIdentifier}`,
+    updatedCount,
+    affectedClassInstances: classInstances ? classInstances.length : 0
+  });
+}));
+
 app.get('/api/admin/customers/:customerId/pieces', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { customerId } = req.params;
 

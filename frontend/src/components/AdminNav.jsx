@@ -137,6 +137,7 @@ export default function AdminNav({ active, onSyncComplete }) {
                   { label: 'Credits', href: '/admin/credits' },
                   { label: 'Instructors', href: '/admin/instructors' },
                   { label: 'Inventory', href: '/admin/reference' },
+                  { label: 'Cohort', href: '/admin/cohorts' },
                   { label: 'Course', href: '/admin/course-config' },
                   { label: 'Event', href: '/admin/events' },
                   { label: 'Stats', href: '/admin/platform-stats' },

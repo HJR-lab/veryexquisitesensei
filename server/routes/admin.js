@@ -4634,6 +4634,26 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
 
   if (fetchError) throw fetchError;
 
+  // If the student already has a cancelled/rescheduled booking at the target
+  // class (e.g. from the old DELETE+POST reschedule flow), hard-delete it
+  // first so the in-place update below doesn't hit a unique constraint.
+  const { data: conflicting } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id, status')
+    .eq('student_id', originalBooking.student_id)
+    .eq('class_instance_id', parseInt(newClassInstanceId))
+    .neq('id', parseInt(bookingId))
+    .maybeSingle();
+
+  if (conflicting) {
+    if (['cancelled', 'rescheduled', 'forfeited', 'absent'].includes(conflicting.status)) {
+      await supabaseDb.supabase.from('bookings').delete().eq('id', conflicting.id);
+      console.log(`Deleted conflicting ${conflicting.status} booking ${conflicting.id} at class ${newClassInstanceId}`);
+    } else {
+      return res.status(409).json({ error: 'Student already has an active booking for this class.' });
+    }
+  }
+
   // Update the same booking to point to the new class (no new booking created)
   const { data: updatedBooking, error: updateError } = await supabaseDb.supabase
     .from('bookings')

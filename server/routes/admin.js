@@ -4553,8 +4553,10 @@ app.get('/api/admin/reschedules', authenticateToken, requireAdmin, asyncHandler(
     };
   });
 
-  // Also fetch recent bookings (new bookings, cancellations, forfeits) so
-  // the admin page doubles as a booking activity log, not just reschedules.
+  // Also fetch recent STUDENT-INITIATED booking activity (credit bookings,
+  // cancellations, forfeits). We over-fetch then filter out system batch
+  // bookings (auto-created when a cohort launches — 4-6 bookings for the
+  // same student within seconds).
   const { data: recentBookings, error: bookingsError } = await supabaseDb.supabase
     .from('bookings')
     .select(`
@@ -4573,11 +4575,23 @@ app.get('/api/admin/reschedules', authenticateToken, requireAdmin, asyncHandler(
     .is('original_class_instance_id', null)
     .in('status', ['booked', 'cancelled', 'forfeited', 'attended', 'completed'])
     .order('created_at', { ascending: false })
-    .limit(50);
+    .limit(200);
 
   if (bookingsError) throw bookingsError;
 
-  const bookings = (recentBookings || []).map(b => ({
+  // Filter out system-generated batch bookings. When the cohort processor
+  // auto-creates a student's 6-week schedule, it writes 4-7 bookings for
+  // the same student within a few seconds. Group by student + 10-second
+  // window: if the group has 3+ entries they're batch-created → skip.
+  const batchKey = (b) => `${b.student_id}_${Math.floor(new Date(b.created_at).getTime() / 10000)}`;
+  const batchCounts = {};
+  for (const b of recentBookings || []) {
+    const k = batchKey(b);
+    batchCounts[k] = (batchCounts[k] || 0) + 1;
+  }
+  const studentActivity = (recentBookings || []).filter(b => batchCounts[batchKey(b)] < 3);
+
+  const bookings = studentActivity.slice(0, 50).map(b => ({
     id: b.id,
     student: b.customers ? {
       id: b.customers.id,

@@ -834,7 +834,7 @@ export default function AdminClasses() {
       <div key={course.id} style={{ borderBottom: `1px solid ${RULE}`, borderRight: rightBorder }}>
         {/* Card header */}
         <div
-          onClick={() => { if (isExpanded) { setExpandedCourse(null); } else { setExpandedCourse(course.id); setSelectedStudents(new Set()); setMoveTarget(''); if (course.classes[0]) loadClassMembers(course.classes[0]); } }}
+          onClick={() => { if (isExpanded) { setExpandedCourse(null); } else { setExpandedCourse(course.id); setSelectedStudents(new Set()); setMoveTarget(''); course.classes.forEach(cls => loadClassMembers(cls)); } }}
           style={{ borderLeft: `3px solid ${borderColor}`, backgroundColor: isExpanded ? hoverBg : bgColor, padding: '12px 12px 12px 11px', cursor: 'pointer', transition: 'background-color 0.1s' }}
           onMouseEnter={e => { e.currentTarget.style.backgroundColor = hoverBg; }}
           onMouseLeave={e => { e.currentTarget.style.backgroundColor = isExpanded ? hoverBg : bgColor; }}

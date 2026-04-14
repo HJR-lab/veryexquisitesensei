@@ -3471,19 +3471,15 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, requireAdmin, 
     }
     const isOwnCourse = enrollmentBase && enrollmentBase === currentCourseBase;
 
-    if (!isOwnCourse && booking.booking_type === 'makeup') {
+    if (!isOwnCourse && enrollmentBase) {
+      // Student's enrollment is for a different course — they're a makeup regardless of booking_type
       member.isMakeup = true;
       if (booking.original_class_instance_id) {
         const fullId = originalClassIdentifiers[booking.original_class_instance_id] || '';
         member.originalClassIdentifier = getBase(fullId) || null;
       }
-    } else if (!isOwnCourse && booking.original_class_instance_id && booking.booking_type !== 'regular') {
-      // Fallback: if no explicit type set, check if rescheduled from a different course
-      const originalIdentifier = originalClassIdentifiers[booking.original_class_instance_id] || '';
-      const originalBase = getBase(originalIdentifier);
-      if (originalBase !== currentCourseBase) {
-        member.isMakeup = true;
-        member.originalClassIdentifier = originalBase;
+      if (!member.originalClassIdentifier) {
+        member.originalClassIdentifier = enrollmentBase;
       }
     }
 

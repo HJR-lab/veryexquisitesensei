@@ -1157,7 +1157,7 @@ export default function AdminClasses() {
           >
             {m.firstName} {m.lastName}
           </span>
-          <span style={{ fontSize: '11px', fontWeight: 600, textAlign: 'right', color: m.returningCount > 1 ? TC_DARK : MUTED }}>{m.returningCount || 1}</span>
+          <span style={{ fontSize: '11px', fontWeight: 600, textAlign: 'center', color: m.returningCount > 1 ? TC_DARK : MUTED }}>{m.returningCount || 1}</span>
           <div style={{ textAlign: 'center' }}>
             <select
               value={isMakeup ? 'makeup' : 'enrolled'}
@@ -1240,7 +1240,7 @@ export default function AdminClasses() {
         <div style={{ display: 'grid', gridTemplateColumns: '22px 1fr 50px 100px 80px', backgroundColor: ALT, padding: '6px 12px' }}>
           <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED }}>#</span>
           <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED }}>Student</span>
-          <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, textAlign: 'right' }}>Orders</span>
+          <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, textAlign: 'center' }}>Orders</span>
           <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, textAlign: 'center' }}>Type</span>
           <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, textAlign: 'center' }}>Actions</span>
         </div>

@@ -3509,15 +3509,10 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, requireAdmin, 
     const isOwnCourse = enrollmentBase && enrollmentBase === currentCourseBase;
 
     if (!isOwnCourse && enrollmentBase) {
-      // Student's enrollment is for a different course — they're a makeup regardless of booking_type
+      // Student's enrollment is for a different course — they're a makeup
+      // Show their enrolled course as the "from" source
       member.isMakeup = true;
-      if (booking.original_class_instance_id) {
-        const fullId = originalClassIdentifiers[booking.original_class_instance_id] || '';
-        member.originalClassIdentifier = getBase(fullId) || null;
-      }
-      if (!member.originalClassIdentifier) {
-        member.originalClassIdentifier = enrollmentBase;
-      }
+      member.originalClassIdentifier = enrollmentBase;
     }
 
     // Active members: status is 'booked', 'attended', or 'completed'

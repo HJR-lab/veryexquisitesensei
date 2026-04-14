@@ -804,24 +804,37 @@ export default function AdminClasses() {
     const bgColor     = isPending ? '#FFFCF4' : '#FFFFFF';
     const hoverBg     = isPending ? '#FFF3DC' : TC_LIGHT;
 
-    // Course enrollment roster — from course_enrollments table (permanent roster)
-    const allMembersForCourse = (course.course?.enrolledStudents || []).map(s => ({
-      name: `${s.firstName} ${s.lastName}`,
-      orders: s.returningCount || 1,
-      studentId: s.studentId,
-      email: s.email,
-      enrollmentId: s.enrollmentId,
-    }));
+    // Course enrollment roster — only students enrolled in THIS course (not makeups from other courses)
+    // Rescheduled students are still part of the course (class-level reschedules don't affect course enrollment)
+    const allMembersForCourse = [];
+    const seenIds = new Set();
+    course.classes.forEach(cls => {
+      const members = classMembers[cls.id] || [];
+      members.filter(m => !m.isMakeup).forEach(m => {
+        if (!seenIds.has(m.studentId)) {
+          seenIds.add(m.studentId);
+          allMembersForCourse.push({ name: `${m.firstName} ${m.lastName}`, orders: m.returningCount || 1, studentId: m.studentId, email: m.email, bookingId: m.bookingId, classInstance: cls });
+        }
+      });
+      // Include rescheduled students as regular enrolled (still in the course)
+      const absent = absentMembers[cls.id] || [];
+      absent.forEach(m => {
+        if (!seenIds.has(m.studentId)) {
+          seenIds.add(m.studentId);
+          allMembersForCourse.push({ name: `${m.firstName} ${m.lastName}`, orders: m.returningCount || 1, studentId: m.studentId, email: m.email, bookingId: m.bookingId, classInstance: cls });
+        }
+      });
+    });
 
-    // Build open slots: use enrollment count from API
-    const enrolled  = course.enrolled;
+    // Build open slots: use first class capacity minus enrolled count
+    const enrolled  = allMembersForCourse.length > 0 ? allMembersForCourse.length : course.enrolled;
     const openSlots = Math.max(0, course.capacity - enrolled);
 
     return (
       <div key={course.id} style={{ borderBottom: `1px solid ${RULE}`, borderRight: rightBorder }}>
         {/* Card header */}
         <div
-          onClick={() => { if (isExpanded) { setExpandedCourse(null); } else { setExpandedCourse(course.id); setSelectedStudents(new Set()); setMoveTarget(''); } }}
+          onClick={() => { if (isExpanded) { setExpandedCourse(null); } else { setExpandedCourse(course.id); setSelectedStudents(new Set()); setMoveTarget(''); course.classes.forEach(cls => loadClassMembers(cls)); } }}
           style={{ borderLeft: `3px solid ${borderColor}`, backgroundColor: isExpanded ? hoverBg : bgColor, padding: '12px 12px 12px 11px', cursor: 'pointer', transition: 'background-color 0.1s' }}
           onMouseEnter={e => { e.currentTarget.style.backgroundColor = hoverBg; }}
           onMouseLeave={e => { e.currentTarget.style.backgroundColor = isExpanded ? hoverBg : bgColor; }}

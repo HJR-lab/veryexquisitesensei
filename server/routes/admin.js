@@ -3476,6 +3476,40 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, requireAdmin, 
     (enrollments || []).forEach(e => { enrollmentCourseMap[e.id] = e; });
   }
 
+  // For makeup students, find which class they rescheduled from in their home course
+  // Collect student IDs that are from different courses
+  const makeupStudentIds = allBookings
+    .filter(b => {
+      const enrData = b.course_enrollment_id ? enrollmentCourseMap[b.course_enrollment_id] : null;
+      const enrBase = enrData ? getBase(enrData.course_identifier) : null;
+      return enrBase && enrBase !== currentCourseBase;
+    })
+    .map(b => b.student_id);
+
+  // Find their rescheduled bookings to determine original class
+  const rescheduledFromMap = {}; // studentId -> class_type they rescheduled from
+  if (makeupStudentIds.length > 0) {
+    // Get all rescheduled bookings for these students
+    const { data: rescheduledBookings } = await supabaseDb.supabase
+      .from('bookings')
+      .select('student_id, class_instance_id, status, class_instances!bookings_class_instance_id_fkey(class_type)')
+      .in('student_id', makeupStudentIds)
+      .eq('status', 'rescheduled');
+
+    if (rescheduledBookings) {
+      rescheduledBookings.forEach(rb => {
+        const classType = rb.class_instances?.class_type || '';
+        // Find the rescheduled booking that belongs to their enrolled course
+        const studentBooking = allBookings.find(b => b.student_id === rb.student_id);
+        const enrData = studentBooking?.course_enrollment_id ? enrollmentCourseMap[studentBooking.course_enrollment_id] : null;
+        const enrBase = enrData ? getBase(enrData.course_identifier) : null;
+        if (enrBase && getBase(classType) === enrBase) {
+          rescheduledFromMap[rb.student_id] = classType;
+        }
+      });
+    }
+  }
+
   // Separate active members from absent members
   const activeMembers = [];
   const absentMembers = [];
@@ -3510,9 +3544,9 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, requireAdmin, 
 
     if (!isOwnCourse && enrollmentBase) {
       // Student's enrollment is for a different course — they're a makeup
-      // Show their enrolled course as the "from" source
+      // Show the specific class they rescheduled from (e.g. WT2104NT_JL6.1)
       member.isMakeup = true;
-      member.originalClassIdentifier = enrollmentBase;
+      member.originalClassIdentifier = rescheduledFromMap[booking.student_id] || enrollmentBase;
     }
 
     // Active members: status is 'booked', 'attended', or 'completed'

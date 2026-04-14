@@ -900,36 +900,23 @@ export default function AdminClasses() {
               )}
             </div>
 
-            {/* Student table — same layout as instructor class detail */}
-            <div style={{ marginBottom: '10px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto', padding: '6px 12px', borderBottom: `1px solid ${RULE}` }}>
-                <span style={{ fontSize: '9px', fontWeight: 700, color: MUTED, letterSpacing: '0.06em' }}>#</span>
-                <span style={{ fontSize: '9px', fontWeight: 700, color: MUTED, letterSpacing: '0.06em' }}>STUDENT</span>
-                <span style={{ fontSize: '9px', fontWeight: 700, color: MUTED, letterSpacing: '0.06em' }}>TYPE</span>
-              </div>
-              {allMembersForCourse.map((s, j) => (
+            {/* Student grid — 2 columns, sorted by most orders */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1px', marginBottom: '10px', backgroundColor: RULE }}>
+              {[...allMembersForCourse].sort((a, b) => (b.orders || 1) - (a.orders || 1)).map((s, j) => (
                 <div
                   key={j}
-                  style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto', padding: '8px 12px', borderBottom: `1px solid ${RULE}`, backgroundColor: '#FFF', alignItems: 'center' }}
+                  onClick={() => navigate(`/admin/students/${encodeURIComponent(s.email)}`)}
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', backgroundColor: '#FFF', cursor: 'pointer', fontSize: '12px' }}
                   onMouseEnter={e => e.currentTarget.style.backgroundColor = TC_LIGHT}
                   onMouseLeave={e => e.currentTarget.style.backgroundColor = '#FFF'}
                 >
-                  <span style={{ fontSize: '10px', color: MUTED, fontWeight: 600 }}>{j + 1}.</span>
-                  <span
-                    onClick={() => navigate(`/admin/students/${encodeURIComponent(s.email)}`)}
-                    style={{ fontSize: '12px', fontWeight: 600, cursor: 'pointer', color: TC_DARK, textDecoration: 'underline' }}
-                  >
-                    {s.name}
-                    {s.orders > 1 && <span style={{ fontSize: '10px', color: MUTED, fontWeight: 400, marginLeft: '4px' }}>({s.orders}x)</span>}
-                  </span>
-                  <span style={{ fontSize: '10px', fontWeight: 600, color: INK }}>Enrolled</span>
+                  <span style={{ fontWeight: 600 }}>{s.name}</span>
+                  <span style={{ fontSize: '11px', color: s.orders > 1 ? TC_DARK : MUTED, fontWeight: 600 }}>{s.orders || 1}</span>
                 </div>
               ))}
               {Array.from({ length: openSlots }).map((_, j) => (
-                <div key={`open-${j}`} style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto', padding: '8px 12px', borderBottom: `1px dashed ${RULE}` }}>
-                  <span style={{ fontSize: '10px', color: MUTED }}>{allMembersForCourse.length + j + 1}.</span>
-                  <span style={{ fontSize: '10px', color: MUTED, fontStyle: 'italic' }}>open</span>
-                  <span />
+                <div key={`open-${j}`} style={{ padding: '8px 10px', backgroundColor: '#FFF', fontSize: '10px', color: MUTED, fontStyle: 'italic' }}>
+                  open
                 </div>
               ))}
             </div>

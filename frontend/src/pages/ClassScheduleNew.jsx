@@ -474,6 +474,13 @@ export default function ClassScheduleNew() {
 
   // ── Booking action for a class card ────────────────────────────────────────
   const handleBookClass = (classItem) => {
+    // Auto-select course weeks for HB when only one option
+    if (getClassCategory(classItem.classType) === 'handbuilding' && hbEnrollment && hbEnrollment.creditsRemaining > 0) {
+      const remaining = hbEnrollment.creditsRemaining;
+      const options = remaining <= 4 ? [remaining] : remaining <= 7 ? [4, remaining] : [4, 8];
+      const valid = options.filter(w => w > 0 && remaining >= w);
+      if (valid.length === 1) setCourseWeeks(valid[0]);
+    }
     setShowBookSheet(classItem);
   };
 
@@ -1242,9 +1249,10 @@ export default function ClassScheduleNew() {
                 disabled={bookingLoading || (getClassCategory(showBookSheet.classType) === 'handbuilding' && hbEnrollment && hbEnrollment.creditsRemaining > 0 && !courseWeeks)}
                 style={{
                   flex: 2, padding: '13px', border: 'none',
-                  backgroundColor: bookingLoading ? MUTED : TC,
+                  backgroundColor: (bookingLoading || (getClassCategory(showBookSheet.classType) === 'handbuilding' && hbEnrollment && hbEnrollment.creditsRemaining > 0 && !courseWeeks)) ? MUTED : TC,
                   color: '#FFF', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
                   cursor: bookingLoading ? 'wait' : 'pointer',
+                  opacity: (bookingLoading || (getClassCategory(showBookSheet.classType) === 'handbuilding' && hbEnrollment && hbEnrollment.creditsRemaining > 0 && !courseWeeks)) ? 0.5 : 1,
                 }}
               >
                 {bookingLoading ? 'Booking…' : remainingCredits > 0 ? 'Confirm Booking' : 'Go to Purchase'}

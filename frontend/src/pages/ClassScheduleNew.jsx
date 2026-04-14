@@ -474,13 +474,6 @@ export default function ClassScheduleNew() {
 
   // ── Booking action for a class card ────────────────────────────────────────
   const handleBookClass = (classItem) => {
-    // Auto-select course weeks for HB when only one option
-    if (getClassCategory(classItem.classType) === 'handbuilding' && hbEnrollment && hbEnrollment.creditsRemaining > 0) {
-      const remaining = hbEnrollment.creditsRemaining;
-      const options = remaining <= 4 ? [remaining] : remaining <= 7 ? [4, remaining] : [4, 8];
-      const valid = options.filter(w => w > 0 && remaining >= w);
-      if (valid.length === 1) setCourseWeeks(valid[0]);
-    }
     setShowBookSheet(classItem);
   };
 
@@ -491,14 +484,9 @@ export default function ClassScheduleNew() {
     try {
       const isHB = getClassCategory(classItem.classType) === 'handbuilding';
       if (isHB && hbEnrollment && hbEnrollment.creditsRemaining > 0) {
-        // HB schedule booking — needs courseWeeks
-        if (!courseWeeks) {
-          alert('Please select a course length.');
-          setBookingLoading(false);
-          return;
-        }
-        await classesAPI.bookHBSchedule(hbEnrollment.id, classItem.id, courseWeeks);
-        alert(`Successfully booked ${courseWeeks}-week Handbuilding schedule!`);
+        // HB single-class booking — 1 credit per class
+        await classesAPI.bookHBSchedule(hbEnrollment.id, classItem.id, 1);
+        alert('Handbuilding class booked successfully!');
       } else {
         const cat = getClassCategory(classItem.classType);
         // Cross-type booking restriction (exception: 10-class package)
@@ -1194,48 +1182,17 @@ export default function ClassScheduleNew() {
               {DAY_LABELS[selectedDate.getDay()]}, {selectedDate.getDate()} {MONTH_LABELS[selectedDate.getMonth()]} · {showBookSheet.startTime} – {showBookSheet.endTime}
             </div>
 
-            {/* HB course length selector if applicable */}
-            {getClassCategory(showBookSheet.classType) === 'handbuilding' && hbEnrollment && hbEnrollment.creditsRemaining > 0 ? (
-              <div style={{ marginBottom: '20px' }}>
-                <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: '10px' }}>
-                  Book Weeks ({hbEnrollment.creditsRemaining} credit{hbEnrollment.creditsRemaining !== 1 ? 's' : ''} remaining)
-                </div>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  {(() => {
-                    const remaining = hbEnrollment.creditsRemaining;
-                    const options = remaining <= 4
-                      ? [remaining]
-                      : remaining <= 7
-                        ? [4, remaining]
-                        : [4, 8];
-                    return options.filter(w => w > 0 && remaining >= w).map(w => (
-                      <button
-                        key={w}
-                        onClick={() => setCourseWeeks(w)}
-                        style={{
-                          flex: 1, padding: '10px 14px', cursor: 'pointer',
-                          border: `1px solid ${courseWeeks === w ? TC : RULE}`,
-                          backgroundColor: courseWeeks === w ? TC_LIGHT : 'transparent',
-                          fontSize: '12px', fontWeight: 700,
-                          color: courseWeeks === w ? TC_DARK : INK,
-                        }}
-                      >
-                        {w}-Week ({w} credits)
-                      </button>
-                    ));
-                  })()}
-                </div>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', backgroundColor: ALT, marginBottom: '20px' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: '16px', color: MUTED }}>info</span>
-                <span style={{ fontSize: '12px', color: MUTED }}>
-                  {remainingCredits > 0
+            {/* Credit info */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', backgroundColor: ALT, marginBottom: '20px' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: '16px', color: MUTED }}>info</span>
+              <span style={{ fontSize: '12px', color: MUTED }}>
+                {getClassCategory(showBookSheet.classType) === 'handbuilding' && hbEnrollment && hbEnrollment.creditsRemaining > 0
+                  ? `This will use 1 credit. You have ${hbEnrollment.creditsRemaining} remaining.`
+                  : remainingCredits > 0
                     ? `This will use 1 class credit. You currently have ${remainingCredits} remaining.`
                     : `You have no credits. You will need to purchase a class.`}
-                </span>
-              </div>
-            )}
+              </span>
+            </div>
 
             <div style={{ display: 'flex', gap: '10px' }}>
               <button
@@ -1246,16 +1203,16 @@ export default function ClassScheduleNew() {
               </button>
               <button
                 onClick={confirmBook}
-                disabled={bookingLoading || (getClassCategory(showBookSheet.classType) === 'handbuilding' && hbEnrollment && hbEnrollment.creditsRemaining > 0 && !courseWeeks)}
+                disabled={bookingLoading}
                 style={{
                   flex: 2, padding: '13px', border: 'none',
-                  backgroundColor: (bookingLoading || (getClassCategory(showBookSheet.classType) === 'handbuilding' && hbEnrollment && hbEnrollment.creditsRemaining > 0 && !courseWeeks)) ? MUTED : TC,
+                  backgroundColor: bookingLoading ? MUTED : TC,
                   color: '#FFF', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
                   cursor: bookingLoading ? 'wait' : 'pointer',
-                  opacity: (bookingLoading || (getClassCategory(showBookSheet.classType) === 'handbuilding' && hbEnrollment && hbEnrollment.creditsRemaining > 0 && !courseWeeks)) ? 0.5 : 1,
+                  opacity: bookingLoading ? 0.5 : 1,
                 }}
               >
-                {bookingLoading ? 'Booking…' : remainingCredits > 0 ? 'Confirm Booking' : 'Go to Purchase'}
+                {bookingLoading ? 'Booking…' : remainingCredits > 0 || (hbEnrollment && hbEnrollment.creditsRemaining > 0) ? 'Confirm Booking' : 'Go to Purchase'}
               </button>
             </div>
           </div>

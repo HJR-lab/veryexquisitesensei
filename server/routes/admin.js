@@ -3546,7 +3546,16 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, requireAdmin, 
       // Student's enrollment is for a different course — they're a makeup
       // Show the specific class they rescheduled from (e.g. WT2104NT_JL6.1)
       member.isMakeup = true;
-      member.originalClassIdentifier = rescheduledFromMap[booking.student_id] || enrollmentBase;
+      // Priority: 1) original_class_instance_id if it's from their enrolled course
+      //           2) rescheduled booking found in their home course
+      //           3) enrollment course base
+      const origFullId = booking.original_class_instance_id ? (originalClassIdentifiers[booking.original_class_instance_id] || '') : '';
+      const origBase = getBase(origFullId);
+      if (origBase === enrollmentBase) {
+        member.originalClassIdentifier = origFullId; // e.g. WT2104NT_JL6.1
+      } else {
+        member.originalClassIdentifier = rescheduledFromMap[booking.student_id] || enrollmentBase;
+      }
     }
 
     // Active members: status is 'booked', 'attended', or 'completed'

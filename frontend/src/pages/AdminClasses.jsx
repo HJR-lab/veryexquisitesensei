@@ -887,25 +887,37 @@ export default function AdminClasses() {
               )}
             </div>
 
-            {/* 2-column student grid with checkboxes */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px', marginBottom: '10px' }}>
+            {/* Student table — same layout as instructor class detail */}
+            <div style={{ marginBottom: '10px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto', padding: '6px 12px', borderBottom: `1px solid ${RULE}` }}>
+                <span style={{ fontSize: '9px', fontWeight: 700, color: MUTED, letterSpacing: '0.06em' }}>#</span>
+                <span style={{ fontSize: '9px', fontWeight: 700, color: MUTED, letterSpacing: '0.06em' }}>STUDENT</span>
+                <span style={{ fontSize: '9px', fontWeight: 700, color: MUTED, letterSpacing: '0.06em' }}>TYPE</span>
+              </div>
               {allMembersForCourse.map((s, j) => (
                 <div
                   key={j}
-                  onClick={e => { e.stopPropagation(); toggleStudentSelection(s.studentId); }}
-                  style={{
-                    fontSize: '10px', fontWeight: 600, padding: '5px 8px',
-                    backgroundColor: selectedStudents.has(s.studentId) ? '#FFF3E0' : '#FFFFFF',
-                    border: `1px solid ${selectedStudents.has(s.studentId) ? TC : 'rgba(196,98,45,0.2)'}`,
-                    color: INK, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '3px', cursor: 'pointer',
-                  }}
+                  style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto', padding: '8px 12px', borderBottom: `1px solid ${RULE}`, backgroundColor: '#FFF', alignItems: 'center' }}
+                  onMouseEnter={e => e.currentTarget.style.backgroundColor = TC_LIGHT}
+                  onMouseLeave={e => e.currentTarget.style.backgroundColor = '#FFF'}
                 >
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortName(s.name)}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: TC, flexShrink: 0 }}>{s.orders}</span>
+                  <span style={{ fontSize: '10px', color: MUTED, fontWeight: 600 }}>{j + 1}.</span>
+                  <span
+                    onClick={() => navigate(`/admin/students/${encodeURIComponent(s.email)}`)}
+                    style={{ fontSize: '12px', fontWeight: 600, cursor: 'pointer', color: TC_DARK, textDecoration: 'underline' }}
+                  >
+                    {s.name}
+                    {s.orders > 1 && <span style={{ fontSize: '10px', color: MUTED, fontWeight: 400, marginLeft: '4px' }}>({s.orders}x)</span>}
+                  </span>
+                  <span style={{ fontSize: '10px', fontWeight: 600, color: INK }}>Enrolled</span>
                 </div>
               ))}
               {Array.from({ length: openSlots }).map((_, j) => (
-                <span key={`open-${j}`} style={{ fontSize: '10px', padding: '5px 8px', border: `1px dashed ${RULE}`, color: MUTED }}>open</span>
+                <div key={`open-${j}`} style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto', padding: '8px 12px', borderBottom: `1px dashed ${RULE}` }}>
+                  <span style={{ fontSize: '10px', color: MUTED }}>{allMembersForCourse.length + j + 1}.</span>
+                  <span style={{ fontSize: '10px', color: MUTED, fontStyle: 'italic' }}>open</span>
+                  <span />
+                </div>
               ))}
             </div>
             <div style={{ display: 'flex', gap: '6px' }}>

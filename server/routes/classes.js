@@ -378,7 +378,26 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   const totalBooked = allBookings ? allBookings.length : 0;
   const remainingCredits = customer.classes_allocated - totalBooked;
 
+  // Also check enrollment credits (for 10-class packages and other enrollment-based credits)
+  let enrollmentCredits = 0;
+  let creditEnrollment = null;
   if (remainingCredits <= 0) {
+    const { data: activeEnrollments } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('id, course_type, class_credits_remaining, class_credits_used, number_of_weeks')
+      .eq('student_id', dbCustomerId)
+      .eq('status', 'active')
+      .gt('class_credits_remaining', 0);
+
+    if (activeEnrollments && activeEnrollments.length > 0) {
+      // Prefer 10-class package, then any enrollment with credits
+      creditEnrollment = activeEnrollments.find(e => e.number_of_weeks === 10 || (e.course_type || '').includes('10 Classes'))
+        || activeEnrollments[0];
+      enrollmentCredits = creditEnrollment.class_credits_remaining;
+    }
+  }
+
+  if (remainingCredits <= 0 && enrollmentCredits <= 0) {
     return res.status(400).json({
       error: 'No remaining credits available',
       details: `You have used all ${customer.classes_allocated} class credits.`
@@ -443,6 +462,9 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   let booking;
   let bookingError;
 
+  const useEnrollmentCredits = remainingCredits <= 0 && creditEnrollment;
+  const enrollmentId = useEnrollmentCredits ? creditEnrollment.id : null;
+
   if (cancelledBooking) {
     // Reactivate the cancelled booking
     const { data: updatedBooking, error: updateError } = await supabaseDb.supabase
@@ -450,6 +472,7 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
       .update({
         status: 'booked',
         booking_type: 'makeup',
+        course_enrollment_id: enrollmentId,
         booking_date: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })
@@ -468,7 +491,7 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
         class_instance_id: parseInt(classInstanceId),
         status: 'booked',
         booking_type: 'makeup',
-        course_enrollment_id: null,
+        course_enrollment_id: enrollmentId,
         booking_date: new Date().toISOString(),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
@@ -488,6 +511,20 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   // Update class enrollment count
   await supabaseDb.updateClassEnrollment(parseInt(classInstanceId), 1);
 
+  // Deduct enrollment credit if using enrollment credits
+  if (useEnrollmentCredits) {
+    await supabaseDb.supabase
+      .from('course_enrollments')
+      .update({
+        class_credits_used: (creditEnrollment.class_credits_used || 0) + 1,
+        class_credits_remaining: creditEnrollment.class_credits_remaining - 1,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', creditEnrollment.id);
+  }
+
+  const creditsLeft = useEnrollmentCredits ? enrollmentCredits - 1 : remainingCredits - 1;
+
   res.json({
     success: true,
     booking: {
@@ -496,7 +533,7 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
       status: booking.status,
       isMakeup: true
     },
-    remainingCredits: remainingCredits - 1,
+    remainingCredits: creditsLeft,
     message: 'Makeup class booked successfully!'
   });
 }));

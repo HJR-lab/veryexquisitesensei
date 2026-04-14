@@ -807,10 +807,12 @@ export default function AdminClasses() {
     // Course enrollment roster — from course_enrollments table (permanent roster)
     const allMembersForCourse = (course.course?.enrolledStudents || []).map(s => ({
       name: `${s.firstName} ${s.lastName}`,
-      orders: s.returningCount || 1,
+      orders: s.returningCount || 0,
       studentId: s.studentId,
       email: s.email,
       enrollmentId: s.enrollmentId,
+      attended: s.attended || 0,
+      totalWeeks: s.totalWeeks || course.weeks || 6,
     }));
 
     // Build open slots: use enrollment count from API
@@ -889,34 +891,42 @@ export default function AdminClasses() {
 
             {/* Student table — same layout as instructor class detail */}
             <div style={{ marginBottom: '10px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto', padding: '6px 12px', borderBottom: `1px solid ${RULE}` }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '22px 1fr 80px 36px 50px', padding: '6px 12px', borderBottom: `1px solid ${RULE}`, gap: '4px', alignItems: 'center' }}>
                 <span style={{ fontSize: '9px', fontWeight: 700, color: MUTED, letterSpacing: '0.06em' }}>#</span>
                 <span style={{ fontSize: '9px', fontWeight: 700, color: MUTED, letterSpacing: '0.06em' }}>STUDENT</span>
                 <span style={{ fontSize: '9px', fontWeight: 700, color: MUTED, letterSpacing: '0.06em' }}>TYPE</span>
+                <span style={{ fontSize: '9px', fontWeight: 700, color: MUTED, letterSpacing: '0.06em', textAlign: 'center' }}>ORD.</span>
+                <span style={{ fontSize: '9px', fontWeight: 700, color: MUTED, letterSpacing: '0.06em', textAlign: 'center' }}>PROG.</span>
               </div>
-              {allMembersForCourse.map((s, j) => (
-                <div
-                  key={j}
-                  style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto', padding: '8px 12px', borderBottom: `1px solid ${RULE}`, backgroundColor: '#FFF', alignItems: 'center' }}
-                  onMouseEnter={e => e.currentTarget.style.backgroundColor = TC_LIGHT}
-                  onMouseLeave={e => e.currentTarget.style.backgroundColor = '#FFF'}
-                >
-                  <span style={{ fontSize: '10px', color: MUTED, fontWeight: 600 }}>{j + 1}.</span>
-                  <span
-                    onClick={() => navigate(`/admin/students/${encodeURIComponent(s.email)}`)}
-                    style={{ fontSize: '12px', fontWeight: 600, cursor: 'pointer', color: TC_DARK, textDecoration: 'underline' }}
+              {allMembersForCourse.map((s, j) => {
+                const ordColor = s.orders >= 3 ? '#E65100' : s.orders >= 2 ? '#F57C00' : s.orders >= 1 ? '#888' : '#CCC';
+                return (
+                  <div
+                    key={j}
+                    style={{ display: 'grid', gridTemplateColumns: '22px 1fr 80px 36px 50px', padding: '9px 12px', borderTop: `1px solid ${RULE}`, backgroundColor: '#FFF', alignItems: 'center', gap: '4px' }}
+                    onMouseEnter={e => e.currentTarget.style.backgroundColor = TC_LIGHT}
+                    onMouseLeave={e => e.currentTarget.style.backgroundColor = '#FFF'}
                   >
-                    {s.name}
-                    {s.orders > 1 && <span style={{ fontSize: '10px', color: MUTED, fontWeight: 400, marginLeft: '4px' }}>({s.orders}x)</span>}
-                  </span>
-                  <span style={{ fontSize: '10px', fontWeight: 600, color: INK }}>Enrolled</span>
-                </div>
-              ))}
+                    <span style={{ fontSize: '10px', color: MUTED, fontWeight: 600 }}>{j + 1}.</span>
+                    <span
+                      onClick={() => navigate(`/admin/students/${encodeURIComponent(s.email)}`)}
+                      style={{ fontSize: '12px', fontWeight: 600, cursor: 'pointer', color: TC_DARK, textDecoration: 'underline' }}
+                    >
+                      {s.name}
+                    </span>
+                    <span style={{ fontSize: '10px', fontWeight: 600, color: INK }}>Enrolled</span>
+                    <span style={{ display: 'flex', justifyContent: 'center' }}>
+                      <span style={{ fontSize: '10px', fontWeight: 700, color: '#FFF', backgroundColor: ordColor, borderRadius: '3px', padding: '1px 6px', minWidth: '18px', textAlign: 'center' }}>{s.orders}</span>
+                    </span>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: INK, textAlign: 'center' }}>{s.attended}/{s.totalWeeks}</span>
+                  </div>
+                );
+              })}
               {Array.from({ length: openSlots }).map((_, j) => (
-                <div key={`open-${j}`} style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto', padding: '8px 12px', borderBottom: `1px dashed ${RULE}` }}>
+                <div key={`open-${j}`} style={{ display: 'grid', gridTemplateColumns: '22px 1fr 80px 36px 50px', padding: '9px 12px', borderTop: `1px dashed ${RULE}`, gap: '4px' }}>
                   <span style={{ fontSize: '10px', color: MUTED }}>{allMembersForCourse.length + j + 1}.</span>
                   <span style={{ fontSize: '10px', color: MUTED, fontStyle: 'italic' }}>open</span>
-                  <span />
+                  <span /><span /><span />
                 </div>
               ))}
             </div>

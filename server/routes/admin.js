@@ -3320,27 +3320,9 @@ app.get('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asyn
     enrollmentsByCourse[e.course_identifier].push(e);
   });
 
-  // Count attended bookings per enrollment for progress tracking
-  const allEnrollmentIds = allCourseEnrollments.map(e => e.id);
-  const attendedByEnrollment = {};
-  if (allEnrollmentIds.length > 0) {
-    for (let i = 0; i < allEnrollmentIds.length; i += 500) {
-      const chunk = allEnrollmentIds.slice(i, i + 500);
-      const { data: attended } = await supabaseDb.supabase
-        .from('bookings')
-        .select('course_enrollment_id')
-        .in('course_enrollment_id', chunk)
-        .eq('status', 'attended');
-      (attended || []).forEach(b => {
-        attendedByEnrollment[b.course_enrollment_id] = (attendedByEnrollment[b.course_enrollment_id] || 0) + 1;
-      });
-    }
-  }
-
   // Override totalEnrollment with actual enrollment count and attach roster
   courses.forEach(course => {
     const enrs = enrollmentsByCourse[course.identifier] || [];
-    const totalWeeks = course.classes?.length || 6;
     course.totalEnrollment = enrs.length;
     course.enrolledStudents = enrs.map(e => ({
       studentId: e.student_id,
@@ -3349,8 +3331,6 @@ app.get('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asyn
       email: e.customers?.email,
       returningCount: e.customers?.course_purchase_count || 0,
       enrollmentId: e.id,
-      attended: attendedByEnrollment[e.id] || 0,
-      totalWeeks,
     }));
   });
 

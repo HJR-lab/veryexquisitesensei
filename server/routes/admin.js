@@ -3297,6 +3297,43 @@ app.get('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asyn
     course.totalEnrollment = uniqueStudents.size;
   });
 
+  // Fetch course enrollments to get accurate enrolled student counts and roster
+  const courseIdentifiers = courses.map(c => c.identifier);
+  let allCourseEnrollments = [];
+  if (courseIdentifiers.length > 0) {
+    // Batch fetch in chunks of 50 to avoid query limits
+    for (let i = 0; i < courseIdentifiers.length; i += 50) {
+      const chunk = courseIdentifiers.slice(i, i + 50);
+      const { data: enrs } = await supabaseDb.supabase
+        .from('course_enrollments')
+        .select('id, student_id, course_identifier, status, customers:student_id(id, first_name, last_name, email, course_purchase_count)')
+        .in('course_identifier', chunk)
+        .eq('status', 'active');
+      if (enrs) allCourseEnrollments = allCourseEnrollments.concat(enrs);
+    }
+  }
+
+  // Group enrollments by course identifier
+  const enrollmentsByCourse = {};
+  allCourseEnrollments.forEach(e => {
+    if (!enrollmentsByCourse[e.course_identifier]) enrollmentsByCourse[e.course_identifier] = [];
+    enrollmentsByCourse[e.course_identifier].push(e);
+  });
+
+  // Override totalEnrollment with actual enrollment count and attach roster
+  courses.forEach(course => {
+    const enrs = enrollmentsByCourse[course.identifier] || [];
+    course.totalEnrollment = enrs.length;
+    course.enrolledStudents = enrs.map(e => ({
+      studentId: e.student_id,
+      firstName: e.customers?.first_name,
+      lastName: e.customers?.last_name,
+      email: e.customers?.email,
+      returningCount: e.customers?.course_purchase_count || 0,
+      enrollmentId: e.id,
+    }));
+  });
+
   // Return all courses (client handles active/past filtering)
   const filteredCourses = courses;
 

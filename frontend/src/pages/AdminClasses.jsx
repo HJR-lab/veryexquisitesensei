@@ -128,6 +128,14 @@ export default function AdminClasses() {
   const [editClassData, setEditClassData] = useState({ classDate: '', startTime: '', endTime: '', instructor: '', maxCapacity: 12, classTitle: '', classDescription: '' });
   const [updatingClass, setUpdatingClass] = useState(false);
 
+  // ── Compose unconfirmed email modal ──────────────────────────────────────────
+  const [showComposeModal, setShowComposeModal] = useState(false);
+  const [composeCourse, setComposeCourse] = useState(null);
+  const [composeSubject, setComposeSubject] = useState('');
+  const [composeBody, setComposeBody] = useState('');
+  const [sending, setSending] = useState(false);
+  const [unconfirmedEmailDates, setUnconfirmedEmailDates] = useState({});
+
   // ── Postpone course modal ────────────────────────────────────────────────────
   const [showPostponeModal, setShowPostponeModal] = useState(false);
   const [postponeCourse, setPostponeCourse] = useState(null); // { id, classes }
@@ -161,6 +169,8 @@ export default function AdminClasses() {
     }).catch(() => {});
     // Phase 2: full data
     loadCourses();
+    // Load unconfirmed email dates
+    api.get('/admin/courses/unconfirmed-email-dates').then(({ data }) => setUnconfirmedEmailDates(data)).catch(() => {});
   }, []);
 
   const loadCourses = async () => {
@@ -662,6 +672,44 @@ export default function AdminClasses() {
     }
   };
 
+  // ── Compose unconfirmed email handlers ────────────────────────────────────────
+  const handleOpenCompose = (course) => {
+    const firstClass = course.classes?.[0];
+    const dayName = firstClass ? ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(firstClass.class_date).getDay()] : '';
+    const startDate = firstClass ? new Date(firstClass.class_date).toLocaleDateString('en-SG', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+    const timeSlot = firstClass?.start_time || '';
+    setComposeCourse(course);
+    setComposeSubject(`VES — Your Wheelthrowing course has been postponed`);
+    setComposeBody(`<h1 style="margin: 0 0 16px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">Course Update</h1>
+<p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">Dear Ves Student,</p>
+<p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">We regret to inform you that your <strong>Wheelthrowing</strong> course scheduled for <strong>${dayName}s</strong> starting <strong>${startDate}</strong> (${timeSlot}) has not yet reached the minimum of 4 students required to proceed.</p>
+<p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #282828;">Your course will be <strong>postponed by one week</strong> to the same day and time. We will continue to postpone week by week until we have enough students to run the class.</p>
+<p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #282828;">You do not need to take any action — your enrolment is still secured and we will notify you once the class is confirmed.</p>
+<p style="margin: 0 0 24px; font-size: 14px; line-height: 1.6; color: #282828;">We appreciate your patience and look forward to seeing you at the studio!<br/><br/>Ves Studio</p>`);
+    setShowComposeModal(true);
+  };
+
+  const handleSendUnconfirmed = async () => {
+    if (!composeCourse || !composeSubject || !composeBody) return;
+    if (!confirm(`Send this email to all enrolled students in ${composeCourse.id}?`)) return;
+    try {
+      setSending(true);
+      const { data } = await api.post(`/admin/courses/${encodeURIComponent(composeCourse.id)}/send-unconfirmed`, {
+        subject: composeSubject,
+        body: composeBody,
+      });
+      alert(`Email sent to ${data.recipientCount} student${data.recipientCount !== 1 ? 's' : ''}!`);
+      setShowComposeModal(false);
+      setComposeCourse(null);
+      // Refresh last sent dates
+      api.get('/admin/courses/unconfirmed-email-dates').then(({ data }) => setUnconfirmedEmailDates(data)).catch(() => {});
+    } catch (error) {
+      alert(error.response?.data?.error || 'Failed to send email');
+    } finally {
+      setSending(false);
+    }
+  };
+
   // ── Create course handlers ────────────────────────────────────────────────────
   const handleNumberOfClassesChange = (newNumber) => {
     const num = Math.max(1, Math.min(12, parseInt(newNumber) || 1));
@@ -862,9 +910,22 @@ export default function AdminClasses() {
           <div style={{ height: '4px', backgroundColor: ALT, position: 'relative', marginBottom: '8px' }}>
             <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${Math.min(100, (enrolled / course.capacity) * 100)}%`, backgroundColor: course.color }} />
           </div>
-          <div style={{ fontSize: '10px', color: MUTED }}>
+          <div style={{ fontSize: '10px', color: MUTED, marginBottom: '8px' }}>
             Wk {course.currentWeek}/{course.weeks}
             {course.nextClassDate ? ` · Next: ${fmtDateShort(course.nextClassDate)}` : ''}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button
+              onClick={e => { e.stopPropagation(); handleOpenCompose(course); }}
+              style={{ fontSize: '8px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '3px 8px', backgroundColor: '#EEF0FF', color: '#3B5998', border: 'none', cursor: 'pointer' }}
+            >
+              Compose
+            </button>
+            {unconfirmedEmailDates[course.id] && (
+              <span style={{ fontSize: '9px', color: MUTED }}>
+                Sent {new Date(unconfirmedEmailDates[course.id]).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })}
+              </span>
+            )}
           </div>
         </div>
 
@@ -1560,6 +1621,59 @@ export default function AdminClasses() {
       />
 
       {/* OLD MODALS REMOVED — replaced by ClassModals components above */}
+
+      {/* ── COMPOSE UNCONFIRMED EMAIL MODAL ────────────────────────────────── */}
+      {showComposeModal && composeCourse && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setShowComposeModal(false)}>
+          <div style={{ backgroundColor: '#FFF', width: '600px', maxHeight: '90vh', overflow: 'auto', padding: '24px' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div>
+                <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: TC, marginBottom: '4px' }}>Compose Email</div>
+                <div style={{ fontSize: '16px', fontWeight: 700 }}>{composeCourse.id}</div>
+              </div>
+              <button onClick={() => setShowComposeModal(false)} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: MUTED }}>✕</button>
+            </div>
+
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '4px' }}>Subject</label>
+              <input
+                type="text"
+                value={composeSubject}
+                onChange={e => setComposeSubject(e.target.value)}
+                style={{ width: '100%', padding: '8px 10px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '4px' }}>Body (HTML)</label>
+              <textarea
+                value={composeBody}
+                onChange={e => setComposeBody(e.target.value)}
+                rows={14}
+                style={{ width: '100%', padding: '8px 10px', border: `1px solid ${RULE}`, fontSize: '12px', fontFamily: 'monospace', lineHeight: 1.5, resize: 'vertical', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowComposeModal(false)}
+                style={{ padding: '8px 16px', border: `1px solid ${RULE}`, backgroundColor: '#FFF', fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', cursor: 'pointer', color: MUTED }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSendUnconfirmed}
+                disabled={sending}
+                style={{ padding: '8px 20px', border: 'none', backgroundColor: sending ? MUTED : TC, color: '#FFF', fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', cursor: sending ? 'wait' : 'pointer' }}
+              >
+                {sending ? 'Sending…' : 'Send Email'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

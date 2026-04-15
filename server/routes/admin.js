@@ -4216,6 +4216,77 @@ app.post('/api/admin/courses/:courseIdentifier/postpone', authenticateToken, req
   });
 }));
 
+// Send unconfirmed/postponement email for a course
+app.post('/api/admin/courses/:courseIdentifier/send-unconfirmed', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { courseIdentifier } = req.params;
+  const { subject, body } = req.body;
+
+  if (!subject || !body) {
+    return res.status(400).json({ error: 'Subject and body are required' });
+  }
+
+  // Get enrolled students for this course
+  const { data: enrollments } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('student_id, customers:student_id(email, first_name)')
+    .eq('course_identifier', courseIdentifier)
+    .eq('status', 'active');
+
+  if (!enrollments || enrollments.length === 0) {
+    return res.status(400).json({ error: 'No active enrollments found for this course' });
+  }
+
+  const recipientEmails = enrollments
+    .map(e => e.customers?.email)
+    .filter(Boolean);
+
+  if (recipientEmails.length === 0) {
+    return res.status(400).json({ error: 'No valid email addresses found' });
+  }
+
+  const { wrapEmailTemplate } = require('../email-templates/base');
+  const html = wrapEmailTemplate(body);
+
+  const { sendAndLogEmail } = require('../utils/emailService');
+  const result = await sendAndLogEmail({
+    emailType: 'course_unconfirmed',
+    courseIdentifier,
+    subject,
+    html,
+    recipientEmails,
+    sentBy: req.user.email || 'admin',
+  });
+
+  if (!result.success) {
+    return res.status(500).json({ error: result.error || 'Failed to send email' });
+  }
+
+  res.json({
+    success: true,
+    recipientCount: recipientEmails.length,
+    messageId: result.messageId,
+  });
+}));
+
+// Get last sent unconfirmed email dates per course
+app.get('/api/admin/courses/unconfirmed-email-dates', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { data } = await supabaseDb.supabase
+    .from('sent_emails')
+    .select('course_identifier, sent_at')
+    .eq('email_type', 'course_unconfirmed')
+    .order('sent_at', { ascending: false });
+
+  // Group by course, take most recent
+  const lastSent = {};
+  (data || []).forEach(row => {
+    if (!lastSent[row.course_identifier]) {
+      lastSent[row.course_identifier] = row.sent_at;
+    }
+  });
+
+  res.json(lastSent);
+}));
+
 // Create a new class
 app.post('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { startTime, endTime, classType, instructor, room, teachingCapacity, makeUpCapacity, glazingCapacity, numberOfClasses, classDates } = req.body;

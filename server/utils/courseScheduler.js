@@ -9,7 +9,7 @@
  * @param {string} variantTitle - Variant title (e.g., "6 weeks TUESDAYS | 20 Oct - 24 Nov")
  * @returns {Object} Parsed course information
  */
-function parseCourseInfo(title, variantTitle) {
+function parseCourseInfo(title, variantTitle, orderDate) {
   const result = {
     courseTitle: title,
     variantTitle: variantTitle,
@@ -97,13 +97,14 @@ function parseCourseInfo(title, variantTitle) {
     const endMonth = monthMap[endMonthStr];
 
     if (startMonth !== undefined && endMonth !== undefined) {
-      const currentYear = new Date().getFullYear();
-      const currentMonth = new Date().getMonth();
+      // Use order date's year if provided, otherwise current year
+      const refDate = orderDate ? new Date(orderDate) : new Date();
+      const refYear = refDate.getFullYear();
 
       // Determine year for start date
-      // RULE: All classes are in the current year (2025)
-      // Orders are placed in Jan 2025 for classes happening later in 2025
-      let startYear = currentYear;
+      // Match the year to when the order was placed — an order from 2025
+      // with "4 Aug - 8 Sep" means Aug 2025, not the current year
+      let startYear = refYear;
 
       // Create date in GMT+8 (Singapore timezone)
       // Use UTC date to avoid timezone conversion issues

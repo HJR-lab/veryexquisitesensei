@@ -83,7 +83,13 @@ async function processCoursePurchase(order, lineItem) {
     }
 
     // Parse course information from Shopify product
-    const courseInfo = parseCourseInfo(lineItem.title, lineItem.variantTitle);
+    const courseInfo = parseCourseInfo(lineItem.title, lineItem.variantTitle, order.createdAt || order.created_at);
+
+    // Skip if the course end date is in the past (old order from a previous year)
+    if (courseInfo.endDate && courseInfo.endDate < new Date()) {
+      console.log(`⏭️  Skipping old course — end date ${courseInfo.endDate.toISOString().slice(0, 10)} is in the past (order ${order.id})`);
+      return { success: true, skipped: true, reason: 'course_ended' };
+    }
 
     // Detect course package type from title
     // Type 1: "3 Course Package" → 3×6 = 18 classes

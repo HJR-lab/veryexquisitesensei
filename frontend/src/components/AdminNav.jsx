@@ -132,6 +132,7 @@ export default function AdminNav({ active, onSyncComplete }) {
             {showSettings && (
               <div style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, backgroundColor: '#FFF', border: `1px solid ${RULE}`, minWidth: '140px', zIndex: 100 }}>
                 {[
+                  { label: 'Fees', href: '/admin/fees' },
                   { label: 'Emails', href: '/admin/emails' },
                   { label: 'Fire', href: '/admin/pieces' },
                   { label: 'Credits', href: '/admin/credits' },

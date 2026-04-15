@@ -4287,6 +4287,40 @@ app.get('/api/admin/courses/unconfirmed-email-dates', authenticateToken, require
   res.json(lastSent);
 }));
 
+// List all fees with student info
+app.get('/api/admin/fees', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { data, error } = await supabaseDb.supabase
+    .from('reschedule_fees')
+    .select('*, customers:student_id(id, first_name, last_name, email)')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  res.json({ fees: data || [] });
+}));
+
+// Update fee status
+app.put('/api/admin/fees/:feeId', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { feeId } = req.params;
+  const { payment_status, notes } = req.body;
+
+  const update = { updated_at: new Date().toISOString() };
+  if (payment_status) {
+    update.payment_status = payment_status;
+    if (payment_status === 'paid') update.payment_date = new Date().toISOString();
+  }
+  if (notes !== undefined) update.notes = notes;
+
+  const { data, error } = await supabaseDb.supabase
+    .from('reschedule_fees')
+    .update(update)
+    .eq('id', parseInt(feeId))
+    .select()
+    .single();
+
+  if (error) throw error;
+  res.json(data);
+}));
+
 // Create a new class
 app.post('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { startTime, endTime, classType, instructor, room, teachingCapacity, makeUpCapacity, glazingCapacity, numberOfClasses, classDates } = req.body;

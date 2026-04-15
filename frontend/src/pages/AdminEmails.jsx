@@ -193,7 +193,24 @@ export default function AdminEmails() {
 
   // ── Last sent lookup ────────────────────────────────────────────────────────
   function lastSentFor(cfg) {
-    const match = history.filter(h => h.course_identifier && h.course_identifier.startsWith(cfg.course_type_key));
+    const key = cfg.course_type_key || '';
+    const match = history.filter(h => {
+      if (!h.course_identifier) return false;
+      // Direct match (e.g. "wt-6week" === "wt-6week")
+      if (h.course_identifier.startsWith(key)) return true;
+      // Match by email_type for course details/unconfirmed sent to specific courses
+      if (h.email_type === 'course_details' || h.email_type === 'course_unconfirmed') {
+        // Match WT courses by week count: wt-6week matches WT*6, wt-7week-inter matches WT*7
+        const weekMatch = key.match(/(\d+)/);
+        if (weekMatch) {
+          const weeks = weekMatch[1];
+          const id = h.course_identifier.toUpperCase();
+          if (key.includes('hb')) return id.startsWith('HB');
+          if (key.includes('wt') && id.startsWith('WT') && id.includes(weeks)) return true;
+        }
+      }
+      return false;
+    });
     if (!match.length) return null;
     return match.sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at))[0].sent_at;
   }

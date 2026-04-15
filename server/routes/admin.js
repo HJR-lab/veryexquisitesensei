@@ -5847,7 +5847,7 @@ app.get('/api/admin/course-emails/history', authenticateToken, requireAdmin, asy
     .from('sent_emails')
     .select('*')
     .order('sent_at', { ascending: false })
-    .limit(50);
+    .limit(200);
 
   if (error) throw error;
 

@@ -6468,37 +6468,36 @@ app.post('/api/admin/vouchers/:id/assign-recipient', authenticateToken, requireA
 app.get('/api/admin/vouchers/active-courses', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const today = new Date().toISOString().split('T')[0];
 
-  // Get distinct course identifiers that have future classes
+  // class_type is the course identifier (e.g. WT1104AM_DL7.4)
   const { data: classes, error } = await supabaseDb.supabase
     .from('class_instances')
-    .select('course_identifier, class_type, date, start_time, instructor')
-    .gte('date', today)
-    .not('course_identifier', 'is', null)
-    .order('date', { ascending: true });
+    .select('class_type, class_date, start_time, instructor')
+    .gte('class_date', today)
+    .like('class_type', 'WT%')
+    .order('class_date', { ascending: true });
 
   if (error) throw error;
 
   // Group by base course identifier (strip the .N suffix)
   const courseMap = {};
   for (const ci of (classes || [])) {
-    const base = ci.course_identifier.replace(/\.\d+$/, '');
+    const base = ci.class_type.replace(/\.\d+$/, '');
     if (!courseMap[base]) {
       courseMap[base] = {
         course_identifier: base,
         class_type: ci.class_type,
         instructor: ci.instructor,
         start_time: ci.start_time,
-        first_date: ci.date,
-        last_date: ci.date,
+        first_date: ci.class_date,
+        last_date: ci.class_date,
         class_count: 0,
       };
     }
-    courseMap[base].last_date = ci.date;
+    courseMap[base].last_date = ci.class_date;
     courseMap[base].class_count++;
   }
 
   const courses = Object.values(courseMap)
-    .filter(c => c.class_type && c.class_type.toLowerCase().includes('wheel'))
     .sort((a, b) => a.first_date.localeCompare(b.first_date));
 
   res.json({ courses });
@@ -6534,12 +6533,12 @@ app.post('/api/admin/vouchers/:id/convert-to-enrollment', authenticateToken, req
     return res.status(400).json({ error: `Voucher status is '${voucher.status}', must be 'pending' to convert.` });
   }
 
-  // 2. Find class instances matching the course_identifier pattern
+  // 2. Find class instances matching the course_identifier pattern (class_type column)
   const { data: classInstances, error: classErr } = await supabase
     .from('class_instances')
     .select('*')
-    .like('course_identifier', `${course_identifier}.%`)
-    .order('date', { ascending: true });
+    .like('class_type', `${course_identifier}.%`)
+    .order('class_date', { ascending: true });
 
   if (classErr) throw classErr;
   if (!classInstances || classInstances.length === 0) {
@@ -6567,8 +6566,8 @@ app.post('/api/admin/vouchers/:id/convert-to-enrollment', authenticateToken, req
       course_variant_title: voucher.variant_title || '',
       course_type: courseType,
       number_of_weeks: classInstances.length,
-      course_start_date: classInstances[0].date,
-      course_end_date: classInstances[classInstances.length - 1].date,
+      course_start_date: classInstances[0].class_date,
+      course_end_date: classInstances[classInstances.length - 1].class_date,
       status: 'active',
       course_identifier: course_identifier,
       class_credits_used: 0,
@@ -6588,7 +6587,7 @@ app.post('/api/admin/vouchers/:id/convert-to-enrollment', authenticateToken, req
     course_enrollment_id: enrollment.id,
     status: 'booked',
     booking_type: 'regular',
-    course_identifier: ci.course_identifier,
+    course_identifier: ci.class_type,
     created_at: now
   }));
 

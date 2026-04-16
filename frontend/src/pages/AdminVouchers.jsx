@@ -25,7 +25,7 @@ export default function AdminVouchers() {
 
   const loadActiveCourses = async () => {
     try {
-      const { data } = await api.get('/admin/vouchers/active-courses');
+      const { data } = await api.get('/admin/available-courses', { params: { type: 'WT' } });
       setActiveCourses(data.courses || []);
     } catch (err) {
       console.error('Failed to load active courses:', err);
@@ -325,8 +325,8 @@ export default function AdminVouchers() {
                       >
                         <option value="">Select a course...</option>
                         {activeCourses.map(c => (
-                          <option key={c.course_identifier} value={c.course_identifier}>
-                            {c.course_identifier} — {c.instructor} — {c.class_count} classes ({new Date(c.first_date).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })} to {new Date(c.last_date).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })})
+                          <option key={c.courseId} value={c.courseId}>
+                            {c.courseId} — {c.instructor} · {c.totalClasses} classes · Starts {new Date(c.startDate).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })} · {c.startTime}
                           </option>
                         ))}
                       </select>

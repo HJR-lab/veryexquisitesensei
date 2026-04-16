@@ -6587,8 +6587,8 @@ app.post('/api/admin/vouchers/:id/convert-to-enrollment', authenticateToken, req
     course_enrollment_id: enrollment.id,
     status: 'booked',
     booking_type: 'regular',
-    course_identifier: ci.class_type,
-    created_at: now
+    created_at: now,
+    updated_at: now
   }));
 
   const { error: bookErr } = await supabase

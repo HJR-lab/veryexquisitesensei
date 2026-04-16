@@ -6436,7 +6436,6 @@ app.post('/api/admin/vouchers/:id/assign-recipient', authenticateToken, requireA
         first_name,
         last_name,
         email: normalizedEmail,
-        phone,
         customer_type: 'student',
         shopify_customer_id: `VOUCHER-${Date.now()}`,
         updated_at: new Date().toISOString()

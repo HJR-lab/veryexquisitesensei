@@ -1488,7 +1488,7 @@ app.post('/api/admin/vouchers/backfill', authenticateToken, requireAdmin, asyncH
     if (cursor) {
       query = `
         query getVoucherOrders($cursor: String!) {
-          orders(first: 250, after: $cursor, query: "title:*voucher*") {
+          orders(first: 250, after: $cursor, query: "Gift Voucher") {
             edges {
               node {
                 id
@@ -1530,7 +1530,7 @@ app.post('/api/admin/vouchers/backfill', authenticateToken, requireAdmin, asyncH
     } else {
       query = `
         query getVoucherOrders {
-          orders(first: 250, query: "title:*voucher*") {
+          orders(first: 250, query: "Gift Voucher") {
             edges {
               node {
                 id
@@ -1581,9 +1581,12 @@ app.post('/api/admin/vouchers/backfill', authenticateToken, requireAdmin, asyncH
       break;
     }
 
+    console.log(`🎁 Backfill: found ${orders.edges.length} orders in this page`);
+
     for (const edge of orders.edges) {
       const order = edge.node;
       cursor = edge.cursor;
+      console.log(`🎁 Order ${order.name}: ${(order.lineItems?.edges || []).map(e => e.node.title).join(', ')}`);
 
       // Extract numeric Shopify order ID
       const shopifyOrderId = order.id.replace('gid://shopify/Order/', '');
@@ -1593,7 +1596,7 @@ app.post('/api/admin/vouchers/backfill', authenticateToken, requireAdmin, asyncH
         const lineItem = liEdge.node;
         const title = (lineItem.title || '').toLowerCase();
 
-        if (!title.includes('voucher') && !title.includes('gift voucher')) {
+        if (!title.includes('voucher') && !title.includes('gift')) {
           continue;
         }
 

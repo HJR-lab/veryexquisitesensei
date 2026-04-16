@@ -19,8 +19,18 @@ export default function AdminVouchers() {
   const [saving, setSaving] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
   const [backfillMsg, setBackfillMsg] = useState(null);
+  const [activeCourses, setActiveCourses] = useState([]);
 
-  useEffect(() => { loadVouchers(); }, []);
+  useEffect(() => { loadVouchers(); loadActiveCourses(); }, []);
+
+  const loadActiveCourses = async () => {
+    try {
+      const { data } = await api.get('/admin/vouchers/active-courses');
+      setActiveCourses(data.courses || []);
+    } catch (err) {
+      console.error('Failed to load active courses:', err);
+    }
+  };
 
   const loadVouchers = async () => {
     try {
@@ -308,12 +318,18 @@ export default function AdminVouchers() {
                 {v.recipient_customer_id && (
                   convertingId === v.id ? (
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                      <input
-                        style={{ ...inputStyle, width: '200px' }}
+                      <select
+                        style={{ ...inputStyle, width: '320px' }}
                         value={convertForm.course_identifier}
                         onChange={e => setConvertForm({ course_identifier: e.target.value })}
-                        placeholder="e.g. WT0503NT_JL6"
-                      />
+                      >
+                        <option value="">Select a course...</option>
+                        {activeCourses.map(c => (
+                          <option key={c.course_identifier} value={c.course_identifier}>
+                            {c.course_identifier} — {c.instructor} — {c.class_count} classes ({new Date(c.first_date).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })} to {new Date(c.last_date).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })})
+                          </option>
+                        ))}
+                      </select>
                       <button onClick={() => convertToEnrollment(v.id)} disabled={saving || !convertForm.course_identifier} style={{ ...btnPrimary, fontSize: '9px', padding: '4px 10px', opacity: saving || !convertForm.course_identifier ? 0.5 : 1 }}>
                         {saving ? 'Enrolling...' : 'Enroll'}
                       </button>

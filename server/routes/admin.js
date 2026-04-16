@@ -6464,6 +6464,46 @@ app.post('/api/admin/vouchers/:id/assign-recipient', authenticateToken, requireA
   res.json({ voucher, customer });
 }));
 
+// Get active WT courses (with future class dates) for voucher enrollment dropdown
+app.get('/api/admin/vouchers/active-courses', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const today = new Date().toISOString().split('T')[0];
+
+  // Get distinct course identifiers that have future classes
+  const { data: classes, error } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('course_identifier, class_type, date, start_time, instructor')
+    .gte('date', today)
+    .not('course_identifier', 'is', null)
+    .order('date', { ascending: true });
+
+  if (error) throw error;
+
+  // Group by base course identifier (strip the .N suffix)
+  const courseMap = {};
+  for (const ci of (classes || [])) {
+    const base = ci.course_identifier.replace(/\.\d+$/, '');
+    if (!courseMap[base]) {
+      courseMap[base] = {
+        course_identifier: base,
+        class_type: ci.class_type,
+        instructor: ci.instructor,
+        start_time: ci.start_time,
+        first_date: ci.date,
+        last_date: ci.date,
+        class_count: 0,
+      };
+    }
+    courseMap[base].last_date = ci.date;
+    courseMap[base].class_count++;
+  }
+
+  const courses = Object.values(courseMap)
+    .filter(c => c.class_type && c.class_type.toLowerCase().includes('wheel'))
+    .sort((a, b) => a.first_date.localeCompare(b.first_date));
+
+  res.json({ courses });
+}));
+
 // ============================================
 // CONVERT VOUCHER TO ENROLLMENT
 // ============================================

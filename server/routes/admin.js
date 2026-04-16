@@ -6463,4 +6463,133 @@ app.post('/api/admin/vouchers/:id/assign-recipient', authenticateToken, requireA
   res.json({ voucher, customer });
 }));
 
+// ============================================
+// CONVERT VOUCHER TO ENROLLMENT
+// ============================================
+
+app.post('/api/admin/vouchers/:id/convert-to-enrollment', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { course_identifier } = req.body;
+
+  if (!course_identifier) {
+    return res.status(400).json({ error: 'course_identifier is required' });
+  }
+
+  const { supabase } = supabaseDb;
+
+  // 1. Fetch voucher and verify it's eligible
+  const { data: voucher, error: voucherErr } = await supabase
+    .from('vouchers')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (voucherErr) throw voucherErr;
+  if (!voucher) return res.status(404).json({ error: 'Voucher not found' });
+  if (!voucher.recipient_customer_id) {
+    return res.status(400).json({ error: 'Voucher has no recipient assigned. Assign a recipient first.' });
+  }
+  if (voucher.status !== 'pending') {
+    return res.status(400).json({ error: `Voucher status is '${voucher.status}', must be 'pending' to convert.` });
+  }
+
+  // 2. Find class instances matching the course_identifier pattern
+  const { data: classInstances, error: classErr } = await supabase
+    .from('class_instances')
+    .select('*')
+    .like('course_identifier', `${course_identifier}.%`)
+    .order('date', { ascending: true });
+
+  if (classErr) throw classErr;
+  if (!classInstances || classInstances.length === 0) {
+    return res.status(400).json({ error: `No class instances found matching '${course_identifier}.*'` });
+  }
+
+  // 3. Derive course type
+  let courseType = 'Wheelthrowing Beginner';
+  if (course_identifier.startsWith('HB')) {
+    courseType = 'Handbuilding';
+  }
+
+  const now = new Date().toISOString();
+  const shopifyOrderId = `VOUCHER-${voucher.id}`;
+  const shopifyLineItemId = `VOUCHER-${voucher.id}-${Date.now()}`;
+
+  // 4. Create course enrollment
+  const { data: enrollment, error: enrollErr } = await supabase
+    .from('course_enrollments')
+    .insert({
+      student_id: voucher.recipient_customer_id,
+      shopify_order_id: shopifyOrderId,
+      shopify_line_item_id: shopifyLineItemId,
+      course_title: voucher.product_title || 'Voucher Redemption',
+      course_variant_title: voucher.variant_title || '',
+      course_type: courseType,
+      number_of_weeks: classInstances.length,
+      course_start_date: classInstances[0].date,
+      course_end_date: classInstances[classInstances.length - 1].date,
+      status: 'active',
+      course_identifier: course_identifier,
+      class_credits_used: 0,
+      class_credits_remaining: classInstances.length,
+      created_at: now,
+      updated_at: now
+    })
+    .select()
+    .single();
+
+  if (enrollErr) throw enrollErr;
+
+  // 5. Create bookings for each class instance
+  const bookings = classInstances.map(ci => ({
+    student_id: voucher.recipient_customer_id,
+    class_instance_id: ci.id,
+    course_enrollment_id: enrollment.id,
+    status: 'booked',
+    booking_type: 'regular',
+    course_identifier: ci.course_identifier,
+    created_at: now
+  }));
+
+  const { error: bookErr } = await supabase
+    .from('bookings')
+    .insert(bookings);
+
+  if (bookErr) throw bookErr;
+
+  // Update credits after booking
+  await supabase
+    .from('course_enrollments')
+    .update({
+      class_credits_used: classInstances.length,
+      class_credits_remaining: 0,
+      bookings_created_at: now,
+      updated_at: now
+    })
+    .eq('id', enrollment.id);
+
+  // 6. Update voucher status
+  const { data: updatedVoucher, error: updateErr } = await supabase
+    .from('vouchers')
+    .update({
+      status: 'redeemed',
+      redeemed_at: now,
+      redeemed_enrollment_id: enrollment.id
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (updateErr) throw updateErr;
+
+  console.log(`🎁 Voucher ${id} converted to enrollment ${enrollment.id} for course ${course_identifier} (${classInstances.length} classes)`);
+
+  res.json({
+    success: true,
+    voucher: updatedVoucher,
+    enrollment,
+    bookingsCreated: classInstances.length
+  });
+}));
+
 };

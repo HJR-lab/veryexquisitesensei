@@ -11,10 +11,14 @@ export default function AdminVouchers() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('pending');
   const [showAddForm, setShowAddForm] = useState(false);
-  const [addForm, setAddForm] = useState({ purchaser_name: '', purchaser_email: '', shopify_order_name: '', product_title: 'Pottery Course Voucher', amount: '', notes: ''});
+  const [addForm, setAddForm] = useState({ purchaser_name: '', purchaser_email: '', shopify_order_name: '', product_title: 'Pottery Course Voucher', amount: '', notes: '' });
   const [assigningId, setAssigningId] = useState(null);
   const [assignForm, setAssignForm] = useState({ first_name: '', last_name: '', email: '', phone: '' });
+  const [convertingId, setConvertingId] = useState(null);
+  const [convertForm, setConvertForm] = useState({ course_identifier: '' });
   const [saving, setSaving] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillMsg, setBackfillMsg] = useState(null);
 
   useEffect(() => { loadVouchers(); }, []);
 
@@ -38,7 +42,7 @@ export default function AdminVouchers() {
         amount: addForm.amount ? Number(addForm.amount) : null,
       });
       setShowAddForm(false);
-      setAddForm({ purchaser_name: '', purchaser_email: '', shopify_order_name: '', product_title: 'Pottery Course Voucher', amount: '', notes: ''});
+      setAddForm({ purchaser_name: '', purchaser_email: '', shopify_order_name: '', product_title: 'Pottery Course Voucher', amount: '', notes: '' });
       await loadVouchers();
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to create voucher');
@@ -67,6 +71,36 @@ export default function AdminVouchers() {
       alert(err.response?.data?.error || 'Failed to assign recipient');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const convertToEnrollment = async (id) => {
+    try {
+      setSaving(true);
+      const { data } = await api.post(`/admin/vouchers/${id}/convert-to-enrollment`, convertForm);
+      setConvertingId(null);
+      setConvertForm({ course_identifier: '' });
+      alert(`Enrolled! ${data.bookingsCreated} classes booked.`);
+      await loadVouchers();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to convert to enrollment');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleBackfill = async () => {
+    try {
+      setBackfilling(true);
+      setBackfillMsg(null);
+      const { data } = await api.post('/admin/vouchers/backfill');
+      setBackfillMsg(`Imported ${data.created} voucher${data.created !== 1 ? 's' : ''} from Shopify (${data.skipped} already existed)`);
+      await loadVouchers();
+    } catch (err) {
+      setBackfillMsg('Failed to backfill from Shopify');
+    } finally {
+      setBackfilling(false);
+      setTimeout(() => setBackfillMsg(null), 8000);
     }
   };
 
@@ -101,7 +135,15 @@ export default function AdminVouchers() {
         {/* Header */}
         <div style={{ marginBottom: '24px' }}>
           <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>Admin</div>
-          <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Vouchers</h1>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Vouchers</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {backfillMsg && <span style={{ fontSize: '10px', fontWeight: 600, color: backfillMsg.includes('Failed') ? '#C0392B' : '#1E6B1E' }}>{backfillMsg}</span>}
+              <button onClick={handleBackfill} disabled={backfilling} style={{ ...btnSecondary, fontSize: '9px', padding: '4px 10px', opacity: backfilling ? 0.5 : 1 }}>
+                {backfilling ? 'Importing...' : 'Import from Shopify'}
+              </button>
+            </div>
+          </div>
           <p style={{ fontSize: '13px', color: MUTED, marginTop: '4px' }}>
             {pendingCount} pending &middot; {redeemedCount} redeemed
           </p>
@@ -152,7 +194,7 @@ export default function AdminVouchers() {
               </div>
               <div>
                 <label style={labelStyle}>Shopify Order # (optional)</label>
-                <input style={inputStyle} value={addForm.shopify_order_name} onChange={e => setAddForm({ ...addForm, shopify_order_number: e.target.value })} placeholder="#1234" />
+                <input style={inputStyle} value={addForm.shopify_order_name} onChange={e => setAddForm({ ...addForm, shopify_order_name: e.target.value })} placeholder="#1234" />
               </div>
               <div>
                 <label style={labelStyle}>Product / Course</label>
@@ -171,7 +213,7 @@ export default function AdminVouchers() {
               <button onClick={createVoucher} disabled={saving || !addForm.purchaser_name || !addForm.purchaser_email} style={{ ...btnPrimary, opacity: saving || !addForm.purchaser_name || !addForm.purchaser_email ? 0.5 : 1 }}>
                 {saving ? 'Saving...' : 'Save'}
               </button>
-              <button onClick={() => { setShowAddForm(false); setAddForm({ purchaser_name: '', purchaser_email: '', shopify_order_name: '', product_title: 'Pottery Course Voucher', amount: '', notes: ''}); }} style={btnSecondary}>
+              <button onClick={() => { setShowAddForm(false); setAddForm({ purchaser_name: '', purchaser_email: '', shopify_order_name: '', product_title: 'Pottery Course Voucher', amount: '', notes: '' }); }} style={btnSecondary}>
                 Cancel
               </button>
             </div>
@@ -261,7 +303,30 @@ export default function AdminVouchers() {
 
             {/* Status actions */}
             {v.status === 'pending' && (
-              <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
+              <div style={{ display: 'flex', gap: '6px', marginTop: '10px', alignItems: 'center' }}>
+                {/* Convert to Enrollment — only if recipient assigned */}
+                {v.recipient_customer_id && (
+                  convertingId === v.id ? (
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <input
+                        style={{ ...inputStyle, width: '200px' }}
+                        value={convertForm.course_identifier}
+                        onChange={e => setConvertForm({ course_identifier: e.target.value })}
+                        placeholder="e.g. WT0503NT_JL6"
+                      />
+                      <button onClick={() => convertToEnrollment(v.id)} disabled={saving || !convertForm.course_identifier} style={{ ...btnPrimary, fontSize: '9px', padding: '4px 10px', opacity: saving || !convertForm.course_identifier ? 0.5 : 1 }}>
+                        {saving ? 'Enrolling...' : 'Enroll'}
+                      </button>
+                      <button onClick={() => { setConvertingId(null); setConvertForm({ course_identifier: '' }); }} style={{ ...btnSecondary, fontSize: '9px', padding: '4px 10px' }}>
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button onClick={() => { setConvertingId(v.id); setConvertForm({ course_identifier: '' }); }} style={{ fontSize: '9px', fontWeight: 700, padding: '3px 8px', backgroundColor: '#E3F2FD', color: '#1565C0', border: 'none', cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Convert to Enrollment
+                    </button>
+                  )
+                )}
                 <button onClick={() => updateStatus(v.id, 'redeemed')} style={{ fontSize: '9px', fontWeight: 700, padding: '3px 8px', backgroundColor: '#E8F5E9', color: '#2E7D32', border: 'none', cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   Mark Redeemed
                 </button>
@@ -271,7 +336,10 @@ export default function AdminVouchers() {
               </div>
             )}
             {v.status === 'redeemed' && v.redeemed_at && (
-              <div style={{ fontSize: '10px', color: MUTED, marginTop: '8px' }}>Redeemed on {fmtDate(v.redeemed_at)}</div>
+              <div style={{ fontSize: '10px', color: MUTED, marginTop: '8px' }}>
+                Redeemed on {fmtDate(v.redeemed_at)}
+                {v.redeemed_enrollment_id && <span> &middot; Enrollment #{v.redeemed_enrollment_id}</span>}
+              </div>
             )}
             {v.status === 'cancelled' && (
               <div style={{ marginTop: '10px' }}>

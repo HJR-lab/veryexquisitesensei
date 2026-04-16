@@ -1466,4 +1466,209 @@ app.post('/api/shopify/webhook/customers', express.raw({ type: 'application/json
     res.status(200).json({ received: true });
   }
 });
+
+// ============================================
+// VOUCHER BACKFILL FROM SHOPIFY
+// ============================================
+
+app.post('/api/admin/vouchers/backfill', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  console.log('🎁 Starting voucher backfill from Shopify...');
+  const client = getShopifyClient();
+  const { supabase } = supabaseDb;
+
+  let processedCount = 0;
+  let createdCount = 0;
+  let skippedCount = 0;
+  let hasNextPage = true;
+  let cursor = null;
+
+  while (hasNextPage) {
+    let query, variables;
+
+    if (cursor) {
+      query = `
+        query getVoucherOrders($cursor: String!) {
+          orders(first: 250, after: $cursor, query: "title:*voucher*") {
+            edges {
+              node {
+                id
+                name
+                createdAt
+                displayFinancialStatus
+                customer {
+                  id
+                  email
+                  firstName
+                  lastName
+                }
+                lineItems(first: 50) {
+                  edges {
+                    node {
+                      id
+                      title
+                      variantTitle
+                      quantity
+                      originalUnitPriceSet {
+                        shopMoney {
+                          amount
+                          currencyCode
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              cursor
+            }
+            pageInfo {
+              hasNextPage
+            }
+          }
+        }
+      `;
+      variables = { cursor };
+    } else {
+      query = `
+        query getVoucherOrders {
+          orders(first: 250, query: "title:*voucher*") {
+            edges {
+              node {
+                id
+                name
+                createdAt
+                displayFinancialStatus
+                customer {
+                  id
+                  email
+                  firstName
+                  lastName
+                }
+                lineItems(first: 50) {
+                  edges {
+                    node {
+                      id
+                      title
+                      variantTitle
+                      quantity
+                      originalUnitPriceSet {
+                        shopMoney {
+                          amount
+                          currencyCode
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              cursor
+            }
+            pageInfo {
+              hasNextPage
+            }
+          }
+        }
+      `;
+      variables = {};
+    }
+
+    const response = await client.query({
+      data: { query, variables }
+    });
+
+    const orders = response?.body?.data?.orders;
+    if (!orders || !orders.edges || orders.edges.length === 0) {
+      hasNextPage = false;
+      break;
+    }
+
+    for (const edge of orders.edges) {
+      const order = edge.node;
+      cursor = edge.cursor;
+
+      // Extract numeric Shopify order ID
+      const shopifyOrderId = order.id.replace('gid://shopify/Order/', '');
+
+      // Check each line item for voucher products
+      for (const liEdge of (order.lineItems?.edges || [])) {
+        const lineItem = liEdge.node;
+        const title = (lineItem.title || '').toLowerCase();
+
+        if (!title.includes('voucher') && !title.includes('gift voucher')) {
+          continue;
+        }
+
+        processedCount++;
+        const lineItemId = lineItem.id.replace('gid://shopify/LineItem/', '');
+
+        // Check if voucher already exists for this order + line item
+        const { data: existing } = await supabase
+          .from('vouchers')
+          .select('id')
+          .eq('shopify_order_id', shopifyOrderId)
+          .eq('shopify_line_item_id', lineItemId)
+          .maybeSingle();
+
+        if (existing) {
+          skippedCount++;
+          continue;
+        }
+
+        // Look up purchaser by email
+        let purchaserCustomerId = null;
+        const customerEmail = order.customer?.email;
+        if (customerEmail) {
+          const { data: customer } = await supabase
+            .from('customers')
+            .select('id')
+            .eq('email', customerEmail.toLowerCase())
+            .maybeSingle();
+          if (customer) {
+            purchaserCustomerId = customer.id;
+          }
+        }
+
+        const amount = lineItem.originalUnitPriceSet?.shopMoney?.amount
+          ? parseFloat(lineItem.originalUnitPriceSet.shopMoney.amount)
+          : null;
+
+        // Create voucher record
+        const { error: insertErr } = await supabase
+          .from('vouchers')
+          .insert({
+            shopify_order_id: shopifyOrderId,
+            shopify_line_item_id: lineItemId,
+            shopify_order_name: order.name || null,
+            purchaser_customer_id: purchaserCustomerId,
+            purchaser_name: order.customer ? `${order.customer.firstName || ''} ${order.customer.lastName || ''}`.trim() : null,
+            purchaser_email: customerEmail || null,
+            product_title: lineItem.title,
+            variant_title: lineItem.variantTitle || null,
+            amount: amount,
+            currency: lineItem.originalUnitPriceSet?.shopMoney?.currencyCode || 'SGD',
+            status: 'pending',
+            purchased_at: order.createdAt,
+            created_at: new Date().toISOString()
+          });
+
+        if (insertErr) {
+          console.error(`❌ Error creating voucher for order ${shopifyOrderId}:`, insertErr.message);
+        } else {
+          createdCount++;
+          console.log(`✅ Created voucher from order ${order.name || shopifyOrderId}: ${lineItem.title}`);
+        }
+      }
+    }
+
+    hasNextPage = orders.pageInfo.hasNextPage;
+  }
+
+  console.log(`🎁 Voucher backfill complete: ${processedCount} processed, ${createdCount} created, ${skippedCount} skipped`);
+  res.json({
+    success: true,
+    processed: processedCount,
+    created: createdCount,
+    skipped: skippedCount
+  });
+}));
+
 };

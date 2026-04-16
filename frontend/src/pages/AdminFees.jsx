@@ -34,6 +34,16 @@ export default function AdminFees() {
     }
   };
 
+  const deleteFee = async (feeId) => {
+    if (!confirm('Delete this fee record?')) return;
+    try {
+      await api.delete(`/admin/fees/${feeId}`);
+      await loadFees();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to delete fee');
+    }
+  };
+
   const filtered = filter === 'all' ? fees : fees.filter(f => f.payment_status === filter);
   const pendingCount = fees.filter(f => f.payment_status === 'pending').length;
   const totalOwing = fees.filter(f => f.payment_status === 'pending').reduce((sum, f) => sum + (f.amount || 0), 0);
@@ -130,13 +140,23 @@ export default function AdminFees() {
                       </button>
                     </div>
                   ) : (
-                    <span style={{
-                      fontSize: '9px', fontWeight: 700, padding: '2px 8px', textTransform: 'uppercase', letterSpacing: '0.04em',
-                      backgroundColor: fee.payment_status === 'paid' ? '#E8F5E9' : '#FFF3E0',
-                      color: fee.payment_status === 'paid' ? '#2E7D32' : '#E65100',
-                    }}>
-                      {fee.payment_status}
-                    </span>
+                    <div style={{ display: 'flex', gap: '4px', justifyContent: 'center', alignItems: 'center' }}>
+                      <span style={{
+                        fontSize: '9px', fontWeight: 700, padding: '2px 8px', textTransform: 'uppercase', letterSpacing: '0.04em',
+                        backgroundColor: fee.payment_status === 'paid' ? '#E8F5E9' : '#FFF3E0',
+                        color: fee.payment_status === 'paid' ? '#2E7D32' : '#E65100',
+                      }}>
+                        {fee.payment_status}
+                      </span>
+                      {fee.payment_status === 'waived' && (
+                        <button
+                          onClick={() => deleteFee(fee.id)}
+                          style={{ fontSize: '9px', fontWeight: 700, padding: '3px 6px', backgroundColor: '#FFEBEE', color: '#C62828', border: 'none', cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.04em' }}
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>

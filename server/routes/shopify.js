@@ -1394,8 +1394,28 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
               });
               console.log(`📧 Voucher outreach email sent to ${buyerEmail}`);
             }
+
+            // Auto-create voucher record for admin tracking
+            const purchaserLookup = await supabaseDb.supabase
+              .from('customers')
+              .select('id')
+              .eq('email', customer.email)
+              .single();
+
+            await supabaseDb.supabase.from('vouchers').insert({
+              purchaser_customer_id: purchaserLookup?.data?.id || null,
+              purchaser_name: `${customer.first_name || ''} ${customer.last_name || ''}`.trim(),
+              purchaser_email: customer.email,
+              shopify_order_id: String(orderData.id),
+              shopify_order_name: orderData.name || `#${orderData.order_number}`,
+              product_title: item.title || 'Pottery Course Voucher',
+              variant_title: item.variant_title || null,
+              amount: parseFloat(item.price) || null,
+              status: 'pending',
+            });
+            console.log(`🎫 Voucher record created for order ${orderData.name}`);
           } catch (emailErr) {
-            console.error('[Email] Failed to send voucher outreach:', emailErr);
+            console.error('[Email/Voucher] Failed to process voucher:', emailErr);
           }
         }
       }

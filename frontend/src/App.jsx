@@ -50,6 +50,7 @@ const AdminCredits = lazy(() => import('./pages/AdminCredits'));
 const AdminReschedules = lazy(() => import('./pages/AdminReschedules'));
 const AdminCohorts = lazy(() => import('./pages/AdminCohorts'));
 const AdminFees = lazy(() => import('./pages/AdminFees'));
+const AdminVouchers = lazy(() => import('./pages/AdminVouchers'));
 
 const Policies = lazy(() => import('./pages/Policies'));
 
@@ -229,6 +230,7 @@ function App() {
             <Route path="reschedules" element={<AdminReschedules />} />
             <Route path="cohorts" element={<AdminCohorts />} />
             <Route path="fees" element={<AdminFees />} />
+            <Route path="vouchers" element={<AdminVouchers />} />
 
           </Route>
 

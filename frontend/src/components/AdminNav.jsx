@@ -143,6 +143,7 @@ export default function AdminNav({ active, onSyncComplete }) {
                   { label: 'Event', href: '/admin/events' },
                   { label: 'Stats', href: '/admin/platform-stats' },
                   { label: 'Policy', href: '/admin/policy' },
+                  { label: 'Vouchers', href: '/admin/vouchers' },
                 ].map((item, i, arr) => (
                   <a
                     key={item.href}

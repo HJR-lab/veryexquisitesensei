@@ -6279,4 +6279,188 @@ app.post('/api/admin/course-emails/move-student', authenticateToken, requireAdmi
   });
 }));
 
+// ============================================
+// VOUCHER MANAGEMENT ENDPOINTS
+// ============================================
+
+// Get voucher stats (must be before :id route)
+app.get('/api/admin/vouchers/stats', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const [
+    { count: total, error: e1 },
+    { count: pending, error: e2 },
+    { count: redeemed, error: e3 },
+    { count: cancelled, error: e4 }
+  ] = await Promise.all([
+    supabaseDb.supabase
+      .from('vouchers')
+      .select('*', { count: 'exact', head: true }),
+    supabaseDb.supabase
+      .from('vouchers')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pending'),
+    supabaseDb.supabase
+      .from('vouchers')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'redeemed'),
+    supabaseDb.supabase
+      .from('vouchers')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'cancelled')
+  ]);
+
+  const err = e1 || e2 || e3 || e4;
+  if (err) throw err;
+
+  res.json({
+    total: total || 0,
+    pending: pending || 0,
+    redeemed: redeemed || 0,
+    cancelled: cancelled || 0
+  });
+}));
+
+// List all vouchers with purchaser/recipient info
+app.get('/api/admin/vouchers', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { data, error } = await supabaseDb.supabase
+    .from('vouchers')
+    .select(`
+      *,
+      purchaser:customers!vouchers_purchaser_customer_id_fkey(id, first_name, last_name, email),
+      recipient:customers!vouchers_recipient_customer_id_fkey(id, first_name, last_name, email)
+    `)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  res.json({ vouchers: data || [] });
+}));
+
+// Create a voucher manually
+app.post('/api/admin/vouchers', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const {
+    purchaser_name, purchaser_email, product_title, variant_title,
+    amount, recipient_name, recipient_email, recipient_phone,
+    notes, shopify_order_id, shopify_order_name
+  } = req.body;
+
+  let purchaser_customer_id = null;
+  let recipient_customer_id = null;
+
+  // Look up purchaser by email
+  if (purchaser_email) {
+    const { data: purchaser } = await supabaseDb.supabase
+      .from('customers')
+      .select('id')
+      .eq('email', purchaser_email.toLowerCase().trim())
+      .single();
+    if (purchaser) purchaser_customer_id = purchaser.id;
+  }
+
+  // Look up recipient by email
+  if (recipient_email) {
+    const { data: recipient } = await supabaseDb.supabase
+      .from('customers')
+      .select('id')
+      .eq('email', recipient_email.toLowerCase().trim())
+      .single();
+    if (recipient) recipient_customer_id = recipient.id;
+  }
+
+  const { data, error } = await supabaseDb.supabase
+    .from('vouchers')
+    .insert({
+      purchaser_name,
+      purchaser_email,
+      purchaser_customer_id,
+      product_title,
+      variant_title,
+      amount,
+      recipient_name,
+      recipient_email,
+      recipient_phone,
+      recipient_customer_id,
+      notes,
+      shopify_order_id,
+      shopify_order_name,
+      status: 'pending'
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  res.json({ voucher: data });
+}));
+
+// Update voucher fields
+app.put('/api/admin/vouchers/:id', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const updates = { ...req.body };
+
+  // If status changes to redeemed, set redeemed_at
+  if (updates.status === 'redeemed') {
+    updates.redeemed_at = new Date().toISOString();
+  }
+
+  const { data, error } = await supabaseDb.supabase
+    .from('vouchers')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  res.json({ voucher: data });
+}));
+
+// Assign a recipient to a voucher
+app.post('/api/admin/vouchers/:id/assign-recipient', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { first_name, last_name, email, phone } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+
+  // Look up or create customer
+  let { data: customer } = await supabaseDb.supabase
+    .from('customers')
+    .select('id')
+    .eq('email', normalizedEmail)
+    .single();
+
+  if (!customer) {
+    const { data: newCustomer, error: createErr } = await supabaseDb.supabase
+      .from('customers')
+      .insert({
+        first_name,
+        last_name,
+        email: normalizedEmail,
+        phone,
+        customer_type: 'student'
+      })
+      .select()
+      .single();
+
+    if (createErr) throw createErr;
+    customer = newCustomer;
+  }
+
+  // Update voucher with recipient info
+  const { data: voucher, error } = await supabaseDb.supabase
+    .from('vouchers')
+    .update({
+      recipient_customer_id: customer.id,
+      recipient_name: `${first_name} ${last_name}`.trim(),
+      recipient_email: normalizedEmail,
+      recipient_phone: phone || null
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  res.json({ voucher, customer });
+}));
+
 };

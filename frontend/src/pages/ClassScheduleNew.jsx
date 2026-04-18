@@ -927,6 +927,27 @@ export default function ClassScheduleNew() {
             </div>
           )}
 
+          {/* ── UNBOOKED WARNING ─────────────────────────────────────────── */}
+          {(() => {
+            const activeEnrollments = [...(dashboardData?.enrollments?.active || []), ...(dashboardData?.enrollments?.upcoming || [])];
+            const regularCourse = activeEnrollments.find(e => e.number_of_weeks && e.number_of_weeks !== 10);
+            if (!regularCourse) return null;
+            const totalClasses = regularCourse.number_of_weeks || 6;
+            const activeBookings = (regularCourse.bookings || []).filter(b => b.status === 'booked' || b.status === 'attended' || b.status === 'completed').length;
+            const unbooked = totalClasses - activeBookings;
+            if (unbooked <= 0) return null;
+            return (
+              <div style={{ backgroundColor: '#FFF0F0', border: '1px solid #F0C0C0', padding: '12px 16px', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: '#C03030', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                  You have {unbooked} class{unbooked !== 1 ? 'es' : ''} unbooked
+                </span>
+                <a href="/classes" style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '6px 14px', backgroundColor: '#C03030', color: '#FFF', textDecoration: 'none' }}>
+                  Book Now
+                </a>
+              </div>
+            );
+          })()}
+
           {/* ── MY UPCOMING ────────────────────────────────────────────────── */}
           <div style={{ borderTop: `1px solid ${RULE}`, paddingTop: '24px' }}>
             <SectionLabel>My Upcoming</SectionLabel>

@@ -420,7 +420,16 @@ export default function Dashboard() {
                   if (activeCourse.is10Pkg) {
                     return <div>You have <strong style={{ color: INK }}>{activeCourse.creditsAvailable} Class Credit{activeCourse.creditsAvailable !== 1 ? 's' : ''}</strong> available</div>;
                   }
-                  return <div style={{ color: '#C03030' }}>You have <strong>{activeCourse.creditsAvailable} class{activeCourse.creditsAvailable !== 1 ? 'es' : ''} unbooked</strong></div>;
+                  return (
+                    <div style={{ backgroundColor: '#FFF0F0', border: '1px solid #F0C0C0', padding: '8px 12px', marginTop: '4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 700, color: '#C03030', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                        You have {activeCourse.creditsAvailable} class{activeCourse.creditsAvailable !== 1 ? 'es' : ''} unbooked
+                      </span>
+                      <a href="/classes" style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '5px 12px', backgroundColor: '#C03030', color: '#FFF', textDecoration: 'none', flexShrink: 0 }}>
+                        Book Now
+                      </a>
+                    </div>
+                  );
                 }
                 return null;
               })()}

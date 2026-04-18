@@ -601,6 +601,7 @@ function startAutomaticProcessing() {
     autoMarkPastBookingsAsAttended().catch(console.error);
     checkPieceReminders().catch(console.error);
     autoRecycleExpiredBatches().catch(console.error);
+    cleanupExpiredWaitlist().catch(console.error);
   }, 5000);
 
   // Run daily at 2 AM
@@ -619,6 +620,7 @@ function startAutomaticProcessing() {
       checkWeeklyUnconfirmedRecheck().catch(console.error);
       checkPieceReminders().catch(console.error);
       autoRecycleExpiredBatches().catch(console.error);
+      cleanupExpiredWaitlist().catch(console.error);
     }
 
     // Process inbox emails every 15 minutes
@@ -635,6 +637,45 @@ function startAutomaticProcessing() {
   console.log('[Auto-Processor] ✅ Automatic daily processing scheduled (runs at 2:00 AM)');
 }
 
+/**
+ * Clean up waitlist entries for classes that have already passed
+ */
+async function cleanupExpiredWaitlist() {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+
+    const { data: expired, error } = await supabase
+      .from('waitlist')
+      .select('id, student_id, class_instance_id, class_instances!waitlist_class_instance_id_fkey(class_date, class_type)')
+      .eq('claimed', false)
+      .lt('class_instances.class_date', today);
+
+    if (error) {
+      console.error('[Waitlist Cleanup] Error:', error);
+      return;
+    }
+
+    // Filter to entries where class_date is actually past (the join filter may return nulls)
+    const toDelete = (expired || []).filter(e => e.class_instances?.class_date && e.class_instances.class_date < today);
+
+    if (toDelete.length === 0) return;
+
+    const ids = toDelete.map(e => e.id);
+    const { error: delError } = await supabase
+      .from('waitlist')
+      .delete()
+      .in('id', ids);
+
+    if (delError) {
+      console.error('[Waitlist Cleanup] Delete error:', delError);
+    } else {
+      console.log(`[Waitlist Cleanup] Removed ${ids.length} expired waitlist entries`);
+    }
+  } catch (err) {
+    console.error('[Waitlist Cleanup] Error:', err);
+  }
+}
+
 module.exports = {
   processReadyCohorts,
   autoMarkPastBookingsAsAttended,
@@ -643,5 +684,6 @@ module.exports = {
   checkWeeklyUnconfirmedRecheck,
   checkPieceReminders,
   autoRecycleExpiredBatches,
+  cleanupExpiredWaitlist,
   startAutomaticProcessing
 };

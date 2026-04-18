@@ -427,7 +427,7 @@ export default function Dashboard() {
                 const activeCourse = enrollmentsWithCounts.find(e => e.statusLabel === 'active' || e.statusLabel === 'upcoming');
                 if (activeCourse && activeCourse.creditsAvailable > 0) {
                   if (activeCourse.is10Pkg) {
-                    return <div>You have <strong style={{ color: INK }}>{activeCourse.creditsAvailable} Class Credit{activeCourse.creditsAvailable !== 1 ? 's' : ''}</strong> available</div>;
+                    return <div>You have <strong style={{ color: INK }}>{activeCourse.creditsAvailable} Class Credit{activeCourse.creditsAvailable !== 1 ? 's' : ''}</strong> remaining</div>;
                   }
                   return (
                     <div style={{ backgroundColor: '#FFF0F0', border: '1px solid #F0C0C0', padding: '8px 12px', marginTop: '4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>

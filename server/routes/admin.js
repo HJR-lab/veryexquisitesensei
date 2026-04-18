@@ -5243,6 +5243,61 @@ app.post('/api/admin/waitlist/:id/send-email', authenticateToken, requireAdmin, 
   res.json({ success: result.success, emailType, studentName: `${student.first_name} ${student.last_name}`, error: result.error });
 }));
 
+// Get class notes (admin)
+app.get('/api/admin/classes/:classId/notes', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { classId } = req.params;
+  const { data } = await supabaseDb.supabase
+    .from('instructor_notes')
+    .select('*, customers!instructor_notes_instructor_id_fkey(first_name, last_name)')
+    .eq('class_instance_id', parseInt(classId))
+    .order('created_at', { ascending: false });
+  res.json({ notes: data || [] });
+}));
+
+// Save class note (admin)
+app.post('/api/admin/classes/:classId/notes', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { classId } = req.params;
+  const { content } = req.body;
+  const { dbCustomerId } = req.user;
+
+  if (!content?.trim()) return res.status(400).json({ error: 'Note content required' });
+
+  // Check if there's an existing class note to update
+  const { data: existing } = await supabaseDb.supabase
+    .from('instructor_notes')
+    .select('id')
+    .eq('class_instance_id', parseInt(classId))
+    .eq('note_type', 'class')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existing) {
+    const { data, error } = await supabaseDb.supabase
+      .from('instructor_notes')
+      .update({ content: content.trim(), updated_at: new Date().toISOString() })
+      .eq('id', existing.id)
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: 'Failed to update note' });
+    return res.json({ note: data });
+  }
+
+  const { data, error } = await supabaseDb.supabase
+    .from('instructor_notes')
+    .insert({
+      instructor_id: dbCustomerId,
+      class_instance_id: parseInt(classId),
+      note_type: 'class',
+      content: content.trim()
+    })
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: 'Failed to save note' });
+  res.json({ note: data });
+}));
+
 // Get student's waitlist entries (admin)
 app.get('/api/admin/students/:studentId/waitlist', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { studentId } = req.params;

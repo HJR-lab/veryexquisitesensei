@@ -1,4 +1,6 @@
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import api from '../utils/api';
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
 const TC       = '#C4622D';
@@ -102,6 +104,9 @@ export default function ClassDayDetail({
                   </div>
                 </div>
 
+                {/* Class notes */}
+                {classMembers[classInstance.id] && <ClassNotes classId={classInstance.id} />}
+
                 {/* Member table */}
                 {loadingMembers[classInstance.id] ? (
                   <div style={{ padding: '12px 14px', fontSize: '11px', color: MUTED }}>Loading students…</div>
@@ -113,6 +118,50 @@ export default function ClassDayDetail({
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function ClassNotes({ classId }) {
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [savedAt, setSavedAt] = useState(null);
+
+  useEffect(() => {
+    api.get(`/admin/classes/${classId}/notes`).then(res => {
+      const classNote = (res.data.notes || []).find(n => n.note_type === 'class');
+      if (classNote) setNote(classNote.content || '');
+      setLoaded(true);
+    }).catch(() => setLoaded(true));
+  }, [classId]);
+
+  const saveNote = useCallback(async () => {
+    if (!note.trim()) return;
+    setSaving(true);
+    try {
+      await api.post(`/admin/classes/${classId}/notes`, { content: note });
+      setSavedAt(new Date());
+      setTimeout(() => setSavedAt(null), 2000);
+    } catch (e) { console.error(e); }
+    finally { setSaving(false); }
+  }, [classId, note]);
+
+  if (!loaded) return null;
+
+  return (
+    <div style={{ padding: '10px 14px', borderTop: `1px solid ${RULE}` }}>
+      <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+        Notes
+        {savedAt && <span style={{ color: '#1E6B1E', fontWeight: 600, letterSpacing: 0, textTransform: 'none' }}>Saved</span>}
+      </div>
+      <textarea
+        value={note}
+        onChange={e => setNote(e.target.value)}
+        onBlur={saveNote}
+        placeholder="Add class notes…"
+        style={{ width: '100%', minHeight: '48px', padding: '8px 10px', border: `1px solid ${RULE}`, fontSize: '12px', fontFamily: 'inherit', color: INK, resize: 'vertical', boxSizing: 'border-box', outline: 'none' }}
+      />
     </div>
   );
 }

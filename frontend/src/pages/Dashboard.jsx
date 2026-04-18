@@ -288,7 +288,7 @@ export default function Dashboard() {
     // Count all bookings that consume a credit (booked, attended, completed, missed/absent, rescheduled)
     const bookedCount = isHBCredit
       ? (enrollment.class_credits_used || attendedCount)
-      : enrollmentBookings.filter(b => b.status === 'booked' || b.status === 'attended' || b.status === 'completed' || b.status === 'absent' || b.status === 'rescheduled').length;
+      : enrollmentBookings.filter(b => b.status === 'booked' || b.status === 'attended' || b.status === 'completed' || b.status === 'absent' || b.status === 'rescheduled' || b.status === 'forfeited').length;
     const remaining = Math.max(totalClasses - attendedCount, 0);
     const waitlistedCount = waitlistEntries.filter(w => !w.claimed && w.class).length;
     const creditsAvailable = Math.max(totalClasses - bookedCount - waitlistedCount, 0);

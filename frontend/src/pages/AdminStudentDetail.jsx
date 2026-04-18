@@ -831,7 +831,7 @@ export default function AdminStudentDetail() {
   // Count all bookings that consume a credit (booked, attended, completed, missed/absent, rescheduled)
   const creditsUsedCount = currentEnrollmentBookings.filter(b =>
     b.status === 'booked' || b.status === 'attended' || b.status === 'completed' ||
-    b.status === 'absent' || b.status === 'missed' || b.status === 'rescheduled'
+    b.status === 'absent' || b.status === 'missed' || b.status === 'rescheduled' || b.status === 'forfeited'
   ).length;
   const waitlistCredits = studentWaitlist.length;
   const unbookedCount  = isHBEnrollment

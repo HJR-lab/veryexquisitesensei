@@ -44,6 +44,8 @@ export default function AdminEmails() {
   const [loading,        setLoading]        = useState(true);
   const [waitlistData,   setWaitlistData]   = useState([]);
   const [sendingWaitlistId, setSendingWaitlistId] = useState(null);
+  const [collectionData, setCollectionData] = useState([]);
+  const [sendingCollectionId, setSendingCollectionId] = useState(null);
   const [saveStatus,     setSaveStatus]     = useState(null); // null | 'saving' | 'saved' | 'error'
   const [statusMsg,      setStatusMsg]      = useState(null); // { type: 'success'|'error', text }
   const [expandedEmail,  setExpandedEmail]  = useState(null); // email id for expanded detail
@@ -73,6 +75,10 @@ export default function AdminEmails() {
         api.get('/admin/waitlist').catch(() => ({ data: { waitlist: [] } })),
       ]);
       setWaitlistData(wlRes.data?.waitlist || []);
+      api.get('/admin/pieces/pipeline').then(r => {
+        const batches = r.data?.batches || [];
+        setCollectionData(batches.filter(b => ['ready', 'collecting', 'in_cabinet'].includes(b.status)));
+      }).catch(() => {});
       setConfigs(cfgRes.data.configs || cfgRes.data || []);
 
       // Keep courses until their last class has passed. The backend already
@@ -265,18 +271,22 @@ export default function AdminEmails() {
 
         {/* ── Tab bar ── */}
         <div style={{ display: 'flex', gap: '0', marginBottom: '24px', borderBottom: `2px solid ${RULE}` }}>
-          {['courses', 'waitlist'].map(t => (
+          {[
+            { key: 'courses', label: 'Courses' },
+            { key: 'waitlist', label: `Waitlist${waitlistData.length > 0 ? ` (${waitlistData.length})` : ''}` },
+            { key: 'collection', label: `Collection${collectionData.length > 0 ? ` (${collectionData.length})` : ''}` },
+          ].map(t => (
             <button
-              key={t}
-              onClick={() => { setTab(t); setView('settings'); setDraft(null); setComposeCourse(null); }}
+              key={t.key}
+              onClick={() => { setTab(t.key); setView('settings'); setDraft(null); setComposeCourse(null); }}
               style={{
-                padding: '10px 20px', border: 'none', borderBottom: tab === t ? `2px solid ${INK}` : '2px solid transparent',
+                padding: '10px 20px', border: 'none', borderBottom: tab === t.key ? `2px solid ${INK}` : '2px solid transparent',
                 marginBottom: '-2px', backgroundColor: 'transparent',
-                fontSize: '13px', fontWeight: tab === t ? 700 : 400, color: tab === t ? INK : MUTED,
+                fontSize: '13px', fontWeight: tab === t.key ? 700 : 400, color: tab === t.key ? INK : MUTED,
                 cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.06em',
               }}
             >
-              {t === 'courses' ? 'Courses' : `Waitlist${waitlistData.length > 0 ? ` (${waitlistData.length})` : ''}`}
+              {t.label}
             </button>
           ))}
         </div>
@@ -492,6 +502,80 @@ export default function AdminEmails() {
                         </div>
                       );
                     })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ────────────────────────── COLLECTION TAB ─────────────────────── */}
+            {tab === 'collection' && (
+              <div>
+                {collectionData.length === 0 ? (
+                  <div style={{ padding: '48px', textAlign: 'center', color: MUTED, fontSize: '13px' }}>No pieces pending collection.</div>
+                ) : (
+                  <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFF' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '140px 60px 70px 90px 1fr 200px', padding: '8px 16px', borderBottom: `1px solid ${RULE}`, backgroundColor: '#E8F5E9' }}>
+                      {['Student', 'Pieces', 'Initials', 'Status', 'Notes', 'Send Email'].map(h => (
+                        <span key={h} style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#2E7D32' }}>{h}</span>
+                      ))}
+                    </div>
+                    {collectionData.map((b, i) => (
+                      <div key={b.id} style={{ display: 'grid', gridTemplateColumns: '140px 60px 70px 90px 1fr 200px', padding: '10px 16px', borderBottom: i < collectionData.length - 1 ? `1px solid ${RULE}` : 'none', alignItems: 'center' }}>
+                        <span style={{ fontSize: '12px', fontWeight: 600 }}>{b.customer?.first_name || b.first_name} {b.customer?.last_name || b.last_name}</span>
+                        <span style={{ fontSize: '13px', fontWeight: 700 }}>{b.piece_count}</span>
+                        <span style={{ fontSize: '12px', fontFamily: 'monospace', fontWeight: 700 }}>{b.initials || '—'}</span>
+                        <span style={{
+                          fontSize: '9px', fontWeight: 700, padding: '2px 8px', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'inline-block',
+                          backgroundColor: b.status === 'ready' ? '#E8F5E9' : b.status === 'in_cabinet' ? '#E3F2FD' : '#FFF7E6',
+                          color: b.status === 'ready' ? '#2E7D32' : b.status === 'in_cabinet' ? '#1565C0' : '#9E6200',
+                        }}>{b.status === 'in_cabinet' ? 'In Cabinet' : b.status}</span>
+                        <span style={{ fontSize: '11px', color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.notes || '—'}</span>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <button
+                            disabled={sendingCollectionId === `${b.id}-ready`}
+                            onClick={async () => {
+                              setSendingCollectionId(`${b.id}-ready`);
+                              try {
+                                await api.post(`/admin/pieces/batches/${b.id}/send-collection-email`, { emailType: 'ready' });
+                                showStatus('success', `Collection email sent to ${b.customer?.first_name || b.first_name}`);
+                              } catch (err) { showStatus('error', err.response?.data?.error || 'Failed'); }
+                              finally { setSendingCollectionId(null); }
+                            }}
+                            style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 700, border: '1px solid #A5D6A7', backgroundColor: '#E8F5E9', color: '#2E7D32', cursor: 'pointer' }}
+                          >
+                            {sendingCollectionId === `${b.id}-ready` ? '…' : 'Ready'}
+                          </button>
+                          <button
+                            disabled={sendingCollectionId === `${b.id}-cabinet`}
+                            onClick={async () => {
+                              setSendingCollectionId(`${b.id}-cabinet`);
+                              try {
+                                await api.post(`/admin/pieces/batches/${b.id}/send-collection-email`, { emailType: 'cabinet' });
+                                showStatus('success', `Cabinet email sent to ${b.customer?.first_name || b.first_name}`);
+                              } catch (err) { showStatus('error', err.response?.data?.error || 'Failed'); }
+                              finally { setSendingCollectionId(null); }
+                            }}
+                            style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 700, border: '1px solid #90CAF9', backgroundColor: '#E3F2FD', color: '#1565C0', cursor: 'pointer' }}
+                          >
+                            {sendingCollectionId === `${b.id}-cabinet` ? '…' : 'In Cabinet'}
+                          </button>
+                          <button
+                            disabled={sendingCollectionId === `${b.id}-reminder`}
+                            onClick={async () => {
+                              setSendingCollectionId(`${b.id}-reminder`);
+                              try {
+                                await api.post(`/admin/pieces/batches/${b.id}/send-collection-email`, { emailType: 'reminder' });
+                                showStatus('success', `Reminder sent to ${b.customer?.first_name || b.first_name}`);
+                              } catch (err) { showStatus('error', err.response?.data?.error || 'Failed'); }
+                              finally { setSendingCollectionId(null); }
+                            }}
+                            style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 700, border: '1px solid #FFCC80', backgroundColor: '#FFF3E0', color: '#E65100', cursor: 'pointer' }}
+                          >
+                            {sendingCollectionId === `${b.id}-reminder` ? '…' : 'Remind'}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

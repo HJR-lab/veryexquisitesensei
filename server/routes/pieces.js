@@ -613,6 +613,82 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
 
     res.json({ success: true, detected, matches });
   }));
+
+  // Admin: Send collection email manually
+  app.post('/api/admin/pieces/batches/:id/send-collection-email', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+    const batchId = parseInt(req.params.id);
+    const { emailType } = req.body; // 'ready' | 'cabinet' | 'reminder'
+
+    const { data: batch, error } = await supabaseDb.supabase
+      .from('piece_batches')
+      .select('*, customers!piece_batches_customer_id_fkey(first_name, last_name, email)')
+      .eq('id', batchId)
+      .single();
+
+    if (error || !batch) return res.status(404).json({ error: 'Batch not found' });
+
+    const student = batch.customers;
+    if (!student?.email) return res.status(400).json({ error: 'Student has no email' });
+
+    const { sendEmail } = require('../utils/emailService');
+    const { wrapEmailTemplate } = require('../email-templates/base');
+    const pieceStr = `${batch.piece_count} piece${batch.piece_count !== 1 ? 's' : ''} (Initials: ${batch.initials || '—'})`;
+
+    let subject, body;
+
+    if (emailType === 'ready') {
+      subject = 'VES — Your fired pieces are ready for collection!';
+      body = `
+        <h1 style="margin: 0 0 16px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">Your pieces are ready for collection!</h1>
+        <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">Hi ${student.first_name}, great news — your fired pottery pieces are ready to be picked up from the studio!</p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #E8F5E9; border-radius: 8px; margin: 0 0 20px;">
+          <tr><td style="padding: 16px 20px;">
+            <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #2E7D32; text-transform: uppercase; letter-spacing: 0.05em;">Ready for Collection</p>
+            <p style="margin: 0 0 2px; font-size: 15px; font-weight: 600; color: #282828;">${pieceStr}</p>
+            ${batch.notes ? `<p style="margin: 0; font-size: 14px; color: #282828;">${batch.notes}</p>` : ''}
+          </td></tr>
+        </table>
+        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #F5F3F0; border-radius: 8px; margin: 0 0 20px;">
+          <tr><td style="padding: 16px 20px;">
+            <p style="margin: 0 0 8px; font-size: 14px; font-weight: 600; color: #282828;">How to collect</p>
+            <p style="margin: 0 0 4px; font-size: 14px; line-height: 1.6; color: #282828;">1. Log in and choose your <strong>collection date</strong> (at least 2 days from now).</p>
+            <p style="margin: 0 0 4px; font-size: 14px; line-height: 1.6; color: #282828;">2. Your pieces will be placed in the <strong>glass cabinet</strong> outside the studio.</p>
+            <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #282828;">3. Pick them up and confirm collection in the app.</p>
+          </td></tr>
+        </table>
+        <p style="margin: 0 0 4px; font-size: 14px; color: #282828;"><strong>Address:</strong> 75 Jalan Kelabu Asap, Chip Bee Gardens 278268 (<a href="https://maps.app.goo.gl/g84xejcaZbAsD2ze7" style="color: #C4622D;">Map</a>)</p>
+        <p style="margin: 0 0 20px; font-size: 13px; color: #888888;">Please collect within 60 days. Uncollected pieces may be recycled.</p>
+        <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+          <a href="https://club.ves.sg/gallery?tab=pieces" style="display: inline-block; padding: 14px 32px; background-color: #2E7D32; color: #fff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">Schedule Collection</a>
+        </td></tr></table>`;
+    } else if (emailType === 'cabinet') {
+      subject = 'VES — Your pieces are in the cabinet!';
+      body = `
+        <h1 style="margin: 0 0 16px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">Your pieces are in the cabinet</h1>
+        <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">Hi ${student.first_name}, your <strong>${pieceStr}</strong> ${batch.piece_count !== 1 ? 'are' : 'is'} now in the glass cabinet outside the studio — come pick ${batch.piece_count !== 1 ? 'them' : 'it'} up anytime!</p>
+        <p style="margin: 0 0 4px; font-size: 14px; color: #282828;"><strong>Address:</strong> 75 Jalan Kelabu Asap, Chip Bee Gardens 278268 (<a href="https://maps.app.goo.gl/g84xejcaZbAsD2ze7" style="color: #C4622D;">Map</a>)</p>
+        <p style="margin: 0 0 20px; font-size: 13px; color: #888888;">Once collected, confirm in the app so we know you've got them.</p>
+        <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+          <a href="https://club.ves.sg/gallery?tab=pieces" style="display: inline-block; padding: 14px 32px; background-color: #1565C0; color: #fff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">I've Collected My Pieces</a>
+        </td></tr></table>`;
+    } else if (emailType === 'reminder') {
+      subject = 'VES — Reminder: Your pottery pieces are waiting!';
+      body = `
+        <h1 style="margin: 0 0 16px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">Your pieces are still waiting!</h1>
+        <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">Hi ${student.first_name}, just a friendly reminder — your <strong>${pieceStr}</strong> ${batch.piece_count !== 1 ? 'are' : 'is'} ready and waiting for you at the studio.</p>
+        <p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #9E6200;">Please arrange collection soon. Uncollected pieces may be recycled after the hold period.</p>
+        <p style="margin: 0 0 4px; font-size: 14px; color: #282828;"><strong>Address:</strong> 75 Jalan Kelabu Asap, Chip Bee Gardens 278268 (<a href="https://maps.app.goo.gl/g84xejcaZbAsD2ze7" style="color: #C4622D;">Map</a>)</p>
+        <p style="margin: 0 0 20px; font-size: 13px; color: #888888;">Nearest MRT: Holland Village</p>
+        <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+          <a href="https://club.ves.sg/gallery?tab=pieces" style="display: inline-block; padding: 14px 32px; background-color: #C4622D; color: #fff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">Schedule Collection</a>
+        </td></tr></table>`;
+    } else {
+      return res.status(400).json({ error: 'Invalid emailType. Use: ready, cabinet, or reminder' });
+    }
+
+    const result = await sendEmail({ to: student.email, subject, html: wrapEmailTemplate(body) });
+    res.json({ success: result.success, studentName: `${student.first_name} ${student.last_name}` });
+  }));
 };
 
 // Helper: determine course type key from enrollment data

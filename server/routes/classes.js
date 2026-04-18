@@ -153,16 +153,19 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
     courseGroups[groupKey].push(booking);
   });
 
-  // Step 1b: Merge orphan bookings (no course_enrollment_id) into 10-class package enrollment
-  // 10-class = 6 WT + 4 flex (HB or WT). Flex bookings may not have enrollment link.
-  const tenClassEnrollment = enrollments.find(e => e.number_of_weeks === 10);
-  if (tenClassEnrollment) {
-    const tenClassKey = `enrollment_${tenClassEnrollment.id}`;
-    Object.keys(courseGroups).forEach(key => {
-      if (key.startsWith('enrollment_')) return; // already linked
-      // Merge orphan group into the 10-class enrollment group
-      if (!courseGroups[tenClassKey]) courseGroups[tenClassKey] = [];
-      courseGroups[tenClassKey].push(...courseGroups[key]);
+  // Step 1b: Merge orphan bookings (no course_enrollment_id) into the student's enrollment.
+  // Reschedules into other courses' class slots create bookings without enrollment links.
+  // These belong to the student's enrolled course, not a separate phantom course.
+  const orphanKeys = Object.keys(courseGroups).filter(k => !k.startsWith('enrollment_'));
+  if (orphanKeys.length > 0 && enrollments.length > 0) {
+    // Find the best enrollment to merge into: prefer active, then most recent
+    const targetEnrollment = enrollments.find(e => e.status === 'active')
+      || enrollments.find(e => e.status === 'completed')
+      || enrollments[0];
+    const targetKey = `enrollment_${targetEnrollment.id}`;
+    orphanKeys.forEach(key => {
+      if (!courseGroups[targetKey]) courseGroups[targetKey] = [];
+      courseGroups[targetKey].push(...courseGroups[key]);
       delete courseGroups[key];
     });
   }

@@ -189,13 +189,17 @@ function BottomNav() {
   const [creditBalance, setCreditBalance] = useState(0);
 
   useEffect(() => {
-    api.get('/auth/me').then(({ data }) => {
-      if (data.customer?.id) {
-        api.get(`/credits/balance/${data.customer.id}`).then(({ data: cred }) => {
-          setCreditBalance(cred?.balance ?? 0);
-        }).catch(() => {});
-      }
-    }).catch(() => {});
+    // Delay slightly so auth token is set by useAuth before we call API
+    const timer = setTimeout(() => {
+      api.get('/auth/me').then(({ data }) => {
+        if (data.customer?.id) {
+          api.get(`/credits/balance/${data.customer.id}`).then(({ data: cred }) => {
+            setCreditBalance(cred?.balance ?? 0);
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+    }, 1500);
+    return () => clearTimeout(timer);
   }, []);
 
   return (

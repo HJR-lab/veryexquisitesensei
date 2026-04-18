@@ -828,9 +828,12 @@ export default function AdminStudentDetail() {
   const totalAllocated = Math.max(allBookedCount, enrollmentAllocated);
   const is10ClassPkg = enrollment?.number_of_weeks === 10;
   const flexRemaining = flexCredits?.remaining || (is10ClassPkg ? (enrollment?.class_credits_remaining || 0) : 0);
+  const activeBookedCount = currentEnrollmentBookings.filter(b => b.status === 'booked' || b.status === 'attended' || b.status === 'completed').length;
   const unbookedCount  = isHBEnrollment
     ? Math.max(0, hbCreditsRemaining)
-    : Math.max(0, flexRemaining);
+    : is10ClassPkg
+      ? Math.max(0, flexRemaining)
+      : Math.max(0, enrollmentAllocated - activeBookedCount);
 
   const filteredBookings = [...(showCompletedCourses ? bookings : activeBookings)]
     .filter(b => statusFilter === 'all' || b.status === statusFilter)

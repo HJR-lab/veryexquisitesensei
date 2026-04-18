@@ -97,7 +97,9 @@ export default function Dashboard() {
       ]);
       setUpcomingEvents(eventsRes.data.events || []);
       setMembershipData(membershipRes.data);
-      setCreditBalance(creditRes.data?.balance ?? 0);
+      const bal = creditRes.data?.balance ?? 0;
+      setCreditBalance(bal);
+      try { localStorage.setItem('ves_credit_balance', String(bal)); } catch {};
       setWaitlistEntries(waitlistRes.data?.waitlistEntries || []);
 
       setDashboardData(dashboardResponse.data);

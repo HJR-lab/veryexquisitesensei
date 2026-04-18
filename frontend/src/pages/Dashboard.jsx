@@ -435,9 +435,6 @@ export default function Dashboard() {
                 }
                 return null;
               })()}
-              {creditBalance > 0 && (
-                <div><strong style={{ color: INK }}>${creditBalance}</strong> Ves is 10 Credits</div>
-              )}
               {dashboardData?.packageInfo?.totalCourses > 1 && (() => {
                 const pkg = dashboardData.packageInfo;
                 const used = pkg.totalCourses - (pkg.coursesRemaining || 0);

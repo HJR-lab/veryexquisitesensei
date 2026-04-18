@@ -41,6 +41,8 @@ export default function AdminEmails() {
   const [courses,        setCourses]        = useState([]);
   const [history,        setHistory]        = useState([]);
   const [loading,        setLoading]        = useState(true);
+  const [waitlistData,   setWaitlistData]   = useState([]);
+  const [sendingWaitlistId, setSendingWaitlistId] = useState(null);
   const [saveStatus,     setSaveStatus]     = useState(null); // null | 'saving' | 'saved' | 'error'
   const [statusMsg,      setStatusMsg]      = useState(null); // { type: 'success'|'error', text }
   const [expandedEmail,  setExpandedEmail]  = useState(null); // email id for expanded detail
@@ -63,11 +65,13 @@ export default function AdminEmails() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [cfgRes, coursesRes, histRes] = await Promise.all([
+      const [cfgRes, coursesRes, histRes, wlRes] = await Promise.all([
         api.get('/admin/course-config'),
         api.get('/admin/course-emails'),
         api.get('/admin/course-emails/history'),
+        api.get('/admin/waitlist').catch(() => ({ data: { waitlist: [] } })),
       ]);
+      setWaitlistData(wlRes.data?.waitlist || []);
       setConfigs(cfgRes.data.configs || cfgRes.data || []);
 
       // Keep courses until their last class has passed. The backend already
@@ -408,6 +412,67 @@ export default function AdminEmails() {
                     )}
                   </div>
                 </section>
+                {/* Waitlist Emails Section */}
+                {waitlistData.length > 0 && (
+                  <section style={{ marginBottom: '40px' }}>
+                    <h2 style={{ fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#9E6200', margin: '0 0 12px' }}>
+                      Waitlist Emails ({waitlistData.length})
+                    </h2>
+                    <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFF' }}>
+                      {/* Header */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '140px 100px 120px 1fr 240px', padding: '8px 16px', borderBottom: `1px solid ${RULE}`, backgroundColor: '#FFF7E6' }}>
+                        {['Student', 'Class', 'Date', 'Time', 'Send Email'].map(h => (
+                          <span key={h} style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#9E6200' }}>{h}</span>
+                        ))}
+                      </div>
+                      {waitlistData.map((w, i) => {
+                        const student = w.customers;
+                        const cls = w.class_instances;
+                        if (!student || !cls) return null;
+                        const dateStr = new Date(cls.class_date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+                        return (
+                          <div key={w.id} style={{ display: 'grid', gridTemplateColumns: '140px 100px 120px 1fr 240px', padding: '10px 16px', borderBottom: i < waitlistData.length - 1 ? `1px solid ${RULE}` : 'none', alignItems: 'center' }}>
+                            <span style={{ fontSize: '12px', fontWeight: 600 }}>{student.first_name} {student.last_name}</span>
+                            <span style={{ fontSize: '11px', fontFamily: 'monospace', color: TC }}>{cls.class_type}</span>
+                            <span style={{ fontSize: '12px' }}>{dateStr}</span>
+                            <span style={{ fontSize: '12px', color: MUTED }}>{cls.start_time} – {cls.end_time}</span>
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              {[
+                                { type: 'waitlisted', label: 'On Waitlist', bg: '#FFF7E6', color: '#9E6200', border: '#E0C97A' },
+                                { type: 'class-full', label: 'Class Full', bg: '#FFF0F0', color: '#C03030', border: '#F0C0C0' },
+                                { type: 'confirmed', label: 'Confirmed', bg: TC_LIGHT, color: TC, border: TC },
+                              ].map(btn => (
+                                <button
+                                  key={btn.type}
+                                  disabled={sendingWaitlistId === `${w.id}-${btn.type}`}
+                                  onClick={async () => {
+                                    setSendingWaitlistId(`${w.id}-${btn.type}`);
+                                    try {
+                                      const r = await api.post(`/admin/waitlist/${w.id}/send-email`, { emailType: btn.type });
+                                      showStatus('success', `${btn.label} email sent to ${r.data.studentName}`);
+                                    } catch (err) {
+                                      showStatus('error', err.response?.data?.error || 'Failed to send');
+                                    } finally {
+                                      setSendingWaitlistId(null);
+                                    }
+                                  }}
+                                  style={{
+                                    padding: '3px 8px', fontSize: '9px', fontWeight: 700, letterSpacing: '0.04em',
+                                    border: `1px solid ${btn.border}`, backgroundColor: btn.bg, color: btn.color,
+                                    cursor: sendingWaitlistId === `${w.id}-${btn.type}` ? 'not-allowed' : 'pointer',
+                                    opacity: sendingWaitlistId === `${w.id}-${btn.type}` ? 0.6 : 1,
+                                  }}
+                                >
+                                  {sendingWaitlistId === `${w.id}-${btn.type}` ? '…' : btn.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
               </>
             )}
 

@@ -5114,6 +5114,135 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
 }));
 
 // Get reschedule fees for a student
+// Get all active waitlist entries (admin — for emails page)
+app.get('/api/admin/waitlist', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { data, error } = await supabaseDb.supabase
+    .from('waitlist')
+    .select(`
+      id, position, joined_at, claimed, notification_sent_at,
+      customers!waitlist_student_id_fkey (id, first_name, last_name, email),
+      class_instances!waitlist_class_instance_id_fkey (id, class_type, class_date, start_time, end_time, instructor)
+    `)
+    .eq('claimed', false)
+    .order('class_instances(class_date)', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching waitlist:', error);
+    return res.status(500).json({ error: 'Failed to fetch waitlist' });
+  }
+
+  res.json({ waitlist: data || [] });
+}));
+
+// Send a waitlist email manually (admin)
+app.post('/api/admin/waitlist/:id/send-email', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { emailType } = req.body; // 'waitlisted' | 'class-full' | 'confirmed'
+
+  const { data: entry, error } = await supabaseDb.supabase
+    .from('waitlist')
+    .select(`
+      id, student_id,
+      customers!waitlist_student_id_fkey (first_name, last_name, email),
+      class_instances!waitlist_class_instance_id_fkey (id, class_type, class_date, start_time, end_time, instructor)
+    `)
+    .eq('id', parseInt(id))
+    .single();
+
+  if (error || !entry) return res.status(404).json({ error: 'Waitlist entry not found' });
+
+  const student = entry.customers;
+  const cls = entry.class_instances;
+  if (!student?.email || !cls) return res.status(400).json({ error: 'Missing student or class data' });
+
+  const { sendEmail } = require('../utils/emailService');
+  const { wrapEmailTemplate } = require('../email-templates/base');
+  const classDateStr = new Date(cls.class_date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const ct = cls.class_type || '';
+  const weekMatch = ct.match(/_\w+(\d)\./);
+  const courseTitle = ct.startsWith('HB') ? 'Handbuilding'
+    : (weekMatch && weekMatch[1] === '7') ? 'Wheelthrowing Intermediate 7 Weeks'
+    : 'Wheelthrowing Beginners/Ext 6 Weeks';
+
+  let subject, body;
+
+  if (emailType === 'waitlisted') {
+    subject = `VES — You're on the waitlist for ${classDateStr}`;
+    body = `
+      <h1 style="margin: 0 0 16px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">You're on the waitlist</h1>
+      <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">Hi ${student.first_name}, thank you for your interest! The class below is currently full, but you've been added to the waitlist.</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #FFF7E6; border-radius: 8px; margin: 0 0 20px;">
+        <tr><td style="padding: 16px 20px;">
+          <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #9E6200; text-transform: uppercase; letter-spacing: 0.05em;">Waitlisted Class</p>
+          <p style="margin: 0 0 2px; font-size: 15px; font-weight: 600; color: #282828;">${courseTitle}</p>
+          <p style="margin: 0 0 2px; font-size: 15px; color: #282828;">${classDateStr}</p>
+          <p style="margin: 0 0 2px; font-size: 15px; color: #282828;">${cls.start_time} – ${cls.end_time}</p>
+          <p style="margin: 0; font-size: 15px; color: #282828;">Instructor: ${cls.instructor}</p>
+        </td></tr>
+      </table>
+      <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #F5F3F0; border-radius: 8px; margin: 0 0 20px;">
+        <tr><td style="padding: 16px 20px;">
+          <p style="margin: 0 0 8px; font-size: 14px; font-weight: 600; color: #282828;">What happens next?</p>
+          <p style="margin: 0 0 4px; font-size: 14px; line-height: 1.6; color: #282828;">1. If a spot opens up, you will be <strong>automatically booked in</strong>.</p>
+          <p style="margin: 0 0 4px; font-size: 14px; line-height: 1.6; color: #282828;">2. A <strong>confirmation email</strong> will be sent to you immediately.</p>
+          <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #282828;">3. No action is needed from you — we'll handle the rest!</p>
+        </td></tr>
+      </table>
+      <p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #888888;">No credit has been deducted — credits are only used when you are confirmed into the class.</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0;"><tr><td align="center">
+        <a href="https://club.ves.sg/classes" style="display: inline-block; padding: 14px 32px; background-color: #C4622D; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">View My Classes</a>
+      </td></tr></table>`;
+  } else if (emailType === 'class-full') {
+    subject = `VES — Please reschedule your ${classDateStr} class`;
+    body = `
+      <h1 style="margin: 0 0 16px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">Class is full — please reschedule</h1>
+      <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">Hi ${student.first_name}, unfortunately a spot did not open up for your waitlisted class. The class is confirmed full and you will need to reschedule to another available class.</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #FFF7E6; border-radius: 8px; margin: 0 0 20px;">
+        <tr><td style="padding: 16px 20px;">
+          <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #9E6200; text-transform: uppercase; letter-spacing: 0.05em;">Class Not Available</p>
+          <p style="margin: 0 0 2px; font-size: 15px; font-weight: 600; color: #282828;">${courseTitle}</p>
+          <p style="margin: 0 0 2px; font-size: 15px; color: #282828;">${classDateStr}</p>
+          <p style="margin: 0 0 2px; font-size: 15px; color: #282828;">${cls.start_time} – ${cls.end_time}</p>
+          <p style="margin: 0; font-size: 15px; color: #282828;">Instructor: ${cls.instructor}</p>
+        </td></tr>
+      </table>
+      <p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #282828;">Please log in to reschedule your class to another available session. No credit has been deducted — your class credit is still available.</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0;"><tr><td align="center">
+        <a href="https://club.ves.sg/classes" style="display: inline-block; padding: 14px 32px; background-color: #C4622D; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">Reschedule Now</a>
+      </td></tr></table>`;
+  } else if (emailType === 'confirmed') {
+    subject = `VES — You're in! Class confirmed — ${classDateStr}`;
+    body = `
+      <h1 style="margin: 0 0 16px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">You're in! Class confirmed</h1>
+      <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">Hi ${student.first_name}, great news — a spot has opened up and you've been confirmed for your class!</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #F9EDE6; border-radius: 8px; margin: 0 0 20px;">
+        <tr><td style="padding: 16px 20px;">
+          <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #9E4A1E; text-transform: uppercase; letter-spacing: 0.05em;">Class Details</p>
+          <p style="margin: 0 0 2px; font-size: 15px; font-weight: 600; color: #282828;">${courseTitle}</p>
+          <p style="margin: 0 0 2px; font-size: 15px; color: #282828;">${classDateStr}</p>
+          <p style="margin: 0 0 2px; font-size: 15px; color: #282828;">${cls.start_time} – ${cls.end_time}</p>
+          <p style="margin: 0; font-size: 15px; color: #282828;">Instructor: ${cls.instructor}</p>
+        </td></tr>
+      </table>
+      <p style="margin: 0 0 4px; font-size: 14px; line-height: 1.5; color: #282828;"><strong>Address:</strong> 75 Jalan Kelabu Asap, Chip Bee Gardens 278268 (<a href="https://maps.app.goo.gl/g84xejcaZbAsD2ze7" style="color: #C4622D;">Map</a>)</p>
+      <p style="margin: 0 0 20px; font-size: 13px; line-height: 1.5; color: #888888;">Nearest MRT: Holland Village &middot; No on-site parking</p>
+      <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #282828;">We look forward to seeing you at the studio!</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin: 24px 0 0;"><tr><td align="center">
+        <a href="https://club.ves.sg/classes" style="display: inline-block; padding: 14px 32px; background-color: #C4622D; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">View My Classes</a>
+      </td></tr></table>`;
+  } else {
+    return res.status(400).json({ error: 'Invalid email type. Use: waitlisted, class-full, or confirmed' });
+  }
+
+  const result = await sendEmail({ to: student.email, subject, html: wrapEmailTemplate(body) });
+
+  if (result.success) {
+    showStatus && showStatus('success', 'Email sent');
+  }
+
+  res.json({ success: result.success, emailType, studentName: `${student.first_name} ${student.last_name}`, error: result.error });
+}));
+
 // Get student's waitlist entries (admin)
 app.get('/api/admin/students/:studentId/waitlist', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { studentId } = req.params;

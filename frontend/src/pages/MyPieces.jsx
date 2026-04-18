@@ -194,15 +194,17 @@ export default function MyPieces() {
           {/* Initials */}
           <div style={{ marginBottom: 16 }}>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 6 }}>
-              Your initials (inscribed on pieces)
+              Your mark (inscribed on pieces)
             </label>
             <input
               type="text"
               value={logForm.initials}
-              onChange={e => setLogForm(f => ({ ...f, initials: e.target.value }))}
-              maxLength={5}
+              onChange={e => setLogForm(f => ({ ...f, initials: e.target.value.toUpperCase() }))}
+              maxLength={10}
+              placeholder="e.g. DLK"
               style={{ width: 100, padding: 10, border: '1px solid #ddd', borderRadius: 8, fontSize: 18, textAlign: 'center', letterSpacing: 4, fontWeight: 600 }}
             />
+            <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>3 characters recommended for easier matching</div>
           </div>
 
           {/* Notes */}

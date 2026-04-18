@@ -10,7 +10,7 @@ const ALT      = '#F5F3F0';
 const SUCCESS  = '#059669';
 const WARN     = '#E65100';
 
-const STATUS_ORDER = ['ready', 'in_cabinet', 'collecting', 'glaze_fired', 'bisque_fired', 'logged'];
+const STATUS_ORDER = ['ready', 'in_cabinet', 'collecting', 'unmatched', 'glaze_fired', 'bisque_fired', 'logged'];
 const STATUS_LABELS = {
   logged: 'Logged / Drying',
   bisque_fired: 'Bisque Fired',
@@ -184,6 +184,24 @@ export default function AdminPiecePipeline() {
     }
   };
 
+  const handleAssignCustomer = async (batchId, customerId) => {
+    try {
+      await api.put(`/admin/pieces/batches/${batchId}/assign`, { customerId });
+      fetchPipeline();
+    } catch (err) {
+      console.error('Failed to assign customer:', err);
+    }
+  };
+
+  const handleFlagDiscrepancy = async (batchId, actualCount, reason) => {
+    try {
+      await api.put(`/admin/pieces/batches/${batchId}/discrepancy`, { actualCount, reason });
+      fetchPipeline();
+    } catch (err) {
+      console.error('Failed to flag discrepancy:', err);
+    }
+  };
+
   const toggleSelect = (batchId) => {
     setSelectedBatches(prev => {
       const next = new Set(prev);
@@ -268,7 +286,7 @@ export default function AdminPiecePipeline() {
                 {searchResults.length} result{searchResults.length !== 1 ? 's' : ''}
               </div>
               {searchResults.map(batch => (
-                <BatchCard key={batch.id} batch={batch} daysSince={daysSince} onStatusUpdate={handleStatusUpdate} onComplete={handleComplete} onPlaceInCabinet={handlePlaceInCabinet} onMarkCollected={handleMarkCollected} onOpenPhoto={setViewingBatch} />
+                <BatchCard key={batch.id} batch={batch} daysSince={daysSince} onStatusUpdate={handleStatusUpdate} onComplete={handleComplete} onPlaceInCabinet={handlePlaceInCabinet} onMarkCollected={handleMarkCollected} onOpenPhoto={setViewingBatch} onAssignCustomer={handleAssignCustomer} onFlagDiscrepancy={handleFlagDiscrepancy} />
               ))}
             </div>
           )}
@@ -352,6 +370,8 @@ export default function AdminPiecePipeline() {
                     onPlaceInCabinet={handlePlaceInCabinet}
                     onMarkCollected={handleMarkCollected}
                     onOpenPhoto={setViewingBatch}
+                    onAssignCustomer={handleAssignCustomer}
+                    onFlagDiscrepancy={handleFlagDiscrepancy}
                     selected={selectedBatches.has(batch.id)}
                     onToggleSelect={() => toggleSelect(batch.id)}
                     showCheckbox
@@ -715,7 +735,16 @@ function LogBatchModal({ onClose, onSaved }) {
   );
 }
 
-function BatchCard({ batch, daysSince, onStatusUpdate, onComplete, onPlaceInCabinet, onMarkCollected, onOpenPhoto, selected, onToggleSelect, showCheckbox }) {
+function BatchCard({ batch, daysSince, onStatusUpdate, onComplete, onPlaceInCabinet, onMarkCollected, onOpenPhoto, onAssignCustomer, onFlagDiscrepancy, selected, onToggleSelect, showCheckbox }) {
+  const [showAssign, setShowAssign] = useState(false);
+  const [assignSearch, setAssignSearch] = useState('');
+  const [assignResults, setAssignResults] = useState([]);
+  const [initialsMatches, setInitialsMatches] = useState([]);
+  const [loadedInitials, setLoadedInitials] = useState(false);
+  const [showDiscrepancy, setShowDiscrepancy] = useState(false);
+  const [discActual, setDiscActual] = useState('');
+  const [discReason, setDiscReason] = useState('');
+
   const student = batch.customers || {};
   const enrollment = batch.course_enrollments || {};
   const courseName = enrollment.course_title || enrollment.course_variant_title || 'Course';
@@ -724,75 +753,254 @@ function BatchCard({ batch, daysSince, onStatusUpdate, onComplete, onPlaceInCabi
   const isReady = ['ready', 'collecting', 'delivering'].includes(batch.status);
   const daysReady = isReady ? daysSince(batch.ready_at) : null;
   const noResponse = isReady && !batch.delivery_method && daysReady >= 7;
+  const isUnmatched = !batch.customer_id;
+  const hasDiscrepancyNote = (batch.notes || '').includes('[Discrepancy:');
+
+  const [searchedVariants, setSearchedVariants] = useState([]);
+
+  // Auto-search by initials when assign panel opens (includes fuzzy 0/O, 1/I etc.)
+  const openAssignPanel = async () => {
+    setShowAssign(true);
+    if (!loadedInitials && batch.initials) {
+      try {
+        const { data } = await api.get(`/admin/pieces/search?initials=${encodeURIComponent(batch.initials)}`);
+        setInitialsMatches(data.matches || []);
+        setSearchedVariants(data.variants || []);
+        setLoadedInitials(true);
+      } catch (err) {
+        console.error('Initials search failed:', err);
+      }
+    }
+  };
+
+  const searchStudents = async (q) => {
+    setAssignSearch(q);
+    if (q.length < 2) { setAssignResults([]); return; }
+    try {
+      const { data } = await api.get(`/admin/students/search?q=${encodeURIComponent(q)}`);
+      setAssignResults(data.students || []);
+    } catch (err) {
+      console.error('Student search failed:', err);
+    }
+  };
+
+  const doAssign = (customerId) => {
+    onAssignCustomer(batch.id, customerId);
+    setShowAssign(false);
+    setAssignSearch('');
+    setAssignResults([]);
+  };
+
+  const doFlagDiscrepancy = () => {
+    if (!discActual || !discReason.trim()) return;
+    onFlagDiscrepancy(batch.id, parseInt(discActual), discReason.trim());
+    setShowDiscrepancy(false);
+    setDiscActual('');
+    setDiscReason('');
+  };
 
   return (
     <div style={{
-      backgroundColor: selected ? TC_LIGHT : '#FFFFFF',
+      backgroundColor: selected ? TC_LIGHT : isUnmatched ? '#FFF5F5' : '#FFFFFF',
       padding: '14px 16px',
-      display: 'flex',
-      gap: '12px',
-      alignItems: 'center',
-      borderLeft: selected ? `3px solid ${TC}` : '3px solid transparent',
+      borderLeft: selected ? `3px solid ${TC}` : isUnmatched ? '3px solid #C03030' : '3px solid transparent',
     }}>
-      {showCheckbox && (
-        <input type="checkbox" checked={selected} onChange={onToggleSelect} style={{ cursor: 'pointer', flexShrink: 0 }} />
-      )}
-
-      {photoUrl && (
-        <img
-          src={photoUrl}
-          alt="Batch"
-          onClick={() => onOpenPhoto && onOpenPhoto(batch)}
-          style={{ width: '72px', height: '72px', objectFit: 'cover', flexShrink: 0, border: `1px solid ${RULE}`, cursor: onOpenPhoto ? 'zoom-in' : 'default' }}
-        />
-      )}
-
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 700, fontSize: '13px', marginBottom: '2px' }}>
-          {student.first_name} {student.last_name}
-        </div>
-        <div style={{ fontSize: '11px', color: MUTED }}>
-          {courseName} · {batch.piece_count} pcs · <strong style={{ color: INK }}>{batch.initials}</strong>
-          {daysReady !== null && ` · Ready ${daysReady}d ago`}
-          {batch.delivery_method === 'collect' && <span style={{ color: SUCCESS, fontWeight: 700 }}> · Collecting</span>}
-          {batch.delivery_method === 'deliver' && <span style={{ color: TC, fontWeight: 700 }}> · Delivery</span>}
-          {batch.collection_date && <span style={{ color: TC }}> · Pickup: {new Date(batch.collection_date).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })}</span>}
-        </div>
-        {noResponse && (
-          <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: WARN, marginTop: '4px' }}>⚠ No response</div>
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+        {showCheckbox && (
+          <input type="checkbox" checked={selected} onChange={onToggleSelect} style={{ cursor: 'pointer', flexShrink: 0 }} />
         )}
+
+        {photoUrl && (
+          <img
+            src={photoUrl}
+            alt="Batch"
+            onClick={() => onOpenPhoto && onOpenPhoto(batch)}
+            style={{ width: '72px', height: '72px', objectFit: 'cover', flexShrink: 0, border: `1px solid ${RULE}`, cursor: onOpenPhoto ? 'zoom-in' : 'default' }}
+          />
+        )}
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: '13px', marginBottom: '2px' }}>
+            {isUnmatched
+              ? <span style={{ color: '#C03030' }}>Unmatched — {batch.initials}</span>
+              : `${student.first_name} ${student.last_name}`
+            }
+          </div>
+          <div style={{ fontSize: '11px', color: MUTED }}>
+            {courseName} · {batch.piece_count} pcs · <strong style={{ color: INK }}>{batch.initials}</strong>
+            {daysReady !== null && ` · Ready ${daysReady}d ago`}
+            {batch.delivery_method === 'collect' && <span style={{ color: SUCCESS, fontWeight: 700 }}> · Collecting</span>}
+            {batch.delivery_method === 'deliver' && <span style={{ color: TC, fontWeight: 700 }}> · Delivery</span>}
+            {batch.collection_date && <span style={{ color: TC }}> · Pickup: {new Date(batch.collection_date).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })}</span>}
+            {hasDiscrepancyNote && <span style={{ color: WARN, fontWeight: 700 }}> · Count adjusted</span>}
+          </div>
+          {noResponse && (
+            <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: WARN, marginTop: '4px' }}>⚠ No response</div>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: '6px', flexShrink: 0, flexWrap: 'wrap' }}>
+          {isUnmatched && (
+            <button onClick={() => showAssign ? setShowAssign(false) : openAssignPanel()} style={{ ...btnSt, color: '#C03030', borderColor: '#C03030' }}>
+              Assign Student
+            </button>
+          )}
+          {!showDiscrepancy && !hasDiscrepancyNote && (
+            <button onClick={() => setShowDiscrepancy(!showDiscrepancy)} style={{ ...btnSt, fontSize: '10px' }}>
+              Flag Count
+            </button>
+          )}
+          {nextStatus && (
+            <button
+              onClick={() => onStatusUpdate(batch.id, nextStatus)}
+              style={nextStatus === 'ready' ? btnSuccessSt : btnWarnSt}
+            >
+              {nextStatus === 'ready' ? 'Mark Ready' : `→ ${STATUS_LABELS[nextStatus]}`}
+            </button>
+          )}
+          {batch.status === 'collecting' && (
+            <button onClick={() => onPlaceInCabinet(batch.id)} style={btnAccentSt}>
+              Place in Cabinet
+            </button>
+          )}
+          {batch.status === 'in_cabinet' && (
+            <button onClick={() => onMarkCollected(batch.id)} style={btnSt}>
+              Mark Collected
+            </button>
+          )}
+          {batch.status === 'ready' && (
+            <>
+              <button onClick={() => onComplete(batch.id, 'collected')} style={btnSt}>
+                Collected
+              </button>
+              <button onClick={() => onComplete(batch.id, 'shipped')} style={btnSt}>
+                Shipped
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
-      <div style={{ display: 'flex', gap: '6px', flexShrink: 0, flexWrap: 'wrap' }}>
-        {nextStatus && (
-          <button
-            onClick={() => onStatusUpdate(batch.id, nextStatus)}
-            style={nextStatus === 'ready' ? btnSuccessSt : btnWarnSt}
-          >
-            {nextStatus === 'ready' ? 'Mark Ready' : `→ ${STATUS_LABELS[nextStatus]}`}
-          </button>
-        )}
-        {batch.status === 'collecting' && (
-          <button onClick={() => onPlaceInCabinet(batch.id)} style={btnAccentSt}>
-            Place in Cabinet
-          </button>
-        )}
-        {batch.status === 'in_cabinet' && (
-          <button onClick={() => onMarkCollected(batch.id)} style={btnSt}>
-            Mark Collected
-          </button>
-        )}
-        {batch.status === 'ready' && (
-          <>
-            <button onClick={() => onComplete(batch.id, 'collected')} style={btnSt}>
-              Collected
+      {/* Assign student panel */}
+      {showAssign && (
+        <div style={{ marginTop: '10px', padding: '12px', backgroundColor: '#FFF0F0', border: '1px solid #E0C0C0', borderRadius: '4px' }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#C03030', marginBottom: '4px' }}>
+            Who is "{batch.initials}"? — {batch.piece_count} pcs
+          </div>
+          {searchedVariants.length > 1 && (
+            <div style={{ fontSize: '10px', color: MUTED, marginBottom: '8px' }}>
+              Also checked: {searchedVariants.filter(v => v !== batch.initials.toUpperCase()).join(', ')}
+            </div>
+          )}
+
+          {/* Batch photo for visual matching */}
+          {photoUrl && (
+            <div style={{ marginBottom: '8px' }}>
+              <img src={photoUrl} alt="Piece" style={{ width: '120px', height: '120px', objectFit: 'cover', border: `1px solid ${RULE}` }} />
+              <div style={{ fontSize: '10px', color: MUTED, marginTop: '2px' }}>Match by size/style if initials are unclear</div>
+            </div>
+          )}
+
+          {/* Auto-suggested matches from initials */}
+          {initialsMatches.length > 0 && !assignSearch && (
+            <div style={{ marginBottom: '8px' }}>
+              <div style={{ fontSize: '10px', color: MUTED, marginBottom: '4px' }}>Suggested matches</div>
+              <div style={{ border: '1px solid #e0e0e0', backgroundColor: '#fff' }}>
+                {initialsMatches.map(s => (
+                  <div
+                    key={s.id}
+                    onClick={() => doAssign(s.id)}
+                    style={{ padding: '8px 10px', fontSize: '12px', cursor: 'pointer', borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between' }}
+                    onMouseOver={e => e.currentTarget.style.backgroundColor = TC_LIGHT}
+                    onMouseOut={e => e.currentTarget.style.backgroundColor = '#fff'}
+                  >
+                    <span style={{ fontWeight: 600 }}>{s.first_name} {s.last_name}</span>
+                    <span style={{ color: MUTED }}>{s.email}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {initialsMatches.length === 0 && loadedInitials && !assignSearch && (
+            <div style={{ fontSize: '11px', color: WARN, marginBottom: '8px' }}>No students found matching initials "{batch.initials}"</div>
+          )}
+
+          {/* Manual search fallback */}
+          <div style={{ fontSize: '10px', color: MUTED, marginBottom: '4px' }}>
+            {initialsMatches.length > 0 ? 'Or search manually' : 'Search by name or email'}
+          </div>
+          <input
+            type="text"
+            value={assignSearch}
+            onChange={e => searchStudents(e.target.value)}
+            placeholder="Type name or email…"
+            style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', fontSize: '13px', fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none', marginBottom: '4px' }}
+          />
+          {assignResults.length > 0 && (
+            <div style={{ maxHeight: '160px', overflowY: 'auto', border: '1px solid #e0e0e0', backgroundColor: '#fff' }}>
+              {assignResults.map(s => (
+                <div
+                  key={s.id}
+                  onClick={() => doAssign(s.id)}
+                  style={{ padding: '8px 10px', fontSize: '12px', cursor: 'pointer', borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between' }}
+                  onMouseOver={e => e.currentTarget.style.backgroundColor = TC_LIGHT}
+                  onMouseOut={e => e.currentTarget.style.backgroundColor = '#fff'}
+                >
+                  <span style={{ fontWeight: 600 }}>{s.first_name} {s.last_name}</span>
+                  <span style={{ color: MUTED }}>{s.email}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Flag discrepancy panel */}
+      {showDiscrepancy && (
+        <div style={{ marginTop: '10px', padding: '12px', backgroundColor: '#FFF8E1', border: '1px solid #E0D6A8', borderRadius: '4px' }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: WARN, marginBottom: '8px' }}>
+            Piece count discrepancy — student logged {batch.piece_count}
+          </div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <div>
+              <label style={{ fontSize: '10px', color: MUTED, display: 'block', marginBottom: '3px' }}>Found</label>
+              <input
+                type="number"
+                min="0"
+                value={discActual}
+                onChange={e => setDiscActual(e.target.value)}
+                placeholder="#"
+                style={{ width: '60px', padding: '7px 8px', border: '1px solid #ddd', fontSize: '13px', fontFamily: 'inherit', textAlign: 'center' }}
+                autoFocus
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: '180px' }}>
+              <label style={{ fontSize: '10px', color: MUTED, display: 'block', marginBottom: '3px' }}>What happened?</label>
+              <select
+                value={discReason}
+                onChange={e => setDiscReason(e.target.value)}
+                style={{ width: '100%', padding: '7px 8px', border: '1px solid #ddd', fontSize: '12px', fontFamily: 'inherit', boxSizing: 'border-box' }}
+              >
+                <option value="">Select reason…</option>
+                <option value="Student miscounted">Student miscounted</option>
+                <option value="Piece broke during bisque firing">Broke during bisque firing</option>
+                <option value="Piece broke during glaze firing">Broke during glaze firing</option>
+                <option value="Piece cracked while drying">Cracked while drying</option>
+                <option value="Piece not found in studio">Not found in studio</option>
+                <option value="Other — see notes">Other</option>
+              </select>
+            </div>
+            <button
+              onClick={doFlagDiscrepancy}
+              disabled={!discActual || !discReason}
+              style={{ ...btnWarnSt, padding: '8px 14px', opacity: (!discActual || !discReason) ? 0.4 : 1 }}
+            >
+              Save
             </button>
-            <button onClick={() => onComplete(batch.id, 'shipped')} style={btnSt}>
-              Shipped
-            </button>
-          </>
-        )}
-      </div>
+            <button onClick={() => setShowDiscrepancy(false)} style={{ ...btnSt, padding: '8px 10px' }}>Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

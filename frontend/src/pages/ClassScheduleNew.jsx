@@ -324,7 +324,8 @@ export default function ClassScheduleNew() {
       class: w.class,
     }));
 
-  const myUpcomingBookings = [...bookedUpcoming, ...waitlistUpcoming]
+  // Waitlist disabled — only show booked classes (waitlistUpcoming kept but not merged)
+  const myUpcomingBookings = [...bookedUpcoming]
     .sort((a, b) => {
       const da = new Date(a.class?.classDate || a.classInstance?.classDate || a.class_date);
       const db = new Date(b.class?.classDate || b.classInstance?.classDate || b.class_date);
@@ -898,12 +899,11 @@ export default function ClassScheduleNew() {
                             Booked
                           </span>
                         ) : isFull ? (
-                          <button
-                            onClick={e => { e.stopPropagation(); setShowWaitlistModal(cls); }}
-                            style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '5px 10px', backgroundColor: '#FFF7E6', color: '#9E6200', border: '1px solid #E0C97A', cursor: 'pointer' }}
+                          <span
+                            style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '5px 10px', backgroundColor: '#EBEBEB', color: MUTED }}
                           >
-                            Waitlist
-                          </button>
+                            Full
+                          </span>
                         ) : (
                           <>
                             <button
@@ -934,8 +934,8 @@ export default function ClassScheduleNew() {
             if (!regularCourse) return null;
             const totalClasses = regularCourse.number_of_weeks || 6;
             const activeBookings = (regularCourse.bookings || []).filter(b => b.status === 'booked' || b.status === 'attended' || b.status === 'completed').length;
-            const waitlisted = myWaitlistEntries.filter(w => !w.claimed && w.class).length;
-            const unbooked = totalClasses - activeBookings - waitlisted;
+            // Waitlist disabled — don't subtract waitlisted from unbooked count
+            const unbooked = totalClasses - activeBookings;
             if (unbooked <= 0) return null;
             return (
               <div style={{ backgroundColor: '#FFF0F0', border: '1px solid #F0C0C0', padding: '12px 16px', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1470,8 +1470,8 @@ export default function ClassScheduleNew() {
       )}
 
       {/* ── CONFIRM MODAL ──────────────────────────────────────────────────────── */}
-      {/* ── WAITLIST CONFIRMATION MODAL ─────────────────────────────────────── */}
-      {showWaitlistModal && (
+      {/* ── WAITLIST CONFIRMATION MODAL (disabled — waitlist feature off) ──── */}
+      {false && showWaitlistModal && (
         <>
           <div onClick={() => setShowWaitlistModal(null)} style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 80 }} />
           <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 81, backgroundColor: '#FFFFFF', padding: '28px 24px', maxWidth: '380px', width: '90%' }}>

@@ -2149,6 +2149,9 @@ app.get('/api/students/:studentId/attendance', authenticateToken, asyncHandler(a
 // ============================================
 
 app.post('/api/classes/waitlist/join', authenticateToken, asyncHandler(async (req, res) => {
+  // Waitlist is currently disabled — return error immediately
+  return res.status(400).json({ error: 'Waitlist is currently disabled. Please check back later.' });
+
   const { dbCustomerId } = req.user;
   const { classInstanceId } = req.body;
 

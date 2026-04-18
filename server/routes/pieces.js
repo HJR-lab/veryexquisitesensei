@@ -286,13 +286,39 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
     res.json({ initials: Object.values(map) });
   }));
 
+  // Common character confusions on handwritten pottery initials
+  const FUZZY_MAP = { '0': 'O', 'O': '0', '1': 'I', 'I': '1', 'L': '1', '5': 'S', 'S': '5', '8': 'B', 'B': '8', 'G': '6', '6': 'G' };
+
+  function getFuzzyVariants(str) {
+    const upper = str.trim().toUpperCase();
+    const variants = new Set([upper]);
+    for (let i = 0; i < upper.length; i++) {
+      const ch = upper[i];
+      if (FUZZY_MAP[ch]) {
+        variants.add(upper.substring(0, i) + FUZZY_MAP[ch] + upper.substring(i + 1));
+      }
+    }
+    return Array.from(variants);
+  }
+
   app.get('/api/admin/pieces/search', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
     const { initials } = req.query;
     if (!initials) return res.status(400).json({ error: 'initials query param required' });
 
-    const batches = await supabaseDb.searchPieceBatchesByInitials(initials);
+    // Search exact + fuzzy variants (0/O, 1/I, etc.)
+    const variants = getFuzzyVariants(initials);
+    let allBatches = [];
+    for (const variant of variants) {
+      const found = await supabaseDb.searchPieceBatchesByInitials(variant);
+      allBatches = allBatches.concat(found);
+    }
 
-    // Also find customers who have used these initials before (from previous batches)
+    // Deduplicate batches by id
+    const batchMap = new Map();
+    for (const b of allBatches) batchMap.set(b.id, b);
+    const batches = Array.from(batchMap.values());
+
+    // Find customers who have used these initials before
     const matches = [];
     const seen = new Set();
     for (const b of batches) {
@@ -304,24 +330,80 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
 
     // If no batch match, try matching initials to customer first_name + last_name initials
     if (matches.length === 0) {
-      const upper = initials.trim().toUpperCase();
       const { data: customers } = await supabaseDb.supabase
         .from('customers')
         .select('id, first_name, last_name, email')
         .not('first_name', 'is', null);
 
       if (customers) {
-        for (const c of customers) {
-          const fi = (c.first_name || '').charAt(0).toUpperCase();
-          const li = (c.last_name || '').charAt(0).toUpperCase();
-          if (upper === `${fi}${li}`) {
-            matches.push(c);
+        for (const variant of variants) {
+          for (const c of customers) {
+            if (seen.has(c.id)) continue;
+            const fi = (c.first_name || '').charAt(0).toUpperCase();
+            const li = (c.last_name || '').charAt(0).toUpperCase();
+            if (variant === `${fi}${li}`) {
+              seen.add(c.id);
+              matches.push(c);
+            }
           }
         }
       }
     }
 
-    res.json({ success: true, batches, matches });
+    res.json({ success: true, batches, matches, variants });
+  }));
+
+  // Assign customer to an unmatched batch + optionally adjust piece count
+  app.put('/api/admin/pieces/batches/:id/assign', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+    const batchId = parseInt(req.params.id);
+    const { customerId, pieceCount } = req.body;
+
+    if (!customerId) {
+      return res.status(400).json({ error: 'customerId is required' });
+    }
+
+    // Verify batch exists
+    const batch = await supabaseDb.getPieceBatchById(batchId);
+    if (!batch) {
+      return res.status(404).json({ error: 'Batch not found' });
+    }
+
+    const updates = { customer_id: parseInt(customerId) };
+    if (pieceCount !== undefined && pieceCount > 0) {
+      updates.piece_count = parseInt(pieceCount);
+    }
+
+    const updated = await supabaseDb.updatePieceBatch(batchId, updates);
+    res.json({ success: true, batch: updated });
+  }));
+
+  // Flag piece count discrepancy (student logged X but admin found Y)
+  app.put('/api/admin/pieces/batches/:id/discrepancy', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+    const batchId = parseInt(req.params.id);
+    const { actualCount, reason } = req.body;
+
+    if (!actualCount || actualCount < 0) {
+      return res.status(400).json({ error: 'actualCount is required' });
+    }
+    if (!reason) {
+      return res.status(400).json({ error: 'reason is required — what happened to the missing piece(s)?' });
+    }
+
+    const batch = await supabaseDb.getPieceBatchById(batchId);
+    if (!batch) {
+      return res.status(404).json({ error: 'Batch not found' });
+    }
+
+    const notes = batch.notes || '';
+    const discrepancyNote = `[Discrepancy: student logged ${batch.piece_count}, found ${actualCount} — ${reason}]`;
+    const updatedNotes = notes ? `${notes}\n${discrepancyNote}` : discrepancyNote;
+
+    const updated = await supabaseDb.updatePieceBatch(batchId, {
+      piece_count: parseInt(actualCount),
+      notes: updatedNotes,
+    });
+
+    res.json({ success: true, batch: updated });
   }));
 
   // Update batch status
@@ -701,25 +783,26 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
       body = `
         <h1 style="margin: 0 0 16px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">Your pieces are ready for collection!</h1>
         <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">Hi ${student.first_name}, great news — your fired pottery pieces are ready to be picked up from the studio!</p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #E8F5E9; border-radius: 8px; margin: 0 0 20px;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #F9EDE6; border-radius: 8px; margin: 0 0 20px;">
           <tr><td style="padding: 16px 20px;">
-            <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #2E7D32; text-transform: uppercase; letter-spacing: 0.05em;">Ready for Collection</p>
+            <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #C4622D; text-transform: uppercase; letter-spacing: 0.05em;">Ready for Collection</p>
             <p style="margin: 0 0 2px; font-size: 15px; font-weight: 600; color: #282828;">${pieceStr}</p>
-            ${batch.notes ? `<p style="margin: 0; font-size: 14px; color: #282828;">${batch.notes}</p>` : ''}
+            ${batch.notes ? `<p style="margin: 0 0 2px; font-size: 14px; color: #282828;">${batch.notes}</p>` : ''}
+            <p style="margin: 0; font-size: 13px; color: #888888;">Logged: ${new Date(batch.created_at).toLocaleDateString('en-SG', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
           </td></tr>
         </table>
         <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #F5F3F0; border-radius: 8px; margin: 0 0 20px;">
           <tr><td style="padding: 16px 20px;">
             <p style="margin: 0 0 8px; font-size: 14px; font-weight: 600; color: #282828;">How to collect</p>
-            <p style="margin: 0 0 4px; font-size: 14px; line-height: 1.6; color: #282828;">1. Log in and choose your <strong>collection date</strong> (at least 2 days from now).</p>
-            <p style="margin: 0 0 4px; font-size: 14px; line-height: 1.6; color: #282828;">2. Your pieces will be placed in the <strong>glass cabinet</strong> outside the studio.</p>
-            <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #282828;">3. Pick them up and confirm collection in the app.</p>
+            <p style="margin: 0 0 4px; font-size: 14px; line-height: 1.6; color: #282828;">1. Sign in and choose your <strong>collection date</strong> (+2 days notice).</p>
+            <p style="margin: 0 0 4px; font-size: 14px; line-height: 1.6; color: #282828;">2. Collect your pieces from the <strong>glass cabinet</strong> of the studio porch.</p>
+            <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #282828;">3. Identify and confirm the collection in Ves Clay Club app.</p>
           </td></tr>
         </table>
-        <p style="margin: 0 0 4px; font-size: 14px; color: #282828;"><strong>Address:</strong> 75 Jalan Kelabu Asap, Chip Bee Gardens 278268 (<a href="https://maps.app.goo.gl/g84xejcaZbAsD2ze7" style="color: #C4622D;">Map</a>)</p>
-        <p style="margin: 0 0 20px; font-size: 13px; color: #888888;">Please collect within 60 days. Uncollected pieces may be recycled.</p>
+        <p style="margin: 0 0 8px; font-size: 14px; color: #282828;">Please collect within 60 days or opt for door-to-door delivery at $10.</p>
+        <p style="margin: 0 0 20px; font-size: 12px; color: #888888;">Uncollected pieces will be recycled.</p>
         <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
-          <a href="https://club.ves.sg/gallery?tab=pieces" style="display: inline-block; padding: 14px 32px; background-color: #2E7D32; color: #fff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">Schedule Collection</a>
+          <a href="https://club.ves.sg/gallery?tab=pieces" style="display: inline-block; padding: 14px 32px; background-color: #C4622D; color: #fff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">Schedule Collection</a>
         </td></tr></table>`;
     } else if (emailType === 'cabinet') {
       subject = 'VES — Your pieces are in the cabinet!';
@@ -736,9 +819,8 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
       body = `
         <h1 style="margin: 0 0 16px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">Your pieces are still waiting!</h1>
         <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">Hi ${student.first_name}, just a friendly reminder — your <strong>${pieceStr}</strong> ${batch.piece_count !== 1 ? 'are' : 'is'} ready and waiting for you at the studio.</p>
-        <p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #9E6200;">Please arrange collection soon. Uncollected pieces may be recycled after the hold period.</p>
-        <p style="margin: 0 0 4px; font-size: 14px; color: #282828;"><strong>Address:</strong> 75 Jalan Kelabu Asap, Chip Bee Gardens 278268 (<a href="https://maps.app.goo.gl/g84xejcaZbAsD2ze7" style="color: #C4622D;">Map</a>)</p>
-        <p style="margin: 0 0 20px; font-size: 13px; color: #888888;">Nearest MRT: Holland Village</p>
+        <p style="margin: 0 0 8px; font-size: 14px; line-height: 1.6; color: #9E6200;">Please collect within 60 days or opt for door-to-door delivery at $10.</p>
+        <p style="margin: 0 0 20px; font-size: 12px; color: #888888;">Uncollected pieces will be recycled.</p>
         <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
           <a href="https://club.ves.sg/gallery?tab=pieces" style="display: inline-block; padding: 14px 32px; background-color: #C4622D; color: #fff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">Schedule Collection</a>
         </td></tr></table>`;

@@ -580,7 +580,7 @@ app.get('/api/students/me/dashboard', authenticateToken, asyncHandler(async (req
       )
     `)
     .eq('student_id', dbCustomerId)
-    .in('status', ['booked', 'attended', 'completed'])
+    .in('status', ['booked', 'attended', 'completed', 'rescheduled', 'absent', 'forfeited'])
     .order('class_instances(class_date)', { ascending: true });
 
   if (bookingsError) {

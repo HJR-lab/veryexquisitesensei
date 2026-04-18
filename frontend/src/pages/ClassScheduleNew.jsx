@@ -324,8 +324,7 @@ export default function ClassScheduleNew() {
       class: w.class,
     }));
 
-  // Waitlist disabled — only show booked classes (waitlistUpcoming kept but not merged)
-  const myUpcomingBookings = [...bookedUpcoming]
+  const myUpcomingBookings = [...bookedUpcoming, ...waitlistUpcoming]
     .sort((a, b) => {
       const da = new Date(a.class?.classDate || a.classInstance?.classDate || a.class_date);
       const db = new Date(b.class?.classDate || b.classInstance?.classDate || b.class_date);
@@ -934,8 +933,8 @@ export default function ClassScheduleNew() {
             if (!regularCourse) return null;
             const totalClasses = regularCourse.number_of_weeks || 6;
             const activeBookings = (regularCourse.bookings || []).filter(b => b.status === 'booked' || b.status === 'attended' || b.status === 'completed').length;
-            // Waitlist disabled — don't subtract waitlisted from unbooked count
-            const unbooked = totalClasses - activeBookings;
+            const waitlisted = myWaitlistEntries.filter(w => !w.claimed && w.class).length;
+            const unbooked = totalClasses - activeBookings - waitlisted;
             if (unbooked <= 0) return null;
             return (
               <div style={{ backgroundColor: '#FFF0F0', border: '1px solid #F0C0C0', padding: '12px 16px', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

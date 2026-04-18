@@ -289,8 +289,8 @@ export default function Dashboard() {
       ? (enrollment.class_credits_used || attendedCount)
       : enrollmentBookings.filter(b => b.status === 'booked' || b.status === 'attended' || b.status === 'completed').length;
     const remaining = Math.max(totalClasses - attendedCount, 0);
-    // Waitlist disabled — don't subtract waitlisted from credits
-    const creditsAvailable = Math.max(totalClasses - bookedCount, 0);
+    const waitlistedCount = waitlistEntries.filter(w => !w.claimed && w.class).length;
+    const creditsAvailable = Math.max(totalClasses - bookedCount - waitlistedCount, 0);
     const pct = totalClasses > 0 ? Math.min(Math.round((attendedCount / totalClasses) * 100), 100) : 0;
 
     // Determine course type label
@@ -406,7 +406,15 @@ export default function Dashboard() {
               {nextClass && (
                 <div>Next: <strong style={{ color: INK }}>{nextClass.date} {nextClass.time}</strong></div>
               )}
-              {/* Waitlist notification disabled — feature temporarily off */}
+              {waitlistEntries.filter(w => !w.claimed && w.class).length > 0 && (
+                <div style={{ color: '#9E6200' }}>
+                  {waitlistEntries.filter(w => !w.claimed && w.class).map((w, i) => {
+                    const d = new Date(w.class.classDate);
+                    const dateStr = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+                    return <div key={i}>Waitlisted for <strong>{dateStr} {w.class.startTime}</strong></div>;
+                  })}
+                </div>
+              )}
               {(() => {
                 const activeCourse = enrollmentsWithCounts.find(e => e.statusLabel === 'active' || e.statusLabel === 'upcoming');
                 if (activeCourse && activeCourse.creditsAvailable > 0) {
@@ -776,8 +784,43 @@ export default function Dashboard() {
           </SectionLabel>
 
           {(() => {
-            // Waitlist disabled — only show booked classes (waitlist merge code kept but inactive)
-            const combined = upcoming;
+            // Merge waitlist entries into upcoming list (display only — join is disabled)
+            const waitlistRows = waitlistEntries
+              .filter(w => !w.claimed && w.class)
+              .filter(w => {
+                const d = new Date(w.class.classDate);
+                d.setHours(0,0,0,0);
+                const today = new Date();
+                today.setHours(0,0,0,0);
+                return d >= today;
+              })
+              .map(w => {
+                const ct = w.class.classType || '';
+                let title;
+                if (ct.startsWith('HB')) title = 'Handbuilding';
+                else if (ct.startsWith('WT')) {
+                  const wm = ct.match(/_\w+(\d)\./);
+                  title = wm && wm[1] === '7' ? 'Wheelthrowing Intermediate 7 Weeks' : 'Wheelthrowing Beginners/Ext 6 Weeks';
+                } else title = ct;
+                return {
+                  _isWaitlist: true,
+                  _courseTitle: title,
+                  class_instances: {
+                    class_date: w.class.classDate,
+                    start_time: w.class.startTime,
+                    end_time: w.class.endTime,
+                    class_type: ct,
+                    instructor: w.class.instructor,
+                  },
+                  _waitlistPosition: w.position,
+                };
+              });
+
+            const combined = [...upcoming, ...waitlistRows].sort((a, b) => {
+              const dA = new Date(a.class_instances?.class_date);
+              const dB = new Date(b.class_instances?.class_date);
+              return dA - dB;
+            });
 
             if (combined.length === 0) {
               return <p style={{ fontSize: '13px', color: MUTED, padding: '16px 0' }}>No upcoming classes booked yet.</p>;

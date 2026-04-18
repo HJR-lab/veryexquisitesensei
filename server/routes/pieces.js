@@ -260,7 +260,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
   app.get('/api/admin/pieces/initials', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
     const { data, error } = await supabaseDb.supabase
       .from('piece_batches')
-      .select('initials, customer_id, piece_count, status, customers!piece_batches_customer_id_fkey(id, first_name, last_name, email)')
+      .select('initials, customer_id, piece_count, notes, status, customers!piece_batches_customer_id_fkey(id, first_name, last_name, email)')
       .not('initials', 'is', null)
       .in('status', ['logged', 'bisque_fired', 'glaze_fired'])
       .order('created_at', { ascending: false });
@@ -273,7 +273,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
       const key = (b.initials || '').toUpperCase();
       if (!key) continue;
       if (!map[key]) {
-        map[key] = { initials: key, student: b.customers, pieceCount: b.piece_count, status: b.status, customerId: b.customer_id };
+        map[key] = { initials: key, student: b.customers, pieceCount: b.piece_count, notes: b.notes, status: b.status, customerId: b.customer_id };
       }
     }
 

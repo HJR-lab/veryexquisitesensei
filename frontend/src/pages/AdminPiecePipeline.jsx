@@ -471,7 +471,8 @@ export default function AdminPiecePipeline() {
 }
 
 function LogBatchModal({ onClose, onSaved }) {
-  const emptyRow = () => ({ initials: '', pieceCount: '', match: null, status: '' });
+  const emptyRow = () => ({ initials: '', pieceCount: '', match: null, status: '', notes: '' });
+  const [batchDate, setBatchDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [rows, setRows] = useState(() => Array.from({ length: 10 }, emptyRow));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -602,6 +603,17 @@ function LogBatchModal({ onClose, onSaved }) {
         ) : (
           /* ── Entry form ── */
           <>
+            {/* Batch date */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '6px' }}>Batch Date</label>
+              <input
+                type="date"
+                value={batchDate}
+                onChange={e => setBatchDate(e.target.value)}
+                style={{ padding: '8px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', outline: 'none', width: '180px' }}
+              />
+            </div>
+
             {/* Header */}
             <div style={{ display: 'grid', gridTemplateColumns: '30px 80px 70px 1fr', gap: '8px', padding: '6px 0', marginBottom: '4px' }}>
               <span style={{ fontSize: '9px', fontWeight: 700, color: MUTED, letterSpacing: '0.06em' }}>#</span>
@@ -638,7 +650,7 @@ function LogBatchModal({ onClose, onSaved }) {
                               e.preventDefault();
                               setRows(prev => {
                                 const n = [...prev];
-                                n[i] = { ...n[i], initials: k.initials, match: k.student, status: 'matched' };
+                                n[i] = { ...n[i], initials: k.initials, match: k.student, status: 'matched', notes: k.notes || '' };
                                 return n;
                               });
                               setActiveDropdown(null);
@@ -665,12 +677,17 @@ function LogBatchModal({ onClose, onSaved }) {
                   placeholder="0"
                   style={{ padding: '7px 8px', border: `1px solid ${RULE}`, fontSize: '13px', outline: 'none', boxSizing: 'border-box', width: '100%' }}
                 />
-                <span style={{
-                  fontSize: '11px', fontWeight: 600,
-                  color: row.status === 'matched' ? '#2E7D32' : row.status === 'unmatched' ? WARN : MUTED,
-                }}>
-                  {row.status === 'matched' && row.match ? `${row.match.first_name} ${row.match.last_name}` : row.status === 'unmatched' ? 'No match' : '—'}
-                </span>
+                <div>
+                  <span style={{
+                    fontSize: '11px', fontWeight: 600,
+                    color: row.status === 'matched' ? '#2E7D32' : row.status === 'unmatched' ? WARN : MUTED,
+                  }}>
+                    {row.status === 'matched' && row.match ? `${row.match.first_name} ${row.match.last_name}` : row.status === 'unmatched' ? 'No match' : '—'}
+                  </span>
+                  {row.status === 'matched' && row.notes && (
+                    <div style={{ fontSize: '10px', color: MUTED, marginTop: '2px' }}>{row.notes}</div>
+                  )}
+                </div>
               </div>
             ))}
 

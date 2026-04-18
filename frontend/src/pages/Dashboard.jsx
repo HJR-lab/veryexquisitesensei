@@ -404,6 +404,15 @@ export default function Dashboard() {
               {nextClass && (
                 <div>Next: <strong style={{ color: INK }}>{nextClass.date} {nextClass.time}</strong></div>
               )}
+              {waitlistEntries.filter(w => !w.claimed && w.class).length > 0 && (
+                <div style={{ color: '#9E6200' }}>
+                  {waitlistEntries.filter(w => !w.claimed && w.class).map((w, i) => {
+                    const d = new Date(w.class.classDate);
+                    const dateStr = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+                    return <div key={i}>Waitlisted for <strong>{dateStr} {w.class.startTime}</strong></div>;
+                  })}
+                </div>
+              )}
               {(() => {
                 const flexEnrollment = enrollmentsWithCounts.find(e => {
                   return e.is10Pkg && (e.enrollment.class_credits_remaining > 0) && e.statusLabel !== 'completed';
@@ -772,17 +781,27 @@ export default function Dashboard() {
                 today.setHours(0,0,0,0);
                 return d >= today;
               })
-              .map(w => ({
-                _isWaitlist: true,
-                class_instances: {
-                  class_date: w.class.classDate,
-                  start_time: w.class.startTime,
-                  end_time: w.class.endTime,
-                  class_type: w.class.classType,
-                  instructor: w.class.instructor,
-                },
-                _waitlistPosition: w.position,
-              }));
+              .map(w => {
+                const ct = w.class.classType || '';
+                let title;
+                if (ct.startsWith('HB')) title = 'Handbuilding';
+                else if (ct.startsWith('WT')) {
+                  const wm = ct.match(/_\w+(\d)\./);
+                  title = wm && wm[1] === '7' ? 'Wheelthrowing Intermediate 7 Weeks' : 'Wheelthrowing Beginners/Ext 6 Weeks';
+                } else title = ct;
+                return {
+                  _isWaitlist: true,
+                  _courseTitle: title,
+                  class_instances: {
+                    class_date: w.class.classDate,
+                    start_time: w.class.startTime,
+                    end_time: w.class.endTime,
+                    class_type: ct,
+                    instructor: w.class.instructor,
+                  },
+                  _waitlistPosition: w.position,
+                };
+              });
 
             const combined = [...upcoming, ...waitlistRows].sort((a, b) => {
               const dA = new Date(a.class_instances?.class_date);

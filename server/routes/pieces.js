@@ -256,6 +256,30 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
   }));
 
   // Search by initials
+  // Get all distinct initials from student-logged batches (for admin dropdown)
+  app.get('/api/admin/pieces/initials', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+    const { data, error } = await supabaseDb.supabase
+      .from('piece_batches')
+      .select('initials, customer_id, piece_count, status, customers!piece_batches_customer_id_fkey(id, first_name, last_name, email)')
+      .not('initials', 'is', null)
+      .in('status', ['logged', 'bisque_fired', 'glaze_fired'])
+      .order('created_at', { ascending: false });
+
+    if (error) return res.status(500).json({ error: 'Failed to fetch initials' });
+
+    // Group by initials, keep the most recent student match
+    const map = {};
+    for (const b of (data || [])) {
+      const key = (b.initials || '').toUpperCase();
+      if (!key) continue;
+      if (!map[key]) {
+        map[key] = { initials: key, student: b.customers, pieceCount: b.piece_count, status: b.status, customerId: b.customer_id };
+      }
+    }
+
+    res.json({ initials: Object.values(map) });
+  }));
+
   app.get('/api/admin/pieces/search', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
     const { initials } = req.query;
     if (!initials) return res.status(400).json({ error: 'initials query param required' });

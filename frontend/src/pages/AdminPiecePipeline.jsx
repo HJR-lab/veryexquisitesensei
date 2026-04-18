@@ -476,12 +476,21 @@ function LogBatchModal({ onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [results, setResults] = useState(null); // { saved, unmatched }
+  const [knownInitials, setKnownInitials] = useState([]); // [{ initials, student, pieceCount }]
+  const [activeDropdown, setActiveDropdown] = useState(null); // row index
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  // Load all known initials on mount
+  useEffect(() => {
+    api.get('/admin/pieces/initials')
+      .then(({ data }) => setKnownInitials(data.initials || []))
+      .catch(() => {});
+  }, []);
 
   const updateRow = (idx, field, value) => {
     setRows(prev => {
@@ -604,14 +613,50 @@ function LogBatchModal({ onClose, onSaved }) {
             {rows.map((row, i) => (
               <div key={i} style={{ display: 'grid', gridTemplateColumns: '30px 80px 70px 1fr', gap: '8px', alignItems: 'center', padding: '3px 0' }}>
                 <span style={{ fontSize: '10px', color: MUTED, fontWeight: 600 }}>{i + 1}</span>
-                <input
-                  type="text"
-                  value={row.initials}
-                  onChange={e => updateRow(i, 'initials', e.target.value)}
-                  placeholder="JL"
-                  maxLength={5}
-                  style={{ padding: '7px 8px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '2px', outline: 'none', boxSizing: 'border-box', width: '100%' }}
-                />
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    value={row.initials}
+                    onChange={e => { updateRow(i, 'initials', e.target.value); setActiveDropdown(i); }}
+                    onFocus={() => setActiveDropdown(i)}
+                    onBlur={() => setTimeout(() => setActiveDropdown(null), 150)}
+                    placeholder="JL"
+                    maxLength={5}
+                    style={{ padding: '7px 8px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '2px', outline: 'none', boxSizing: 'border-box', width: '100%' }}
+                  />
+                  {activeDropdown === i && knownInitials.length > 0 && (() => {
+                    const filtered = knownInitials.filter(k =>
+                      !row.initials || k.initials.startsWith(row.initials.toUpperCase())
+                    );
+                    if (filtered.length === 0) return null;
+                    return (
+                      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: '#FFF', border: `1px solid ${RULE}`, borderTop: 'none', maxHeight: '150px', overflowY: 'auto', zIndex: 10 }}>
+                        {filtered.map(k => (
+                          <button
+                            key={k.initials}
+                            onMouseDown={e => {
+                              e.preventDefault();
+                              setRows(prev => {
+                                const n = [...prev];
+                                n[i] = { ...n[i], initials: k.initials, match: k.student, status: 'matched' };
+                                return n;
+                              });
+                              setActiveDropdown(null);
+                            }}
+                            style={{ display: 'block', width: '100%', padding: '6px 8px', textAlign: 'left', background: 'none', border: 'none', borderBottom: `1px solid ${RULE}`, cursor: 'pointer', fontFamily: 'inherit' }}
+                            onMouseEnter={e => e.currentTarget.style.backgroundColor = ALT}
+                            onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                          >
+                            <span style={{ fontFamily: 'monospace', fontWeight: 700, letterSpacing: '2px', fontSize: '13px' }}>{k.initials}</span>
+                            <span style={{ fontSize: '11px', color: MUTED, marginLeft: '8px' }}>
+                              {k.student ? `${k.student.first_name} ${k.student.last_name}` : '—'}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
                 <input
                   type="number"
                   min="1"

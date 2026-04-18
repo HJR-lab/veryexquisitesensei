@@ -138,6 +138,12 @@ export default function AdminFees() {
                       >
                         Waive
                       </button>
+                      <button
+                        onClick={() => { if (confirm('Delete this fee?')) deleteFee(fee.id); }}
+                        style={{ fontSize: '9px', fontWeight: 700, padding: '3px 6px', backgroundColor: '#FFEBEE', color: '#C62828', border: 'none', cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.04em' }}
+                      >
+                        Delete
+                      </button>
                     </div>
                   ) : (
                     <div style={{ display: 'flex', gap: '4px', justifyContent: 'center', alignItems: 'center' }}>

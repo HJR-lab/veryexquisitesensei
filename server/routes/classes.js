@@ -2177,6 +2177,33 @@ app.post('/api/classes/waitlist/join', authenticateToken, asyncHandler(async (re
     });
   }
 
+  // Check total credits: booked + waitlisted must not exceed allocated
+  const { count: bookedCount } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id', { count: 'exact', head: true })
+    .eq('student_id', dbCustomerId)
+    .eq('status', 'booked');
+
+  const { count: waitlistedCount } = await supabaseDb.supabase
+    .from('waitlist')
+    .select('id', { count: 'exact', head: true })
+    .eq('student_id', dbCustomerId)
+    .eq('claimed', false);
+
+  const { data: enrollments } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('id, number_of_weeks, class_credits_allocated')
+    .eq('student_id', dbCustomerId)
+    .eq('status', 'active');
+
+  const totalAllocated = (enrollments || []).reduce((sum, e) => sum + (e.number_of_weeks || e.class_credits_allocated || 0), 0);
+
+  if (bookedCount + waitlistedCount >= totalAllocated) {
+    return res.status(400).json({
+      error: `You have no remaining credits to join the waitlist. You have ${bookedCount} booked and ${waitlistedCount} waitlisted out of ${totalAllocated} total.`
+    });
+  }
+
   const maxPosition = await supabaseDb.getMaxWaitlistPosition(parseInt(classInstanceId));
   const newPosition = maxPosition + 1;
 

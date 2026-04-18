@@ -153,6 +153,20 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
     courseGroups[groupKey].push(booking);
   });
 
+  // Step 1b: Merge orphan bookings (no course_enrollment_id) into 10-class package enrollment
+  // 10-class = 6 WT + 4 flex (HB or WT). Flex bookings may not have enrollment link.
+  const tenClassEnrollment = enrollments.find(e => e.number_of_weeks === 10);
+  if (tenClassEnrollment) {
+    const tenClassKey = `enrollment_${tenClassEnrollment.id}`;
+    Object.keys(courseGroups).forEach(key => {
+      if (key.startsWith('enrollment_')) return; // already linked
+      // Merge orphan group into the 10-class enrollment group
+      if (!courseGroups[tenClassKey]) courseGroups[tenClassKey] = [];
+      courseGroups[tenClassKey].push(...courseGroups[key]);
+      delete courseGroups[key];
+    });
+  }
+
   // Step 2: Build enrollment lookup — derive course_identifier from bookings if missing
   const enrollmentByCourseId = {};
   const enrollmentById = {};

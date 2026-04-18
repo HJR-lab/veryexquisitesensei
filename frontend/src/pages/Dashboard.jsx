@@ -317,7 +317,7 @@ export default function Dashboard() {
     else if (upcomingEnrollments.find(e => e.id === enrollment.id)) statusLabel = 'upcoming';
     else if ((dashboardData?.enrollments?.completed || []).find(e => e.id === enrollment.id)) statusLabel = 'completed';
 
-    return { enrollment, totalClasses, attendedCount, bookedCount, remaining, pct, typeLabel, statusLabel, is10Pkg };
+    return { enrollment, totalClasses, attendedCount, bookedCount, remaining, creditsAvailable, pct, typeLabel, statusLabel, is10Pkg };
   });
 
   // Greeting course count line: unique types, sum remaining

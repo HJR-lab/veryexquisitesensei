@@ -932,7 +932,7 @@ export default function ClassScheduleNew() {
             const regularCourse = activeEnrollments.find(e => e.number_of_weeks && e.number_of_weeks !== 10);
             if (!regularCourse) return null;
             const totalClasses = regularCourse.number_of_weeks || 6;
-            const activeBookings = (regularCourse.bookings || []).filter(b => b.status === 'booked' || b.status === 'attended' || b.status === 'completed').length;
+            const activeBookings = (regularCourse.bookings || []).filter(b => b.status === 'booked' || b.status === 'attended' || b.status === 'completed' || b.status === 'rescheduled' || b.status === 'absent' || b.status === 'forfeited').length;
             const waitlisted = myWaitlistEntries.filter(w => !w.claimed && w.class).length;
             const unbooked = totalClasses - activeBookings - waitlisted;
             if (unbooked <= 0) return null;

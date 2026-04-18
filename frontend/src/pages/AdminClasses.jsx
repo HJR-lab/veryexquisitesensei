@@ -93,6 +93,7 @@ export default function AdminClasses() {
   const [summaryStats, setSummaryStats] = useState(null);
   const [classMembers, setClassMembers] = useState({});
   const [absentMembers, setAbsentMembers] = useState({});
+  const [waitlistMembersMap, setWaitlistMembersMap] = useState({});
   const [loadingMembers, setLoadingMembers] = useState({});
 
   // ── UI state ────────────────────────────────────────────────────────────────
@@ -429,6 +430,7 @@ export default function AdminClasses() {
       const { data } = await api.get(`/admin/classes/${classInstance.id}/members`);
       setClassMembers(prev => ({ ...prev, [classInstance.id]: data.members || [] }));
       setAbsentMembers(prev => ({ ...prev, [classInstance.id]: data.absentMembers || [] }));
+      setWaitlistMembersMap(prev => ({ ...prev, [classInstance.id]: data.waitlistMembers || [] }));
     } catch (error) {
       console.error('Failed to load class members:', error);
     } finally {
@@ -535,6 +537,7 @@ export default function AdminClasses() {
           const { data } = await api.get(`/admin/classes/${classId}/members`);
           setClassMembers(prev => ({ ...prev, [classId]: data.members || [] }));
           setAbsentMembers(prev => ({ ...prev, [classId]: data.absentMembers || [] }));
+          setWaitlistMembersMap(prev => ({ ...prev, [classId]: data.waitlistMembers || [] }));
         } catch (e) { console.error('Failed to reload members:', e); }
         finally { setLoadingMembers(prev => ({ ...prev, [classId]: false })); }
       }
@@ -561,12 +564,14 @@ export default function AdminClasses() {
       await new Promise(r => setTimeout(r, 100));
       setClassMembers(prev => { const u = { ...prev }; delete u[classId]; return u; });
       setAbsentMembers(prev => { const u = { ...prev }; delete u[classId]; return u; });
+      setWaitlistMembersMap(prev => { const u = { ...prev }; delete u[classId]; return u; });
       if (expandedCourse === classId) {
         try {
           setLoadingMembers(prev => ({ ...prev, [classId]: true }));
           const { data } = await api.get(`/admin/classes/${classId}/members?t=${Date.now()}`);
           setClassMembers(prev => ({ ...prev, [classId]: data.members || [] }));
           setAbsentMembers(prev => ({ ...prev, [classId]: data.absentMembers || [] }));
+          setWaitlistMembersMap(prev => ({ ...prev, [classId]: data.waitlistMembers || [] }));
         } catch (e) { console.error('Failed to reload members:', e); }
         finally { setLoadingMembers(prev => ({ ...prev, [classId]: false })); }
       }
@@ -1199,6 +1204,7 @@ export default function AdminClasses() {
     const regular = members.filter(m => !m.isMakeup);
     const makeup  = members.filter(m => m.isMakeup);
     const absent  = absentMembers[classInstance.id] || [];
+    const waitlisted = waitlistMembersMap[classInstance.id] || [];
 
     const renderMemberRow = (m, j, isMakeup, rowNum) => {
       const bgColor = isMakeup ? '#FAF8FF' : '#FFFFFF';
@@ -1326,7 +1332,25 @@ export default function AdminClasses() {
           </div>
         ))}
 
-        {!loadingMembers[classInstance.id] && members.length === 0 && (
+        {waitlisted.map((m, j) => (
+          <div
+            key={`wl-${m.waitlistId || j}`}
+            style={{ display: 'grid', gridTemplateColumns: '22px 1fr 50px 100px 80px', padding: '9px 12px', borderTop: `1px dashed #E0D6C8`, backgroundColor: '#FFF7E6', alignItems: 'center' }}
+          >
+            <span style={{ fontSize: '10px', color: '#9E6200', fontWeight: 600 }}>W{m.position}</span>
+            <span
+              onClick={() => navigate(`/admin/students/${encodeURIComponent(m.email)}`)}
+              style={{ fontSize: '12px', fontWeight: 600, cursor: 'pointer', color: '#9E6200', textDecoration: 'underline' }}
+            >
+              {m.firstName} {m.lastName}
+            </span>
+            <span style={{ fontSize: '11px', fontWeight: 600, textAlign: 'center', color: MUTED }}>{m.returningCount || 1}</span>
+            <span style={{ fontSize: '10px', color: '#9E6200', fontWeight: 700, textAlign: 'center' }}>Waitlisted</span>
+            <div />
+          </div>
+        ))}
+
+        {!loadingMembers[classInstance.id] && members.length === 0 && waitlisted.length === 0 && (
           <div style={{ padding: '9px 12px', borderTop: `1px solid ${RULE}` }}>
             <span style={{ fontSize: '12px', color: MUTED }}>No students enrolled</span>
           </div>

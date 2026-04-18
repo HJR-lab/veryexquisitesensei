@@ -77,6 +77,7 @@ export default function Dashboard() {
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   const [showCompletedCourses, setShowCompletedCourses] = useState(false);
   const [creditBalance, setCreditBalance] = useState(null);
+  const [waitlistEntries, setWaitlistEntries] = useState([]);
   const [wheelSelections, setWheelSelections] = useState({});
 
   useEffect(() => {
@@ -86,16 +87,18 @@ export default function Dashboard() {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const [dashboardResponse, potteryData, eventsRes, membershipRes, creditRes] = await Promise.all([
+      const [dashboardResponse, potteryData, eventsRes, membershipRes, creditRes, waitlistRes] = await Promise.all([
         api.get('/students/me/dashboard'),
         potteryAPI.getPieces(),
         api.get('/events/upcoming').catch(() => ({ data: { events: [] } })),
         api.get('/membership/my-membership').catch(() => ({ data: { hasMembership: false } })),
         api.get(`/credits/balance/${user?.dbCustomerId}`).catch(() => ({ data: { balance: 0 } })),
+        api.get('/classes/waitlist/my-entries').catch(() => ({ data: { waitlistEntries: [] } })),
       ]);
       setUpcomingEvents(eventsRes.data.events || []);
       setMembershipData(membershipRes.data);
       setCreditBalance(creditRes.data?.balance ?? 0);
+      setWaitlistEntries(waitlistRes.data?.waitlistEntries || []);
 
       setDashboardData(dashboardResponse.data);
       setStudentData(dashboardResponse.data.student);
@@ -758,30 +761,66 @@ export default function Dashboard() {
             )}
           </SectionLabel>
 
-          {upcoming.length === 0 ? (
-            <p style={{ fontSize: '13px', color: MUTED, padding: '16px 0' }}>No upcoming classes booked yet.</p>
-          ) : (
-            <div>
-              {upcoming.map((booking, i) => {
-                const ci = booking.class_instances || {};
-                const ct = ci.class_type || booking.class_type || '';
-                const isWTGlazing = ct.includes('6.6') || ct.includes('7.7');
-                const isGlazing = isWTGlazing || booking._isHBGlazing;
-                return (
-                  <ClassRow
-                    key={i}
-                    dateStr={ci.class_date || booking.class_date}
-                    classType={isGlazing ? 'Glazing' : (booking._courseTitle || ct)}
-                    startTime={ci.start_time}
-                    endTime={ci.end_time}
-                    subtitle={ci.instructor}
-                    isLast={i === upcoming.length - 1}
-                    badge={{ label: 'booked', bg: TC_LIGHT, color: TC_DARK }}
-                  />
-                );
-              })}
-            </div>
-          )}
+          {(() => {
+            // Merge waitlist entries into upcoming list
+            const waitlistRows = waitlistEntries
+              .filter(w => !w.claimed && w.class)
+              .filter(w => {
+                const d = new Date(w.class.classDate);
+                d.setHours(0,0,0,0);
+                const today = new Date();
+                today.setHours(0,0,0,0);
+                return d >= today;
+              })
+              .map(w => ({
+                _isWaitlist: true,
+                class_instances: {
+                  class_date: w.class.classDate,
+                  start_time: w.class.startTime,
+                  end_time: w.class.endTime,
+                  class_type: w.class.classType,
+                  instructor: w.class.instructor,
+                },
+                _waitlistPosition: w.position,
+              }));
+
+            const combined = [...upcoming, ...waitlistRows].sort((a, b) => {
+              const dA = new Date(a.class_instances?.class_date);
+              const dB = new Date(b.class_instances?.class_date);
+              return dA - dB;
+            });
+
+            if (combined.length === 0) {
+              return <p style={{ fontSize: '13px', color: MUTED, padding: '16px 0' }}>No upcoming classes booked yet.</p>;
+            }
+
+            return (
+              <div>
+                {combined.map((booking, i) => {
+                  const ci = booking.class_instances || {};
+                  const ct = ci.class_type || booking.class_type || '';
+                  const isWTGlazing = ct.includes('6.6') || ct.includes('7.7');
+                  const isGlazing = isWTGlazing || booking._isHBGlazing;
+                  const isWaitlist = booking._isWaitlist;
+                  return (
+                    <ClassRow
+                      key={i}
+                      dateStr={ci.class_date || booking.class_date}
+                      classType={isGlazing ? 'Glazing' : (booking._courseTitle || ct)}
+                      startTime={ci.start_time}
+                      endTime={ci.end_time}
+                      subtitle={ci.instructor}
+                      isLast={i === combined.length - 1}
+                      badge={isWaitlist
+                        ? { label: 'waitlisted', bg: '#FFF7E6', color: '#9E6200' }
+                        : { label: 'booked', bg: TC_LIGHT, color: TC_DARK }
+                      }
+                    />
+                  );
+                })}
+              </div>
+            );
+          })()}
 
           {/* Past classes toggle */}
           {past.length > 0 && (

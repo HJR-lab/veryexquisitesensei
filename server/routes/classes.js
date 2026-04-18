@@ -260,7 +260,19 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
     return res.status(404).json({ error: 'Class not found' });
   }
 
-  if (classInstance.current_enrollment >= classInstance.max_capacity) {
+  // Count actual bookings instead of relying on cached current_enrollment
+  const { count: actualCount, error: countErr } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id', { count: 'exact', head: true })
+    .eq('class_instance_id', parseInt(classInstanceId))
+    .eq('status', 'booked');
+
+  if (countErr) {
+    console.error('Error counting bookings:', countErr);
+    return res.status(500).json({ error: 'Failed to check class capacity' });
+  }
+
+  if (actualCount >= (classInstance.max_capacity || 10)) {
     return res.status(400).json({ error: 'Class is full. Please join the waitlist.' });
   }
 
@@ -294,6 +306,26 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
       }
       if (classIsHB && hasWTEnrollment && !hasHBEnrollment) {
         return res.status(400).json({ error: 'Your enrollment is for Wheelthrowing classes only. You cannot book Handbuilding classes.' });
+      }
+    }
+  }
+
+  // Block beginner students from booking intermediate WT classes (7-week courses)
+  // Must have purchased at least 3 WT courses to book intermediate
+  if (classIsWT) {
+    const weekMatch = classInstance.class_type?.match(/_\w+(\d)\.\d+$/);
+    const isIntermediate = weekMatch && parseInt(weekMatch[1]) === 7;
+    if (isIntermediate) {
+      const { data: customerRow } = await supabaseDb.supabase
+        .from('customers')
+        .select('course_purchase_count')
+        .eq('id', dbCustomerId)
+        .single();
+      const purchaseCount = customerRow?.course_purchase_count || 0;
+      if (purchaseCount < 3) {
+        return res.status(400).json({
+          error: 'Intermediate classes require at least 3 completed wheelthrowing courses. Please continue with beginner classes.'
+        });
       }
     }
   }
@@ -411,7 +443,19 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
     return res.status(404).json({ error: 'Class not found' });
   }
 
-  if (classInstance.current_enrollment >= classInstance.max_capacity) {
+  // Count actual bookings instead of relying on cached current_enrollment
+  const { count: actualMakeupCount, error: makeupCountErr } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id', { count: 'exact', head: true })
+    .eq('class_instance_id', parseInt(classInstanceId))
+    .eq('status', 'booked');
+
+  if (makeupCountErr) {
+    console.error('Error counting bookings:', makeupCountErr);
+    return res.status(500).json({ error: 'Failed to check class capacity' });
+  }
+
+  if (actualMakeupCount >= (classInstance.max_capacity || 10)) {
     return res.status(400).json({ error: 'Class is full. No makeup spots available.' });
   }
 
@@ -446,6 +490,25 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
       }
       if (classIsHB && hasWTEnrollment && !hasHBEnrollment) {
         return res.status(400).json({ error: 'Your enrollment is for Wheelthrowing classes only. You cannot book Handbuilding classes.' });
+      }
+    }
+  }
+
+  // Block beginner students from booking intermediate WT classes (7-week courses)
+  if (classIsWT) {
+    const weekMatch = classInstance.class_type?.match(/_\w+(\d)\.\d+$/);
+    const isIntermediate = weekMatch && parseInt(weekMatch[1]) === 7;
+    if (isIntermediate) {
+      const { data: customerRow } = await supabaseDb.supabase
+        .from('customers')
+        .select('course_purchase_count')
+        .eq('id', dbCustomerId)
+        .single();
+      const purchaseCount = customerRow?.course_purchase_count || 0;
+      if (purchaseCount < 3) {
+        return res.status(400).json({
+          error: 'Intermediate classes require at least 3 completed wheelthrowing courses. Please continue with beginner classes.'
+        });
       }
     }
   }
@@ -1236,7 +1299,19 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
   }
 
   // Check if new class has availability (total capacity is 10)
-  if (newClass.current_enrollment >= newClass.max_capacity) {
+  // Count actual bookings instead of relying on cached current_enrollment
+  const { count: actualBookingCount, error: countErr } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id', { count: 'exact', head: true })
+    .eq('class_instance_id', parseInt(newClassId))
+    .eq('status', 'booked');
+
+  if (countErr) {
+    console.error('Error counting bookings:', countErr);
+    return res.status(500).json({ error: 'Failed to check class capacity' });
+  }
+
+  if (actualBookingCount >= (newClass.max_capacity || 10)) {
     return res.status(400).json({ error: 'This class is completely full' });
   }
 
@@ -2135,7 +2210,14 @@ app.post('/api/classes/:classInstanceId/waitlist/offer-next', authenticateToken,
     return res.status(404).json({ error: 'No one on waitlist' });
   }
 
-  if (nextInLine.class_instance.current_enrollment >= nextInLine.class_instance.max_capacity) {
+  // Count actual bookings instead of relying on cached current_enrollment
+  const { count: waitlistOfferCount } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id', { count: 'exact', head: true })
+    .eq('class_instance_id', parseInt(classInstanceId))
+    .eq('status', 'booked');
+
+  if (waitlistOfferCount >= (nextInLine.class_instance.max_capacity || 10)) {
     return res.status(400).json({ error: 'Class is full' });
   }
 
@@ -2195,7 +2277,14 @@ app.post('/api/classes/waitlist/claim', authenticateToken, asyncHandler(async (r
     return res.status(400).json({ error: 'This offer has expired' });
   }
 
-  if (waitlistEntry.class_instance.current_enrollment >= waitlistEntry.class_instance.max_capacity) {
+  // Count actual bookings instead of relying on cached current_enrollment
+  const { count: waitlistClaimCount } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id', { count: 'exact', head: true })
+    .eq('class_instance_id', waitlistEntry.class_instance.id)
+    .eq('status', 'booked');
+
+  if (waitlistClaimCount >= (waitlistEntry.class_instance.max_capacity || 10)) {
     return res.status(400).json({ error: 'Class is now full' });
   }
 

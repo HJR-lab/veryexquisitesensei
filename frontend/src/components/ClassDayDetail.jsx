@@ -72,7 +72,8 @@ export default function ClassDayDetail({
                     <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
                       <button
                         onClick={() => { handleOpenAddStudentModal(classInstance.id); }}
-                        style={{ fontSize: '9px', padding: '3px 8px', border: 'none', backgroundColor: TC, color: '#FFF', cursor: 'pointer', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}
+                        disabled={booked >= cap}
+                        style={{ fontSize: '9px', padding: '3px 8px', border: 'none', backgroundColor: booked >= cap ? '#EEE' : TC, color: booked >= cap ? '#CCC' : '#FFF', cursor: booked >= cap ? 'not-allowed' : 'pointer', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}
                       >
                         + Add
                       </button>

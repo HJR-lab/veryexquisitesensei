@@ -56,6 +56,7 @@ export default function ClassScheduleNew() {
   // ── API state (preserved from production) ──────────────────────────────────
   const [classes, setClasses] = useState([]);
   const [myBookings, setMyBookings] = useState([]);
+  const [myWaitlistEntries, setMyWaitlistEntries] = useState([]);
   const [studentData, setStudentData] = useState(null);
   const [dashboardData, setDashboardData] = useState(null);
   const [bookingLoading, setBookingLoading] = useState(false);
@@ -179,8 +180,12 @@ export default function ClassScheduleNew() {
 
   const fetchMyBookings = async () => {
     try {
-      const response = await api.get('/classes/my-bookings');
-      setMyBookings(response.data.bookings || []);
+      const [bookingsRes, waitlistRes] = await Promise.all([
+        api.get('/classes/my-bookings'),
+        api.get('/classes/waitlist/my-entries').catch(() => ({ data: { waitlistEntries: [] } })),
+      ]);
+      setMyBookings(bookingsRes.data.bookings || []);
+      setMyWaitlistEntries(waitlistRes.data?.waitlistEntries || []);
     } catch (error) {
       console.error('Error fetching bookings:', error);
     }
@@ -291,9 +296,9 @@ export default function ClassScheduleNew() {
   const dateHasClasses  = (date) => getClassesForDate(date).length > 0;
   const dateHasBooked   = (date) => getClassesForDate(date).some(c => isEnrolled(c.id));
 
-  // My upcoming bookings (booked status, future)
+  // My upcoming bookings (booked status, future) + waitlisted entries
   const now = new Date();
-  const myUpcomingBookings = myBookings
+  const bookedUpcoming = myBookings
     .filter(b => b.status === 'booked')
     .filter(b => {
       const classDate = b.class?.classDate || b.classInstance?.classDate || b.class_date;
@@ -301,6 +306,24 @@ export default function ClassScheduleNew() {
       const endDT = parseClassDateTime(classDate, endTime);
       return endDT >= now;
     })
+    .map(b => ({ ...b, _isWaitlist: false }));
+
+  const waitlistUpcoming = myWaitlistEntries
+    .filter(w => !w.claimed && w.class)
+    .filter(w => {
+      const d = new Date(w.class.classDate);
+      d.setHours(0,0,0,0);
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      return d >= today;
+    })
+    .map(w => ({
+      _isWaitlist: true,
+      status: 'waitlisted',
+      class: w.class,
+    }));
+
+  const myUpcomingBookings = [...bookedUpcoming, ...waitlistUpcoming]
     .sort((a, b) => {
       const da = new Date(a.class?.classDate || a.classInstance?.classDate || a.class_date);
       const db = new Date(b.class?.classDate || b.classInstance?.classDate || b.class_date);
@@ -825,17 +848,24 @@ export default function ClassScheduleNew() {
                     (cat === 'handbuilding' && hasWTEnroll && !hasHBEnroll)
                   );
 
+                  // Grey out intermediate WT classes for students with < 3 course purchases
+                  const weekMatch = cls.classType?.match(/_\w+(\d)\.\d+$/);
+                  const isIntermediate = cat === 'wheelthrowing' && weekMatch && parseInt(weekMatch[1]) === 7;
+                  const intermediateBlocked = isIntermediate && (studentData?.course_purchase_count || 0) < 3;
+
+                  const blocked = crossTypeBlocked || intermediateBlocked;
+
                   return (
                     <div
                       key={cls.id}
-                      onClick={() => !crossTypeBlocked && setShowDetailSheet(cls)}
+                      onClick={() => !blocked && setShowDetailSheet(cls)}
                       style={{
                         padding: '12px',
                         border: `1px solid ${enrolled ? TC : RULE}`,
-                        backgroundColor: crossTypeBlocked ? '#F5F5F5' : enrolled ? TC_LIGHT : ALT,
-                        opacity: crossTypeBlocked ? 0.5 : 1,
+                        backgroundColor: blocked ? '#F5F5F5' : enrolled ? TC_LIGHT : ALT,
+                        opacity: blocked ? 0.5 : 1,
                         display: 'flex', alignItems: 'center', gap: '14px',
-                        cursor: crossTypeBlocked ? 'default' : 'pointer',
+                        cursor: blocked ? 'default' : 'pointer',
                       }}
                     >
                       {/* Date mini-cal */}
@@ -860,7 +890,7 @@ export default function ClassScheduleNew() {
 
                       {/* Action */}
                       <div style={{ flexShrink: 0, textAlign: 'right' }}>
-                        {crossTypeBlocked ? (
+                        {blocked ? (
                           <div style={{ fontSize: '10px', color: MUTED }}>{spotsLeft(cls)} left</div>
                         ) : enrolled ? (
                           <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '5px 10px', backgroundColor: TC, color: '#FFF' }}>
@@ -923,8 +953,8 @@ export default function ClassScheduleNew() {
                         display: 'flex', alignItems: 'center', gap: '14px',
                         padding: '12px',
                         borderBottom: i < myUpcomingBookings.length - 1 ? `1px solid ${RULE}` : 'none',
-                        borderLeft: `3px solid ${TC}`,
-                        backgroundColor: TC_LIGHT,
+                        borderLeft: `3px solid ${booking._isWaitlist ? '#D4A017' : TC}`,
+                        backgroundColor: booking._isWaitlist ? '#FFF7E6' : TC_LIGHT,
                         marginLeft: '-1px',
                       }}
                     >
@@ -946,33 +976,47 @@ export default function ClassScheduleNew() {
                         <div style={{ fontSize: '11px', color: MUTED }}>{f.startTime} – {f.endTime} · {f.instructor}</div>
                       </div>
 
-                      {/* Reschedule button */}
-                      <button
-                        onClick={() => {
-                          if (booking.status !== 'booked') {
-                            alert(`Cannot reschedule: This class booking is ${booking.status}. Please refresh the page.`);
-                            fetchMyBookings();
-                            return;
-                          }
-                          if (isWithin24Hours) {
-                            alert('Cannot reschedule classes within 24 hours of start time.');
-                            return;
-                          }
-                          setSelectedClass(classItem);
-                          setShowRescheduleModal(true);
-                          setRescheduleSelectedDate(new Date());
-                          setRescheduleCurrentMonth(new Date());
-                        }}
-                        style={{
-                          fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-                          padding: '4px 8px',
-                          backgroundColor: isWithin24Hours ? MUTED : '#EBEBEB',
-                          color: isWithin24Hours ? '#FFF' : INK,
-                          border: 'none', cursor: 'pointer', flexShrink: 0,
-                        }}
-                      >
-                        {isWithin24Hours ? 'Within 24h' : 'Reschedule'}
-                      </button>
+                      {/* Reschedule / Waitlisted button */}
+                      {booking._isWaitlist ? (
+                        <span
+                          style={{
+                            fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                            padding: '4px 8px',
+                            backgroundColor: '#FFF7E6',
+                            color: '#9E6200',
+                            border: 'none', flexShrink: 0,
+                          }}
+                        >
+                          Waitlisted
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            if (booking.status !== 'booked') {
+                              alert(`Cannot reschedule: This class booking is ${booking.status}. Please refresh the page.`);
+                              fetchMyBookings();
+                              return;
+                            }
+                            if (isWithin24Hours) {
+                              alert('Cannot reschedule classes within 24 hours of start time.');
+                              return;
+                            }
+                            setSelectedClass(classItem);
+                            setShowRescheduleModal(true);
+                            setRescheduleSelectedDate(new Date());
+                            setRescheduleCurrentMonth(new Date());
+                          }}
+                          style={{
+                            fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                            padding: '4px 8px',
+                            backgroundColor: isWithin24Hours ? MUTED : '#EBEBEB',
+                            color: isWithin24Hours ? '#FFF' : INK,
+                            border: 'none', cursor: 'pointer', flexShrink: 0,
+                          }}
+                        >
+                          {isWithin24Hours ? 'Within 24h' : 'Reschedule'}
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -1079,7 +1123,11 @@ export default function ClassScheduleNew() {
             </div>
 
             {/* Book CTA from detail sheet */}
-            {!isEnrolled(showDetailSheet.id) && !showDetailSheet.isFull && (
+            {!isEnrolled(showDetailSheet.id) && !showDetailSheet.isFull && (() => {
+              const detailWeekMatch = showDetailSheet.classType?.match(/_\w+(\d)\.\d+$/);
+              const detailIsInter = getClassCategory(showDetailSheet.classType) === 'wheelthrowing' && detailWeekMatch && parseInt(detailWeekMatch[1]) === 7;
+              return !(detailIsInter && (studentData?.course_purchase_count || 0) < 3);
+            })() && (
               <button
                 onClick={() => { setShowDetailSheet(null); handleBookClass(showDetailSheet); }}
                 style={{ width: '100%', padding: '13px', border: 'none', backgroundColor: TC, color: '#FFF', fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', cursor: 'pointer' }}

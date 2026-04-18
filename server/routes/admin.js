@@ -3563,11 +3563,41 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, requireAdmin, 
     return nameA.localeCompare(nameB);
   });
 
+  // Fetch waitlist entries for this class
+  const { data: waitlistData } = await supabaseDb.supabase
+    .from('waitlist')
+    .select(`
+      id,
+      student_id,
+      position,
+      joined_at,
+      customers!waitlist_student_id_fkey (
+        id, first_name, last_name, email, course_purchase_count
+      )
+    `)
+    .eq('class_instance_id', classId)
+    .eq('claimed', false)
+    .order('position', { ascending: true });
+
+  const waitlistMembers = (waitlistData || []).map(w => ({
+    id: `wl-${w.id}`,
+    waitlistId: w.id,
+    studentId: w.student_id,
+    firstName: w.customers?.first_name,
+    lastName: w.customers?.last_name,
+    email: w.customers?.email,
+    returningCount: w.customers?.course_purchase_count || 0,
+    status: 'waitlisted',
+    position: w.position,
+  }));
+
   res.json({
     members: activeMembers,
     count: activeMembers.length,
     absentMembers: absentMembers,
-    absentCount: absentMembers.length
+    absentCount: absentMembers.length,
+    waitlistMembers,
+    waitlistCount: waitlistMembers.length
   });
 }));
 
@@ -3841,8 +3871,91 @@ app.delete('/api/admin/bookings/:bookingId', authenticateToken, requireAdmin, as
     }
   }
 
+  // Auto-promote from waitlist if someone is waiting
+  let promotedStudent = null;
+  try {
+    const { data: nextWaitlist } = await supabaseDb.supabase
+      .from('waitlist')
+      .select('id, student_id, position, customers!waitlist_student_id_fkey(id, first_name, last_name, email)')
+      .eq('class_instance_id', affectedClassId)
+      .eq('claimed', false)
+      .is('spot_offered_at', null)
+      .order('position', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (nextWaitlist) {
+      // Get class details for the email
+      const { data: classInfo } = await supabaseDb.supabase
+        .from('class_instances')
+        .select('id, class_type, class_date, start_time, end_time, instructor')
+        .eq('id', affectedClassId)
+        .single();
+
+      // Create a booking for the waitlisted student
+      const { error: bookErr } = await supabaseDb.supabase
+        .from('bookings')
+        .insert({
+          student_id: nextWaitlist.student_id,
+          class_instance_id: affectedClassId,
+          status: 'booked',
+          booking_type: 'makeup',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+
+      if (!bookErr) {
+        // Mark waitlist entry as claimed
+        await supabaseDb.supabase
+          .from('waitlist')
+          .update({
+            claimed: true,
+            claimed_at: new Date().toISOString(),
+            spot_offered_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', nextWaitlist.id);
+
+        promotedStudent = nextWaitlist.customers;
+
+        // Send confirmation email
+        if (promotedStudent?.email && classInfo) {
+          const { sendEmail } = require('../utils/emailService');
+          const classDate = new Date(classInfo.class_date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+          await sendEmail({
+            to: promotedStudent.email,
+            subject: `You're in! Class confirmed — ${classDate}`,
+            html: `
+              <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto;">
+                <p>Hi ${promotedStudent.first_name},</p>
+                <p>Great news — a spot has opened up and you've been confirmed for your class!</p>
+                <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+                  <tr><td style="padding: 8px; color: #888;">Class</td><td style="padding: 8px; font-weight: 600;">${classInfo.class_type}</td></tr>
+                  <tr><td style="padding: 8px; color: #888;">Date</td><td style="padding: 8px; font-weight: 600;">${classDate}</td></tr>
+                  <tr><td style="padding: 8px; color: #888;">Time</td><td style="padding: 8px; font-weight: 600;">${classInfo.start_time} – ${classInfo.end_time}</td></tr>
+                  <tr><td style="padding: 8px; color: #888;">Instructor</td><td style="padding: 8px; font-weight: 600;">${classInfo.instructor}</td></tr>
+                </table>
+                <p>See you at the studio!</p>
+                <p style="color: #888; font-size: 12px;">— VES Studio</p>
+              </div>
+            `,
+          });
+          console.log(`[Waitlist] Auto-promoted ${promotedStudent.first_name} ${promotedStudent.last_name} into class ${classInfo.class_type}`);
+        }
+      }
+    }
+  } catch (waitlistErr) {
+    console.error('[Waitlist] Auto-promote error:', waitlistErr);
+    // Don't fail the cancellation if waitlist promotion fails
+  }
+
   syncCalendar();
-  res.json({ message: 'Student removed successfully' });
+  res.json({
+    message: promotedStudent
+      ? `Student removed. ${promotedStudent.first_name} ${promotedStudent.last_name} promoted from waitlist and emailed.`
+      : 'Student removed successfully',
+    promotedFromWaitlist: promotedStudent ? `${promotedStudent.first_name} ${promotedStudent.last_name}` : null
+  });
 }));
 
 // Toggle booking type between regular and makeup
@@ -6256,6 +6369,16 @@ app.post('/api/admin/course-emails/move-student', authenticateToken, requireAdmi
       .limit(1);
 
     if (!existing || existing.length === 0) {
+      // Hard cap check
+      const { count: currentCount } = await supabaseDb.supabase
+        .from('bookings')
+        .select('id', { count: 'exact', head: true })
+        .eq('class_instance_id', booking.class_instance_id)
+        .eq('status', 'booked');
+      if (currentCount >= 10) {
+        console.warn(`[MoveStudent] Skipping class ${booking.class_instance_id} — full (${currentCount}/10)`);
+        continue;
+      }
       const { error: insertErr } = await supabaseDb.supabase.from('bookings').insert(booking);
       if (insertErr) {
         console.error(`Failed to create booking for class ${booking.class_instance_id}:`, insertErr);
@@ -6590,6 +6713,18 @@ app.post('/api/admin/vouchers/:id/convert-to-enrollment', authenticateToken, req
     created_at: now,
     updated_at: now
   }));
+
+  // Check capacity before inserting
+  for (const b of bookings) {
+    const { count } = await supabase
+      .from('bookings')
+      .select('id', { count: 'exact', head: true })
+      .eq('class_instance_id', b.class_instance_id)
+      .eq('status', 'booked');
+    if (count >= 10) {
+      return res.status(400).json({ error: `Class is full (${count}/10). Cannot complete voucher enrollment.` });
+    }
+  }
 
   const { error: bookErr } = await supabase
     .from('bookings')

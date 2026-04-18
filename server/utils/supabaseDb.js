@@ -782,6 +782,28 @@ async function getClassInstanceById(classInstanceId) {
  * Create booking
  */
 async function createBooking(bookingData) {
+  // Hard cap: never exceed max_capacity (default 10) for any class
+  if (bookingData.classInstanceId) {
+    const { count } = await supabase
+      .from('bookings')
+      .select('id', { count: 'exact', head: true })
+      .eq('class_instance_id', bookingData.classInstanceId)
+      .eq('status', 'booked');
+
+    const { data: cls } = await supabase
+      .from('class_instances')
+      .select('max_capacity')
+      .eq('id', bookingData.classInstanceId)
+      .single();
+
+    const cap = cls?.max_capacity || 10;
+    if (count >= cap) {
+      const err = new Error(`Class is full (${count}/${cap})`);
+      err.code = 'CLASS_FULL';
+      throw err;
+    }
+  }
+
   const insertData = {
     student_id: bookingData.studentId,
     class_instance_id: bookingData.classInstanceId,

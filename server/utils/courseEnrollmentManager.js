@@ -388,7 +388,22 @@ async function linkStudentsToExistingClasses(cohortEnrollments, classInstances) 
     // Skip if already has bookings
     if (enrollment.bookings_created_at) continue;
 
-    const bookingsToCreate = classInstances.map(ci => ({
+    // Filter out classes that are already full (hard cap 10)
+    const availableInstances = [];
+    for (const ci of classInstances) {
+      const { count } = await supabase
+        .from('bookings')
+        .select('id', { count: 'exact', head: true })
+        .eq('class_instance_id', ci.id)
+        .eq('status', 'booked');
+      if (count < (ci.max_capacity || 10)) {
+        availableInstances.push(ci);
+      } else {
+        console.warn(`[Enrollment] Skipping class ${ci.id} (${ci.class_type}) — full (${count}/10)`);
+      }
+    }
+
+    const bookingsToCreate = availableInstances.map(ci => ({
       student_id: enrollment.student_id,
       class_instance_id: ci.id,
       status: 'booked',

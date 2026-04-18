@@ -289,7 +289,8 @@ export default function Dashboard() {
       ? (enrollment.class_credits_used || attendedCount)
       : enrollmentBookings.filter(b => b.status === 'booked' || b.status === 'attended' || b.status === 'completed').length;
     const remaining = Math.max(totalClasses - attendedCount, 0);
-    const creditsAvailable = Math.max(totalClasses - bookedCount, 0);
+    const waitlistedCount = waitlistEntries.filter(w => !w.claimed && w.class).length;
+    const creditsAvailable = Math.max(totalClasses - bookedCount - waitlistedCount, 0);
     const pct = totalClasses > 0 ? Math.min(Math.round((attendedCount / totalClasses) * 100), 100) : 0;
 
     // Determine course type label

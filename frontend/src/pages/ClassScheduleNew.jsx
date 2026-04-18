@@ -934,7 +934,8 @@ export default function ClassScheduleNew() {
             if (!regularCourse) return null;
             const totalClasses = regularCourse.number_of_weeks || 6;
             const activeBookings = (regularCourse.bookings || []).filter(b => b.status === 'booked' || b.status === 'attended' || b.status === 'completed').length;
-            const unbooked = totalClasses - activeBookings;
+            const waitlisted = myWaitlistEntries.filter(w => !w.claimed && w.class).length;
+            const unbooked = totalClasses - activeBookings - waitlisted;
             if (unbooked <= 0) return null;
             return (
               <div style={{ backgroundColor: '#FFF0F0', border: '1px solid #F0C0C0', padding: '12px 16px', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

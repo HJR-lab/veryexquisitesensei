@@ -289,6 +289,7 @@ export default function Dashboard() {
       ? (enrollment.class_credits_used || attendedCount)
       : enrollmentBookings.filter(b => b.status === 'booked' || b.status === 'attended' || b.status === 'completed').length;
     const remaining = Math.max(totalClasses - attendedCount, 0);
+    const creditsAvailable = Math.max(totalClasses - bookedCount, 0);
     const pct = totalClasses > 0 ? Math.min(Math.round((attendedCount / totalClasses) * 100), 100) : 0;
 
     // Determine course type label
@@ -416,8 +417,8 @@ export default function Dashboard() {
               {(() => {
                 // Show remaining credits for any active course
                 const activeCourse = enrollmentsWithCounts.find(e => e.statusLabel === 'active' || e.statusLabel === 'upcoming');
-                if (activeCourse && activeCourse.remaining > 0) {
-                  return <div>You have <strong style={{ color: INK }}>{activeCourse.remaining} Class Credit{activeCourse.remaining !== 1 ? 's' : ''}</strong> available</div>;
+                if (activeCourse && activeCourse.creditsAvailable > 0) {
+                  return <div>You have <strong style={{ color: INK }}>{activeCourse.creditsAvailable} Class Credit{activeCourse.creditsAvailable !== 1 ? 's' : ''}</strong> available</div>;
                 }
                 // Fallback for 10-class packages with flex credits
                 const flexEnrollment = enrollmentsWithCounts.find(e => {

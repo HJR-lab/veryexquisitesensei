@@ -261,7 +261,37 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
     if (!initials) return res.status(400).json({ error: 'initials query param required' });
 
     const batches = await supabaseDb.searchPieceBatchesByInitials(initials);
-    res.json({ success: true, batches });
+
+    // Also find customers who have used these initials before (from previous batches)
+    const matches = [];
+    const seen = new Set();
+    for (const b of batches) {
+      if (b.customers && !seen.has(b.customers.id)) {
+        seen.add(b.customers.id);
+        matches.push(b.customers);
+      }
+    }
+
+    // If no batch match, try matching initials to customer first_name + last_name initials
+    if (matches.length === 0) {
+      const upper = initials.trim().toUpperCase();
+      const { data: customers } = await supabaseDb.supabase
+        .from('customers')
+        .select('id, first_name, last_name, email')
+        .not('first_name', 'is', null);
+
+      if (customers) {
+        for (const c of customers) {
+          const fi = (c.first_name || '').charAt(0).toUpperCase();
+          const li = (c.last_name || '').charAt(0).toUpperCase();
+          if (upper === `${fi}${li}`) {
+            matches.push(c);
+          }
+        }
+      }
+    }
+
+    res.json({ success: true, batches, matches });
   }));
 
   // Update batch status

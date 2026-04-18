@@ -471,82 +471,78 @@ export default function AdminPiecePipeline() {
 }
 
 function LogBatchModal({ onClose, onSaved }) {
-  const [studentQuery, setStudentQuery] = useState('');
-  const [studentResults, setStudentResults] = useState([]);
-  const [selectedStudent, setSelectedStudent] = useState(null);
-  const [enrollments, setEnrollments] = useState([]);
-  const [selectedEnrollmentId, setSelectedEnrollmentId] = useState('');
-  const [pieceCount, setPieceCount] = useState('');
-  const [initials, setInitials] = useState('');
-  const [notes, setNotes] = useState('');
-  const [photoFile, setPhotoFile] = useState(null);
+  const emptyRow = () => ({ initials: '', pieceCount: '', match: null, status: '' });
+  const [rows, setRows] = useState(() => Array.from({ length: 10 }, emptyRow));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [results, setResults] = useState(null); // { saved, unmatched }
 
-  // Close on Escape
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  // Debounced student search
-  useEffect(() => {
-    if (!studentQuery || studentQuery.trim().length < 2 || selectedStudent) {
-      setStudentResults([]);
-      return;
-    }
-    const t = setTimeout(() => {
-      api.get(`/admin/students/search?q=${encodeURIComponent(studentQuery.trim())}`)
-        .then(({ data }) => setStudentResults(data.students || []))
-        .catch(() => setStudentResults([]));
-    }, 250);
-    return () => clearTimeout(t);
-  }, [studentQuery, selectedStudent]);
-
-  // Load enrollments when student selected
-  useEffect(() => {
-    if (!selectedStudent) { setEnrollments([]); return; }
-    api.get(`/admin/pieces/student/${selectedStudent.id}/enrollments`)
-      .then(({ data }) => setEnrollments(data.enrollments || []))
-      .catch(() => setEnrollments([]));
-  }, [selectedStudent]);
-
-  const pickStudent = (s) => {
-    setSelectedStudent(s);
-    setStudentQuery(`${s.first_name || ''} ${s.last_name || ''}`.trim());
-    setStudentResults([]);
+  const updateRow = (idx, field, value) => {
+    setRows(prev => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], [field]: field === 'initials' ? value.toUpperCase() : value };
+      // Auto-match initials to student
+      if (field === 'initials' && value.trim().length >= 2) {
+        api.get(`/admin/pieces/search?initials=${encodeURIComponent(value.trim().toUpperCase())}`)
+          .then(({ data }) => {
+            const matches = data.matches || [];
+            setRows(prev2 => {
+              const n = [...prev2];
+              if (matches.length > 0) {
+                n[idx] = { ...n[idx], match: matches[0], status: 'matched' };
+              } else {
+                n[idx] = { ...n[idx], match: null, status: value.trim() ? 'unmatched' : '' };
+              }
+              return n;
+            });
+          })
+          .catch(() => {});
+      } else if (field === 'initials' && !value.trim()) {
+        next[idx].match = null;
+        next[idx].status = '';
+      }
+      return next;
+    });
   };
 
-  const clearStudent = () => {
-    setSelectedStudent(null);
-    setStudentQuery('');
-    setEnrollments([]);
-    setSelectedEnrollmentId('');
-  };
+  const addRows = () => setRows(prev => [...prev, ...Array.from({ length: 5 }, emptyRow)]);
 
   const submit = async () => {
+    const filledRows = rows.filter(r => r.initials.trim() && r.pieceCount && parseInt(r.pieceCount) > 0);
+    if (filledRows.length === 0) { setError('Enter at least one row'); return; }
+
     setError(null);
-    if (!selectedStudent) { setError('Select a student'); return; }
-    if (!pieceCount || parseInt(pieceCount) < 1) { setError('Enter piece count'); return; }
-    if (!initials.trim()) { setError('Enter initials'); return; }
-
     setSaving(true);
-    try {
-      const fd = new FormData();
-      fd.append('customerId', String(selectedStudent.id));
-      if (selectedEnrollmentId) fd.append('courseEnrollmentId', selectedEnrollmentId);
-      fd.append('pieceCount', String(parseInt(pieceCount)));
-      fd.append('initials', initials.trim().toUpperCase());
-      if (notes.trim()) fd.append('notes', notes.trim());
-      if (photoFile) fd.append('photos', photoFile);
+    const saved = [];
+    const unmatched = [];
 
-      await api.post('/admin/pieces/log', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      onSaved();
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to save batch');
-    } finally {
-      setSaving(false);
+    for (const row of filledRows) {
+      if (!row.match) {
+        unmatched.push(row);
+        continue;
+      }
+      try {
+        const fd = new FormData();
+        fd.append('customerId', String(row.match.id));
+        fd.append('pieceCount', String(parseInt(row.pieceCount)));
+        fd.append('initials', row.initials.trim());
+        await api.post('/admin/pieces/log', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+        saved.push(row);
+      } catch (err) {
+        unmatched.push({ ...row, error: err.response?.data?.error || 'Failed' });
+      }
+    }
+
+    setSaving(false);
+    setResults({ saved, unmatched });
+    if (unmatched.length === 0) {
+      setTimeout(() => onSaved(), 1000);
     }
   };
 
@@ -557,133 +553,99 @@ function LogBatchModal({ onClose, onSaved }) {
     >
       <div
         onClick={e => e.stopPropagation()}
-        style={{ backgroundColor: '#FFFFFF', border: `1px solid ${RULE}`, width: '100%', maxWidth: '520px', maxHeight: '90vh', overflow: 'auto', padding: '24px', fontFamily: 'Atak, sans-serif', color: INK }}
+        style={{ backgroundColor: '#FFFFFF', border: `1px solid ${RULE}`, width: '100%', maxWidth: '600px', maxHeight: '90vh', overflow: 'auto', padding: '24px', fontFamily: 'Atak, sans-serif', color: INK }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
           <div>
             <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '4px' }}>Admin</div>
             <h2 style={{ fontSize: '20px', fontWeight: 700, margin: 0 }}>Log Batch</h2>
           </div>
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: '20px', cursor: 'pointer', color: MUTED, padding: 0 }} aria-label="Close">✕</button>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: '20px', cursor: 'pointer', color: MUTED, padding: 0 }}>✕</button>
         </div>
 
-        {/* Student search */}
-        <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '6px' }}>Student</label>
-        {selectedStudent ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '10px 12px', border: `1px solid ${RULE}`, backgroundColor: ALT, marginBottom: '14px' }}>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 700 }}>{selectedStudent.first_name} {selectedStudent.last_name}</div>
-              <div style={{ fontSize: '11px', color: MUTED }}>{selectedStudent.email}</div>
-            </div>
-            <button onClick={clearStudent} style={{ ...btnSt, padding: '4px 10px', fontSize: '10px' }}>Change</button>
-          </div>
-        ) : (
-          <div style={{ position: 'relative', marginBottom: '14px' }}>
-            <input
-              type="text"
-              value={studentQuery}
-              onChange={e => setStudentQuery(e.target.value)}
-              placeholder="Search name or email…"
-              style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
-            />
-            {studentResults.length > 0 && (
-              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: '#FFFFFF', border: `1px solid ${RULE}`, borderTop: 'none', maxHeight: '200px', overflowY: 'auto', zIndex: 2 }}>
-                {studentResults.map(s => (
-                  <button
-                    key={s.id}
-                    onClick={() => pickStudent(s)}
-                    style={{ display: 'block', width: '100%', padding: '8px 12px', textAlign: 'left', background: 'transparent', border: 'none', borderBottom: `1px solid ${RULE}`, cursor: 'pointer', fontFamily: 'inherit' }}
-                    onMouseEnter={e => e.currentTarget.style.backgroundColor = ALT}
-                    onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                  >
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: INK }}>{s.first_name} {s.last_name}</div>
-                    <div style={{ fontSize: '11px', color: MUTED }}>{s.email}</div>
-                  </button>
+        {results ? (
+          /* ── Results view ── */
+          <div>
+            {results.saved.length > 0 && (
+              <div style={{ marginBottom: '16px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: '#2E7D32', marginBottom: '6px' }}>Saved ({results.saved.length})</div>
+                {results.saved.map((r, i) => (
+                  <div key={i} style={{ fontSize: '12px', padding: '4px 0', color: INK }}>
+                    {r.initials} — {r.pieceCount} pcs → {r.match?.first_name} {r.match?.last_name}
+                  </div>
                 ))}
               </div>
             )}
+            {results.unmatched.length > 0 && (
+              <div style={{ marginBottom: '16px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: WARN, marginBottom: '6px' }}>Unmatched ({results.unmatched.length})</div>
+                {results.unmatched.map((r, i) => (
+                  <div key={i} style={{ fontSize: '12px', padding: '4px 0', color: WARN }}>
+                    {r.initials} — {r.pieceCount} pcs {r.error ? `(${r.error})` : '— no student found'}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button onClick={onSaved} style={btnAccentSt}>Done</button>
+            </div>
           </div>
-        )}
-
-        {/* Enrollment picker */}
-        {selectedStudent && (
+        ) : (
+          /* ── Entry form ── */
           <>
-            <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '6px' }}>Course enrollment (optional)</label>
-            <select
-              value={selectedEnrollmentId}
-              onChange={e => setSelectedEnrollmentId(e.target.value)}
-              style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', marginBottom: '14px', backgroundColor: '#FFFFFF' }}
+            {/* Header */}
+            <div style={{ display: 'grid', gridTemplateColumns: '30px 80px 70px 1fr', gap: '8px', padding: '6px 0', marginBottom: '4px' }}>
+              <span style={{ fontSize: '9px', fontWeight: 700, color: MUTED, letterSpacing: '0.06em' }}>#</span>
+              <span style={{ fontSize: '9px', fontWeight: 700, color: MUTED, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Initials</span>
+              <span style={{ fontSize: '9px', fontWeight: 700, color: MUTED, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Pieces</span>
+              <span style={{ fontSize: '9px', fontWeight: 700, color: MUTED, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Student Match</span>
+            </div>
+
+            {rows.map((row, i) => (
+              <div key={i} style={{ display: 'grid', gridTemplateColumns: '30px 80px 70px 1fr', gap: '8px', alignItems: 'center', padding: '3px 0' }}>
+                <span style={{ fontSize: '10px', color: MUTED, fontWeight: 600 }}>{i + 1}</span>
+                <input
+                  type="text"
+                  value={row.initials}
+                  onChange={e => updateRow(i, 'initials', e.target.value)}
+                  placeholder="JL"
+                  maxLength={5}
+                  style={{ padding: '7px 8px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '2px', outline: 'none', boxSizing: 'border-box', width: '100%' }}
+                />
+                <input
+                  type="number"
+                  min="1"
+                  value={row.pieceCount}
+                  onChange={e => updateRow(i, 'pieceCount', e.target.value)}
+                  placeholder="0"
+                  style={{ padding: '7px 8px', border: `1px solid ${RULE}`, fontSize: '13px', outline: 'none', boxSizing: 'border-box', width: '100%' }}
+                />
+                <span style={{
+                  fontSize: '11px', fontWeight: 600,
+                  color: row.status === 'matched' ? '#2E7D32' : row.status === 'unmatched' ? WARN : MUTED,
+                }}>
+                  {row.status === 'matched' && row.match ? `${row.match.first_name} ${row.match.last_name}` : row.status === 'unmatched' ? 'No match' : '—'}
+                </span>
+              </div>
+            ))}
+
+            <button
+              onClick={addRows}
+              style={{ marginTop: '8px', background: 'none', border: `1px dashed ${RULE}`, padding: '6px 12px', fontSize: '11px', fontWeight: 700, color: MUTED, cursor: 'pointer', width: '100%' }}
             >
-              <option value="">— None —</option>
-              {enrollments.map(e => (
-                <option key={e.id} value={e.id} disabled={e.hasBatch}>
-                  {(e.course_identifier || e.course_title || 'Course')}
-                  {e.course_start_date ? ` · ${new Date(e.course_start_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}
-                  {e.hasBatch ? ' · already logged' : ''}
-                </option>
-              ))}
-            </select>
+              + Add 5 more rows
+            </button>
+
+            {error && <div style={{ fontSize: '12px', color: WARN, marginTop: '12px' }}>{error}</div>}
+
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
+              <button onClick={onClose} style={btnSt} disabled={saving}>Cancel</button>
+              <button onClick={submit} style={btnAccentSt} disabled={saving}>
+                {saving ? 'Saving…' : `Log ${rows.filter(r => r.initials.trim() && r.pieceCount).length} Batches`}
+              </button>
+            </div>
           </>
         )}
-
-        {/* Piece count + initials */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
-          <div>
-            <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '6px' }}>Piece count</label>
-            <input
-              type="number"
-              min="1"
-              value={pieceCount}
-              onChange={e => setPieceCount(e.target.value)}
-              placeholder="0"
-              style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
-            />
-          </div>
-          <div>
-            <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '6px' }}>Initials</label>
-            <input
-              type="text"
-              value={initials}
-              onChange={e => setInitials(e.target.value.toUpperCase())}
-              placeholder="JL"
-              maxLength={5}
-              style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', letterSpacing: '2px', fontWeight: 600, outline: 'none', boxSizing: 'border-box' }}
-            />
-          </div>
-        </div>
-
-        {/* Photo */}
-        <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '6px' }}>Photo (optional)</label>
-        <input
-          type="file"
-          accept="image/*"
-          onChange={e => setPhotoFile(e.target.files?.[0] || null)}
-          style={{ width: '100%', padding: '8px 0', fontSize: '12px', fontFamily: 'inherit', marginBottom: '14px' }}
-        />
-        {photoFile && (
-          <div style={{ fontSize: '11px', color: MUTED, marginTop: '-8px', marginBottom: '14px' }}>{photoFile.name}</div>
-        )}
-
-        {/* Notes */}
-        <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '6px' }}>Notes (optional)</label>
-        <textarea
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
-          placeholder="e.g. 3 bowls, 2 mugs"
-          rows={2}
-          style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', marginBottom: '16px', resize: 'vertical' }}
-        />
-
-        {error && (
-          <div style={{ fontSize: '12px', color: WARN, marginBottom: '12px' }}>{error}</div>
-        )}
-
-        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={btnSt} disabled={saving}>Cancel</button>
-          <button onClick={submit} style={btnAccentSt} disabled={saving}>
-            {saving ? 'Saving…' : 'Log Batch'}
-          </button>
-        </div>
       </div>
     </div>
   );

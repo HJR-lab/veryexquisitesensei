@@ -105,11 +105,7 @@ export default function StudentBookingsTab({
 
             return allRows.map((booking, i) => {
             if (booking._isWaitlist) {
-              const ct = booking.class_type || '';
-              const wm = ct.match(/_\w+(\d)\./);
-              const courseName = ct.startsWith('HB') ? 'Handbuilding'
-                : (wm && wm[1] === '7') ? 'WT Inter 7wk'
-                : parseCourseName(booking.course_identifier, booking.class_type);
+              const courseName = parseCourseName(booking.course_identifier, booking.class_type);
               const dateStr = new Date(booking.class_date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
               const timeStr = booking.start_time && booking.end_time ? `${booking.start_time} – ${booking.end_time}` : '—';
               return (

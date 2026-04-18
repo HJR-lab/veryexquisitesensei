@@ -141,7 +141,8 @@ export default function Dashboard() {
           : null;
 
         const hbWeeks = enrollment.number_of_weeks || enrollment.class_credits_allocated || '';
-        enrollment.bookings.forEach(booking => {
+        // Only display active bookings (booked/attended/completed) — not rescheduled/forfeited/absent
+        enrollment.bookings.filter(b => b.status === 'booked' || b.status === 'attended' || b.status === 'completed').forEach(booking => {
           const ct = booking.class_instances?.class_type || '';
           let displayTitle;
           if (ct.startsWith('HB')) {
@@ -319,7 +320,11 @@ export default function Dashboard() {
     else if (upcomingEnrollments.find(e => e.id === enrollment.id)) statusLabel = 'upcoming';
     else if ((dashboardData?.enrollments?.completed || []).find(e => e.id === enrollment.id)) statusLabel = 'completed';
 
-    return { enrollment, totalClasses, attendedCount, bookedCount, remaining, creditsAvailable, pct, typeLabel, statusLabel, is10Pkg };
+    // Display count: only active bookings (for "Booked X/6" display)
+    const displayBookedCount = isHBCredit
+      ? (enrollment.class_credits_used || attendedCount)
+      : enrollmentBookings.filter(b => b.status === 'booked' || b.status === 'attended' || b.status === 'completed').length;
+    return { enrollment, totalClasses, attendedCount, bookedCount, displayBookedCount, remaining, creditsAvailable, pct, typeLabel, statusLabel, is10Pkg };
   });
 
   // Greeting course count line: unique types, sum remaining
@@ -620,7 +625,7 @@ export default function Dashboard() {
                           <>
                             <div style={{ whiteSpace: 'nowrap' }}>
                               <div style={{ fontSize: '10px', color: MUTED, marginBottom: '2px' }}>
-                                Booked <strong style={{ color: INK }}>{bookedCount}/{totalClasses}</strong>
+                                Booked <strong style={{ color: INK }}>{displayBookedCount}/{totalClasses}</strong>
                               </div>
                               <div style={{ height: '2px', backgroundColor: 'rgba(40,40,40,0.08)' }}>
                                 <div style={{ height: '2px', width: `${bookedPct}%`, backgroundColor: TC, transition: 'width 0.3s' }} />

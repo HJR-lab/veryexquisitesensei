@@ -2,6 +2,46 @@ const supabaseDb = require('../utils/supabaseDb');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler }) {
 
+// Auto-cancel waitlist entries when student has no remaining credits
+async function cancelWaitlistIfNoCredits(studentId) {
+  try {
+    // Count active booked classes
+    const { count: bookedCount } = await supabaseDb.supabase
+      .from('bookings')
+      .select('id', { count: 'exact', head: true })
+      .eq('student_id', studentId)
+      .eq('status', 'booked');
+
+    // Get total allocated from active enrollments
+    const { data: enrollments } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('id, number_of_weeks, class_credits_allocated')
+      .eq('student_id', studentId)
+      .eq('status', 'active');
+
+    const totalAllocated = (enrollments || []).reduce((sum, e) => sum + (e.number_of_weeks || e.class_credits_allocated || 0), 0);
+
+    if (bookedCount >= totalAllocated) {
+      // No credits left — cancel all waitlist entries
+      const { data: cancelled } = await supabaseDb.supabase
+        .from('waitlist')
+        .delete()
+        .eq('student_id', studentId)
+        .eq('claimed', false)
+        .select();
+
+      if (cancelled && cancelled.length > 0) {
+        console.log(`[Waitlist] Auto-cancelled ${cancelled.length} waitlist entries for student ${studentId} (${bookedCount}/${totalAllocated} credits used)`);
+      }
+      return cancelled || [];
+    }
+    return [];
+  } catch (err) {
+    console.error('[Waitlist] Error checking credits:', err);
+    return [];
+  }
+}
+
 // ============================================
 // CLASS SCHEDULING ENDPOINTS
 // ============================================
@@ -369,6 +409,9 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
 
   await supabaseDb.updateClassEnrollment(parseInt(classInstanceId), 1);
 
+  // Auto-cancel waitlist if no credits remaining
+  const cancelledWaitlist = await cancelWaitlistIfNoCredits(dbCustomerId);
+
   res.json({
     success: true,
     booking: {
@@ -376,7 +419,8 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
       classInstanceId: booking.class_instance_id,
       status: booking.status
     },
-    message: 'Class booked successfully!'
+    message: 'Class booked successfully!',
+    cancelledWaitlist: cancelledWaitlist.length > 0 ? cancelledWaitlist.length : undefined
   });
 }));
 
@@ -588,6 +632,9 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
 
   const creditsLeft = useEnrollmentCredits ? enrollmentCredits - 1 : remainingCredits - 1;
 
+  // Auto-cancel waitlist if no credits remaining
+  const cancelledWaitlist = await cancelWaitlistIfNoCredits(dbCustomerId);
+
   res.json({
     success: true,
     booking: {
@@ -597,7 +644,8 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
       isMakeup: true
     },
     remainingCredits: creditsLeft,
-    message: 'Makeup class booked successfully!'
+    message: 'Makeup class booked successfully!',
+    cancelledWaitlist: cancelledWaitlist.length > 0 ? cancelledWaitlist.length : undefined
   });
 }));
 

@@ -49,7 +49,7 @@ export default function StudentBookingsTab({
       {/* Filter row */}
       <div style={{ display: 'flex', flexWrap: 'wrap', padding: '12px 16px', borderBottom: `1px solid ${RULE}`, gap: '6px', alignItems: 'center' }}>
         <span style={{ fontSize: '11px', color: MUTED, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginRight: '4px' }}>Filter:</span>
-        {['all', 'booked', 'attended', 'missed', 'cancelled'].map(f => (
+        {['all', 'booked', 'attended', 'waitlisted', 'missed', 'cancelled'].map(f => (
           <button key={f} onClick={() => setStatusFilter(f)} style={{
             padding: '4px 10px', border: `1px solid ${statusFilter === f ? TC : RULE}`,
             backgroundColor: statusFilter === f ? TC_LIGHT : 'transparent',
@@ -87,7 +87,7 @@ export default function StudentBookingsTab({
           {/* Waitlist rows merged with bookings */}
           {(() => {
             // Convert waitlist entries to booking-like rows
-            const waitlistRows = (statusFilter === 'all' || statusFilter === 'booked') ? waitlistEntries.map(w => ({
+            const waitlistRows = (statusFilter === 'all' || statusFilter === 'booked' || statusFilter === 'waitlisted') ? waitlistEntries.map(w => ({
               id: `wl-${w.id}`,
               _isWaitlist: true,
               class_date: w.classDate,
@@ -99,7 +99,8 @@ export default function StudentBookingsTab({
               status: 'waitlisted',
             })) : [];
 
-            const allRows = [...filteredBookings, ...waitlistRows].sort((a, b) => {
+            const bookingRows = statusFilter === 'waitlisted' ? [] : filteredBookings;
+            const allRows = [...bookingRows, ...waitlistRows].sort((a, b) => {
               return new Date(a.class_date) - new Date(b.class_date);
             });
 

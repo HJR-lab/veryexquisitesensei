@@ -15,6 +15,7 @@ const STATUS_LABELS = {
   logged: 'Logged / Drying',
   bisque_fired: 'Bisque Fired',
   glaze_fired: 'Glaze Fired',
+  unmatched: 'Unmatched',
   ready: 'Ready for Collection',
   collecting: 'Collection Scheduled',
   in_cabinet: 'In Cabinet',
@@ -23,6 +24,7 @@ const STATUS_COLORS = {
   logged: MUTED,
   bisque_fired: WARN,
   glaze_fired: WARN,
+  unmatched: '#C03030',
   ready: SUCCESS,
   collecting: SUCCESS,
   in_cabinet: TC,
@@ -228,8 +230,8 @@ export default function AdminPiecePipeline() {
         </div>
 
         {/* Stats Bar */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1px', backgroundColor: RULE, border: `1px solid ${RULE}`, marginBottom: '24px' }}>
-          {['glaze_fired', 'ready', 'collecting', 'in_cabinet'].map(key => (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1px', backgroundColor: RULE, border: `1px solid ${RULE}`, marginBottom: '24px' }}>
+          {['glaze_fired', 'unmatched', 'ready', 'collecting', 'in_cabinet'].map(key => (
             <div key={key} style={{ padding: '20px 16px', backgroundColor: '#FFFFFF', textAlign: 'left' }}>
               <div style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.5px', lineHeight: 1, color: STATUS_COLORS[key], marginBottom: '8px' }}>
                 {stats[key]?.count || 0}

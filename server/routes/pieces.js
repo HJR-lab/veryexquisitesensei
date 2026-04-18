@@ -155,13 +155,18 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
   app.get('/api/admin/pieces/pipeline', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
     const batches = await supabaseDb.getAllActivePieceBatches();
 
+    // Unmatched = batches with no customer_id (admin logged but initials didn't match)
+    const unmatched = batches.filter(b => !b.customer_id);
+    const matched = batches.filter(b => b.customer_id);
+
     const grouped = {
-      logged: batches.filter(b => b.status === 'logged'),
-      bisque_fired: batches.filter(b => b.status === 'bisque_fired'),
-      glaze_fired: batches.filter(b => b.status === 'glaze_fired'),
-      ready: batches.filter(b => b.status === 'ready'),
-      collecting: batches.filter(b => b.status === 'collecting'),
-      in_cabinet: batches.filter(b => b.status === 'in_cabinet'),
+      logged: matched.filter(b => b.status === 'logged'),
+      bisque_fired: matched.filter(b => b.status === 'bisque_fired'),
+      glaze_fired: matched.filter(b => b.status === 'glaze_fired'),
+      unmatched: unmatched,
+      ready: matched.filter(b => b.status === 'ready'),
+      collecting: matched.filter(b => b.status === 'collecting'),
+      in_cabinet: matched.filter(b => b.status === 'in_cabinet'),
     };
 
     const makeStats = (arr) => ({ count: arr.length, pieces: arr.reduce((s, b) => s + b.piece_count, 0) });
@@ -170,6 +175,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
       logged: makeStats(grouped.logged),
       bisque_fired: makeStats(grouped.bisque_fired),
       glaze_fired: makeStats(grouped.glaze_fired),
+      unmatched: makeStats(grouped.unmatched),
       ready: makeStats(grouped.ready),
       collecting: makeStats(grouped.collecting),
       in_cabinet: makeStats(grouped.in_cabinet),

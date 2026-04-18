@@ -226,7 +226,13 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
     const hasUpcoming = sorted.some(b => new Date(b.class_instance.class_date) >= todayMidnight && b.status === 'booked');
     const allFuture = startDate && new Date(startDate) > todayMidnight;
     const hasDraft = sorted.some(b => b.class_instance.status === 'draft');
-    const courseStatus = hasDraft ? 'awaiting confirmation' : allFuture ? 'upcoming' : hasUpcoming ? 'current' : 'completed';
+    // Use enrollment status as source of truth when available (e.g. 10-class with unbooked flex credits)
+    let courseStatus;
+    if (enrollment && enrollment.status === 'active') {
+      courseStatus = hasUpcoming ? 'current' : 'active';
+    } else {
+      courseStatus = hasDraft ? 'awaiting confirmation' : allFuture ? 'upcoming' : hasUpcoming ? 'current' : 'completed';
+    }
 
     courseHistory.push({
       id: enrollment ? `${enrollment.id}-${courseId}` : `course-${courseId}`,

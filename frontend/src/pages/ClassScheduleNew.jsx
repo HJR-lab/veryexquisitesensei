@@ -82,6 +82,7 @@ export default function ClassScheduleNew() {
   const [filterInstructor, setFilterInstructor] = useState('all');
   // ── Confirmation modal state ────────────────────────────────────────────────
   const [confirmModal, setConfirmModal] = useState(null); // { title, message, onConfirm }
+  const [showWaitlistModal, setShowWaitlistModal] = useState(null); // class item for waitlist confirm
 
   // 60-day strip starting from today (covers ~2 months)
   const TODAY = new Date();
@@ -897,9 +898,12 @@ export default function ClassScheduleNew() {
                             Booked
                           </span>
                         ) : isFull ? (
-                          <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '5px 10px', backgroundColor: '#EBEBEB', color: MUTED }}>
-                            Full
-                          </span>
+                          <button
+                            onClick={e => { e.stopPropagation(); setShowWaitlistModal(cls); }}
+                            style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '5px 10px', backgroundColor: '#FFF7E6', color: '#9E6200', border: '1px solid #E0C97A', cursor: 'pointer' }}
+                          >
+                            Waitlist
+                          </button>
                         ) : (
                           <>
                             <button
@@ -1128,12 +1132,21 @@ export default function ClassScheduleNew() {
               const detailIsInter = getClassCategory(showDetailSheet.classType) === 'wheelthrowing' && detailWeekMatch && parseInt(detailWeekMatch[1]) === 7;
               return !(detailIsInter && (studentData?.course_purchase_count || 0) < 3);
             })() && (
-              <button
-                onClick={() => { setShowDetailSheet(null); handleBookClass(showDetailSheet); }}
-                style={{ width: '100%', padding: '13px', border: 'none', backgroundColor: TC, color: '#FFF', fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', cursor: 'pointer' }}
-              >
-                {remainingCredits > 0 ? 'Book This Class' : 'Purchase to Book'}
-              </button>
+              showDetailSheet.isFull ? (
+                <button
+                  onClick={() => { setShowDetailSheet(null); setShowWaitlistModal(showDetailSheet); }}
+                  style={{ width: '100%', padding: '13px', border: 'none', backgroundColor: '#9E6200', color: '#FFF', fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', cursor: 'pointer' }}
+                >
+                  Join Waitlist
+                </button>
+              ) : (
+                <button
+                  onClick={() => { setShowDetailSheet(null); handleBookClass(showDetailSheet); }}
+                  style={{ width: '100%', padding: '13px', border: 'none', backgroundColor: TC, color: '#FFF', fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', cursor: 'pointer' }}
+                >
+                  {remainingCredits > 0 ? 'Book This Class' : 'Purchase to Book'}
+                </button>
+              )
             )}
           </div>
         </>
@@ -1435,6 +1448,50 @@ export default function ClassScheduleNew() {
       )}
 
       {/* ── CONFIRM MODAL ──────────────────────────────────────────────────────── */}
+      {/* ── WAITLIST CONFIRMATION MODAL ─────────────────────────────────────── */}
+      {showWaitlistModal && (
+        <>
+          <div onClick={() => setShowWaitlistModal(null)} style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 80 }} />
+          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 81, backgroundColor: '#FFFFFF', padding: '28px 24px', maxWidth: '380px', width: '90%' }}>
+            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#9E6200', marginBottom: '12px' }}>Join Waitlist</div>
+            <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '4px' }}>{displayClassType(showWaitlistModal.classType, showWaitlistModal.classTitle)}</div>
+            <div style={{ fontSize: '12px', color: MUTED, marginBottom: '16px' }}>
+              {(() => { const d = new Date(showWaitlistModal.classDate); return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }); })()}
+              {' · '}{showWaitlistModal.startTime} – {showWaitlistModal.endTime}
+            </div>
+            <div style={{ backgroundColor: '#FFF7E6', padding: '14px', marginBottom: '20px', fontSize: '12px', lineHeight: 1.6, color: '#5A3D00' }}>
+              <p style={{ margin: '0 0 8px', fontWeight: 700 }}>How the waitlist works:</p>
+              <p style={{ margin: '0 0 4px' }}>1. You'll be added to the waitlist for this class.</p>
+              <p style={{ margin: '0 0 4px' }}>2. If a spot opens up, you'll be automatically booked in.</p>
+              <p style={{ margin: 0 }}>3. A confirmation email will be sent to you once confirmed.</p>
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={() => setShowWaitlistModal(null)}
+                style={{ flex: 1, padding: '10px', fontSize: '12px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', border: `1px solid ${RULE}`, backgroundColor: 'transparent', color: MUTED, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    await api.post('/classes/waitlist/join', { classInstanceId: showWaitlistModal.id });
+                    setShowWaitlistModal(null);
+                    fetchMyBookings();
+                    alert('You have been added to the waitlist! We will notify you if a spot opens up.');
+                  } catch (error) {
+                    alert(error.response?.data?.error || 'Failed to join waitlist');
+                  }
+                }}
+                style={{ flex: 1, padding: '10px', fontSize: '12px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', border: 'none', backgroundColor: '#9E6200', color: '#FFF', cursor: 'pointer' }}
+              >
+                Join Waitlist
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       {confirmModal && (
         <>
           <div onClick={() => setConfirmModal(null)} style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 80 }} />

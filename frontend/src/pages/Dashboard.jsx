@@ -415,18 +415,14 @@ export default function Dashboard() {
                 </div>
               )}
               {(() => {
-                // Show remaining credits for any active course
                 const activeCourse = enrollmentsWithCounts.find(e => e.statusLabel === 'active' || e.statusLabel === 'upcoming');
                 if (activeCourse && activeCourse.creditsAvailable > 0) {
-                  return <div>You have <strong style={{ color: INK }}>{activeCourse.creditsAvailable} Class Credit{activeCourse.creditsAvailable !== 1 ? 's' : ''}</strong> available</div>;
+                  if (activeCourse.is10Pkg) {
+                    return <div>You have <strong style={{ color: INK }}>{activeCourse.creditsAvailable} Class Credit{activeCourse.creditsAvailable !== 1 ? 's' : ''}</strong> available</div>;
+                  }
+                  return <div style={{ color: '#C03030' }}>You have <strong>{activeCourse.creditsAvailable} class{activeCourse.creditsAvailable !== 1 ? 'es' : ''} unbooked</strong></div>;
                 }
-                // Fallback for 10-class packages with flex credits
-                const flexEnrollment = enrollmentsWithCounts.find(e => {
-                  return e.is10Pkg && (e.enrollment.class_credits_remaining > 0) && e.statusLabel !== 'completed';
-                });
-                return flexEnrollment ? (
-                  <div>You have <strong style={{ color: INK }}>{flexEnrollment.enrollment.class_credits_remaining} Class Credit{flexEnrollment.enrollment.class_credits_remaining !== 1 ? 's' : ''}</strong> available</div>
-                ) : null;
+                return null;
               })()}
               {creditBalance > 0 && (
                 <div><strong style={{ color: INK }}>${creditBalance}</strong> Ves is 10 Credits</div>

@@ -623,6 +623,11 @@ function startAutomaticProcessing() {
       cleanupExpiredWaitlist().catch(console.error);
     }
 
+    // Check waitlist 24h notifications every hour
+    if (minute === 30) {
+      notifyWaitlist24Hours().catch(console.error);
+    }
+
     // Process inbox emails every 15 minutes
     if (minute % 15 === 0) {
       inboxProcessor.processNewEmails().catch(err => {
@@ -635,6 +640,118 @@ function startAutomaticProcessing() {
   setInterval(runDailyCheck, 60 * 1000);
 
   console.log('[Auto-Processor] ✅ Automatic daily processing scheduled (runs at 2:00 AM)');
+}
+
+/**
+ * Notify waitlisted students 24 hours before class that it's still full
+ * and they need to reschedule. Deletes the waitlist entry after notifying.
+ */
+async function notifyWaitlist24Hours() {
+  try {
+    const now = new Date();
+    const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+    // Find unclaimed waitlist entries where class is within the next 24 hours
+    const { data: entries, error } = await supabase
+      .from('waitlist')
+      .select(`
+        id, student_id, notification_sent_at,
+        customers!waitlist_student_id_fkey (first_name, last_name, email),
+        class_instances!waitlist_class_instance_id_fkey (id, class_type, class_date, start_time, end_time, instructor)
+      `)
+      .eq('claimed', false)
+      .is('notification_sent_at', null);
+
+    if (error) {
+      console.error('[Waitlist 24h] Query error:', error);
+      return;
+    }
+
+    // Filter to entries where class is within 24 hours
+    const toNotify = (entries || []).filter(e => {
+      if (!e.class_instances?.class_date) return false;
+      const classDate = new Date(e.class_instances.class_date);
+      // Set class time
+      if (e.class_instances.start_time) {
+        const match = e.class_instances.start_time.trim().toLowerCase().match(/(\d{1,2}):?(\d{2})?\s*(am|pm)?/);
+        if (match) {
+          let h = parseInt(match[1], 10);
+          const mins = parseInt(match[2] || '0', 10);
+          if (match[3] === 'pm' && h !== 12) h += 12;
+          if (match[3] === 'am' && h === 12) h = 0;
+          classDate.setHours(h, mins, 0, 0);
+        }
+      }
+      return classDate > now && classDate <= in24h;
+    });
+
+    if (toNotify.length === 0) return;
+
+    const { sendEmail } = require('./emailService');
+    const { wrapEmailTemplate } = require('../email-templates/base');
+
+    for (const entry of toNotify) {
+      const student = entry.customers;
+      const cls = entry.class_instances;
+      if (!student?.email || !cls) continue;
+
+      const classDateStr = new Date(cls.class_date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      const ct = cls.class_type || '';
+      const weekMatch = ct.match(/_\w+(\d)\./);
+      const courseTitle = ct.startsWith('HB') ? 'Handbuilding'
+        : (weekMatch && weekMatch[1] === '7') ? 'Wheelthrowing Intermediate 7 Weeks'
+        : 'Wheelthrowing Beginners/Ext 6 Weeks';
+
+      const body = `
+        <h1 style="margin: 0 0 16px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">
+          Class is full — please reschedule
+        </h1>
+        <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">
+          Hi ${student.first_name}, unfortunately a spot did not open up for your waitlisted class. The class is confirmed full and you will need to reschedule to another available class.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #FFF7E6; border-radius: 8px; margin: 0 0 20px;">
+          <tr>
+            <td style="padding: 16px 20px;">
+              <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #9E6200; text-transform: uppercase; letter-spacing: 0.05em;">Class Not Available</p>
+              <p style="margin: 0 0 2px; font-size: 15px; font-weight: 600; color: #282828;">${courseTitle}</p>
+              <p style="margin: 0 0 2px; font-size: 15px; color: #282828;">${classDateStr}</p>
+              <p style="margin: 0 0 2px; font-size: 15px; color: #282828;">${cls.start_time} – ${cls.end_time}</p>
+              <p style="margin: 0; font-size: 15px; color: #282828;">Instructor: ${cls.instructor}</p>
+            </td>
+          </tr>
+        </table>
+        <p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #282828;">
+          Please log in to reschedule your class to another available session. No credit has been deducted — your class credit is still available.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0;">
+          <tr>
+            <td align="center">
+              <a href="https://club.ves.sg/classes" style="display: inline-block; padding: 14px 32px; background-color: #C4622D; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">
+                Reschedule Now
+              </a>
+            </td>
+          </tr>
+        </table>`;
+
+      await sendEmail({
+        to: student.email,
+        subject: `VES — Please reschedule your ${classDateStr} class`,
+        html: wrapEmailTemplate(body),
+      });
+
+      // Mark as notified and delete the waitlist entry
+      await supabase
+        .from('waitlist')
+        .delete()
+        .eq('id', entry.id);
+
+      console.log(`[Waitlist 24h] Notified ${student.first_name} ${student.last_name} — class ${cls.class_type} on ${cls.class_date} is full. Waitlist entry removed.`);
+    }
+
+    console.log(`[Waitlist 24h] Processed ${toNotify.length} notifications`);
+  } catch (err) {
+    console.error('[Waitlist 24h] Error:', err);
+  }
 }
 
 /**
@@ -685,5 +802,6 @@ module.exports = {
   checkPieceReminders,
   autoRecycleExpiredBatches,
   cleanupExpiredWaitlist,
+  notifyWaitlist24Hours,
   startAutomaticProcessing
 };

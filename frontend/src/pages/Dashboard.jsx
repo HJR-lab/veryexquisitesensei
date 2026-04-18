@@ -414,6 +414,12 @@ export default function Dashboard() {
                 </div>
               )}
               {(() => {
+                // Show remaining credits for any active course
+                const activeCourse = enrollmentsWithCounts.find(e => e.statusLabel === 'active' || e.statusLabel === 'upcoming');
+                if (activeCourse && activeCourse.remaining > 0) {
+                  return <div>You have <strong style={{ color: INK }}>{activeCourse.remaining} Class Credit{activeCourse.remaining !== 1 ? 's' : ''}</strong> available</div>;
+                }
+                // Fallback for 10-class packages with flex credits
                 const flexEnrollment = enrollmentsWithCounts.find(e => {
                   return e.is10Pkg && (e.enrollment.class_credits_remaining > 0) && e.statusLabel !== 'completed';
                 });

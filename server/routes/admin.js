@@ -3921,24 +3921,56 @@ app.delete('/api/admin/bookings/:bookingId', authenticateToken, requireAdmin, as
         // Send confirmation email
         if (promotedStudent?.email && classInfo) {
           const { sendEmail } = require('../utils/emailService');
+          const { wrapEmailTemplate } = require('../email-templates/base');
           const classDate = new Date(classInfo.class_date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+          const ct = classInfo.class_type || '';
+          const weekMatch = ct.match(/_\w+(\d)\./);
+          const courseTitle = ct.startsWith('HB') ? 'Handbuilding'
+            : (weekMatch && weekMatch[1] === '7') ? 'Wheelthrowing Intermediate 7 Weeks'
+            : 'Wheelthrowing Beginners/Ext 6 Weeks';
+
+          const body = `
+            <h1 style="margin: 0 0 16px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">
+              You're in! Class confirmed
+            </h1>
+            <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">
+              Hi ${promotedStudent.first_name}, great news — a spot has opened up and you've been confirmed for your class!
+            </p>
+            <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #F9EDE6; border-radius: 8px; margin: 0 0 20px;">
+              <tr>
+                <td style="padding: 16px 20px;">
+                  <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #9E4A1E; text-transform: uppercase; letter-spacing: 0.05em;">Class Details</p>
+                  <p style="margin: 0 0 2px; font-size: 15px; font-weight: 600; color: #282828;">${courseTitle}</p>
+                  <p style="margin: 0 0 2px; font-size: 15px; color: #282828;">${classDate}</p>
+                  <p style="margin: 0 0 2px; font-size: 15px; color: #282828;">${classInfo.start_time} – ${classInfo.end_time}</p>
+                  <p style="margin: 0; font-size: 15px; color: #282828;">Instructor: ${classInfo.instructor}</p>
+                </td>
+              </tr>
+            </table>
+            <p style="margin: 0 0 4px; font-size: 14px; line-height: 1.5; color: #282828;">
+              <strong>Address:</strong> 75 Jalan Kelabu Asap, Chip Bee Gardens 278268
+              (<a href="https://maps.app.goo.gl/g84xejcaZbAsD2ze7" style="color: #C4622D;">Map</a>)
+            </p>
+            <p style="margin: 0 0 20px; font-size: 13px; line-height: 1.5; color: #888888;">
+              Nearest MRT: Holland Village &middot; No on-site parking
+            </p>
+            <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #282828;">
+              We look forward to seeing you at the studio!
+            </p>
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin: 24px 0 0;">
+              <tr>
+                <td align="center">
+                  <a href="https://club.ves.sg/classes" style="display: inline-block; padding: 14px 32px; background-color: #C4622D; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">
+                    View My Classes
+                  </a>
+                </td>
+              </tr>
+            </table>`;
+
           await sendEmail({
             to: promotedStudent.email,
-            subject: `You're in! Class confirmed — ${classDate}`,
-            html: `
-              <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto;">
-                <p>Hi ${promotedStudent.first_name},</p>
-                <p>Great news — a spot has opened up and you've been confirmed for your class!</p>
-                <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
-                  <tr><td style="padding: 8px; color: #888;">Class</td><td style="padding: 8px; font-weight: 600;">${classInfo.class_type}</td></tr>
-                  <tr><td style="padding: 8px; color: #888;">Date</td><td style="padding: 8px; font-weight: 600;">${classDate}</td></tr>
-                  <tr><td style="padding: 8px; color: #888;">Time</td><td style="padding: 8px; font-weight: 600;">${classInfo.start_time} – ${classInfo.end_time}</td></tr>
-                  <tr><td style="padding: 8px; color: #888;">Instructor</td><td style="padding: 8px; font-weight: 600;">${classInfo.instructor}</td></tr>
-                </table>
-                <p>See you at the studio!</p>
-                <p style="color: #888; font-size: 12px;">— VES Studio</p>
-              </div>
-            `,
+            subject: `VES — You're in! Class confirmed — ${classDate}`,
+            html: wrapEmailTemplate(body),
           });
           console.log(`[Waitlist] Auto-promoted ${promotedStudent.first_name} ${promotedStudent.last_name} into class ${classInfo.class_type}`);
         }
@@ -5082,6 +5114,41 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
 }));
 
 // Get reschedule fees for a student
+// Get student's waitlist entries (admin)
+app.get('/api/admin/students/:studentId/waitlist', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { studentId } = req.params;
+
+  const { data, error } = await supabaseDb.supabase
+    .from('waitlist')
+    .select(`
+      id, position, joined_at, claimed,
+      class_instances!waitlist_class_instance_id_fkey (
+        id, class_type, class_date, start_time, end_time, instructor
+      )
+    `)
+    .eq('student_id', parseInt(studentId))
+    .eq('claimed', false)
+    .order('joined_at', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching student waitlist:', error);
+    return res.status(500).json({ error: 'Failed to fetch waitlist' });
+  }
+
+  const waitlistEntries = (data || []).map(w => ({
+    id: w.id,
+    position: w.position,
+    classDate: w.class_instances?.class_date,
+    classType: w.class_instances?.class_type,
+    startTime: w.class_instances?.start_time,
+    endTime: w.class_instances?.end_time,
+    instructor: w.class_instances?.instructor,
+    classInstanceId: w.class_instances?.id,
+  }));
+
+  res.json({ waitlistEntries });
+}));
+
 app.get('/api/admin/students/:studentId/fees', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { studentId } = req.params;
 

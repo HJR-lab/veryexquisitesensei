@@ -136,6 +136,7 @@ export default function AdminStudentDetail() {
   const [enrollment, setEnrollment]   = useState(null);
   const [enrollments, setEnrollments] = useState([]);
   const [bookings, setBookings]       = useState([]);
+  const [studentWaitlist, setStudentWaitlist] = useState([]);
   const [fees, setFees]               = useState([]);
   const [flexCredits, setFlexCredits] = useState(null);
   const [instructorNotes, setInstructorNotes] = useState([]);
@@ -345,6 +346,7 @@ export default function AdminStudentDetail() {
             ? api.get(`/admin/instructors/${studentData.id}/teaching`).catch(() => null)
             : Promise.resolve(null),
         );
+        api.get(`/admin/students/${studentData.id}/waitlist`).then(r => setStudentWaitlist(r.data.waitlistEntries || [])).catch(() => {});
         api.get(`/credits/balance/${studentData.id}`).then(r => setCreditBalance(r.data.balance || 0)).catch(() => {});
         api.get(`/credits/history/${studentData.id}`).then(r => setCreditHistory(r.data.history || [])).catch(() => {});
         // Check for 10-class package flex credits across all enrollments
@@ -1300,6 +1302,7 @@ export default function AdminStudentDetail() {
                 handleDeleteBooking={handleDeleteBooking}
                 isHBEnrollment={isHBEnrollment}
                 hbCreditsAllocated={hbCreditsAllocated}
+                waitlistEntries={studentWaitlist}
               />
             )}
 

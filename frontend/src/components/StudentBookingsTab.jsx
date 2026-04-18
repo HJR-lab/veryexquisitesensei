@@ -34,6 +34,7 @@ export default function StudentBookingsTab({
   handleDeleteBooking,
   isHBEnrollment = false,
   hbCreditsAllocated = 0,
+  waitlistEntries = [],
 }) {
   // For HB students: determine which booking is the last (glazing) class
   // If all credits booked, last booking by date = glazing
@@ -83,8 +84,55 @@ export default function StudentBookingsTab({
             ))}
           </div>
 
-          {/* Actual booking rows */}
-          {filteredBookings.map((booking, i) => {
+          {/* Waitlist rows merged with bookings */}
+          {(() => {
+            // Convert waitlist entries to booking-like rows
+            const waitlistRows = (statusFilter === 'all' || statusFilter === 'booked') ? waitlistEntries.map(w => ({
+              id: `wl-${w.id}`,
+              _isWaitlist: true,
+              class_date: w.classDate,
+              class_type: w.classType,
+              start_time: w.startTime,
+              end_time: w.endTime,
+              instructor: w.instructor,
+              course_identifier: w.classType,
+              status: 'waitlisted',
+            })) : [];
+
+            const allRows = [...filteredBookings, ...waitlistRows].sort((a, b) => {
+              return new Date(a.class_date) - new Date(b.class_date);
+            });
+
+            return allRows.map((booking, i) => {
+            if (booking._isWaitlist) {
+              const ct = booking.class_type || '';
+              const wm = ct.match(/_\w+(\d)\./);
+              const courseName = ct.startsWith('HB') ? 'Handbuilding'
+                : (wm && wm[1] === '7') ? 'WT Inter 7wk'
+                : parseCourseName(booking.course_identifier, booking.class_type);
+              const dateStr = new Date(booking.class_date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+              const timeStr = booking.start_time && booking.end_time ? `${booking.start_time} – ${booking.end_time}` : '—';
+              return (
+                <div key={booking.id} style={{ borderBottom: `1px solid ${RULE}` }}>
+                  <div style={{
+                    display: 'grid', gridTemplateColumns: '130px 110px 120px 90px 1fr',
+                    padding: '11px 16px', alignItems: 'center',
+                    backgroundColor: '#FFF7E6',
+                  }}>
+                    <span style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 700, color: '#9E6200' }}>{courseName}</span>
+                    <div style={{ fontSize: '13px', fontWeight: 700 }}>{dateStr}</div>
+                    <span style={{ fontSize: '12px', color: MUTED }}>{timeStr}</span>
+                    <span style={{
+                      fontSize: '9px', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase',
+                      padding: '3px 8px', display: 'inline-block',
+                      backgroundColor: '#FFF7E6', color: '#9E6200',
+                    }}>waitlisted</span>
+                    <div />
+                  </div>
+                </div>
+              );
+            }
+
             const classDate = new Date(booking.class_date);
             classDate.setHours(0, 0, 0, 0);
             const isPast = classDate < today;
@@ -146,7 +194,8 @@ export default function StudentBookingsTab({
                 )}
               </div>
             );
-          })}
+          });
+          })()}
 
           {/* Unbooked credit placeholder rows */}
           {statusFilter === 'all' && Array.from({ length: unbookedCount }).map((_, i) => {

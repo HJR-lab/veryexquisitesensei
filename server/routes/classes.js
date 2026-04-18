@@ -178,6 +178,10 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
 
   // Step 3: For each course group, find matching enrollment and build history entry
   Object.entries(courseGroups).forEach(([courseId, groupBookings]) => {
+    // Skip groups where all bookings are cancelled — these aren't real courses
+    const nonCancelled = groupBookings.filter(b => b.status !== 'cancelled');
+    if (nonCancelled.length === 0) return;
+
     const sorted = [...groupBookings].sort((a, b) => new Date(a.class_instance.class_date) - new Date(b.class_instance.class_date));
     const startDate = sorted[0]?.class_instance.class_date;
     const endDate = sorted[sorted.length - 1]?.class_instance.class_date;
@@ -218,7 +222,9 @@ app.get('/api/classes/my-history', authenticateToken, asyncHandler(async (req, r
       endDate: endDate,
       instructor: instructor,
       status: courseStatus,
-      classesAttended: courseStatus === 'completed' ? sorted.filter(b => isPast(b)).length : sorted.filter(b => isAttended(b)).length,
+      classesAttended: courseStatus === 'completed'
+        ? sorted.filter(b => isPast(b) && b.status !== 'cancelled').length
+        : sorted.filter(b => isAttended(b) && b.status !== 'cancelled').length,
       classes: sorted.map(b => ({
         id: b.class_instance.id,
         date: b.class_instance.class_date,

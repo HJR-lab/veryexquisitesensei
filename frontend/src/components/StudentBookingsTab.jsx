@@ -14,6 +14,7 @@ const BOOKING_STYLE = {
   missed:    { bg: '#FFF0F0', text: '#C03030'  },
   cancelled: { bg: ALT,       text: MUTED      },
   unbooked:  { bg: '#FFFBEA', text: '#9E6200'  },
+  waitlisted:{ bg: '#FFF7E6', text: '#9E6200'  },
 };
 
 export default function StudentBookingsTab({
@@ -105,37 +106,12 @@ export default function StudentBookingsTab({
             });
 
             return allRows.map((booking, i) => {
-            if (booking._isWaitlist) {
-              const courseName = parseCourseName(booking.course_identifier, booking.class_type);
-              const dateStr = new Date(booking.class_date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-              const timeStr = booking.start_time && booking.end_time ? `${booking.start_time} – ${booking.end_time}` : '—';
-              return (
-                <div key={booking.id} style={{ borderBottom: `1px solid ${RULE}` }}>
-                  <div style={{
-                    display: 'grid', gridTemplateColumns: '130px 110px 120px 90px 1fr',
-                    padding: '11px 16px', alignItems: 'center',
-                    backgroundColor: '#FFF7E6',
-                  }}>
-                    <span style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 700, color: '#9E6200' }}>{courseName}</span>
-                    <div style={{ fontSize: '13px', fontWeight: 700 }}>{dateStr}</div>
-                    <span style={{ fontSize: '12px', color: MUTED }}>{timeStr}</span>
-                    <span style={{
-                      fontSize: '9px', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase',
-                      padding: '3px 8px', display: 'inline-block',
-                      backgroundColor: '#FFF7E6', color: '#9E6200',
-                    }}>waitlisted</span>
-                    <div />
-                  </div>
-                </div>
-              );
-            }
-
             const classDate = new Date(booking.class_date);
             classDate.setHours(0, 0, 0, 0);
             const isPast = classDate < today;
-            const displayStatus = (isPast && booking.status === 'booked') ? 'attended' : booking.status;
+            const displayStatus = booking._isWaitlist ? 'waitlisted' : (isPast && booking.status === 'booked') ? 'attended' : booking.status;
             const isHBGlazing = isHBEnrollment && booking.id === lastHBBookingId;
-            const courseName = isHBGlazing ? 'Glazing' : parseCourseName(booking.course_identifier, booking.class_type);
+            const courseName = booking._isWaitlist ? (booking.class_type || '—') : isHBGlazing ? 'Glazing' : parseCourseName(booking.course_identifier, booking.class_type);
             const timeStr = booking.start_time && booking.end_time ? `${booking.start_time} – ${booking.end_time}` : booking.start_time || '—';
             const dateStr = new Date(booking.class_date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
             const isDeleting = deletingBookingId === booking.id;
@@ -146,7 +122,7 @@ export default function StudentBookingsTab({
                 <div style={{
                   display: 'grid', gridTemplateColumns: '130px 110px 120px 90px 1fr',
                   padding: '11px 16px', alignItems: 'center',
-                  backgroundColor: displayStatus === 'booked' ? TC_LIGHT : '#FFFFFF',
+                  backgroundColor: displayStatus === 'booked' ? TC_LIGHT : displayStatus === 'waitlisted' ? '#FFF7E6' : '#FFFFFF',
                 }}>
                   <span style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 700, color: TC_DARK }}>{courseName}</span>
                   <div style={{ fontSize: '13px', fontWeight: displayStatus === 'booked' ? 700 : 400 }}>{dateStr}</div>

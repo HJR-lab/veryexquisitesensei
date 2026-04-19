@@ -6929,6 +6929,12 @@ app.post('/api/admin/vouchers/:id/convert-to-enrollment', authenticateToken, req
   const shopifyOrderId = `VOUCHER-${voucher.id}`;
   const shopifyLineItemId = `VOUCHER-${voucher.id}-${Date.now()}`;
 
+  // 4. Derive schedule_pattern and class_time from the class instances
+  const firstClass = classInstances[0];
+  const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+  const schedulePattern = dayNames[new Date(firstClass.class_date).getDay()];
+  const classTime = [firstClass.start_time, firstClass.end_time].filter(Boolean).join(' - ') || null;
+
   // 4. Create course enrollment
   const { data: enrollment, error: enrollErr } = await supabase
     .from('course_enrollments')
@@ -6939,6 +6945,8 @@ app.post('/api/admin/vouchers/:id/convert-to-enrollment', authenticateToken, req
       course_title: voucher.product_title || 'Voucher Redemption',
       course_variant_title: voucher.variant_title || '',
       course_type: courseType,
+      schedule_pattern: schedulePattern,
+      class_time: classTime,
       number_of_weeks: classInstances.length,
       course_start_date: classInstances[0].class_date,
       course_end_date: classInstances[classInstances.length - 1].class_date,
@@ -6994,7 +7002,24 @@ app.post('/api/admin/vouchers/:id/convert-to-enrollment', authenticateToken, req
     })
     .eq('id', enrollment.id);
 
-  // 6. Update voucher status
+  // 6. Check cohort threshold and activate draft classes if met
+  try {
+    const { checkAndProcessThreshold } = require('../utils/courseEnrollmentManager');
+    // Re-fetch enrollment with all fields for threshold check
+    const { data: fullEnrollment } = await supabase
+      .from('course_enrollments')
+      .select('*')
+      .eq('id', enrollment.id)
+      .single();
+    if (fullEnrollment) {
+      await checkAndProcessThreshold(fullEnrollment);
+    }
+  } catch (thresholdErr) {
+    console.error(`⚠️ Threshold check failed for voucher enrollment ${enrollment.id}:`, thresholdErr.message);
+    // Non-fatal — enrollment and bookings are already created
+  }
+
+  // 7. Update voucher status
   const { data: updatedVoucher, error: updateErr } = await supabase
     .from('vouchers')
     .update({

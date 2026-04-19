@@ -91,6 +91,25 @@ async function processCoursePurchase(order, lineItem) {
       return { success: true, skipped: true, reason: 'course_ended' };
     }
 
+    // Secondary dedup: check if student already has an enrollment with the same start date
+    // (catches old manually-imported enrollments that lack shopify_order_id)
+    if (courseInfo.startDate) {
+      const startStr = courseInfo.startDate.toISOString().split('T')[0];
+      const { data: dateMatch } = await supabase
+        .from('course_enrollments')
+        .select('id, status, course_title')
+        .eq('student_id', student.id)
+        .eq('course_start_date', startStr)
+        .in('status', ['active', 'completed'])
+        .limit(1)
+        .maybeSingle();
+
+      if (dateMatch) {
+        console.log(`⏭️  Student ${student.email} already has enrollment ${dateMatch.id} (${dateMatch.status}) starting ${startStr}, skipping order ${order.id}`);
+        return { success: true, skipped: true, reason: 'duplicate_by_date' };
+      }
+    }
+
     // Detect course package type from title
     // Type 1: "3 Course Package" → 3×6 = 18 classes
     // Type 2: "6 Weeks + 4 Flexible Classes" or "10 Classes" → 10 classes

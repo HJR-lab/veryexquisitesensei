@@ -56,7 +56,7 @@ export default function ClassScheduleNew() {
   // ── API state (preserved from production) ──────────────────────────────────
   const [classes, setClasses] = useState([]);
   const [myBookings, setMyBookings] = useState([]);
-  const [myWaitlistEntries, setMyWaitlistEntries] = useState([]);
+  const myWaitlistEntries = []; // waitlist disabled
   const [studentData, setStudentData] = useState(null);
   const [dashboardData, setDashboardData] = useState(null);
   const [bookingLoading, setBookingLoading] = useState(false);
@@ -181,12 +181,8 @@ export default function ClassScheduleNew() {
 
   const fetchMyBookings = async () => {
     try {
-      const [bookingsRes, waitlistRes] = await Promise.all([
-        api.get('/classes/my-bookings'),
-        api.get('/classes/waitlist/my-entries').catch(() => ({ data: { waitlistEntries: [] } })),
-      ]);
+      const bookingsRes = await api.get('/classes/my-bookings');
       setMyBookings(bookingsRes.data.bookings || []);
-      setMyWaitlistEntries(waitlistRes.data?.waitlistEntries || []);
     } catch (error) {
       console.error('Error fetching bookings:', error);
     }

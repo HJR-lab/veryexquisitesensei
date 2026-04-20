@@ -587,18 +587,20 @@ export default function AdminStudentDetail() {
     }
   };
 
-  const handleConvertToCredit = async () => {
-    if (!selectedBookingForMakeup || selectedBookingForMakeup.isPlaceholder) return;
-    if (!confirm('Are you sure you want to convert this booking to a credit? The class booking will be deleted and the credit will become available for future use.')) return;
+  const handleConvertToCredit = async (bookingId) => {
+    // Support both direct bookingId (from bookings tab) and selectedBookingForMakeup (from modal)
+    const targetId = bookingId || (selectedBookingForMakeup && !selectedBookingForMakeup.isPlaceholder ? selectedBookingForMakeup.id : null);
+    if (!targetId) return;
+    if (!confirm('Convert this booking to a class credit? The booking will be cancelled and 1 credit restored.')) return;
     try {
-      setDeletingBookingId(selectedBookingForMakeup.id);
-      await api.delete(`/admin/bookings/${selectedBookingForMakeup.id}`);
-      alert('Booking converted to credit successfully!');
+      setDeletingBookingId(targetId);
+      const { data } = await api.post(`/admin/bookings/${targetId}/convert-to-credit`);
+      alert(data.message || 'Converted to credit');
       resetMakeupModalState();
       await loadStudentData();
     } catch (error) {
       console.error('Failed to convert to credit:', error);
-      alert('Failed to convert to credit');
+      alert(error.response?.data?.error || 'Failed to convert to credit');
     } finally {
       setDeletingBookingId(null);
     }
@@ -1308,6 +1310,7 @@ export default function AdminStudentDetail() {
                 setDeleteConfirmId={setDeleteConfirmId}
                 deletingBookingId={deletingBookingId}
                 handleDeleteBooking={handleDeleteBooking}
+                handleConvertToCredit={handleConvertToCredit}
                 isHBEnrollment={isHBEnrollment}
                 hbCreditsAllocated={hbCreditsAllocated}
                 waitlistEntries={studentWaitlist}

@@ -3990,6 +3990,70 @@ app.delete('/api/admin/bookings/:bookingId', authenticateToken, requireAdmin, as
   });
 }));
 
+// Convert a booking to a class credit (cancel booking, restore credit to enrollment)
+app.post('/api/admin/bookings/:bookingId/convert-to-credit', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { bookingId } = req.params;
+  const { supabase } = supabaseDb;
+
+  // Get the booking
+  const { data: booking, error: bookingErr } = await supabase
+    .from('bookings')
+    .select('id, student_id, class_instance_id, status, course_enrollment_id')
+    .eq('id', bookingId)
+    .single();
+
+  if (bookingErr || !booking) {
+    return res.status(404).json({ error: 'Booking not found' });
+  }
+  if (booking.status !== 'booked') {
+    return res.status(400).json({ error: `Cannot convert a ${booking.status} booking` });
+  }
+  if (!booking.course_enrollment_id) {
+    return res.status(400).json({ error: 'Booking has no associated enrollment' });
+  }
+
+  // Get the enrollment
+  const { data: enrollment } = await supabase
+    .from('course_enrollments')
+    .select('id, class_credits_allocated, class_credits_used, class_credits_remaining, number_of_weeks')
+    .eq('id', booking.course_enrollment_id)
+    .single();
+
+  if (!enrollment) {
+    return res.status(400).json({ error: 'Enrollment not found' });
+  }
+
+  // Cancel the booking
+  await supabase
+    .from('bookings')
+    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+    .eq('id', bookingId);
+
+  // Decrement class enrollment count
+  await supabaseDb.updateClassEnrollment(booking.class_instance_id, -1);
+
+  // Add credit back to enrollment
+  const allocated = enrollment.class_credits_allocated || 0;
+  const newAllocated = allocated > 0 ? allocated : 1; // ensure at least 1 if converting for the first time
+  await supabase
+    .from('course_enrollments')
+    .update({
+      class_credits_allocated: Math.max(newAllocated, allocated),
+      class_credits_used: Math.max(0, (enrollment.class_credits_used || 0) - 1),
+      class_credits_remaining: (enrollment.class_credits_remaining || 0) + 1,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', enrollment.id);
+
+  console.log(`🔄 Converted booking ${bookingId} to class credit for enrollment ${enrollment.id}`);
+
+  res.json({
+    success: true,
+    message: 'Booking converted to class credit',
+    creditsRemaining: (enrollment.class_credits_remaining || 0) + 1
+  });
+}));
+
 // Toggle booking type between regular and makeup
 app.patch('/api/admin/bookings/:bookingId/makeup', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { bookingId } = req.params;

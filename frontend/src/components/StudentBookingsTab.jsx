@@ -33,6 +33,7 @@ export default function StudentBookingsTab({
   setDeleteConfirmId,
   deletingBookingId,
   handleDeleteBooking,
+  handleConvertToCredit,
   isHBEnrollment = false,
   hbCreditsAllocated = 0,
   waitlistEntries = [],
@@ -141,6 +142,12 @@ export default function StudentBookingsTab({
                       onClick={() => handleOpenMakeupModal(booking)}
                       style={{ padding: '4px 10px', border: `1px solid ${RULE}`, background: 'none', cursor: 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: INK }}
                     >Reschedule</button>
+                    {handleConvertToCredit && booking.status === 'booked' && (
+                      <button
+                        onClick={() => handleConvertToCredit(booking.id)}
+                        style={{ padding: '4px 10px', border: `1px solid ${TC}`, background: 'none', cursor: 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: TC }}
+                      >Convert</button>
+                    )}
                     <button
                       onClick={() => setDeleteConfirmId(booking.id)}
                       style={{ padding: '4px 10px', border: '1px solid #F0C0C0', background: 'none', cursor: 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: '#C03030' }}

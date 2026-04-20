@@ -618,11 +618,38 @@ export default function ClassScheduleNew() {
     return 'All Levels';
   };
 
+  // ── Glazing date: find the student's glazing class date ─────────────────────
+  const glazingDate = (() => {
+    if (is10ClassPackage) return null; // 10-class students can book after glazing
+    const glazingBooking = myBookings.find(b => {
+      if (b.status !== 'booked' && b.status !== 'attended') return false;
+      const ct = b.class?.classType || b.classInstance?.classType || b.class_type || '';
+      const weekMatch = ct.match(/\.(\d+)$/);
+      return weekMatch && (weekMatch[1] === '6' || weekMatch[1] === '7');
+    });
+    if (!glazingBooking) return null;
+    const d = new Date(glazingBooking.class?.classDate || glazingBooking.classInstance?.classDate || glazingBooking.class_date);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  })();
+
+  // Check if a class date is blocked by glazing rules
+  const isBlockedByGlazing = (classDate) => {
+    if (!glazingDate) return false;
+    const d = new Date(classDate);
+    d.setHours(0, 0, 0, 0);
+    if (d > glazingDate) return true; // after glazing
+    const daysBefore = (glazingDate - d) / (1000 * 60 * 60 * 24);
+    if (daysBefore > 0 && daysBefore < 5) return true; // within 5 days before glazing
+    return false;
+  };
+
   // ── Determine action for a card ────────────────────────────────────────────
-  // Returns 'booked' | 'full' | 'book' | 'purchase'
+  // Returns 'booked' | 'full' | 'book' | 'purchase' | 'blocked'
   const getCardAction = (classItem) => {
     if (isEnrolled(classItem.id)) return 'booked';
     if (classItem.isFull)         return 'full';
+    if (isBlockedByGlazing(classItem.classDate)) return 'blocked';
     if (remainingCredits > 0)     return 'book';
     return 'purchase';
   };
@@ -850,7 +877,10 @@ export default function ClassScheduleNew() {
                   const isIntermediate = cat === 'wheelthrowing' && weekMatch && parseInt(weekMatch[1]) === 7;
                   const intermediateBlocked = isIntermediate && (studentData?.course_purchase_count || 0) < 3;
 
-                  const blocked = crossTypeBlocked || intermediateBlocked;
+                  // Grey out classes after glazing or within 5 days of glazing
+                  const glazingBlocked = !enrolled && isBlockedByGlazing(cls.classDate);
+
+                  const blocked = crossTypeBlocked || intermediateBlocked || glazingBlocked;
 
                   return (
                     <div
@@ -1368,12 +1398,17 @@ export default function ClassScheduleNew() {
               if (cls.length === 0) {
                 return <div style={{ fontSize: '13px', color: MUTED, textAlign: 'center', padding: '16px 0' }}>No available classes on this date.</div>;
               }
+              // Check if student is rescheduling their glazing class
+              const isReschedulingGlazing = selectedClass && (selectedClass.classType || '').match(/\.(6|7)$/);
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {cls.map(classItem => (
+                  {cls.map(classItem => {
+                    // Block reschedule targets after glazing or within 5 days (unless rescheduling glazing itself)
+                    const reschBlocked = !isReschedulingGlazing && isBlockedByGlazing(classItem.classDate);
+                    return (
                     <div
                       key={classItem.id}
-                      style={{ padding: '12px', border: `1px solid ${RULE}`, backgroundColor: ALT, display: 'flex', alignItems: 'center', gap: '14px' }}
+                      style={{ padding: '12px', border: `1px solid ${RULE}`, backgroundColor: reschBlocked ? '#F5F5F5' : ALT, opacity: reschBlocked ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '14px' }}
                     >
                       {/* Date mini-cal */}
                       <div style={{ width: '36px', flexShrink: 0, textAlign: 'center' }}>
@@ -1390,14 +1425,19 @@ export default function ClassScheduleNew() {
                         <div style={{ fontSize: '13px', fontWeight: 700 }}>{displayClassType(classItem.classType, classItem.classTitle)}</div>
                         <div style={{ fontSize: '11px', color: MUTED }}>{classItem.startTime} – {classItem.endTime} · {classItem.instructor}</div>
                       </div>
+                      {reschBlocked ? (
+                        <span style={{ fontSize: '10px', color: MUTED, flexShrink: 0 }}>Unavailable</span>
+                      ) : (
                       <button
                         onClick={() => handleReschedule(classItem.id)}
                         style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '6px 14px', border: 'none', backgroundColor: TC, color: '#FFF', cursor: 'pointer', flexShrink: 0 }}
                       >
                         Select
                       </button>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               );
             })()}

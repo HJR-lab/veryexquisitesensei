@@ -586,6 +586,51 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
     }
   }
 
+  // Block bookings after glazing date or within 5 days of glazing
+  // Exception: 10-class package students can book after glazing (flex credits)
+  {
+    const { data: studentEnrollments } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('id, number_of_weeks, course_type')
+      .eq('student_id', dbCustomerId)
+      .eq('status', 'active');
+
+    const has10ClassPackage = (studentEnrollments || []).some(e =>
+      e.number_of_weeks === 10 || (e.course_type || '').includes('10 Classes')
+    );
+
+    if (!has10ClassPackage) {
+      const { data: glazingBookings } = await supabaseDb.supabase
+        .from('bookings')
+        .select('class_instances!bookings_class_instance_id_fkey(class_date, class_type)')
+        .eq('student_id', dbCustomerId)
+        .in('status', ['booked', 'attended'])
+        .order('class_instances(class_date)', { ascending: true });
+
+      const glazing = (glazingBookings || []).find(b => {
+        const ct = b.class_instances?.class_type || '';
+        const weekMatch = ct.match(/\.(\d+)$/);
+        return weekMatch && (weekMatch[1] === '6' || weekMatch[1] === '7');
+      });
+
+      if (glazing?.class_instances?.class_date) {
+        const glazingDate = new Date(glazing.class_instances.class_date);
+        glazingDate.setHours(0, 0, 0, 0);
+        const targetDate = new Date(classInstance.class_date);
+        targetDate.setHours(0, 0, 0, 0);
+
+        if (targetDate > glazingDate) {
+          return res.status(400).json({ error: 'Cannot book classes after your glazing class. Glazing is your final class.' });
+        }
+
+        const daysBefore = (glazingDate - targetDate) / (1000 * 60 * 60 * 24);
+        if (daysBefore > 0 && daysBefore < 5) {
+          return res.status(400).json({ error: 'Classes must be at least 5 days before your glazing class.' });
+        }
+      }
+    }
+  }
+
   // Check if there's a cancelled booking for this class - if so, reactivate it instead of creating new
   const { data: cancelledBooking } = await supabaseDb.supabase
     .from('bookings')
@@ -1260,6 +1305,41 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
         return res.status(400).json({
           error: 'Your 10th and final class must be a glazing class (Week 6). Please select a glazing class.'
         });
+      }
+    }
+  }
+
+  // Block rescheduling to a date after glazing or within 5 days of glazing
+  // Exception: 10-class package students can book after glazing (flex credits)
+  if (!has10ClassPackage) {
+    const { data: studentBookings } = await supabaseDb.supabase
+      .from('bookings')
+      .select('class_instances!bookings_class_instance_id_fkey(class_date, class_type)')
+      .eq('student_id', dbCustomerId)
+      .in('status', ['booked', 'attended']);
+
+    const glazingBooking = (studentBookings || []).find(b => {
+      const ct = b.class_instances?.class_type || '';
+      const weekMatch = ct.match(/\.(\d+)$/);
+      return weekMatch && (weekMatch[1] === '6' || weekMatch[1] === '7');
+    });
+
+    if (glazingBooking?.class_instances?.class_date) {
+      const glazingDate = new Date(glazingBooking.class_instances.class_date);
+      glazingDate.setHours(0, 0, 0, 0);
+      const targetDate = new Date(newClass.class_date);
+      targetDate.setHours(0, 0, 0, 0);
+
+      // Allow rescheduling glazing itself (moving it to another glazing slot)
+      const isReschedulingGlazing = (oldClass.class_type || '').match(/\.(6|7)$/);
+      if (!isReschedulingGlazing) {
+        if (targetDate > glazingDate) {
+          return res.status(400).json({ error: 'Cannot reschedule to a date after your glazing class. Glazing is your final class.' });
+        }
+        const daysBefore = (glazingDate - targetDate) / (1000 * 60 * 60 * 24);
+        if (daysBefore > 0 && daysBefore < 5) {
+          return res.status(400).json({ error: 'Classes must be at least 5 days before your glazing class.' });
+        }
       }
     }
   }

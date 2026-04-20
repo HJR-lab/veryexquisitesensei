@@ -1488,14 +1488,41 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
     return res.status(400).json({ error: 'You are already enrolled in this class' });
   }
 
-  // For non-glazing classes, check if reschedule is within same cohort (no fee) or different cohort ($40 fee)
+  // For non-glazing classes, check if reschedule is within same cohort period (no fee) or outside ($40 fee)
+  // Uses admin-defined cohort_periods table as source of truth for date ranges
   // HB (Handbuilding) courses are drop-in with no cohort — rescheduling is always free
   let rescheduleFee = 0;
   const isHBCourse = oldClass.class_type?.startsWith('HB') || newClass.class_type?.startsWith('HB');
   if (!isOldClassGlazing && !isHBCourse) {
-    // Determine if the new class is within the same cohort period
+    // Check if the new class date falls within any admin-defined cohort period
     let isSameCohort = false;
-    if (currentBooking.course_enrollment_id) {
+    const newClassDate = new Date(newClass.class_date);
+    newClassDate.setHours(0, 0, 0, 0);
+
+    const { data: cohortPeriods } = await supabaseDb.supabase
+      .from('cohort_periods')
+      .select('id, start_date, end_date')
+      .lte('start_date', newClass.class_date)
+      .gte('end_date', newClass.class_date);
+
+    if (cohortPeriods && cohortPeriods.length > 0) {
+      // Target date is within a cohort period — also check that old class is in the same period
+      for (const period of cohortPeriods) {
+        const periodStart = new Date(period.start_date);
+        const periodEnd = new Date(period.end_date);
+        periodStart.setHours(0, 0, 0, 0);
+        periodEnd.setHours(23, 59, 59, 999);
+        const oldClassDate = new Date(oldClass.class_date);
+        oldClassDate.setHours(0, 0, 0, 0);
+        if (oldClassDate >= periodStart && oldClassDate <= periodEnd) {
+          isSameCohort = true;
+          break;
+        }
+      }
+    }
+
+    // Fallback: check enrollment dates if no cohort periods defined
+    if (!isSameCohort && (!cohortPeriods || cohortPeriods.length === 0) && currentBooking.course_enrollment_id) {
       const { data: enroll } = await supabaseDb.supabase
         .from('course_enrollments')
         .select('course_start_date, course_end_date')
@@ -1505,7 +1532,6 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
       if (enroll?.course_start_date && enroll?.course_end_date) {
         const cohortStart = new Date(enroll.course_start_date);
         const cohortEnd = new Date(enroll.course_end_date);
-        const newClassDate = new Date(newClass.class_date);
         isSameCohort = newClassDate >= cohortStart && newClassDate <= cohortEnd;
       }
     }

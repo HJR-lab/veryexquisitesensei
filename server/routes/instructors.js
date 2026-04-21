@@ -1534,6 +1534,13 @@ app.put('/api/admin/studio-access/bookings/:id/cancel', authenticateToken, requi
 
   if (error) throw error;
   if (!data) return res.status(404).json({ error: 'Booking not found' });
+
+  // Remove from Google Calendar
+  try {
+    const calendarSync = require('../utils/calendarSync');
+    calendarSync.deleteStudioAccess(parseInt(req.params.id)).catch(() => {});
+  } catch (e) { /* ignore */ }
+
   res.json({ booking: data });
 }));
 

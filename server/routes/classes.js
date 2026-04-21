@@ -1040,6 +1040,26 @@ app.post('/api/classes/cancel', authenticateToken, asyncHandler(async (req, res)
     return res.status(400).json({ error: 'Booking already cancelled' });
   }
 
+  // Enforce 24-hour cancellation window
+  if (booking.class_instance) {
+    const classDate = booking.class_instance.class_date;
+    const startTime = booking.class_instance.start_time || '19:00';
+    const timePart = startTime.replace(/\s*(AM|PM)/i, (m, p) => {
+      const [h, min] = startTime.replace(/\s*(AM|PM)/i, '').split(':').map(Number);
+      return '';
+    });
+    // Parse class start datetime
+    const dateStr = new Date(classDate).toISOString().split('T')[0];
+    let [hours, mins] = (startTime.match(/(\d+):(\d+)/) || [, '19', '00']).slice(1).map(Number);
+    if (/pm/i.test(startTime) && hours < 12) hours += 12;
+    if (/am/i.test(startTime) && hours === 12) hours = 0;
+    const classStart = new Date(`${dateStr}T${String(hours).padStart(2,'0')}:${String(mins).padStart(2,'0')}:00+08:00`);
+    const hoursUntilStart = (classStart - new Date()) / (1000 * 60 * 60);
+    if (hoursUntilStart < 24) {
+      return res.status(400).json({ error: 'Cancellations must be made at least 24 hours before class.' });
+    }
+  }
+
   await supabaseDb.updateBooking(parseInt(bookingId), {
     status: 'cancelled',
     advanceNoticeGiven: advanceNotice || false
@@ -1047,15 +1067,18 @@ app.post('/api/classes/cancel', authenticateToken, asyncHandler(async (req, res)
 
   await supabaseDb.updateClassEnrollment(booking.class_instance_id, -1);
 
-  // Restore HB credit when booking is cancelled
+  // Restore credit when booking is cancelled (HB or 10-class package)
   if (booking.course_enrollment_id) {
     const { data: enr } = await supabaseDb.supabase
       .from('course_enrollments')
-      .select('id, course_type, class_credits_used, class_credits_remaining')
+      .select('id, course_type, number_of_weeks, class_credits_used, class_credits_remaining')
       .eq('id', booking.course_enrollment_id)
       .single();
 
-    if (enr && (enr.course_type || '').toLowerCase().includes('handbuilding')) {
+    const isHB = enr && (enr.course_type || '').toLowerCase().includes('handbuilding');
+    const is10Class = enr && (enr.number_of_weeks === 10 || (enr.course_type || '').includes('10 Classes'));
+
+    if (enr && (isHB || is10Class)) {
       await supabaseDb.supabase
         .from('course_enrollments')
         .update({

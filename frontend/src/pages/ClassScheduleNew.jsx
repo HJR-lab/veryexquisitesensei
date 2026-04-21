@@ -1041,32 +1041,61 @@ export default function ClassScheduleNew() {
                           Waitlisted
                         </span>
                       ) : (
-                        <button
-                          onClick={() => {
-                            if (booking.status !== 'booked') {
-                              alert(`Cannot reschedule: This class booking is ${booking.status}. Please refresh the page.`);
-                              fetchMyBookings();
-                              return;
-                            }
-                            if (isWithin24Hours) {
-                              alert('Cannot reschedule classes within 24 hours of start time.');
-                              return;
-                            }
-                            setSelectedClass(classItem);
-                            setShowRescheduleModal(true);
-                            setRescheduleSelectedDate(new Date());
-                            setRescheduleCurrentMonth(new Date());
-                          }}
-                          style={{
-                            fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-                            padding: '4px 8px',
-                            backgroundColor: isWithin24Hours ? MUTED : '#EBEBEB',
-                            color: isWithin24Hours ? '#FFF' : INK,
-                            border: 'none', cursor: 'pointer', flexShrink: 0,
-                          }}
-                        >
-                          {isWithin24Hours ? 'Within 24h' : 'Reschedule'}
-                        </button>
+                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexShrink: 0 }}>
+                          {is10ClassPackage && !isWithin24Hours && (
+                            <button
+                              onClick={async () => {
+                                if (booking.status !== 'booked') {
+                                  alert(`Cannot cancel: This class booking is ${booking.status}. Please refresh the page.`);
+                                  fetchMyBookings();
+                                  return;
+                                }
+                                if (!confirm('Cancel this booking? The class credit will be returned to your account.\n\nNote: Cancellations must be made at least 24 hours before class.')) return;
+                                try {
+                                  await api.post('/classes/cancel', { bookingId: booking.id || booking.bookingId });
+                                  fetchMyBookings();
+                                  fetchDashboard();
+                                } catch (err) {
+                                  alert(err.response?.data?.error || 'Failed to cancel');
+                                }
+                              }}
+                              style={{
+                                fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                                padding: '4px 8px',
+                                backgroundColor: 'transparent', color: '#C62828',
+                                border: '1px solid #C62828', cursor: 'pointer',
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          )}
+                          <button
+                            onClick={() => {
+                              if (booking.status !== 'booked') {
+                                alert(`Cannot reschedule: This class booking is ${booking.status}. Please refresh the page.`);
+                                fetchMyBookings();
+                                return;
+                              }
+                              if (isWithin24Hours) {
+                                alert('Cannot reschedule classes within 24 hours of start time.');
+                                return;
+                              }
+                              setSelectedClass(classItem);
+                              setShowRescheduleModal(true);
+                              setRescheduleSelectedDate(new Date());
+                              setRescheduleCurrentMonth(new Date());
+                            }}
+                            style={{
+                              fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                              padding: '4px 8px',
+                              backgroundColor: isWithin24Hours ? MUTED : '#EBEBEB',
+                              color: isWithin24Hours ? '#FFF' : INK,
+                              border: 'none', cursor: 'pointer',
+                            }}
+                          >
+                            {isWithin24Hours ? 'Within 24h' : 'Reschedule'}
+                          </button>
+                        </div>
                       )}
                     </div>
                   );

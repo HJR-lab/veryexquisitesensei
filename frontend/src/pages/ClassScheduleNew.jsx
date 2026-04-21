@@ -349,7 +349,7 @@ export default function ClassScheduleNew() {
 
   // Reschedule helpers (preserved from production)
   const getAvailableMakeupClasses = () => {
-    if (!selectedClass || !studentData) return [];
+    if (!selectedClass) return [];
     const classCategory = getClassCategory(selectedClass.classType);
     const twentyFourHoursFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
     const has10ClassPackage = is10ClassPackage;

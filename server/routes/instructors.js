@@ -420,17 +420,21 @@ app.get('/api/instructor/dashboard', authenticateToken, asyncHandler(async (req,
       (enrollments || []).forEach(e => { enrollmentMap[e.id] = e; });
     }
 
-    // Count actual attended bookings per enrollment (more accurate than stale weeks_completed)
+    // Count attended + past booked bookings per enrollment (matches admin logic)
+    const todayStr = new Date().toISOString().split('T')[0];
     let attendedByEnrollment = {};
     if (enrollmentIds.length > 0) {
       const { data: attendedCounts } = await supabaseDb.supabase
         .from('bookings')
-        .select('course_enrollment_id')
+        .select('course_enrollment_id, status, class_instances!bookings_class_instance_id_fkey(class_date)')
         .in('course_enrollment_id', enrollmentIds)
-        .in('status', ['attended', 'completed'])
+        .in('status', ['attended', 'completed', 'booked'])
         .limit(5000);
       (attendedCounts || []).forEach(b => {
-        attendedByEnrollment[b.course_enrollment_id] = (attendedByEnrollment[b.course_enrollment_id] || 0) + 1;
+        const isPast = b.class_instances?.class_date?.split(/[T ]/)[0] < todayStr;
+        if (b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && isPast)) {
+          attendedByEnrollment[b.course_enrollment_id] = (attendedByEnrollment[b.course_enrollment_id] || 0) + 1;
+        }
       });
     }
 
@@ -596,17 +600,21 @@ app.get('/api/instructor/classes/:classId/students', authenticateToken, asyncHan
     (enrollments || []).forEach(e => { enrollmentMap[e.id] = e; });
   }
 
-  // Count actual attended bookings per enrollment (more accurate than stale weeks_completed)
+  // Count attended + past booked bookings per enrollment (matches admin logic)
+  const todayStr2 = new Date().toISOString().split('T')[0];
   let attendedByEnrollment2 = {};
   if (enrollmentIds.length > 0) {
     const { data: attendedCounts } = await supabaseDb.supabase
       .from('bookings')
-      .select('course_enrollment_id')
+      .select('course_enrollment_id, status, class_instances!bookings_class_instance_id_fkey(class_date)')
       .in('course_enrollment_id', enrollmentIds)
-      .in('status', ['attended', 'completed'])
+      .in('status', ['attended', 'completed', 'booked'])
       .limit(5000);
     (attendedCounts || []).forEach(b => {
-      attendedByEnrollment2[b.course_enrollment_id] = (attendedByEnrollment2[b.course_enrollment_id] || 0) + 1;
+      const isPast = b.class_instances?.class_date?.split(/[T ]/)[0] < todayStr2;
+      if (b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && isPast)) {
+        attendedByEnrollment2[b.course_enrollment_id] = (attendedByEnrollment2[b.course_enrollment_id] || 0) + 1;
+      }
     });
   }
 

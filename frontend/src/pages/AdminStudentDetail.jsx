@@ -1346,8 +1346,6 @@ export default function AdminStudentDetail() {
               />
             )}
 
-          </div>
-
             {/* ── STUDIO ACCESS TAB ── */}
             {section === 'access' && (
               <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
@@ -1390,8 +1388,8 @@ export default function AdminStudentDetail() {
                     {studioBookings.map((b, i) => {
                       const d = new Date(b.booking_date + 'T12:00:00');
                       const dateStr = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-                      const startH = parseInt(b.start_time.split(':')[0], 10);
-                      const endH = parseInt(b.end_time.split(':')[0], 10);
+                      const startH = b.start_time ? parseInt(b.start_time.split(':')[0], 10) : 12;
+                      const endH = b.end_time ? parseInt(b.end_time.split(':')[0], 10) : (startH + 2);
                       const fmtTime = (h) => { const s = h >= 12 ? 'pm' : 'am'; return (h > 12 ? h - 12 : h) + s; };
                       const statusColors = { booked: { bg: '#E8F5E9', c: '#2E7D32' }, pending: { bg: '#FFF8E1', c: '#F57F17' }, attended: { bg: '#E3F2FD', c: '#1565C0' }, cancelled: { bg: '#FAFAFA', c: '#999' } };
                       const sc = statusColors[b.status] || statusColors.booked;
@@ -1425,6 +1423,7 @@ export default function AdminStudentDetail() {
               </div>
             )}
 
+          </div>
         </div>
       </main>
 

@@ -83,6 +83,9 @@ export default function AdminStudioAccess() {
 
   useEffect(() => {
     fetchBookings();
+    // Auto-refresh every 30 seconds to pick up student changes
+    const interval = setInterval(fetchBookings, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   const fetchBookings = async () => {

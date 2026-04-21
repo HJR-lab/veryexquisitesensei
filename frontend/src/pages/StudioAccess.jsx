@@ -307,7 +307,7 @@ export default function StudioAccess() {
                     </div>
                   </div>
                   {/* Status + Cancel */}
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <StatusPill status={b.status} />
                     {canCancelBooking(b) && (
                       <button

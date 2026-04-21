@@ -5002,29 +5002,47 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
     }
   }
 
-  // Update the same booking to point to the new class (no new booking created)
-  const { data: updatedBooking, error: updateError } = await supabaseDb.supabase
+  // Mark original booking as rescheduled (keeps student visible on original class calendar)
+  await supabaseDb.supabase
     .from('bookings')
     .update({
-      class_instance_id: newClassInstanceId,
+      status: 'rescheduled',
+      original_class_instance_id: originalBooking.class_instance_id,
+      rescheduled_from_date: originalBooking.class_instances.class_date,
+      reschedule_source: 'admin',
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', bookingId);
+
+  // Decrement old class enrollment
+  await supabaseDb.updateClassEnrollment(originalBooking.class_instance_id, -1);
+
+  // Create new booking on target class
+  const { data: createdBooking, error: createError } = await supabaseDb.supabase
+    .from('bookings')
+    .insert({
+      student_id: originalBooking.student_id,
+      class_instance_id: parseInt(newClassInstanceId),
       status: 'booked',
+      booking_type: originalBooking.booking_type || 'regular',
+      course_enrollment_id: originalBooking.course_enrollment_id,
       original_class_instance_id: originalBooking.class_instance_id,
       rescheduled_from_date: originalBooking.class_instances.class_date,
       reschedule_reason: rescheduleReason || null,
       reschedule_fee_paid: fee || 0,
       is_glazing_reschedule: isGlazingReschedule || false,
       reschedule_source: 'admin',
-      // Rescheduling moves this booking to a new future class — clear any prior attendance record
-      attended: null,
-      attendance_marked_at: null,
+      created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     })
-    .eq('id', bookingId)
     .select()
     .single();
 
-  if (updateError) throw updateError;
-  const newBooking = updatedBooking;
+  if (createError) throw createError;
+  const newBooking = createdBooking;
+
+  // Increment new class enrollment
+  await supabaseDb.updateClassEnrollment(parseInt(newClassInstanceId), 1);
 
   // If there's a fee, create a fee record
   if (fee && fee > 0) {

@@ -144,41 +144,36 @@ export default function ClassScheduleNew() {
   }, [showRescheduleModal, selectedClass]);
 
   const fetchClasses = async () => {
-    // Try admin endpoint first (works for admin users), fallback to public
     try {
-      const response = await api.get('/admin/classes');
-      setClasses(response.data.courses || []);
-    } catch (error) {
-      try {
-        const publicResponse = await api.get('/classes/available');
-        const flatClasses = publicResponse.data.classes || [];
-        const courseGroups = {};
-        flatClasses.forEach(cls => {
-          const clsDate = new Date(cls.classDate);
-          const dayOfWeek = clsDate.getDay();
-          const signature = `${cls.classType}_${cls.startTime}_${cls.instructor}_${dayOfWeek}`;
-          if (!courseGroups[signature]) {
-            courseGroups[signature] = { classes: [], identifier: `${cls.classType.substring(0,2).toUpperCase()}_${cls.startTime.replace(/[^0-9]/g,'')}` };
-          }
-          courseGroups[signature].classes.push({
-            id: cls.id,
-            class_date: cls.classDate,
-            class_type: cls.classType,
-            class_title: cls.classTitle,
-            class_description: cls.classDescription,
-            start_time: cls.startTime,
-            end_time: cls.endTime,
-            instructor: cls.instructor,
-            room: cls.room,
-            max_capacity: cls.maxCapacity || 10,
-            bookingCount: cls.currentEnrollment || 0,
-            course_identifier: cls.classType,
-          });
+      // Use public endpoint — works for both admin and students
+      const response = await api.get('/classes/available');
+      const flatClasses = response.data.classes || [];
+      const courseGroups = {};
+      flatClasses.forEach(cls => {
+        const clsDate = new Date(cls.classDate);
+        const dayOfWeek = clsDate.getDay();
+        const signature = `${cls.classType}_${cls.startTime}_${cls.instructor}_${dayOfWeek}`;
+        if (!courseGroups[signature]) {
+          courseGroups[signature] = { classes: [], identifier: `${cls.classType.substring(0,2).toUpperCase()}_${cls.startTime.replace(/[^0-9]/g,'')}` };
+        }
+        courseGroups[signature].classes.push({
+          id: cls.id,
+          class_date: cls.classDate,
+          class_type: cls.classType,
+          class_title: cls.classTitle,
+          class_description: cls.classDescription,
+          start_time: cls.startTime,
+          end_time: cls.endTime,
+          instructor: cls.instructor,
+          room: cls.room,
+          max_capacity: cls.maxCapacity || 10,
+          bookingCount: cls.currentEnrollment || 0,
+          course_identifier: cls.classType,
         });
-        setClasses(Object.values(courseGroups));
-      } catch (fallbackError) {
-        console.error('Error fetching classes:', fallbackError);
-      }
+      });
+      setClasses(Object.values(courseGroups));
+    } catch (error) {
+      console.error('Error fetching classes:', error);
     }
   };
 
@@ -352,15 +347,9 @@ export default function ClassScheduleNew() {
     if (!selectedClass) return [];
     const classCategory = getClassCategory(selectedClass.classType);
     const twentyFourHoursFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    const has10ClassPackage = is10ClassPackage;
-    const has3CoursePackage = dashboardData?.packageInfo?.totalCourses === 3;
-    const canSwapGlazingToWT = has3CoursePackage && (dashboardData?.packageInfo?.coursesRemaining >= 1);
-    const totalBookings = myBookings.length;
-    const is10thClass = has10ClassPackage && totalBookings >= 9;
-    const isOldClassGlazing = selectedClass.classType?.includes('6.6');
     const allClasses = [];
     classes.forEach(course => {
-      course.classes?.forEach(cls => {
+      (course.classes || []).forEach(cls => {
         allClasses.push({
           ...cls,
           id: cls.id,
@@ -378,50 +367,18 @@ export default function ClassScheduleNew() {
         });
       });
     });
-    // Determine WT level (beginner=6, intermediate=7) from class_type
-    const getWTLevel = (ct) => { const m = ct?.match(/(\d+)\.\d+$/); return m ? parseInt(m[1]) : null; };
-    const getWTBase = (ct) => ct ? ct.replace(/\d+\.\d+$/, '') : null;
-    const oldLevel = getWTLevel(selectedClass.classType);
-    const oldBase = getWTBase(selectedClass.classType);
-    const coursePurchaseCount = user?.coursePurchaseCount || 0;
 
+    // Simple filter: future classes with space, same category (or any for 10-class), not glazing unless glazing
+    // Server validates all complex rules on submit
     return allClasses.filter(c => {
-      const categoryMatch = getClassCategory(c.classType);
-      const sameCategory = categoryMatch === classCategory;
       const isDifferentClass = c.id !== selectedClass.id;
-      const hasSpace = c.currentEnrollment < 10;
+      const hasSpace = (c.currentEnrollment || 0) < 10;
       const classDateTime = parseClassDateTime(c.classDate, c.startTime);
       const isAtLeast24HoursAway = classDateTime >= twentyFourHoursFromNow;
       const isValidTime = !isNaN(classDateTime.getTime());
-      const isNewClassGlazing = c.classType?.includes('6.6');
-
-      // Cross-level reschedule rules (must match server in routes/classes.js)
-      //  - Beginner(6) → Intermediate(7): allowed if coursePurchaseCount > 2
-      //  - Intermediate(7) → Beginner(6): only WT1104AM_DL → WT1204AM_DL
-      const newLevel = getWTLevel(c.classType);
-      if (oldLevel && newLevel && oldLevel !== newLevel) {
-        if (oldLevel === 6 && newLevel === 7) {
-          if (coursePurchaseCount <= 2) return false;
-        } else {
-          const newBase = getWTBase(c.classType);
-          if (!(oldBase === 'WT1104AM_DL' && newBase === 'WT1204AM_DL')) return false;
-        }
-      }
-      if (is10thClass && !isNewClassGlazing) return false;
-      let cohortRestrictionPasses = true;
-      if (isOldClassGlazing) {
-        if (canSwapGlazingToWT) {
-          // 3-course package, courses 1 or 2: allow glazing → any WT class
-          cohortRestrictionPasses = sameCategory;
-        } else {
-          cohortRestrictionPasses = isNewClassGlazing && sameCategory;
-        }
-      } else {
-        if (isNewClassGlazing) cohortRestrictionPasses = false;
-        else if (!has10ClassPackage && sameCategory) cohortRestrictionPasses = true;
-      }
-      const categoryCheck = has10ClassPackage ? true : sameCategory;
-      return categoryCheck && isDifferentClass && hasSpace && isAtLeast24HoursAway && isValidTime && cohortRestrictionPasses;
+      const sameCategory = getClassCategory(c.classType) === classCategory;
+      const categoryOK = is10ClassPackage || sameCategory;
+      return isDifferentClass && hasSpace && isAtLeast24HoursAway && isValidTime && categoryOK;
     });
   };
 

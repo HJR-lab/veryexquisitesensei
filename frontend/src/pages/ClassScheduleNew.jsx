@@ -144,35 +144,41 @@ export default function ClassScheduleNew() {
   }, [showRescheduleModal, selectedClass]);
 
   const fetchClasses = async () => {
+    // Try admin endpoint first (works for admin users), fallback to public
     try {
-      const publicResponse = await api.get('/classes/available');
-      const flatClasses = publicResponse.data.classes || [];
-      const courseGroups = {};
-      flatClasses.forEach(cls => {
-        const clsDate = new Date(cls.classDate);
-        const dayOfWeek = clsDate.getDay();
-        const signature = `${cls.classType}_${cls.startTime}_${cls.instructor}_${dayOfWeek}`;
-        if (!courseGroups[signature]) {
-          courseGroups[signature] = { classes: [], identifier: `${cls.classType.substring(0,2).toUpperCase()}_${cls.startTime.replace(/[^0-9]/g,'')}` };
-        }
-        courseGroups[signature].classes.push({
-          id: cls.id,
-          class_date: cls.classDate,
-          class_type: cls.classType,
-          class_title: cls.classTitle,
-          class_description: cls.classDescription,
-          start_time: cls.startTime,
-          end_time: cls.endTime,
-          instructor: cls.instructor,
-          room: cls.room,
-          max_capacity: cls.maxCapacity || 10,
-          bookingCount: cls.currentEnrollment || 0,
-          course_identifier: cls.classType,
-        });
-      });
-      setClasses(Object.values(courseGroups));
+      const response = await api.get('/admin/classes');
+      setClasses(response.data.courses || []);
     } catch (error) {
-      console.error('Error fetching classes:', error);
+      try {
+        const publicResponse = await api.get('/classes/available');
+        const flatClasses = publicResponse.data.classes || [];
+        const courseGroups = {};
+        flatClasses.forEach(cls => {
+          const clsDate = new Date(cls.classDate);
+          const dayOfWeek = clsDate.getDay();
+          const signature = `${cls.classType}_${cls.startTime}_${cls.instructor}_${dayOfWeek}`;
+          if (!courseGroups[signature]) {
+            courseGroups[signature] = { classes: [], identifier: `${cls.classType.substring(0,2).toUpperCase()}_${cls.startTime.replace(/[^0-9]/g,'')}` };
+          }
+          courseGroups[signature].classes.push({
+            id: cls.id,
+            class_date: cls.classDate,
+            class_type: cls.classType,
+            class_title: cls.classTitle,
+            class_description: cls.classDescription,
+            start_time: cls.startTime,
+            end_time: cls.endTime,
+            instructor: cls.instructor,
+            room: cls.room,
+            max_capacity: cls.maxCapacity || 10,
+            bookingCount: cls.currentEnrollment || 0,
+            course_identifier: cls.classType,
+          });
+        });
+        setClasses(Object.values(courseGroups));
+      } catch (fallbackError) {
+        console.error('Error fetching classes:', fallbackError);
+      }
     }
   };
 

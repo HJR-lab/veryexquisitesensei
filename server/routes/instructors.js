@@ -420,6 +420,20 @@ app.get('/api/instructor/dashboard', authenticateToken, asyncHandler(async (req,
       (enrollments || []).forEach(e => { enrollmentMap[e.id] = e; });
     }
 
+    // Count actual attended bookings per enrollment (more accurate than stale weeks_completed)
+    let attendedByEnrollment = {};
+    if (enrollmentIds.length > 0) {
+      const { data: attendedCounts } = await supabaseDb.supabase
+        .from('bookings')
+        .select('course_enrollment_id')
+        .in('course_enrollment_id', enrollmentIds)
+        .in('status', ['attended', 'completed'])
+        .limit(5000);
+      (attendedCounts || []).forEach(b => {
+        attendedByEnrollment[b.course_enrollment_id] = (attendedByEnrollment[b.course_enrollment_id] || 0) + 1;
+      });
+    }
+
     // Get course_purchase_count from customers table (admin-editable source of truth)
     const allStudentIds = [...new Set((bookings || []).filter(b => b.customers).map(b => b.customers.id))];
     let orderCountMap = {};
@@ -470,7 +484,7 @@ app.get('/api/instructor/dashboard', authenticateToken, asyncHandler(async (req,
           bookingType: (isMakeupByType || isMakeupByCourse) ? 'makeup' : 'enrolled',
           attended: b.attended,
           courseIdentifier: enr.course_identifier || null,
-          classesAttended: enr.weeks_completed || enr.class_credits_used || 0,
+          classesAttended: b.course_enrollment_id ? (attendedByEnrollment[b.course_enrollment_id] || 0) : 0,
           totalClasses: enr.number_of_weeks || enr.class_credits_allocated || 6,
           orderCount: orderCountMap[b.customers.id] || 0,
           wheelPreference: wheelPrefMap[b.customers.id] || null,
@@ -582,6 +596,20 @@ app.get('/api/instructor/classes/:classId/students', authenticateToken, asyncHan
     (enrollments || []).forEach(e => { enrollmentMap[e.id] = e; });
   }
 
+  // Count actual attended bookings per enrollment (more accurate than stale weeks_completed)
+  let attendedByEnrollment2 = {};
+  if (enrollmentIds.length > 0) {
+    const { data: attendedCounts } = await supabaseDb.supabase
+      .from('bookings')
+      .select('course_enrollment_id')
+      .in('course_enrollment_id', enrollmentIds)
+      .in('status', ['attended', 'completed'])
+      .limit(5000);
+    (attendedCounts || []).forEach(b => {
+      attendedByEnrollment2[b.course_enrollment_id] = (attendedByEnrollment2[b.course_enrollment_id] || 0) + 1;
+    });
+  }
+
   const allStudentIds = [...new Set((bookings || []).filter(b => b.customers).map(b => b.customers.id))];
   let orderCountMap = {};
   let wheelPrefMap = {};
@@ -623,7 +651,7 @@ app.get('/api/instructor/classes/:classId/students', authenticateToken, asyncHan
       bookingType: (isMakeupByType || isMakeupByCourse) ? 'makeup' : 'enrolled',
       attended: b.attended,
       courseIdentifier: enr.course_identifier || null,
-      classesAttended: enr.weeks_completed || enr.class_credits_used || 0,
+      classesAttended: b.course_enrollment_id ? (attendedByEnrollment2[b.course_enrollment_id] || 0) : 0,
       totalClasses: enr.number_of_weeks || enr.class_credits_allocated || 6,
       orderCount: orderCountMap[b.customers.id] || 0,
       wheelPreference: wheelPrefMap[b.customers.id] || null,

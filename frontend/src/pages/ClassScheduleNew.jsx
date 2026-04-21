@@ -145,37 +145,34 @@ export default function ClassScheduleNew() {
 
   const fetchClasses = async () => {
     try {
-      const response = await api.get('/admin/classes');
-      setClasses(response.data.courses || []);
-    } catch (error) {
-      console.error('Error fetching classes from admin endpoint:', error);
-      try {
-        const publicResponse = await api.get('/classes/available');
-        const flatClasses = publicResponse.data.classes || [];
-        const courseGroups = {};
-        flatClasses.forEach(cls => {
-          const clsDate = new Date(cls.classDate);
-          const dayOfWeek = clsDate.getDay();
-          const signature = `${cls.classType}_${cls.startTime}_${cls.instructor}_${dayOfWeek}`;
-          if (!courseGroups[signature]) {
-            courseGroups[signature] = { classes: [], identifier: `${cls.classType.substring(0,2).toUpperCase()}_${cls.startTime.replace(/[^0-9]/g,'')}` };
-          }
-          courseGroups[signature].classes.push({
-            id: cls.id,
-            class_date: cls.classDate,
-            class_type: cls.classType,
-            start_time: cls.startTime,
-            end_time: cls.endTime,
-            instructor: cls.instructor,
-            room: cls.room,
-            max_capacity: cls.maxCapacity,
-            bookingCount: cls.currentEnrollment || 0,
-          });
+      const publicResponse = await api.get('/classes/available');
+      const flatClasses = publicResponse.data.classes || [];
+      const courseGroups = {};
+      flatClasses.forEach(cls => {
+        const clsDate = new Date(cls.classDate);
+        const dayOfWeek = clsDate.getDay();
+        const signature = `${cls.classType}_${cls.startTime}_${cls.instructor}_${dayOfWeek}`;
+        if (!courseGroups[signature]) {
+          courseGroups[signature] = { classes: [], identifier: `${cls.classType.substring(0,2).toUpperCase()}_${cls.startTime.replace(/[^0-9]/g,'')}` };
+        }
+        courseGroups[signature].classes.push({
+          id: cls.id,
+          class_date: cls.classDate,
+          class_type: cls.classType,
+          class_title: cls.classTitle,
+          class_description: cls.classDescription,
+          start_time: cls.startTime,
+          end_time: cls.endTime,
+          instructor: cls.instructor,
+          room: cls.room,
+          max_capacity: cls.maxCapacity || 10,
+          bookingCount: cls.currentEnrollment || 0,
+          course_identifier: cls.classType,
         });
-        setClasses(Object.values(courseGroups));
-      } catch (fallbackError) {
-        console.error('Error fetching classes from fallback endpoint:', fallbackError);
-      }
+      });
+      setClasses(Object.values(courseGroups));
+    } catch (error) {
+      console.error('Error fetching classes:', error);
     }
   };
 
@@ -1042,6 +1039,32 @@ export default function ClassScheduleNew() {
                         </span>
                       ) : (
                         <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexShrink: 0 }}>
+                          <button
+                            onClick={() => {
+                              if (booking.status !== 'booked') {
+                                alert(`Cannot reschedule: This class booking is ${booking.status}. Please refresh the page.`);
+                                fetchMyBookings();
+                                return;
+                              }
+                              if (isWithin24Hours) {
+                                alert('Cannot reschedule classes within 24 hours of start time.');
+                                return;
+                              }
+                              setSelectedClass(classItem);
+                              setShowRescheduleModal(true);
+                              setRescheduleSelectedDate(new Date());
+                              setRescheduleCurrentMonth(new Date());
+                            }}
+                            style={{
+                              fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                              padding: '4px 8px',
+                              backgroundColor: isWithin24Hours ? MUTED : '#EBEBEB',
+                              color: isWithin24Hours ? '#FFF' : INK,
+                              border: 'none', cursor: 'pointer',
+                            }}
+                          >
+                            {isWithin24Hours ? 'Within 24h' : 'Reschedule'}
+                          </button>
                           {is10ClassPackage && !isWithin24Hours && (
                             <button
                               onClick={async () => {
@@ -1069,32 +1092,6 @@ export default function ClassScheduleNew() {
                               Cancel
                             </button>
                           )}
-                          <button
-                            onClick={() => {
-                              if (booking.status !== 'booked') {
-                                alert(`Cannot reschedule: This class booking is ${booking.status}. Please refresh the page.`);
-                                fetchMyBookings();
-                                return;
-                              }
-                              if (isWithin24Hours) {
-                                alert('Cannot reschedule classes within 24 hours of start time.');
-                                return;
-                              }
-                              setSelectedClass(classItem);
-                              setShowRescheduleModal(true);
-                              setRescheduleSelectedDate(new Date());
-                              setRescheduleCurrentMonth(new Date());
-                            }}
-                            style={{
-                              fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-                              padding: '4px 8px',
-                              backgroundColor: isWithin24Hours ? MUTED : '#EBEBEB',
-                              color: isWithin24Hours ? '#FFF' : INK,
-                              border: 'none', cursor: 'pointer',
-                            }}
-                          >
-                            {isWithin24Hours ? 'Within 24h' : 'Reschedule'}
-                          </button>
                         </div>
                       )}
                     </div>

@@ -1054,7 +1054,7 @@ export default function ClassScheduleNew() {
                                 try {
                                   await api.post('/classes/cancel', { bookingId: booking.id || booking.bookingId });
                                   fetchMyBookings();
-                                  fetchDashboard();
+                                  fetchDashboardData();
                                 } catch (err) {
                                   alert(err.response?.data?.error || 'Failed to cancel');
                                 }

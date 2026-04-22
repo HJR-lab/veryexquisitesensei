@@ -607,7 +607,11 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
         .in('status', ['booked', 'attended'])
         .order('class_instances(class_date)', { ascending: true });
 
+      const todayDate = new Date();
+      todayDate.setHours(0, 0, 0, 0);
       const glazing = (glazingBookings || []).find(b => {
+        const classDate = new Date(b.class_instances?.class_date);
+        if (classDate < todayDate) return false; // skip past glazing classes
         const ct = b.class_instances?.class_type || '';
         const weekMatch = ct.match(/\.(\d+)$/);
         return weekMatch && (weekMatch[1] === '6' || weekMatch[1] === '7');
@@ -1341,7 +1345,11 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
       .eq('student_id', dbCustomerId)
       .in('status', ['booked', 'attended']);
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     const glazingBooking = (studentBookings || []).find(b => {
+      const classDate = new Date(b.class_instances?.class_date);
+      if (classDate < today) return false; // skip past glazing classes
       const ct = b.class_instances?.class_type || '';
       const weekMatch = ct.match(/\.(\d+)$/);
       return weekMatch && (weekMatch[1] === '6' || weekMatch[1] === '7');

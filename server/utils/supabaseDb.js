@@ -306,8 +306,8 @@ async function getAvailableClasses() {
   // Get waitlist AND makeup booking counts for each class in ONE Promise.all loop
   const classesWithCounts = await Promise.all(
     classes.map(async (classInstance) => {
-      // Fetch waitlist count and makeup count in parallel
-      const [waitlistResult, makeupResult] = await Promise.all([
+      // Fetch waitlist count, makeup count, and actual booking count in parallel
+      const [waitlistResult, makeupResult, bookingCountResult] = await Promise.all([
         supabase
           .from('waitlist')
           .select('*', { count: 'exact', head: true })
@@ -318,11 +318,17 @@ async function getAvailableClasses() {
           .select('*', { count: 'exact', head: true })
           .eq('class_instance_id', classInstance.id)
           .eq('booking_type', 'makeup')
-          .eq('status', 'booked')
+          .eq('status', 'booked'),
+        supabase
+          .from('bookings')
+          .select('*', { count: 'exact', head: true })
+          .eq('class_instance_id', classInstance.id)
+          .in('status', ['booked', 'attended'])
       ]);
 
       const waitlistCount = waitlistResult.count || 0;
       const makeupCount = makeupResult.count || 0;
+      const actualEnrollment = bookingCountResult.count || 0;
 
       // Regular capacity is 8, total capacity (with makeup spots) is stored in max_capacity (10)
       const REGULAR_CAPACITY = 8;
@@ -340,7 +346,7 @@ async function getAvailableClasses() {
         room: classInstance.room,
         maxCapacity: totalCapacity,
         regularCapacity: REGULAR_CAPACITY,
-        currentEnrollment: classInstance.current_enrollment,
+        currentEnrollment: actualEnrollment,
         status: classInstance.status,
         cancellationReason: classInstance.cancellation_reason,
         createdAt: classInstance.created_at,
@@ -348,10 +354,10 @@ async function getAvailableClasses() {
         waitlistCount: waitlistCount,
         makeupBookings: makeupCount,
         makeupSpotsAvailable: 2 - makeupCount,
-        spotsAvailable: totalCapacity - classInstance.current_enrollment,
-        regularSpotsAvailable: REGULAR_CAPACITY - classInstance.current_enrollment,
-        isFull: classInstance.current_enrollment >= REGULAR_CAPACITY,  // Full for regular booking at 8
-        isCompletelyFull: classInstance.current_enrollment >= totalCapacity  // Completely full at 10
+        spotsAvailable: totalCapacity - actualEnrollment,
+        regularSpotsAvailable: REGULAR_CAPACITY - actualEnrollment,
+        isFull: actualEnrollment >= REGULAR_CAPACITY,  // Full for regular booking at 8
+        isCompletelyFull: actualEnrollment >= totalCapacity  // Completely full at 10
       };
     })
   );

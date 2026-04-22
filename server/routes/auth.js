@@ -91,6 +91,13 @@ async function syncShopifyOrdersForCustomer(customer) {
     const { processCoursePurchase } = require('../utils/courseEnrollmentManager');
 
     for (const { node: orderNode } of orders) {
+      // Skip orders older than 6 months — prevents old courses from creating future enrollments
+      const orderCreatedAt = orderNode.createdAt ? new Date(orderNode.createdAt) : null;
+      if (orderCreatedAt && orderCreatedAt < new Date(Date.now() - 180 * 86400000)) {
+        console.log(`⏭️  Skipping old order ${orderNode.id} from ${orderCreatedAt.toISOString().slice(0, 10)}`);
+        continue;
+      }
+
       const lineItems = orderNode.lineItems?.edges || [];
       for (const { node: item } of lineItems) {
         const title = (item.title || '').toLowerCase();
@@ -101,6 +108,7 @@ async function syncShopifyOrdersForCustomer(customer) {
 
           const order = {
             id: orderId,
+            createdAt: orderNode.createdAt,
             customer: {
               email: customer.email,
               first_name: customer.first_name,

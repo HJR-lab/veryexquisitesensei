@@ -835,9 +835,17 @@ app.post('/api/admin/sync-shopify-orders', authenticateToken, requireAdmin, asyn
 
             console.log(`🎓 Processing: ${paxEmail} - ${productTitle}`);
 
+            // Skip orders older than 6 months — prevents old courses from creating future enrollments
+            if (orderNode.createdAt && new Date(orderNode.createdAt) < new Date(Date.now() - 180 * 86400000)) {
+              console.log(`⏭️  Skipping old order ${orderNode.id} from ${orderNode.createdAt}`);
+              skippedCount++;
+              continue;
+            }
+
             // Prepare order and line item objects
             const order = {
               id: orderNode.id.split('/').pop(),
+              createdAt: orderNode.createdAt,
               customer: {
                 email: paxEmail,
                 first_name: isExtraPax ? (customer.firstName || '') : customer.firstName,
@@ -1187,6 +1195,7 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
           // Prepare order and line item objects for processCoursePurchase
           const order = {
             id: orderData.id.toString(),
+            createdAt: orderData.created_at,
             customer: {
               email: customer.email,
               first_name: customer.first_name,

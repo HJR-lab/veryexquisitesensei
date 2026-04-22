@@ -8,6 +8,8 @@ node_modules/
 .env.*.local
 .env.production
 frontend/.env.production
+frontend/.env.vercel.production
+frontend/.env.production.local
 server/.env
 
 # Logs

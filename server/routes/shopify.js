@@ -399,7 +399,7 @@ app.post('/api/admin/backfill-hb-credits', authenticateToken, requireAdmin, asyn
 // Admin: Mark HB class as completed (increment used, decrement remaining)
 app.post('/api/admin/hb-enrollments/:enrollmentId/mark-class-done', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { enrollmentId } = req.params;
-  const { count = 1 } = req.body; // How many classes to mark done (default 1)
+  const count = Math.max(1, Math.min(100, parseInt(req.body.count, 10) || 1));
 
   const { data: enrollment, error } = await supabaseDb.supabase
     .from('course_enrollments')

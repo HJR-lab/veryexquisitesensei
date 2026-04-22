@@ -11,6 +11,8 @@ const { startAutomaticProcessing, autoMarkPastBookingsAsAttended } = require('./
 const { startCustomerPolling } = require('./utils/shopifySync');
 const courseConfig = require('./utils/courseConfig');
 
+const rateLimit = require('express-rate-limit');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 if (!process.env.COOKIE_SECRET) { console.error('WARNING: COOKIE_SECRET not set — impersonation will not work'); }
@@ -23,9 +25,6 @@ app.use(cors({
     'http://localhost:5175',
     'http://127.0.0.1:5173',
     'http://127.0.0.1:5175',
-    'https://pottery-gallery-app.vercel.app',
-    'https://pottery-gallery-app-frontend.vercel.app',
-    'https://frontend-phi-seven-81.vercel.app',
     'https://club.ves.sg'
   ],
   credentials: true,
@@ -83,7 +82,7 @@ async function authenticateToken(req, res, next) {
       return res.status(401).json({ error: 'No account found' });
     }
 
-    const isAdmin = customer.email === 'info@ves.sg';
+    const isAdmin = customer.email === 'info@ves.sg' && (customer.role === 'admin' || customer.role === 'owner');
 
     // Check for impersonation via header or cookie (admin only)
     const impersonateId = req.headers['x-impersonate-id'] || req.signedCookies?.ves_impersonate;
@@ -142,6 +141,18 @@ const asyncHandler = (fn) => (req, res, next) => {
     res.status(500).json({ error: 'Internal server error' });
   });
 };
+
+// Rate limiting
+const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false });
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false });
+const writeLimiter = rateLimit({ windowMs: 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
+const syncLimiter = rateLimit({ windowMs: 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false });
+
+app.use('/api/', apiLimiter);
+app.use('/api/auth/', authLimiter);
+app.use('/api/classes/book', writeLimiter);
+app.use('/api/credits/delivery', writeLimiter);
+app.use('/api/admin/sync', syncLimiter);
 
 // Shared dependencies for route modules
 const deps = { authenticateToken, requireAdmin, asyncHandler, upload, getShopifyClient, shopify };

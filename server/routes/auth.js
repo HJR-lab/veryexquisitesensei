@@ -52,9 +52,10 @@ async function syncShopifyOrdersForCustomer(customer) {
     const email = customer.email;
     console.log(`🔄 On-demand order sync for ${email}`);
 
+    const emailQuery = `email:${email.replace(/["\\]/g, '')}`;
     const query = `
-      query {
-        orders(first: 10, query: "email:${email}", sortKey: CREATED_AT, reverse: true) {
+      query getOrders($query: String!) {
+        orders(first: 10, query: $query, sortKey: CREATED_AT, reverse: true) {
           edges {
             node {
               id
@@ -82,7 +83,7 @@ async function syncShopifyOrdersForCustomer(customer) {
       }
     `;
 
-    const response = await client.query({ data: { query } });
+    const response = await client.query({ data: { query, variables: { query: emailQuery } } });
     const orders = response?.body?.data?.orders?.edges || [];
 
     if (orders.length === 0) return;

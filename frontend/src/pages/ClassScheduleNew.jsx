@@ -581,8 +581,12 @@ export default function ClassScheduleNew() {
   // ── Glazing date: find the student's glazing class date ─────────────────────
   const glazingDate = (() => {
     if (is10ClassPackage) return null; // 10-class students can book after glazing
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     const glazingBooking = myBookings.find(b => {
       if (b.status !== 'booked' && b.status !== 'attended') return false;
+      const classDate = new Date(b.class?.classDate || b.classInstance?.classDate || b.class_date);
+      if (classDate < today) return false; // skip past glazing classes
       const ct = b.class?.classType || b.classInstance?.classType || b.class_type || '';
       const weekMatch = ct.match(/\.(\d+)$/);
       return weekMatch && (weekMatch[1] === '6' || weekMatch[1] === '7');

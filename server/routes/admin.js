@@ -465,16 +465,8 @@ app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandl
         // EXCLUDE makeup bookings - they don't count as separate courses
         const bookingsByCourse = {};
         bookings.forEach(booking => {
-          // Debug for Geraldine (student_id 2344)
-          if (studentId === '2344' || studentId === 2344) {
-            console.log(`[DEBUG Geraldine] Processing booking: ${booking.class_instances?.class_type}, booking_type: ${booking.booking_type}`);
-          }
-
           // Skip makeup bookings when determining courses
           if (booking.booking_type === 'makeup') {
-            if (studentId === '2344' || studentId === 2344) {
-              console.log(`[DEBUG Geraldine] SKIPPING makeup booking: ${booking.class_instances?.class_type}`);
-            }
             return;
           }
           const courseId = extractCourseIdentifier(booking.class_instances?.class_type);
@@ -483,9 +475,6 @@ app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandl
               bookingsByCourse[courseId] = [];
             }
             bookingsByCourse[courseId].push(booking);
-            if (studentId === '2344' || studentId === 2344) {
-              console.log(`[DEBUG Geraldine] Added to course ${courseId}`);
-            }
           }
         });
 
@@ -1120,16 +1109,6 @@ app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandl
         return a.name.localeCompare(b.name);
       });
 
-    // Upcoming Enrollments List (students with courses that haven't started yet)
-    // Debug: Check Meghna's course map
-    const meghnaStudent = allStudents.find(s => s.email === 'meghna@newcampus.com');
-    if (meghnaStudent) {
-      const meghnaCourses = studentCourseMap[meghnaStudent.id] || [];
-      console.log(`[DEBUG Meghna] id=${meghnaStudent.id}, classes_allocated=${meghnaStudent.classes_allocated}, courses in map:`, meghnaCourses.length);
-      meghnaCourses.forEach(c => console.log(`  course: ${c.courseIdentifier}, status: ${getCourseStatus(c.courseIdentifier, meghnaStudent.id)}`));
-      console.log(`[DEBUG Meghna] isHB: ${hbStudentIds.has(meghnaStudent.id)}`);
-    }
-
     // Build set of student IDs already in active list to avoid duplicates
     const activeListStudentIds = new Set(activeStudentsList.map(s => {
       // Find the customer by email to get the DB id
@@ -1202,33 +1181,6 @@ app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandl
         if (dateCompare !== 0) return dateCompare;
         return a.name.localeCompare(b.name);
       });
-
-    // Debug: Log Joey Lee's data
-    const joey = activeStudentsList.find(s => s.name?.toLowerCase().includes('joey') && s.name?.toLowerCase().includes('lee'));
-    if (joey) {
-      console.log('📊 JOEY LEE FOUND - Classes Remaining:', joey.weeksRemaining, '(Expected: 8)');
-      console.log('   Full stats:', JSON.stringify({
-        name: joey.name,
-        courseIdentifier: joey.courseIdentifier,
-        enrollmentStatus: joey.enrollmentStatus,
-        weeksRemaining: joey.weeksRemaining
-      }));
-    } else {
-      console.log('⚠️  Joey Lee not found in activeStudentsList');
-    }
-
-    // Debug: Log upcoming enrollments
-    if (upcomingEnrollmentsList.length > 0) {
-      console.log(`\n📋 UPCOMING ENROLLMENTS (${upcomingEnrollmentsList.length}):`);
-      upcomingEnrollmentsList.forEach(s => {
-        console.log(`  - ${s.name} (${s.email}): ${s.courseIdentifier} starts ${s.startDate}`);
-      });
-    }
-
-    // Log total students for debugging
-    console.log(`📊 Returning ${activeStudentsList.length} active students, ${pausedStudentsList.length} paused students, ${upcomingEnrollmentsList.length} upcoming enrollments`);
-    // Debug: log a few students' progress data
-    activeStudentsList.slice(0, 3).forEach(s => console.log(`  DEBUG ${s.name}: attended=${s.classesAttended}, allocated=${s.classesAllocated}, remaining=${s.weeksRemaining}`));
 
     // HB Students: Get full details for HB enrollments (we already have student IDs)
     const { data: hbEnrollmentsDetailed } = await supabaseDb.supabase
@@ -2881,6 +2833,10 @@ app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, requireAdm
   });
 
   const bookings = (allBookings || []).filter(booking => {
+    // Always exclude bookings whose class date is more than 6 months in the past
+    const classDate = booking.class_instances?.class_date?.split(/[T ]/)[0];
+    if (classDate && classDate < new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0]) return false;
+
     // Keep bookings with no enrollment link (standalone/legacy)
     if (!booking.course_enrollment) return true;
 
@@ -2893,7 +2849,7 @@ app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, requireAdm
     // For cancelled enrollments: keep if there are still future bookings
     if (enrollmentHasFutureBookings[booking.course_enrollment_id]) return true;
 
-    // Only exclude cancelled enrollment bookings with all dates past
+    // Exclude completed/cancelled enrollment bookings with all dates past
     return false;
   });
 
@@ -3519,6 +3475,10 @@ app.get('/api/admin/classes/:classId/members', authenticateToken, requireAdmin, 
       } else {
         member.originalClassIdentifier = rescheduledFromMap[booking.student_id] || enrollmentBase;
       }
+    } else if (!enrollmentBase && !isOwnCourse && (booking.booking_type === 'makeup' || booking.is_makeup_class)) {
+      // No enrollment linked but booking is explicitly marked as makeup (e.g. 10-class package flex bookings)
+      member.isMakeup = true;
+      member.originalClassIdentifier = booking.original_class_instance_id ? (originalClassIdentifiers[booking.original_class_instance_id] || '') : '';
     }
 
     // Active members: status is 'booked', 'attended', or 'completed'

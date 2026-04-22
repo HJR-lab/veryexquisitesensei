@@ -9,15 +9,21 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler }
 
 // GET /api/credits/balance/:customerId
 app.get('/api/credits/balance/:customerId', authenticateToken, asyncHandler(async (req, res) => {
-  const { customerId } = req.params;
-  const balance = await getCreditBalance(parseInt(customerId, 10));
+  const customerId = parseInt(req.params.customerId, 10);
+  if (!req.user.isAdmin && req.user.dbCustomerId !== customerId) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+  const balance = await getCreditBalance(customerId);
   res.json({ balance });
 }));
 
 // GET /api/credits/history/:customerId
 app.get('/api/credits/history/:customerId', authenticateToken, asyncHandler(async (req, res) => {
-  const { customerId } = req.params;
-  const history = await getCreditHistory(parseInt(customerId, 10));
+  const customerId = parseInt(req.params.customerId, 10);
+  if (!req.user.isAdmin && req.user.dbCustomerId !== customerId) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+  const history = await getCreditHistory(customerId);
   res.json({ history });
 }));
 
@@ -171,12 +177,15 @@ app.post('/api/credits/delivery', authenticateToken, asyncHandler(async (req, re
 
 // GET /api/credits/deliveries/:customerId
 app.get('/api/credits/deliveries/:customerId', authenticateToken, asyncHandler(async (req, res) => {
-  const { customerId } = req.params;
+  const customerId = parseInt(req.params.customerId, 10);
+  if (!req.user.isAdmin && req.user.dbCustomerId !== customerId) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
 
   const { data: deliveries, error } = await supabase
     .from('delivery_orders')
     .select('*')
-    .eq('customer_id', parseInt(customerId, 10))
+    .eq('customer_id', customerId)
     .order('created_at', { ascending: false });
 
   if (error) {

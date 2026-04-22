@@ -59,6 +59,12 @@ app.delete('/api/upload/image', authenticateToken, asyncHandler(async (req, res)
     return res.status(400).json({ error: 'File path required' });
   }
 
+  // Ownership check: non-admin users can only delete their own files
+  const ownerPrefix = `pottery-images/${req.user.dbCustomerId}/`;
+  if (!req.user.isAdmin && !filePath.startsWith(ownerPrefix)) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
   await deleteImageFromSupabase(filePath);
 
   res.json({ success: true });

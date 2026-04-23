@@ -1554,6 +1554,22 @@ app.put('/api/admin/studio-access/bookings/:id/attended', authenticateToken, req
 
   if (error) throw error;
   if (!data) return res.status(404).json({ error: 'Booking not found' });
+
+  // Create outstanding fee record for paid studio access (not pass holders)
+  const finalAmount = data.amount_sgd || 0;
+  if (finalAmount > 0) {
+    await supabaseDb.supabase
+      .from('reschedule_fees')
+      .insert({
+        student_id: data.customer_id,
+        fee_type: 'studio_access',
+        amount: finalAmount,
+        payment_status: 'pending',
+        fee_date: data.booking_date,
+        notes: `Studio Access ${data.booking_date} (${data.hours || 2}h)`,
+      });
+  }
+
   res.json({ booking: data });
 }));
 

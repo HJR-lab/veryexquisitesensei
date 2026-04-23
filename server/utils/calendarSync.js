@@ -59,6 +59,7 @@ async function buildClassDescription(classInstance) {
     for (const enr of (enrs || [])) {
       const credits = await supabaseDb.getEnrollmentCredits(enr.id);
       enr.committedCount = credits.committed;
+      enr.attendedCount = credits.attended;
       enr.creditTotal = credits.allocated;
       eMap[enr.id] = enr;
     }
@@ -81,9 +82,9 @@ async function buildClassDescription(classInstance) {
     // Build progress string: attended/total for HB and 10-class packages
     let progress = '';
     if (isHBEnrollment && enr.class_credits_allocated) {
-      progress = ' ' + (enr.committedCount || 0) + '/' + (enr.creditTotal || enr.class_credits_allocated);
+      progress = ' ' + (enr.attendedCount || 0) + '/' + (enr.creditTotal || enr.class_credits_allocated);
     } else if (is10ClassPkg) {
-      progress = ' ' + (enr.committedCount || 0) + '/' + (enr.number_of_weeks || 10);
+      progress = ' ' + (enr.attendedCount || 0) + '/' + (enr.number_of_weeks || 10);
     }
     if (isResched) rescheduled.push({ name, ord, progress });
     else if (isMakeup) makeup.push({ name, ord, from: enr.course_identifier || '', progress });

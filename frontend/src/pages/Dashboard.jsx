@@ -572,7 +572,7 @@ export default function Dashboard() {
           <section style={{ marginBottom: '28px' }}>
             <SectionLabel>My Courses</SectionLabel>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
-              {coursesToShow.map(({ enrollment, totalClasses, attendedCount, bookedCount, displayBookedCount, remaining, pct, typeLabel, statusLabel, is10Pkg }, i) => {
+              {coursesToShow.map(({ enrollment, totalClasses, attendedCount, bookedCount, displayBookedCount, remaining, creditsAvailable, pct, typeLabel, statusLabel, is10Pkg }, i) => {
                 const isActive = statusLabel === 'active';
                 const isExpanded = expandedCourse === enrollment.id;
                 const details = getCourseDetails(enrollment);

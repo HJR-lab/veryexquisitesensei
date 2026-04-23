@@ -396,7 +396,7 @@ export default function AdminStudioAccess() {
                     <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                       {b.status === 'pending' && <button onClick={() => handleConfirm(b.id)} style={btnStyle('#2E7D32', '#FFF')}>Confirm</button>}
                       {b.status === 'booked' && (
-                        <button onClick={() => setAttendedModal({ id: b.id, hours: b.hours || 2 })} style={btnStyle('#1565C0', '#FFF')}>Attended</button>
+                        <button onClick={() => setAttendedModal({ id: b.id, hours: b.hours || 2, hasPass: b.amount_sgd === 0 && b.passes?.total > 0 })} style={btnStyle('#1565C0', '#FFF')}>Attended</button>
                       )}
                       {b.status !== 'cancelled' && b.status !== 'attended' && (
                         <button onClick={() => handleCancel(b.id)} style={btnStyle('#EEE', '#C62828')}>Cancel</button>
@@ -434,7 +434,7 @@ export default function AdminStudioAccess() {
               </select>
             </div>
             <div style={{ fontSize: '12px', color: MUTED, marginBottom: '16px' }}>
-              Amount: <strong style={{ color: TC }}>${attendedModal.hours * 20}</strong>
+              Amount: <strong style={{ color: TC }}>{attendedModal.hasPass ? '$0 (Studio Pass)' : `$${attendedModal.hours * 20}`}</strong>
             </div>
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
               <button onClick={() => setAttendedModal(null)} style={btnStyle('#EEE', INK)}>Cancel</button>

@@ -60,7 +60,7 @@ export default function AdminStudioAccess() {
   const TODAY = new Date();
   TODAY.setHours(0, 0, 0, 0);
   const todayStr = fmtKey(TODAY);
-  const strip = Array.from({ length: 60 }, (_, i) => addDays(TODAY, i));
+  const strip = [...Array.from({ length: 7 }, (_, i) => addDays(TODAY, -(7 - i))), ...Array.from({ length: 60 }, (_, i) => addDays(TODAY, i))];
 
   const [selectedDate, setSelectedDate] = useState(TODAY);
   const [bookings, setBookings] = useState([]);
@@ -93,10 +93,7 @@ export default function AdminStudioAccess() {
       setLoading(true);
       const { data } = await api.get('/admin/studio-access/bookings');
       const all = data.bookings || [];
-      // Show upcoming + today, exclude past cancelled
-      const today = fmtKey(TODAY);
-      const filtered = all.filter(b => b.booking_date >= today || b.status === 'pending');
-      setBookings(filtered);
+      setBookings(all);
     } catch (err) {
       console.error('Failed to fetch bookings:', err);
     } finally {

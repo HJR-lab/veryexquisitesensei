@@ -597,10 +597,11 @@ app.post('/api/admin/hb-enrollments/:enrollmentId/book-classes', authenticateTok
     .eq('id', enrollmentId)
     .single();
 
+  // Only decrement remaining (to prevent overbooking).
+  // class_credits_used is updated when booking transitions to attended (autoMarkPastBookingsAsAttended)
   await supabaseDb.supabase
     .from('course_enrollments')
     .update({
-      class_credits_used: (currentEnr?.class_credits_used || 0) + newBookings.length,
       class_credits_remaining: Math.max(0, (currentEnr?.class_credits_remaining || 0) - newBookings.length),
       bookings_created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()

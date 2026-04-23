@@ -919,7 +919,7 @@ export default function ClassScheduleNew() {
           {/* ── UNBOOKED WARNING ─────────────────────────────────────────── */}
           {(() => {
             const activeEnrollments = [...(dashboardData?.enrollments?.active || []), ...(dashboardData?.enrollments?.upcoming || [])];
-            const regularCourse = activeEnrollments.find(e => e.number_of_weeks && e.number_of_weeks !== 10);
+            const regularCourse = activeEnrollments.find(e => e.number_of_weeks && e.number_of_weeks !== 10 && !(e.course_type || '').toLowerCase().includes('handbuilding'));
             if (!regularCourse) return null;
             const totalClasses = regularCourse.number_of_weeks || 6;
             const activeBookings = (regularCourse.bookings || []).filter(b => b.status === 'booked' || b.status === 'attended' || b.status === 'completed' || b.status === 'rescheduled' || b.status === 'absent' || b.status === 'forfeited').length;

@@ -94,7 +94,7 @@ async function buildClassDescription(classInstance) {
   if (makeup.length) {
     desc += '\nMAKEUP\n';
     makeup.forEach((s, i) => {
-      desc += (enrolled.length + i + 1) + '. ' + s.name + ' (' + s.ord + ')' + (s.from ? ' · ' + s.from : '') + '\n';
+      desc += (enrolled.length + i + 1) + '. ' + s.name + ' (' + s.ord + ')' + (s.from ? ' · ' + s.from : '') + s.progress + '\n';
     });
   }
   if (rescheduled.length) {

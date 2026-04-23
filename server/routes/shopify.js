@@ -356,12 +356,12 @@ app.post('/api/admin/backfill-hb-credits', authenticateToken, requireAdmin, asyn
     // Determine credits based on number_of_weeks
     const credits = enrollment.number_of_weeks || 4;
 
-    // Count existing bookings for this enrollment to calculate used credits
+    // Count attended/completed bookings as used credits
     const { count: bookingCount } = await supabaseDb.supabase
       .from('bookings')
       .select('*', { count: 'exact', head: true })
       .eq('course_enrollment_id', enrollment.id)
-      .eq('status', 'booked');
+      .in('status', ['booked', 'attended', 'completed']);
 
     const used = bookingCount || 0;
     const remaining = Math.max(credits - used, 0);

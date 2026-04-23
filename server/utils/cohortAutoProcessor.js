@@ -207,6 +207,42 @@ async function autoMarkPastBookingsAsAttended() {
     }
 
     console.log(`[Auto-Processor] ✅ Marked ${totalUpdated} past bookings as attended`);
+
+    // Update HB enrollment credit counters to match actual attended counts
+    // Get enrollment IDs affected by the status change
+    const { data: affectedBookings } = await supabase
+      .from('bookings')
+      .select('course_enrollment_id')
+      .in('id', ids)
+      .not('course_enrollment_id', 'is', null);
+
+    const affectedEnrollmentIds = [...new Set((affectedBookings || []).map(b => b.course_enrollment_id))];
+    if (affectedEnrollmentIds.length > 0) {
+      const { data: hbEnrollments } = await supabase
+        .from('course_enrollments')
+        .select('id, class_credits_allocated, course_type')
+        .in('id', affectedEnrollmentIds)
+        .ilike('course_type', '%handbuilding%');
+
+      for (const enr of (hbEnrollments || [])) {
+        const { count: attendedCount } = await supabase
+          .from('bookings')
+          .select('id', { count: 'exact', head: true })
+          .eq('course_enrollment_id', enr.id)
+          .in('status', ['attended', 'completed']);
+        await supabase
+          .from('course_enrollments')
+          .update({
+            class_credits_used: attendedCount || 0,
+            class_credits_remaining: Math.max(0, (enr.class_credits_allocated || 0) - (attendedCount || 0))
+          })
+          .eq('id', enr.id);
+      }
+      if (hbEnrollments?.length > 0) {
+        console.log(`[Auto-Processor] Updated credit counters for ${hbEnrollments.length} HB enrollments`);
+      }
+    }
+
     return { success: true, updated: totalUpdated };
 
   } catch (error) {

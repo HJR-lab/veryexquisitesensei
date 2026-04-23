@@ -792,7 +792,8 @@ export default function AdminStudentDetail() {
   });
   const isCompletedCourse = (group) => {
     // Never mark as completed if HB enrollment still has credits remaining
-    if (isHBEnrollment && enrollment?.class_credits_remaining > 0) return false;
+    const isHB = enrollment && (enrollment.course_type || '').toLowerCase().includes('handbuilding');
+    if (isHB && enrollment?.class_credits_remaining > 0) return false;
     return group.every(b => {
       const d = new Date(b.class_date); d.setHours(0,0,0,0);
       return (b.status === 'attended' || b.status === 'completed') && d < today;

@@ -789,22 +789,25 @@ app.get('/api/students/me/dashboard', authenticateToken, asyncHandler(async (req
   }
 
   // HB enrollments (for HB booking section and glazing detection)
-  const hbEnrollments = enrollments
-    .filter(e =>
-      (e.course_type || '').toLowerCase().includes('handbuilding')
-    )
-    .map(e => ({
+  const hbEnrollmentsList = enrollments.filter(e =>
+    (e.course_type || '').toLowerCase().includes('handbuilding')
+  );
+  const hbEnrollments = await Promise.all(hbEnrollmentsList.map(async e => {
+    const credits = await supabaseDb.getEnrollmentCredits(e.id);
+    return {
       id: e.id,
       courseTitle: e.course_title,
       courseType: e.course_type,
-      creditsAllocated: e.class_credits_allocated || 0,
-      creditsUsed: e.class_credits_used || 0,
-      creditsRemaining: e.class_credits_remaining || 0,
+      creditsAllocated: credits.allocated,
+      creditsUsed: credits.attended,
+      creditsRemaining: credits.remaining,
+      creditsBooked: credits.booked,
       status: e.status,
       courseStartDate: e.course_start_date,
       courseEndDate: e.course_end_date,
       numberOfWeeks: e.number_of_weeks
-    }));
+    };
+  }));
 
   res.json({
     student,

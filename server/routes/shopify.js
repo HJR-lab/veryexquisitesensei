@@ -46,9 +46,12 @@ async function autoCompleteFinishedEnrollments() {
       });
 
       if (allPast) {
+        // Compute credits from actual bookings (never trust stale DB columns)
+        const credits = await supabaseDb.getEnrollmentCredits(enrollment.id);
+
         // Skip HB credit-based enrollments that still have remaining credits
         const isHB = enrollment.course_type && enrollment.course_type.toLowerCase().includes('handbuilding');
-        if (isHB && enrollment.class_credits_remaining > 0) {
+        if (isHB && credits.remaining > 0) {
           continue; // Student still has credits to use
         }
 
@@ -61,7 +64,6 @@ async function autoCompleteFinishedEnrollments() {
             .from('course_enrollments')
             .update({
               class_credits_allocated: flexCredits,
-              class_credits_remaining: flexCredits,
               updated_at: new Date().toISOString()
             })
             .eq('id', enrollment.id);
@@ -70,7 +72,7 @@ async function autoCompleteFinishedEnrollments() {
         }
 
         // Skip if enrollment still has flex credits remaining
-        if (enrollment.class_credits_remaining > 0) {
+        if (credits.remaining > 0) {
           continue;
         }
 
@@ -396,52 +398,20 @@ app.post('/api/admin/backfill-hb-credits', authenticateToken, requireAdmin, asyn
 
 }));
 
-// Admin: Mark HB class as completed (increment used, decrement remaining)
+// Admin: Mark HB class as completed — credits are computed from bookings
 app.post('/api/admin/hb-enrollments/:enrollmentId/mark-class-done', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { enrollmentId } = req.params;
-  const count = Math.max(1, Math.min(100, parseInt(req.body.count, 10) || 1));
 
-  const { data: enrollment, error } = await supabaseDb.supabase
-    .from('course_enrollments')
-    .select('*')
-    .eq('id', enrollmentId)
-    .single();
+  // Credits are computed on read — just return current state
+  const credits = await supabaseDb.getEnrollmentCredits(parseInt(enrollmentId, 10));
 
-  if (error || !enrollment) {
-    return res.status(404).json({ error: 'Enrollment not found' });
-  }
-
-  const currentUsed = enrollment.class_credits_used || 0;
-  const currentRemaining = enrollment.class_credits_remaining || 0;
-  const allocated = enrollment.class_credits_allocated || 0;
-
-  if (currentRemaining < count) {
-    return res.status(400).json({ error: `Only ${currentRemaining} credits remaining, cannot mark ${count} as done` });
-  }
-
-  const newUsed = currentUsed + count;
-  const newRemaining = currentRemaining - count;
-
-  const { data: updated, error: updateError } = await supabaseDb.supabase
-    .from('course_enrollments')
-    .update({
-      class_credits_used: newUsed,
-      class_credits_remaining: newRemaining,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', enrollmentId)
-    .select()
-    .single();
-
-  if (updateError) throw updateError;
-
-  console.log(`✅ HB enrollment ${enrollmentId}: marked ${count} class(es) done (${newUsed}/${allocated} used, ${newRemaining} remaining)`);
+  console.log(`✅ HB enrollment ${enrollmentId}: ${credits.attended} attended, ${credits.booked} booked, ${credits.remaining} remaining`);
 
   res.json({
     success: true,
-    creditsUsed: newUsed,
-    creditsRemaining: newRemaining,
-    creditsAllocated: allocated
+    creditsUsed: credits.attended,
+    creditsRemaining: credits.remaining,
+    creditsAllocated: credits.allocated
   });
 
 }));
@@ -590,19 +560,10 @@ app.post('/api/admin/hb-enrollments/:enrollmentId/book-classes', authenticateTok
     }
   }
 
-  // Update enrollment booking timestamp and decrement credits
-  const { data: currentEnr } = await supabaseDb.supabase
-    .from('course_enrollments')
-    .select('class_credits_used, class_credits_remaining')
-    .eq('id', enrollmentId)
-    .single();
-
-  // Only decrement remaining (to prevent overbooking).
-  // class_credits_used is updated when booking transitions to attended (autoMarkPastBookingsAsAttended)
+  // Update enrollment booking timestamp only — credits are computed on read
   await supabaseDb.supabase
     .from('course_enrollments')
     .update({
-      class_credits_remaining: Math.max(0, (currentEnr?.class_credits_remaining || 0) - newBookings.length),
       bookings_created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     })

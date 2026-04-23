@@ -839,9 +839,9 @@ export default function AdminStudentDetail() {
     b.status === 'absent' || b.status === 'missed' || b.status === 'rescheduled' || b.status === 'forfeited'
   ).length;
   const waitlistCredits = studentWaitlist.length;
-  const hbBookedCount = isHBEnrollment ? activeBookings.filter(b => b.status === 'booked').length : 0;
+  // remaining is computed on server: allocated - attended - booked. No need to subtract booked again.
   const unbookedCount  = isHBEnrollment
-    ? Math.max(0, hbCreditsRemaining - hbBookedCount)
+    ? Math.max(0, hbCreditsRemaining)
     : is10ClassPkg
       ? Math.max(0, flexRemaining)
       : Math.max(0, enrollmentAllocated - creditsUsedCount - waitlistCredits);

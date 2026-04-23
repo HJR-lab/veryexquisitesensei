@@ -103,9 +103,8 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
     .in('status', ['active', 'paused', 'upcoming'])
     .order('created_at', { ascending: false });
 
-  // Also fetch completed HB enrollments that still have remaining credits
-  // (once admin clicks Complete and credits go to 0, they disappear from the list)
-  const { data: completedHB } = await supabaseDb.supabase
+  // Also fetch completed HB enrollments — filter for remaining credits in JS (computed, not stale column)
+  const { data: completedHBAll } = await supabaseDb.supabase
     .from('course_enrollments')
     .select(`
       id, student_id, course_type, course_title, course_variant_title,
@@ -120,8 +119,14 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
     `)
     .eq('status', 'completed')
     .ilike('course_type', '%handbuilding%')
-    .gt('class_credits_remaining', 0)
     .order('created_at', { ascending: false });
+
+  // Filter completed HB enrollments that still have remaining credits (computed from bookings)
+  const completedHB = [];
+  for (const enr of (completedHBAll || [])) {
+    const credits = await supabaseDb.getEnrollmentCredits(enr.id);
+    if (credits.remaining > 0) completedHB.push(enr);
+  }
 
   // Merge — completedHB appended so active/paused take priority in dedup
   const allEnrollments = [...(enrollments || []), ...(completedHB || [])];
@@ -191,6 +196,11 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
     const isHB = (enr.course_type || '').toLowerCase().includes('handbuilding');
     const isWT = !isHB;
 
+    // Compute HB credits from bookings (not stale DB columns)
+    if (isHB) {
+      enr._computedCredits = await supabaseDb.getEnrollmentCredits(enr.id);
+    }
+
     const entry = {
       name: `${student.first_name || ''} ${student.last_name || ''}`.trim() || 'Unknown',
       email: student.email,
@@ -208,8 +218,8 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
       numberOfWeeks: enr.number_of_weeks,
       packageTotalCourses: enr.package_total_courses,
       creditsAllocated: isHB ? enr.class_credits_allocated : null,
-      creditsUsed: isHB ? enr.class_credits_used : null,
-      creditsRemaining: isHB ? enr.class_credits_remaining : null,
+      creditsUsed: isHB ? (enr._computedCredits?.attended ?? enr.class_credits_used) : null,
+      creditsRemaining: isHB ? (enr._computedCredits?.remaining ?? enr.class_credits_remaining) : null,
       classesAllocated: isWT ? (enr.number_of_weeks || 6) : null,
       classesAttended: attendedByEnrollment[enr.id] || 0,
       coursePurchaseCount: student.course_purchase_count || 1,
@@ -1200,6 +1210,7 @@ app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandl
       for (const enrollment of hbEnrollmentsDetailed) {
         const student = allStudents.find(s => s.id === enrollment.student_id);
         if (!student) continue;
+        enrollment._computedCredits = await supabaseDb.getEnrollmentCredits(enrollment.id);
 
         // Get bookings for this enrollment to determine schedule status
         const enrollmentBookings = allBookingsWithClasses.filter(
@@ -1233,9 +1244,9 @@ app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandl
           variantTitle: enrollment.course_variant_title || null,
           scheduleDay: enrollment.schedule_pattern || null,
           classTime: enrollment.class_time || null,
-          creditsAllocated: enrollment.class_credits_allocated || 0,
-          creditsUsed: enrollment.class_credits_used || 0,
-          creditsRemaining: enrollment.class_credits_remaining || 0,
+          creditsAllocated: enrollment._computedCredits?.allocated || enrollment.class_credits_allocated || 0,
+          creditsUsed: enrollment._computedCredits?.attended || enrollment.class_credits_used || 0,
+          creditsRemaining: enrollment._computedCredits?.remaining || enrollment.class_credits_remaining || 0,
           scheduleStatus,
           nextClass,
           totalBookings: enrollmentBookings.length,
@@ -1627,6 +1638,17 @@ app.get('/api/admin/students/:id/enrollment', authenticateToken, requireAdmin, a
     const today = new Date().toISOString().split('T')[0];
     const isUpcoming = enrollment.course_start_date && enrollment.course_start_date > today;
     enrollment = { ...enrollment, display_status: isUpcoming ? 'upcoming' : enrollment.status };
+
+    // Compute credits from bookings for HB and 10-class enrollments
+    const isHBOrCredit = (enrollment.course_type || '').toLowerCase().includes('handbuilding') || enrollment.number_of_weeks === 10;
+    if (isHBOrCredit && enrollment.class_credits_allocated > 0) {
+      const credits = await supabaseDb.getEnrollmentCredits(enrollment.id);
+      enrollment = {
+        ...enrollment,
+        class_credits_used: credits.attended,
+        class_credits_remaining: credits.remaining,
+      };
+    }
 
     enrichedEnrollments.push(enrollment);
   }
@@ -2074,14 +2096,11 @@ app.post('/api/admin/enrollments/:id/complete', authenticateToken, requireAdmin,
     .eq('course_enrollment_id', enrollmentId)
     .in('status', ['attended', 'completed']);
 
-  // Update enrollment to completed
-  const allocated = enrollment.class_credits_allocated || enrollment.number_of_weeks || 0;
+  // Update enrollment to completed — credits are computed on read
   await supabaseDb.supabase
     .from('course_enrollments')
     .update({
       status: 'completed',
-      class_credits_used: attendedCount || 0,
-      class_credits_remaining: Math.max(0, allocated - (attendedCount || 0)),
       updated_at: new Date().toISOString()
     })
     .eq('id', enrollmentId);
@@ -3807,29 +3826,8 @@ app.delete('/api/admin/bookings/:bookingId', authenticateToken, requireAdmin, as
     return res.status(500).json({ error: 'Failed to cancel booking' });
   }
 
-  // Restore flex credit when booking is cancelled. This covers HB credit
-  // enrollments and 10-class WT packages (both track credits via
-  // class_credits_allocated once credits are live). Cap refund at allocated
-  // so repeated cancels can't inflate the remaining count.
-  if (booking.course_enrollment_id) {
-    const { data: enr } = await supabaseDb.supabase
-      .from('course_enrollments')
-      .select('id, course_type, class_credits_allocated, class_credits_used, class_credits_remaining')
-      .eq('id', booking.course_enrollment_id)
-      .single();
-
-    if (enr && (enr.class_credits_allocated || 0) > 0) {
-      const allocated = enr.class_credits_allocated || 0;
-      await supabaseDb.supabase
-        .from('course_enrollments')
-        .update({
-          class_credits_used: Math.max(0, (enr.class_credits_used || 0) - 1),
-          class_credits_remaining: Math.min(allocated, (enr.class_credits_remaining || 0) + 1),
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', enr.id);
-    }
-  }
+  // Credits are computed on read — cancelling a booking automatically frees the credit
+  // No counter updates needed.
 
   // Auto-promote from waitlist if someone is waiting
   let promotedStudent = null;

@@ -1817,6 +1817,66 @@ async function searchPotteryPiecesByInitials(initials) {
   return data || [];
 }
 
+/**
+ * Compute enrollment credits from actual bookings (source of truth).
+ * Never trust class_credits_used / class_credits_remaining columns — they go stale.
+ *
+ * @param {number} enrollmentId
+ * @returns {{ allocated, attended, booked, committed, remaining }}
+ */
+async function getEnrollmentCredits(enrollmentId) {
+  const { data: enr } = await supabase
+    .from('course_enrollments')
+    .select('class_credits_allocated, course_type, number_of_weeks')
+    .eq('id', enrollmentId)
+    .single();
+
+  if (!enr) return { allocated: 0, attended: 0, booked: 0, committed: 0, remaining: 0 };
+
+  const isHB = (enr.course_type || '').toLowerCase().includes('handbuilding');
+  const is10Class = enr.number_of_weeks === 10;
+  const allocated = enr.class_credits_allocated || (isHB ? (enr.number_of_weeks || 4) : 0);
+
+  // For 10-class packages, only count HB/flex bookings (not the 6 WT core classes)
+  let statusFilter;
+  if (is10Class) {
+    // Count flex bookings: HB classes only
+    const { count: attendedCount } = await supabase
+      .from('bookings')
+      .select('id', { count: 'exact', head: true })
+      .eq('course_enrollment_id', enrollmentId)
+      .in('status', ['attended', 'completed'])
+      .filter('class_instance_id', 'in', `(SELECT id FROM class_instances WHERE class_type LIKE 'HB%')`);
+
+    // Supabase doesn't support subquery in .filter, so query differently
+    const { data: allBookings } = await supabase
+      .from('bookings')
+      .select('id, status, class_instances!bookings_class_instance_id_fkey(class_type)')
+      .eq('course_enrollment_id', enrollmentId)
+      .in('status', ['attended', 'completed', 'booked']);
+
+    const hbBookings = (allBookings || []).filter(b => (b.class_instances?.class_type || '').toUpperCase().startsWith('HB'));
+    const attended = hbBookings.filter(b => b.status === 'attended' || b.status === 'completed').length;
+    const booked = hbBookings.filter(b => b.status === 'booked').length;
+    const committed = attended + booked;
+    const remaining = Math.max(0, allocated - committed);
+    return { allocated, attended, booked, committed, remaining };
+  }
+
+  // HB and standard enrollments: count all bookings
+  const { data: bookings } = await supabase
+    .from('bookings')
+    .select('id, status')
+    .eq('course_enrollment_id', enrollmentId)
+    .in('status', ['attended', 'completed', 'booked']);
+
+  const attended = (bookings || []).filter(b => b.status === 'attended' || b.status === 'completed').length;
+  const booked = (bookings || []).filter(b => b.status === 'booked').length;
+  const committed = attended + booked;
+  const remaining = Math.max(0, allocated - committed);
+  return { allocated, attended, booked, committed, remaining };
+}
+
 module.exports = {
   supabase,
   // Customer functions
@@ -1845,6 +1905,8 @@ module.exports = {
   createGlaze,
   updateGlaze,
   deleteGlaze,
+  // Credit computation
+  getEnrollmentCredits,
   // Class functions
   getAvailableClasses,
   getClassInstanceById,

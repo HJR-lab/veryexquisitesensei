@@ -644,9 +644,9 @@ export default function Dashboard() {
                         </div>
                       </div>
                       {/* Flex credits remaining for 10-class packages */}
-                      {is10Pkg && enrollment.class_credits_remaining > 0 && (
+                      {is10Pkg && creditsAvailable > 0 && (
                         <div style={{ fontSize: '10px', color: TC_DARK, fontWeight: 600, textAlign: 'right', marginBottom: '4px' }}>
-                          {enrollment.class_credits_remaining} Class Credit{enrollment.class_credits_remaining !== 1 ? 's' : ''} remaining
+                          {creditsAvailable} Class Credit{creditsAvailable !== 1 ? 's' : ''} remaining
                         </div>
                       )}
                       {/* Course details toggle (separate row for non-pending) */}

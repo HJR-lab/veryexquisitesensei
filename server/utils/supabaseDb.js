@@ -1837,30 +1837,22 @@ async function getEnrollmentCredits(enrollmentId) {
   const is10Class = enr.number_of_weeks === 10;
   const allocated = enr.class_credits_allocated || (isHB ? (enr.number_of_weeks || 4) : 0);
 
-  // For 10-class packages, only count HB/flex bookings (not the 6 WT core classes)
-  let statusFilter;
+  // For 10-class packages, count ALL active bookings (WT core + flex of any type)
+  // Flex credits can be used for WT makeups or HB classes
   if (is10Class) {
-    // Count flex bookings: HB classes only
-    const { count: attendedCount } = await supabase
-      .from('bookings')
-      .select('id', { count: 'exact', head: true })
-      .eq('course_enrollment_id', enrollmentId)
-      .in('status', ['attended', 'completed'])
-      .filter('class_instance_id', 'in', `(SELECT id FROM class_instances WHERE class_type LIKE 'HB%')`);
+    const totalAlloc = enr.number_of_weeks || 10;
 
-    // Supabase doesn't support subquery in .filter, so query differently
     const { data: allBookings } = await supabase
       .from('bookings')
-      .select('id, status, class_instances!bookings_class_instance_id_fkey(class_type)')
+      .select('id, status')
       .eq('course_enrollment_id', enrollmentId)
       .in('status', ['attended', 'completed', 'booked']);
 
-    const hbBookings = (allBookings || []).filter(b => (b.class_instances?.class_type || '').toUpperCase().startsWith('HB'));
-    const attended = hbBookings.filter(b => b.status === 'attended' || b.status === 'completed').length;
-    const booked = hbBookings.filter(b => b.status === 'booked').length;
+    const attended = (allBookings || []).filter(b => b.status === 'attended' || b.status === 'completed').length;
+    const booked = (allBookings || []).filter(b => b.status === 'booked').length;
     const committed = attended + booked;
-    const remaining = Math.max(0, allocated - committed);
-    return { allocated, attended, booked, committed, remaining };
+    const remaining = Math.max(0, totalAlloc - committed);
+    return { allocated: totalAlloc, attended, booked, committed, remaining };
   }
 
   // HB and standard enrollments: count all bookings

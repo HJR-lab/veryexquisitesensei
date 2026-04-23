@@ -5684,16 +5684,21 @@ app.get('/api/admin/students/:studentId/flex-credits', authenticateToken, requir
   const { studentId } = req.params;
   const { data: enrollments } = await supabaseDb.supabase
     .from('course_enrollments')
-    .select('id, number_of_weeks, class_credits_allocated, class_credits_remaining, class_credits_used, status')
+    .select('id, number_of_weeks, class_credits_allocated, status')
     .eq('student_id', parseInt(studentId))
     .eq('number_of_weeks', 10);
 
   const pkg = (enrollments || []).find(e => e.class_credits_allocated > 0) || (enrollments || [])[0];
+  if (!pkg) {
+    return res.json({ remaining: 0, allocated: 0, used: 0, enrollmentId: null });
+  }
+  // Compute from bookings — never trust stale DB columns
+  const credits = await supabaseDb.getEnrollmentCredits(pkg.id);
   res.json({
-    remaining: pkg?.class_credits_remaining || 0,
-    allocated: pkg?.class_credits_allocated || 0,
-    used: pkg?.class_credits_used || 0,
-    enrollmentId: pkg?.id || null,
+    remaining: credits.remaining,
+    allocated: credits.allocated,
+    used: credits.committed,
+    enrollmentId: pkg.id,
   });
 }));
 

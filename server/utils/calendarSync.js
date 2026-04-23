@@ -53,24 +53,35 @@ async function buildClassDescription(classInstance) {
   if (eIds.length > 0) {
     const { data: enrs } = await supabaseDb.supabase
       .from('course_enrollments')
-      .select('id, course_identifier')
+      .select('id, course_identifier, course_type, class_credits_allocated, class_credits_used, number_of_weeks')
       .in('id', eIds);
     (enrs || []).forEach(e => { eMap[e.id] = e; });
   }
 
+  const isHBClass = (classInstance.class_type || '').toUpperCase().startsWith('HB');
   const classBase = getBase(classInstance.class_type);
   const enrolled = [], makeup = [], rescheduled = [];
 
   (bookings || []).forEach(b => {
     const enr = eMap[b.course_enrollment_id] || {};
+    const isHBEnrollment = (enr.course_type || '').toLowerCase().includes('handbuilding');
+    const is10ClassPkg = enr.number_of_weeks === 10;
     const enrBase = enr.course_identifier ? getBase(enr.course_identifier) : null;
-    const isMakeup = b.booking_type === 'makeup' || b.is_makeup_class || (enrBase && classBase && enrBase !== classBase);
+    // HB students are always "enrolled" (drop-in credits), not makeup
+    const isMakeup = !isHBClass && !isHBEnrollment && !is10ClassPkg && (b.booking_type === 'makeup' || b.is_makeup_class || (enrBase && classBase && enrBase !== classBase));
     const isResched = b.status === 'rescheduled' || b.status === 'absent';
     const name = ((b.customers?.first_name || '') + ' ' + (b.customers?.last_name || '')).trim();
     const ord = b.customers?.course_purchase_count || 0;
-    if (isResched) rescheduled.push({ name, ord });
-    else if (isMakeup) makeup.push({ name, ord, from: enr.course_identifier || '' });
-    else enrolled.push({ name, ord });
+    // Build progress string: used/total for HB and 10-class packages
+    let progress = '';
+    if (isHBEnrollment && enr.class_credits_allocated) {
+      progress = ' ' + (enr.class_credits_used || 0) + '/' + enr.class_credits_allocated;
+    } else if (is10ClassPkg) {
+      progress = ' ' + (enr.class_credits_used || 0) + '/' + enr.number_of_weeks;
+    }
+    if (isResched) rescheduled.push({ name, ord, progress });
+    else if (isMakeup) makeup.push({ name, ord, from: enr.course_identifier || '', progress });
+    else enrolled.push({ name, ord, progress });
   });
 
   enrolled.sort((a, b) => b.ord - a.ord || a.name.localeCompare(b.name));
@@ -79,7 +90,7 @@ async function buildClassDescription(classInstance) {
   let desc = 'Instructor: ' + (classInstance.instructor || 'TBC') + '\n\n';
   desc += 'ENROLLED\n';
   if (enrolled.length === 0) desc += '(none)\n';
-  enrolled.forEach((s, i) => { desc += (i + 1) + '. ' + s.name + ' (' + s.ord + ')\n'; });
+  enrolled.forEach((s, i) => { desc += (i + 1) + '. ' + s.name + ' (' + s.ord + ')' + s.progress + '\n'; });
   if (makeup.length) {
     desc += '\nMAKEUP\n';
     makeup.forEach((s, i) => {

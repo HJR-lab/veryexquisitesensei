@@ -1032,7 +1032,7 @@ export default function ClassScheduleNew() {
                           >
                             {isWithin24Hours ? 'Within 24h' : 'Reschedule'}
                           </button>
-                          {is10ClassPackage && !isWithin24Hours && (
+                          {(is10ClassPackage || (hbEnrollment && hbEnrollment.creditsRemaining >= 0)) && !isWithin24Hours && (
                             <button
                               onClick={async () => {
                                 if (booking.status !== 'booked') {

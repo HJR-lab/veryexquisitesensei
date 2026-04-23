@@ -55,14 +55,14 @@ async function buildClassDescription(classInstance) {
       .from('course_enrollments')
       .select('id, course_identifier, course_type, class_credits_allocated, class_credits_used, number_of_weeks')
       .in('id', eIds);
-    // Count actual attended bookings per enrollment for accurate progress
+    // Count all committed bookings (attended + booked) per enrollment for progress
     for (const enr of (enrs || [])) {
       const { count } = await supabaseDb.supabase
         .from('bookings')
         .select('id', { count: 'exact', head: true })
         .eq('course_enrollment_id', enr.id)
-        .in('status', ['attended', 'completed']);
-      enr.attendedCount = count || 0;
+        .in('status', ['attended', 'completed', 'booked']);
+      enr.committedCount = count || 0;
       eMap[enr.id] = enr;
     }
   }
@@ -84,9 +84,9 @@ async function buildClassDescription(classInstance) {
     // Build progress string: attended/total for HB and 10-class packages
     let progress = '';
     if (isHBEnrollment && enr.class_credits_allocated) {
-      progress = ' ' + (enr.attendedCount || 0) + '/' + enr.class_credits_allocated;
+      progress = ' ' + (enr.committedCount || 0) + '/' + enr.class_credits_allocated;
     } else if (is10ClassPkg) {
-      progress = ' ' + (enr.attendedCount || 0) + '/' + enr.number_of_weeks;
+      progress = ' ' + (enr.committedCount || 0) + '/' + enr.number_of_weeks;
     }
     if (isResched) rescheduled.push({ name, ord, progress });
     else if (isMakeup) makeup.push({ name, ord, from: enr.course_identifier || '', progress });

@@ -79,12 +79,12 @@ async function buildClassDescription(classInstance) {
     const isResched = b.status === 'rescheduled' || b.status === 'absent';
     const name = ((b.customers?.first_name || '') + ' ' + (b.customers?.last_name || '')).trim();
     const ord = b.customers?.course_purchase_count || 0;
-    // Build progress string: attended/total for HB and 10-class packages
+    // Build progress string: committed (attended+booked) / total
     let progress = '';
     if (isHBEnrollment && enr.class_credits_allocated) {
-      progress = ' ' + (enr.attendedCount || 0) + '/' + (enr.creditTotal || enr.class_credits_allocated);
+      progress = ' ' + (enr.committedCount || 0) + '/' + (enr.creditTotal || enr.class_credits_allocated);
     } else if (is10ClassPkg) {
-      progress = ' ' + (enr.attendedCount || 0) + '/' + (enr.number_of_weeks || 10);
+      progress = ' ' + (enr.committedCount || 0) + '/' + (enr.number_of_weeks || 10);
     }
     if (isResched) rescheduled.push({ name, ord, progress });
     else if (isMakeup) makeup.push({ name, ord, from: enr.course_identifier || '', progress });

@@ -94,6 +94,8 @@ async function buildClassDescription(classInstance) {
       progress = ' ' + (enr.classPosition || 0) + '/' + (enr.creditTotal || enr.class_credits_allocated);
     } else if (is10ClassPkg) {
       progress = ' ' + (enr.classPosition || 0) + '/' + (enr.number_of_weeks || 10);
+    } else if (enr.number_of_weeks) {
+      progress = ' ' + (enr.classPosition || 0) + '/' + enr.number_of_weeks;
     }
     if (isResched) rescheduled.push({ name, ord, progress });
     else if (isMakeup) makeup.push({ name, ord, from: enr.course_identifier || '', progress });

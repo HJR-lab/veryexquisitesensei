@@ -294,75 +294,74 @@ async function getAvailableClasses() {
     .order('start_time', { ascending: true })
     .limit(1000);
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
+  if (!classes || classes.length === 0) return [];
 
-  // If no classes, return empty array quickly
-  if (!classes || classes.length === 0) {
-    return [];
-  }
+  const classIds = classes.map(c => c.id);
 
-  // Get waitlist AND makeup booking counts for each class in ONE Promise.all loop
-  const classesWithCounts = await Promise.all(
-    classes.map(async (classInstance) => {
-      // Fetch waitlist count, makeup count, and actual booking count in parallel
-      const [waitlistResult, makeupResult, bookingCountResult] = await Promise.all([
-        supabase
-          .from('waitlist')
-          .select('*', { count: 'exact', head: true })
-          .eq('class_instance_id', classInstance.id)
-          .eq('claimed', false),
-        supabase
-          .from('bookings')
-          .select('*', { count: 'exact', head: true })
-          .eq('class_instance_id', classInstance.id)
-          .eq('booking_type', 'makeup')
-          .eq('status', 'booked'),
-        supabase
-          .from('bookings')
-          .select('*', { count: 'exact', head: true })
-          .eq('class_instance_id', classInstance.id)
-          .in('status', ['booked', 'attended'])
-      ]);
+  // Batch: get ALL booking counts and waitlist counts in 3 queries total (not per-class)
+  const [bookingsResult, makeupResult, waitlistResult] = await Promise.all([
+    supabase
+      .from('bookings')
+      .select('class_instance_id')
+      .in('class_instance_id', classIds)
+      .in('status', ['booked', 'attended']),
+    supabase
+      .from('bookings')
+      .select('class_instance_id')
+      .in('class_instance_id', classIds)
+      .eq('booking_type', 'makeup')
+      .eq('status', 'booked'),
+    supabase
+      .from('waitlist')
+      .select('class_instance_id')
+      .in('class_instance_id', classIds)
+      .eq('claimed', false)
+  ]);
 
-      const waitlistCount = waitlistResult.count || 0;
-      const makeupCount = makeupResult.count || 0;
-      const actualEnrollment = bookingCountResult.count || 0;
+  // Build count maps
+  const bookingCounts = {};
+  const makeupCounts = {};
+  const waitlistCounts = {};
+  (bookingsResult.data || []).forEach(b => { bookingCounts[b.class_instance_id] = (bookingCounts[b.class_instance_id] || 0) + 1; });
+  (makeupResult.data || []).forEach(b => { makeupCounts[b.class_instance_id] = (makeupCounts[b.class_instance_id] || 0) + 1; });
+  (waitlistResult.data || []).forEach(w => { waitlistCounts[w.class_instance_id] = (waitlistCounts[w.class_instance_id] || 0) + 1; });
 
-      // Regular capacity is 8, total capacity (with makeup spots) is stored in max_capacity (10)
-      const REGULAR_CAPACITY = 8;
-      const totalCapacity = classInstance.max_capacity || 10;
+  const REGULAR_CAPACITY = 8;
 
-      // Convert snake_case to camelCase for frontend
-      return {
-        id: classInstance.id,
-        templateId: classInstance.template_id,
-        classDate: classInstance.class_date,
-        startTime: classInstance.start_time,
-        endTime: classInstance.end_time,
-        classType: classInstance.class_type,
-        instructor: classInstance.instructor,
-        room: classInstance.room,
-        maxCapacity: totalCapacity,
-        regularCapacity: REGULAR_CAPACITY,
-        currentEnrollment: actualEnrollment,
-        status: classInstance.status,
-        cancellationReason: classInstance.cancellation_reason,
-        createdAt: classInstance.created_at,
-        updatedAt: classInstance.updated_at,
-        waitlistCount: waitlistCount,
-        makeupBookings: makeupCount,
-        makeupSpotsAvailable: 2 - makeupCount,
-        spotsAvailable: totalCapacity - actualEnrollment,
-        regularSpotsAvailable: REGULAR_CAPACITY - actualEnrollment,
-        isFull: actualEnrollment >= REGULAR_CAPACITY,  // Full for regular booking at 8
-        isCompletelyFull: actualEnrollment >= totalCapacity  // Completely full at 10
-      };
-    })
-  );
+  return classes.map(classInstance => {
+    const actualEnrollment = bookingCounts[classInstance.id] || 0;
+    const makeupCount = makeupCounts[classInstance.id] || 0;
+    const waitlistCount = waitlistCounts[classInstance.id] || 0;
+    const totalCapacity = classInstance.max_capacity || 10;
 
-  return classesWithCounts;
+    return {
+      id: classInstance.id,
+      templateId: classInstance.template_id,
+      classDate: classInstance.class_date,
+      startTime: classInstance.start_time,
+      endTime: classInstance.end_time,
+      classType: classInstance.class_type,
+      classTitle: classInstance.class_title,
+      classDescription: classInstance.class_description,
+      instructor: classInstance.instructor,
+      room: classInstance.room,
+      maxCapacity: totalCapacity,
+      regularCapacity: REGULAR_CAPACITY,
+      currentEnrollment: actualEnrollment,
+      status: classInstance.status,
+      cancellationReason: classInstance.cancellation_reason,
+      createdAt: classInstance.created_at,
+      updatedAt: classInstance.updated_at,
+      waitlistCount,
+      makeupBookings: makeupCount,
+      makeupSpotsAvailable: 2 - makeupCount,
+      spotsAvailable: totalCapacity - actualEnrollment,
+      regularSpotsAvailable: REGULAR_CAPACITY - actualEnrollment,
+      isFull: actualEnrollment >= REGULAR_CAPACITY,
+      isCompletelyFull: actualEnrollment >= totalCapacity
+    };
+  });
 }
 
 /**

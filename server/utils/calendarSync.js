@@ -55,12 +55,21 @@ async function buildClassDescription(classInstance) {
       .from('course_enrollments')
       .select('id, course_identifier, course_type, class_credits_allocated, class_credits_used, number_of_weeks')
       .in('id', eIds);
-    // Compute credits per enrollment for progress display
+    // Compute progress per enrollment: count bookings up to and including this class's date
+    const classDateStr = (classInstance.class_date || '').split(/[T ]/)[0];
     for (const enr of (enrs || [])) {
       const credits = await supabaseDb.getEnrollmentCredits(enr.id);
-      enr.committedCount = credits.committed;
-      enr.attendedCount = credits.attended;
       enr.creditTotal = credits.allocated;
+      // Count bookings with class_date <= this class's date for positional progress
+      const { data: progressBookings } = await supabaseDb.supabase
+        .from('bookings')
+        .select('id, class_instances!bookings_class_instance_id_fkey(class_date)')
+        .eq('course_enrollment_id', enr.id)
+        .in('status', ['attended', 'completed', 'booked']);
+      enr.classPosition = (progressBookings || []).filter(b => {
+        const d = (b.class_instances?.class_date || '').split(/[T ]/)[0];
+        return d && d <= classDateStr;
+      }).length;
       eMap[enr.id] = enr;
     }
   }
@@ -79,12 +88,12 @@ async function buildClassDescription(classInstance) {
     const isResched = b.status === 'rescheduled' || b.status === 'absent';
     const name = ((b.customers?.first_name || '') + ' ' + (b.customers?.last_name || '')).trim();
     const ord = b.customers?.course_purchase_count || 0;
-    // Build progress string: committed (attended+booked) / total
+    // Build progress string: class position / total (how many classes up to this date)
     let progress = '';
     if (isHBEnrollment && enr.class_credits_allocated) {
-      progress = ' ' + (enr.committedCount || 0) + '/' + (enr.creditTotal || enr.class_credits_allocated);
+      progress = ' ' + (enr.classPosition || 0) + '/' + (enr.creditTotal || enr.class_credits_allocated);
     } else if (is10ClassPkg) {
-      progress = ' ' + (enr.committedCount || 0) + '/' + (enr.number_of_weeks || 10);
+      progress = ' ' + (enr.classPosition || 0) + '/' + (enr.number_of_weeks || 10);
     }
     if (isResched) rescheduled.push({ name, ord, progress });
     else if (isMakeup) makeup.push({ name, ord, from: enr.course_identifier || '', progress });

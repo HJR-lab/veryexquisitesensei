@@ -141,6 +141,7 @@ export default function AdminNav({ active, onSyncComplete }) {
                   { label: 'Settings', href: '/admin/course-config' },
                   { type: 'header', label: 'Communications' },
                   { label: 'Emails', href: '/admin/emails' },
+                  { label: 'CRM', href: '/admin/crm' },
                   { label: 'Events', href: '/admin/events' },
                   { label: 'Policy', href: '/admin/policy' },
                   { type: 'header', label: 'Studio' },

@@ -42,6 +42,7 @@ const StudioAccess = lazy(() => import('./pages/StudioAccess'));
 const Credits = lazy(() => import('./pages/Credits'));
 const AdminStudioAccess = lazy(() => import('./pages/AdminStudioAccess'));
 const AdminEmails = lazy(() => import('./pages/AdminEmails'));
+const AdminCRM = lazy(() => import('./pages/AdminCRM'));
 const AdminInbox = lazy(() => import('./pages/AdminInbox'));
 const AdminCourseConfig = lazy(() => import('./pages/AdminCourseConfig'));
 const AdminPlatformStats = lazy(() => import('./pages/AdminPlatformStats'));
@@ -53,6 +54,7 @@ const AdminFees = lazy(() => import('./pages/AdminFees'));
 const AdminVouchers = lazy(() => import('./pages/AdminVouchers'));
 
 const Policies = lazy(() => import('./pages/Policies'));
+const EventRSVP = lazy(() => import('./pages/EventRSVP'));
 
 // Test pages — lazy loaded
 const TestDash = lazy(() => import('./test-pages/TestDash'));
@@ -184,6 +186,7 @@ function App() {
           <Route path="/instructor/:id" element={<InstructorProfile />} />
           <Route path="/instructor/:id/portfolio" element={<InstructorPortfolio />} />
           <Route path="/policies" element={<Policies />} />
+          <Route path="/events/:eventId/rsvp" element={<EventRSVP />} />
 
           {/* Instructor routes — no StudentLayout, uses own bottom nav */}
           <Route path="/my-classes" element={<PrivateRoute><Suspense fallback={<PageLoader />}><InstructorDashboard /></Suspense></PrivateRoute>} />
@@ -222,6 +225,7 @@ function App() {
             <Route path="instructors" element={<AdminInstructors />} />
             <Route path="studio-access" element={<AdminStudioAccess />} />
             <Route path="emails" element={<AdminEmails />} />
+            <Route path="crm" element={<AdminCRM />} />
             <Route path="inbox" element={<AdminInbox />} />
             <Route path="course-config" element={<AdminCourseConfig />} />
             <Route path="platform-stats" element={<AdminPlatformStats />} />

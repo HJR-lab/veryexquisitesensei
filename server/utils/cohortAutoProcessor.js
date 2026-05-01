@@ -7,6 +7,7 @@ const { supabase } = require('./supabaseDb');
 const { createClassesAndBookings, MINIMUM_STUDENTS_THRESHOLD } = require('./courseEnrollmentManager');
 const courseConfig = require('./courseConfig');
 const inboxProcessor = require('./inboxProcessor');
+const { processCampaigns } = require('./campaignCron');
 
 /**
  * Main function to process all ready cohorts
@@ -603,6 +604,7 @@ function startAutomaticProcessing() {
     checkPieceReminders().catch(console.error);
     autoRecycleExpiredBatches().catch(console.error);
     cleanupExpiredWaitlist().catch(console.error);
+    processCampaigns().catch(console.error);
   }, 5000);
 
   // Run daily at 2 AM
@@ -624,9 +626,10 @@ function startAutomaticProcessing() {
       cleanupExpiredWaitlist().catch(console.error);
     }
 
-    // Check waitlist 24h notifications every hour
+    // Check waitlist 24h notifications and process campaigns every hour
     if (minute === 30) {
       notifyWaitlist24Hours().catch(console.error);
+      processCampaigns().catch(console.error);
     }
 
     // Process inbox emails every 15 minutes

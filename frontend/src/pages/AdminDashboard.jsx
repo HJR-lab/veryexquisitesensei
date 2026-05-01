@@ -214,6 +214,7 @@ export default function AdminDashboard() {
                         borderBottom: i < activity.length - 1 ? `1px solid ${RULE}` : 'none',
                         display: 'flex',
                         gap: '10px',
+                        ...(r.highlight ? { backgroundColor: '#FFF7E6', borderLeft: '3px solid #D97706' } : {}),
                       }}
                     >
                       <span className="material-symbols-outlined" style={{ fontSize: '14px', color: style.color, flexShrink: 0, marginTop: '2px' }}>

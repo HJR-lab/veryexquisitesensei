@@ -2502,7 +2502,7 @@ app.get('/api/admin/dashboard/activity', authenticateToken, requireAdmin, asyncH
     // Recent studio access bookings (for activity feed, last 30 days)
     supabaseDb.supabase
       .from('studio_access_bookings')
-      .select('id, booking_date, start_time, hours, amount_sgd, status, created_at, customer:customers(first_name, last_name)')
+      .select('id, booking_date, start_time, hours, amount_sgd, credit_applied, status, created_at, customer:customers(first_name, last_name)')
       .gte('created_at', thirtyDaysAgoStr)
       .order('created_at', { ascending: false })
       .limit(10),
@@ -2601,11 +2601,11 @@ app.get('/api/admin/dashboard/activity', authenticateToken, requireAdmin, asyncH
   const activity = [];
   const activityKeys = new Set();
 
-  function addActivity(action, who, detail, when, createdAt) {
+  function addActivity(action, who, detail, when, createdAt, highlight) {
     const key = `${action}|${who}|${detail}`;
     if (activityKeys.has(key)) return;
     activityKeys.add(key);
-    activity.push({ action, who, detail, when, createdAt });
+    activity.push({ action, who, detail, when, createdAt, ...(highlight ? { highlight } : {}) });
   }
 
   // Bookings/cancellations — group batch bookings (e.g. 6-week WT enrollment creates 6 at once)
@@ -2665,12 +2665,16 @@ app.get('/api/admin/dashboard/activity', authenticateToken, requireAdmin, asyncH
     const name = sa.customer ? `${sa.customer.first_name} ${sa.customer.last_name}`.trim() : 'Unknown';
     const dateStr = sa.booking_date ? new Date(sa.booking_date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : '';
     const statusLabel = sa.status === 'pending' ? ' (pending)' : sa.status === 'cancelled' ? ' (cancelled)' : '';
-    addActivity('Studio', name, `Studio access ${dateStr}${statusLabel}`, timeAgo(sa.created_at), sa.created_at);
+    const creditApplied = sa.credit_applied || 0;
+    const totalAmount = sa.amount_sgd || 0;
+    const remaining = totalAmount - creditApplied;
+    const creditNote = creditApplied > 0 ? ` · $${creditApplied} credit used` + (remaining > 0 ? ` · $${remaining} outstanding` : '') : '';
+    addActivity('Studio', name, `Studio access ${dateStr}${statusLabel}${creditNote}`, timeAgo(sa.created_at), sa.created_at, creditApplied > 0 && remaining > 0 ? 'highlight' : null);
   });
 
   // Sort by date, take top 6, strip createdAt
   activity.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  const topActivity = activity.slice(0, 6).map(({ createdAt, ...rest }) => rest);
+  const topActivity = activity.slice(0, 6).map(({ createdAt, highlight, ...rest }) => ({ ...rest, ...(highlight ? { highlight } : {}) }));
 
   res.json({ alerts: topAlerts, activity: topActivity });
 }));

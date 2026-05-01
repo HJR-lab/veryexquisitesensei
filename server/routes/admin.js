@@ -2032,13 +2032,22 @@ app.post('/api/admin/enrollments/:id/pause', authenticateToken, requireAdmin, as
         .in('id', completedBookingIds);
     }
 
-    // Cancel remaining bookings
+    // Cancel remaining bookings and sync their class instances to Google Calendar
     const remainingBookingIds = bookings.slice(weeksCompleted).map(b => b.id);
+    const remainingClassIds = bookings.slice(weeksCompleted).map(b => b.class_instance_id).filter(Boolean);
     if (remainingBookingIds.length > 0) {
       await supabaseDb.supabase
         .from('bookings')
         .update({ status: 'cancelled' })
         .in('id', remainingBookingIds);
+
+      // Update Google Calendar for affected classes
+      try {
+        const calendarSync = require('../utils/calendarSync');
+        for (const classId of remainingClassIds) {
+          calendarSync.syncClassInstance(classId).catch(() => {});
+        }
+      } catch (e) { /* ignore */ }
     }
   }
 

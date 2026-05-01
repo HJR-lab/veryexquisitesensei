@@ -469,6 +469,30 @@ app.post('/api/admin/hb-enrollments/:enrollmentId/set-status', authenticateToken
     .single();
 
   if (error) throw error;
+
+  // When cancelling, delete associated class instances from Google Calendar
+  if (status === 'cancelled' && data.course_identifier) {
+    try {
+      const calendarSync = require('../utils/calendarSync');
+      const { data: classInstances } = await supabaseDb.supabase
+        .from('class_instances')
+        .select('id, google_calendar_event_id')
+        .like('class_type', `${data.course_identifier}.%`);
+      for (const ci of (classInstances || [])) {
+        if (ci.google_calendar_event_id) {
+          calendarSync.deleteClassInstance(ci.id).catch(() => {});
+        }
+      }
+    } catch (e) { /* ignore */ }
+
+    // Also cancel any booked bookings for this enrollment
+    await supabaseDb.supabase
+      .from('bookings')
+      .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+      .eq('course_enrollment_id', parseInt(enrollmentId))
+      .eq('status', 'booked');
+  }
+
   console.log(`✅ HB enrollment ${enrollmentId}: status set to ${status}`);
   res.json({ success: true, status });
 }));

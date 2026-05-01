@@ -427,6 +427,20 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
         .single();
       if (fallbackEnr) enrollmentId = fallbackEnr.id;
     }
+
+    // Fallback: 10-class package students can book any class type (WT or HB) as flex credits.
+    // Their enrollment course_identifier is WT-based, so HB bookings won't match by prefix.
+    if (!enrollmentId) {
+      const { data: tenClassEnr } = await supabaseDb.supabase
+        .from('course_enrollments')
+        .select('id')
+        .eq('student_id', dbCustomerId)
+        .eq('status', 'active')
+        .eq('number_of_weeks', 10)
+        .limit(1)
+        .single();
+      if (tenClassEnr) enrollmentId = tenClassEnr.id;
+    }
   }
 
   const booking = await supabaseDb.createBooking({
@@ -648,7 +662,19 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   let bookingError;
 
   const useEnrollmentCredits = remainingCredits <= 0 && creditEnrollment;
-  const enrollmentId = useEnrollmentCredits ? creditEnrollment.id : null;
+  // Always link to 10-class enrollment for credit tracking, even when global credits remain
+  let enrollmentId = useEnrollmentCredits ? creditEnrollment.id : null;
+  if (!enrollmentId) {
+    const { data: tenClassEnr } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('id')
+      .eq('student_id', dbCustomerId)
+      .eq('status', 'active')
+      .eq('number_of_weeks', 10)
+      .limit(1)
+      .single();
+    if (tenClassEnr) enrollmentId = tenClassEnr.id;
+  }
 
   if (cancelledBooking) {
     // Reactivate the cancelled booking

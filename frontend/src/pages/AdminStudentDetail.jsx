@@ -840,11 +840,15 @@ export default function AdminStudentDetail() {
   ).length;
   const waitlistCredits = studentWaitlist.length;
   // remaining is computed on server: allocated - attended - booked. No need to subtract booked again.
+  // For 10-class packages, show flex credit placeholders even if current enrollment is a different one
+  const hasFlexCredits = flexCredits?.remaining > 0;
   const unbookedCount  = isHBEnrollment
     ? Math.max(0, hbCreditsRemaining)
     : is10ClassPkg
       ? Math.max(0, flexRemaining)
-      : Math.max(0, enrollmentAllocated - creditsUsedCount - waitlistCredits);
+      : hasFlexCredits
+        ? Math.max(0, flexCredits.remaining)
+        : Math.max(0, enrollmentAllocated - creditsUsedCount - waitlistCredits);
 
   const filteredBookings = [...(showCompletedCourses ? bookings : activeBookings)]
     .filter(b => statusFilter === 'all' || b.status === statusFilter)

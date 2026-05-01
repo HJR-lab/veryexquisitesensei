@@ -666,7 +666,7 @@ export default function ClassScheduleNew() {
         {is10ClassPackage && (() => {
           const booked = tenClassBookings;
           const total = 10;
-          const creditsRemaining = tenClassEnrollment?.class_credits_remaining || (extraCreditsTotal - extraCreditsUsed);
+          const creditsRemaining = Math.max(0, 10 - booked);
           return (
             <div style={{ padding: '6px 20px 8px' }}>
               <div style={{ padding: '14px', backgroundColor: '#FFF8F0', border: `1px solid ${RULE}` }}>

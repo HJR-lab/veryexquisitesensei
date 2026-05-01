@@ -44,7 +44,7 @@ function parseTime(t) {
 async function buildClassDescription(classInstance) {
   const { data: bookings } = await supabaseDb.supabase
     .from('bookings')
-    .select('id, status, booking_type, is_makeup_class, course_enrollment_id, customers:student_id(first_name, last_name, course_purchase_count)')
+    .select('id, status, booking_type, is_makeup_class, course_enrollment_id, student_id, customers:student_id(first_name, last_name, course_purchase_count)')
     .eq('class_instance_id', classInstance.id)
     .in('status', ['booked', 'completed', 'attended', 'forfeited', 'absent', 'rescheduled']);
 
@@ -53,7 +53,7 @@ async function buildClassDescription(classInstance) {
   if (eIds.length > 0) {
     const { data: enrs } = await supabaseDb.supabase
       .from('course_enrollments')
-      .select('id, course_identifier, course_type, class_credits_allocated, class_credits_used, number_of_weeks')
+      .select('id, course_identifier, course_type, class_credits_allocated, class_credits_used, number_of_weeks, total_weeks, student_id')
       .in('id', eIds);
     // Compute progress per enrollment: count bookings up to and including this class's date
     const classDateStr = (classInstance.class_date || '').split(/[T ]/)[0];
@@ -70,6 +70,38 @@ async function buildClassDescription(classInstance) {
         const d = (b.class_instances?.class_date || '').split(/[T ]/)[0];
         return d && d <= classDateStr;
       }).length;
+
+      // For 10-class packages: if student has another active enrollment,
+      // show combined progress (current enrollment + flex credits used)
+      if (enr.number_of_weeks === 10 && enr.student_id) {
+        const coreWeeks = enr.total_weeks || 6;
+        const flexTotal = 10 - coreWeeks;
+        const { data: otherEnrs } = await supabaseDb.supabase
+          .from('course_enrollments')
+          .select('id, number_of_weeks')
+          .eq('student_id', enr.student_id)
+          .eq('status', 'active')
+          .neq('id', enr.id)
+          .neq('number_of_weeks', 10)
+          .limit(1);
+        if (otherEnrs && otherEnrs.length > 0) {
+          const otherEnr = otherEnrs[0];
+          // Count other enrollment's bookings up to this class date
+          const { data: otherBookings } = await supabaseDb.supabase
+            .from('bookings')
+            .select('id, class_instances!bookings_class_instance_id_fkey(class_date)')
+            .eq('course_enrollment_id', otherEnr.id)
+            .in('status', ['attended', 'completed', 'booked']);
+          const otherProgress = (otherBookings || []).filter(b => {
+            const d = (b.class_instances?.class_date || '').split(/[T ]/)[0];
+            return d && d <= classDateStr;
+          }).length;
+          const flexUsed = Math.max(0, enr.classPosition - coreWeeks);
+          enr.combinedProgress = otherProgress + flexUsed;
+          enr.combinedTotal = otherEnr.number_of_weeks + flexTotal;
+        }
+      }
+
       eMap[enr.id] = enr;
     }
   }
@@ -92,6 +124,8 @@ async function buildClassDescription(classInstance) {
     let progress = '';
     if (isHBEnrollment && enr.class_credits_allocated) {
       progress = ' ' + (enr.classPosition || 0) + '/' + (enr.creditTotal || enr.class_credits_allocated);
+    } else if (is10ClassPkg && enr.combinedProgress !== undefined) {
+      progress = ' ' + enr.combinedProgress + '/' + enr.combinedTotal;
     } else if (is10ClassPkg) {
       progress = ' ' + (enr.classPosition || 0) + '/' + (enr.number_of_weeks || 10);
     } else if (enr.number_of_weeks) {

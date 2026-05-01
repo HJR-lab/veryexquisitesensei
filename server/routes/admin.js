@@ -2672,9 +2672,13 @@ app.get('/api/admin/dashboard/activity', authenticateToken, requireAdmin, asyncH
     addActivity('Studio', name, `Studio access ${dateStr}${statusLabel}${creditNote}`, timeAgo(sa.created_at), sa.created_at, creditApplied > 0 && remaining > 0 ? 'highlight' : null);
   });
 
-  // Sort by date, take top 6, strip createdAt
-  activity.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  const topActivity = activity.slice(0, 6).map(({ createdAt, highlight, ...rest }) => ({ ...rest, ...(highlight ? { highlight } : {}) }));
+  // Highlighted items (e.g. outstanding fees) always float to top, then sort by date
+  activity.sort((a, b) => {
+    if (a.highlight && !b.highlight) return -1;
+    if (!a.highlight && b.highlight) return 1;
+    return new Date(b.createdAt) - new Date(a.createdAt);
+  });
+  const topActivity = activity.slice(0, 8).map(({ createdAt, highlight, ...rest }) => ({ ...rest, ...(highlight ? { highlight } : {}) }));
 
   res.json({ alerts: topAlerts, activity: topActivity });
 }));

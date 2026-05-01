@@ -2434,7 +2434,7 @@ app.get('/api/admin/dashboard/activity', authenticateToken, requireAdmin, asyncH
   thirtyDaysAgo.setDate(now.getDate() - 30);
   const thirtyDaysAgoStr = thirtyDaysAgo.toISOString();
 
-  const [alertMembershipsRes, recentBookingsRes, recentMembershipsRes, upcomingClassesRes, recentEnrollmentsRes, recentPiecesRes, todayClassesRes, pendingStudioAccessRes, recentStudioAccessRes] = await Promise.all([
+  const [alertMembershipsRes, recentBookingsRes, recentMembershipsRes, upcomingClassesRes, recentEnrollmentsRes, recentPiecesRes, todayClassesRes, pendingStudioAccessRes, cancelledClassesRes, recentStudioAccessRes] = await Promise.all([
     // Memberships expiring within 14 days
     supabaseDb.supabase
       .from('memberships')
@@ -2462,12 +2462,13 @@ app.get('/api/admin/dashboard/activity', authenticateToken, requireAdmin, asyncH
       .order('created_at', { ascending: false })
       .limit(5),
 
-    // Upcoming classes this week (for near-full alerts)
+    // Upcoming classes this week (for near-full alerts) — exclude cancelled
     supabaseDb.supabase
       .from('class_instances')
-      .select('id, class_date, class_type, start_time, max_capacity')
+      .select('id, class_date, class_type, start_time, max_capacity, status')
       .gte('class_date', today)
       .lte('class_date', sevenDaysStr)
+      .neq('status', 'cancelled')
       .order('class_date', { ascending: true })
       .limit(30),
 
@@ -2487,17 +2488,27 @@ app.get('/api/admin/dashboard/activity', authenticateToken, requireAdmin, asyncH
       .order('created_at', { ascending: false })
       .limit(5),
 
-    // Today's classes (for "classes today" alert)
+    // Today's classes (for "classes today" alert) — exclude cancelled
     supabaseDb.supabase
       .from('class_instances')
-      .select('id, class_date, class_type, start_time')
-      .eq('class_date', today),
+      .select('id, class_date, class_type, start_time, status')
+      .eq('class_date', today)
+      .neq('status', 'cancelled'),
 
     // Pending studio access bookings
     supabaseDb.supabase
       .from('studio_access_bookings')
       .select('id', { count: 'exact' })
       .eq('status', 'pending'),
+
+    // Recently cancelled classes (for activity feed)
+    supabaseDb.supabase
+      .from('class_instances')
+      .select('id, class_type, class_date, status, cancellation_reason, updated_at, instructor')
+      .eq('status', 'cancelled')
+      .gte('updated_at', thirtyDaysAgoStr)
+      .order('updated_at', { ascending: false })
+      .limit(5),
 
     // Recent studio access bookings (for activity feed, last 30 days)
     supabaseDb.supabase
@@ -2658,6 +2669,13 @@ app.get('/api/admin/dashboard/activity', authenticateToken, requireAdmin, asyncH
   (recentPiecesRes.data || []).forEach(p => {
     const name = p.student ? `${p.student.first_name} ${p.student.last_name}`.trim() : 'Unknown';
     addActivity('Gallery', name, p.title || 'New piece added', timeAgo(p.created_at), p.created_at);
+  });
+
+  // Cancelled classes
+  (cancelledClassesRes.data || []).forEach(ci => {
+    const dateStr = ci.class_date ? new Date((ci.class_date || '').split(/[T ]/)[0] + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : '';
+    const reason = ci.cancellation_reason && ci.cancellation_reason !== '-' ? ` — ${ci.cancellation_reason}` : '';
+    addActivity('Cancelled', ci.instructor || 'Instructor', `${ci.class_type} ${dateStr}${reason}`, timeAgo(ci.updated_at), ci.updated_at, 'highlight');
   });
 
   // Studio access bookings

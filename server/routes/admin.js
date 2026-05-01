@@ -2502,7 +2502,7 @@ app.get('/api/admin/dashboard/activity', authenticateToken, requireAdmin, asyncH
     // Recent studio access bookings (for activity feed, last 30 days)
     supabaseDb.supabase
       .from('studio_access_bookings')
-      .select('id, booking_date, start_time, hours, amount_sgd, credit_applied, status, created_at, customer:customers(first_name, last_name)')
+      .select('id, booking_date, start_time, hours, amount_sgd, credit_applied, status, created_at, updated_at, customer:customers(first_name, last_name)')
       .gte('created_at', thirtyDaysAgoStr)
       .order('created_at', { ascending: false })
       .limit(10),
@@ -2669,7 +2669,8 @@ app.get('/api/admin/dashboard/activity', authenticateToken, requireAdmin, asyncH
     const totalAmount = sa.amount_sgd || 0;
     const remaining = totalAmount - creditApplied;
     const creditNote = creditApplied > 0 ? ` · $${creditApplied} credit used` + (remaining > 0 ? ` · $${remaining} outstanding` : '') : '';
-    addActivity('Studio', name, `Studio access ${dateStr}${statusLabel}${creditNote}`, timeAgo(sa.created_at), sa.created_at, creditApplied > 0 && remaining > 0 ? 'highlight' : null);
+    const activityDate = sa.status === 'attended' ? (sa.updated_at || sa.created_at) : sa.created_at;
+    addActivity('Studio', name, `Studio access ${dateStr}${statusLabel}${creditNote}`, timeAgo(activityDate), activityDate, creditApplied > 0 && remaining > 0 ? 'highlight' : null);
   });
 
   // Highlighted items (e.g. outstanding fees) always float to top, then sort by date

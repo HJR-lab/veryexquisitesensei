@@ -3747,7 +3747,10 @@ app.post('/api/admin/classes/:classId/add-student', authenticateToken, requireAd
       })
       .select()
       .single();
-    if (!bookErr && booking) newBookings.push(booking);
+    if (!bookErr && booking) {
+      newBookings.push(booking);
+      await supabaseDb.updateClassEnrollment(cls.id, 1);
+    }
   }
 
   // Also link the enrollment to any pre-existing bookings that had null course_enrollment_id
@@ -4204,18 +4207,8 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
     booking = newBooking;
   }
 
-  // Update class capacity
-  const { error: capacityError } = await supabaseDb.supabase
-    .from('class_instances')
-    .update({
-      current_capacity: classInstance.current_capacity + 1,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', classInstanceId);
-
-  if (capacityError) {
-    console.error('Error updating class capacity:', capacityError);
-  }
+  // Update class enrollment count
+  await supabaseDb.updateClassEnrollment(parseInt(classInstanceId), 1);
 
   // Decrement flex credits if the enrollment is tracking them. This covers
   // both HB credit enrollments and 10-class WT packages (both set
@@ -4273,6 +4266,8 @@ app.patch('/api/admin/classes/:classId', authenticateToken, requireAdmin, asyncH
   if (maxCapacity !== undefined) updates.max_capacity = maxCapacity;
   if (classTitle !== undefined) updates.class_title = classTitle;
   if (classDescription !== undefined) updates.class_description = classDescription;
+  if (req.body.status) updates.status = req.body.status;
+  if (req.body.cancellation_reason !== undefined) updates.cancellation_reason = req.body.cancellation_reason;
 
   // WARNING: If date/time changes, the class_type identifier will be out of sync
   // The identifier format is: WT[DDMM][TIME]_[INSTRUCTOR][WEEKS].[WEEK#]
@@ -4289,6 +4284,12 @@ app.patch('/api/admin/classes/:classId', authenticateToken, requireAdmin, asyncH
     console.error('Error updating class:', updateError);
     return res.status(500).json({ error: 'Failed to update class' });
   }
+
+  // Sync to Google Calendar
+  try {
+    const calendarSync = require('../utils/calendarSync');
+    calendarSync.syncClassInstance(parseInt(classId)).catch(() => {});
+  } catch (e) { /* ignore */ }
 
   res.json({ message: 'Class updated successfully' });
 }));

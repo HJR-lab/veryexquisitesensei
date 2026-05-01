@@ -866,6 +866,12 @@ app.post('/api/instructor/classes/:classId/cancel', authenticateToken, asyncHand
     }
   }
 
+  // Sync to Google Calendar (shows [CANCELLED] in title)
+  try {
+    const calendarSync = require('../utils/calendarSync');
+    calendarSync.syncClassInstance(parseInt(classId)).catch(() => {});
+  } catch (e) { /* ignore */ }
+
   console.log(`🚫 Instructor ${instructorName} cancelled class ${classId} (${classInstance.class_type} on ${classInstance.class_date}). Reason: ${reason.trim()}. ${affectedCount} bookings affected.`);
 
   res.json({
@@ -934,6 +940,12 @@ app.post('/api/instructor/classes/:classId/reinstate', authenticateToken, asyncH
       .eq('class_instance_id', classId)
       .eq('status', 'cancelled');
   }
+
+  // Sync to Google Calendar (removes [CANCELLED] from title)
+  try {
+    const calendarSync = require('../utils/calendarSync');
+    calendarSync.syncClassInstance(parseInt(classId)).catch(() => {});
+  } catch (e) { /* ignore */ }
 
   console.log(`✅ Instructor ${instructorName} reinstated class ${classId} (${classInstance.class_type} on ${classInstance.class_date}). ${reinstatedCount} bookings restored.`);
 

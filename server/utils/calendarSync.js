@@ -127,7 +127,9 @@ function buildEventPayload(classInstance, description) {
   const start = parseTime(classInstance.start_time);
   const end = parseTime(classInstance.end_time);
   return {
-    summary: classInstance.class_type,
+    summary: classInstance.status === 'cancelled'
+      ? classInstance.class_type + ' [CANCELLED]'
+      : classInstance.class_type,
     description,
     location: 'VES Pottery Studio',
     start: { dateTime: date + 'T' + start, timeZone: TIMEZONE },

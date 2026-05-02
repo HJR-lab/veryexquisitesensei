@@ -428,7 +428,17 @@ export default function AdminStudioAccess() {
                     <span style={{ fontSize: '12px' }}>{DAY_LABELS[bd.getDay()]} {bd.getDate()} {MONTH_LABELS[bd.getMonth()]}</span>
                     <span style={{ fontSize: '12px' }}>{fmt24to12(b.start_time)}</span>
                     <span style={{ fontSize: '12px' }}>{b.hours}h</span>
-                    <span style={{ fontSize: '12px' }}>${b.amount_sgd}</span>
+                    <div>
+                      <span style={{ fontSize: '12px' }}>${b.amount_sgd}</span>
+                      {b.credit_applied > 0 && (
+                        <div style={{ fontSize: '9px', marginTop: '2px' }}>
+                          <span style={{ color: '#2E7D32', fontWeight: 700 }}>${b.credit_applied} credit</span>
+                          {(b.amount_sgd - b.credit_applied) > 0 && (
+                            <span style={{ color: '#C62828', fontWeight: 700 }}> · ${b.amount_sgd - b.credit_applied} owed</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                     <StatusPill status={b.status} />
                     <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                       {b.status === 'pending' && <button onClick={() => handleConfirm(b.id)} style={btnStyle('#2E7D32', '#FFF')}>Confirm</button>}

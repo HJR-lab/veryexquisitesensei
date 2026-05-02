@@ -80,6 +80,8 @@ export default function AdminStudioAccess() {
 
   // Attended modal state
   const [attendedModal, setAttendedModal] = useState(null); // { id, hours }
+  const [sortBy, setSortBy] = useState('date'); // 'date' | 'name' | 'name_desc'
+  const [showCancelled, setShowCancelled] = useState(false);
 
   useEffect(() => {
     fetchBookings();
@@ -179,8 +181,22 @@ export default function AdminStudioAccess() {
   bookings.forEach(b => {
     if (b.status !== 'cancelled') bookingDates[b.booking_date] = (bookingDates[b.booking_date] || 0) + 1;
   });
-  const filteredBookings = bookings;
-  const pendingBookings = filteredBookings.filter(b => b.status === 'pending');
+  const visibleBookings = showCancelled ? bookings : bookings.filter(b => b.status !== 'cancelled');
+  const cancelledCount = bookings.filter(b => b.status === 'cancelled').length;
+  const filteredBookings = [...visibleBookings].sort((a, b) => {
+    if (sortBy === 'name') {
+      const nameA = (a.customer?.first_name || '').toLowerCase();
+      const nameB = (b.customer?.first_name || '').toLowerCase();
+      return nameA.localeCompare(nameB);
+    }
+    if (sortBy === 'name_desc') {
+      const nameA = (a.customer?.first_name || '').toLowerCase();
+      const nameB = (b.customer?.first_name || '').toLowerCase();
+      return nameB.localeCompare(nameA);
+    }
+    return new Date(b.created_at) - new Date(a.created_at); // newest first
+  });
+  const pendingBookings = bookings.filter(b => b.status === 'pending');
 
   const labelStyle = { fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED, display: 'block', marginBottom: '4px' };
   const inputStyle = { width: '100%', padding: '8px 10px', fontSize: '13px', border: `1px solid ${RULE}`, fontFamily: 'inherit', boxSizing: 'border-box' };
@@ -342,14 +358,30 @@ export default function AdminStudioAccess() {
 
         {/* All bookings */}
         <div>
-          <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, marginBottom: '12px' }}>
-            {loading ? 'Loading bookings...' : `Bookings — ${filteredBookings.length} total`}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED }}>
+              {loading ? 'Loading bookings...' : `Bookings — ${filteredBookings.length} total`}
+            </div>
+            {cancelledCount > 0 && (
+              <button
+                onClick={() => setShowCancelled(!showCancelled)}
+                style={{ fontSize: '10px', fontWeight: 600, color: MUTED, background: 'none', border: `1px solid ${RULE}`, padding: '3px 10px', cursor: 'pointer' }}
+              >
+                {showCancelled ? 'Hide' : 'Show'} cancelled ({cancelledCount})
+              </button>
+            )}
           </div>
 
           <div style={{ backgroundColor: '#FFFFFF', border: `1px solid ${RULE}` }}>
             {/* Table header */}
             <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1fr 0.6fr 0.5fr 0.5fr 0.7fr 1.5fr', gap: '8px', padding: '10px 16px', borderBottom: `1px solid ${RULE}`, backgroundColor: '#FAFAFA' }}>
-              {['Student', 'Date', 'Start', 'Hours', 'Amount', 'Status', 'Actions'].map(h => (
+              <span
+                onClick={() => setSortBy(sortBy === 'name' ? 'name_desc' : sortBy === 'name_desc' ? 'date' : 'name')}
+                style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: sortBy.startsWith('name') ? TC : MUTED, cursor: 'pointer' }}
+              >
+                Student {sortBy === 'name' ? '↑' : sortBy === 'name_desc' ? '↓' : ''}
+              </span>
+              {['Date', 'Start', 'Hours', 'Amount', 'Status', 'Actions'].map(h => (
                 <span key={h} style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED }}>{h}</span>
               ))}
             </div>
@@ -382,6 +414,11 @@ export default function AdminStudioAccess() {
                           </Link>
                         ) : 'Unknown'}
                       </span>
+                      {b.created_at && (
+                        <div style={{ fontSize: '9px', color: MUTED, marginTop: '2px' }}>
+                          Booked {new Date(b.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} {new Date(b.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      )}
                       {b.amount_sgd === 0 && b.passes?.total > 0 && (
                         <div style={{ fontSize: '9px', fontWeight: 700, color: TC, marginTop: '2px' }}>
                           Pass · {b.passes.remaining}/{b.passes.total} left

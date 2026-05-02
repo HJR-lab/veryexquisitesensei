@@ -440,16 +440,10 @@ export default function AdminStudioAccess() {
                     <div>
                       <span style={{ fontSize: '12px' }}>${b.amount_sgd}</span>
                       {b.fee && b.fee.payment_status === 'pending' && (
-                        <div style={{ fontSize: '9px', marginTop: '2px' }}>
-                          <div style={{ color: MUTED }}>${b.credit_applied} credit</div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '1px' }}>
-                            <span style={{ color: '#C62828', fontWeight: 700 }}>${b.fee.amount} owed</span>
-                            <button
-                              onClick={() => handleMarkPaid(b.fee.id)}
-                              style={{ fontSize: '8px', fontWeight: 700, color: '#2E7D32', background: '#E8F5E9', border: 'none', padding: '1px 6px', cursor: 'pointer', letterSpacing: '0.04em' }}
-                            >PAID</button>
-                          </div>
-                        </div>
+                        <button
+                          onClick={() => handleMarkPaid(b.fee.id)}
+                          style={{ display: 'block', fontSize: '10px', fontWeight: 700, color: '#C62828', background: 'none', border: 'none', padding: 0, cursor: 'pointer', marginTop: '2px' }}
+                        >${b.fee.amount} owed</button>
                       )}
                     </div>
                     <StatusPill status={b.status} />

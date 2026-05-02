@@ -1419,7 +1419,22 @@ app.get('/api/admin/studio-access/bookings', authenticateToken, requireAdmin, as
   for (const cid of customerIds) {
     passMap[cid] = await getStudioAccessPasses(cid);
   }
-  const enriched = (data || []).map(b => ({ ...b, passes: passMap[b.customer_id] || null }));
+  // Fetch outstanding fees for studio access bookings
+  const { data: fees } = await supabaseDb.supabase
+    .from('reschedule_fees')
+    .select('id, student_id, amount, payment_status, fee_date')
+    .eq('fee_type', 'studio_access')
+    .in('student_id', customerIds.length > 0 ? customerIds : [0]);
+  const feeMap = {};
+  (fees || []).forEach(f => {
+    const key = `${f.student_id}_${(f.fee_date || '').split('T')[0]}`;
+    feeMap[key] = f;
+  });
+
+  const enriched = (data || []).map(b => {
+    const feeKey = `${b.customer_id}_${(b.booking_date || '').split('T')[0]}`;
+    return { ...b, passes: passMap[b.customer_id] || null, fee: feeMap[feeKey] || null };
+  });
 
   res.json({ bookings: enriched });
 }));

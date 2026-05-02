@@ -123,6 +123,15 @@ export default function AdminStudioAccess() {
     }
   };
 
+  const handleMarkPaid = async (feeId) => {
+    try {
+      await api.patch(`/admin/fees/${feeId}/payment`, { paymentStatus: 'paid' });
+      fetchBookings();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to mark as paid');
+    }
+  };
+
   const handleCancel = async (id) => {
     if (!window.confirm('Cancel this booking?')) return;
     try {
@@ -433,9 +442,20 @@ export default function AdminStudioAccess() {
                       {b.credit_applied > 0 && (
                         <div style={{ fontSize: '9px', marginTop: '2px' }}>
                           <span style={{ color: '#2E7D32', fontWeight: 700 }}>${b.credit_applied} credit</span>
-                          {(b.amount_sgd - b.credit_applied) > 0 && (
-                            <span style={{ color: '#C62828', fontWeight: 700 }}> · ${b.amount_sgd - b.credit_applied} owed</span>
-                          )}
+                        </div>
+                      )}
+                      {b.fee && b.fee.payment_status === 'pending' && (
+                        <div style={{ fontSize: '9px', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span style={{ color: '#C62828', fontWeight: 700 }}>${b.fee.amount} owed</span>
+                          <button
+                            onClick={() => handleMarkPaid(b.fee.id)}
+                            style={{ fontSize: '8px', fontWeight: 700, color: '#2E7D32', background: '#E8F5E9', border: 'none', padding: '1px 6px', cursor: 'pointer', letterSpacing: '0.04em' }}
+                          >PAID</button>
+                        </div>
+                      )}
+                      {b.fee && b.fee.payment_status === 'paid' && (
+                        <div style={{ fontSize: '9px', marginTop: '2px', color: '#2E7D32', fontWeight: 700 }}>
+                          ${b.fee.amount} paid
                         </div>
                       )}
                     </div>

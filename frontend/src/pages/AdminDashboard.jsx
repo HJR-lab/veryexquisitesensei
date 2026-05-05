@@ -204,6 +204,7 @@ export default function AdminDashboard() {
                     Membership: { color: '#7C3AED', icon: 'card_membership' },
                     Gallery: { color: '#D97706', icon: 'photo_library' },
                     Studio: { color: '#0891B2', icon: 'door_open' },
+                    Signup: { color: '#059669', icon: 'person_add' },
                   };
                   const style = actionStyles[r.action] || { color: TC, icon: 'circle' };
                   return (

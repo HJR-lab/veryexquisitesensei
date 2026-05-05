@@ -2700,12 +2700,26 @@ app.get('/api/admin/dashboard/activity', authenticateToken, requireAdmin, asyncH
     addActivity('Studio', name, `Studio access ${dateStr}${statusLabel}${creditNote}`, timeAgo(activityDate), activityDate, creditApplied > 0 && remaining > 0 ? 'highlight' : null);
   });
 
-  // Highlighted items (e.g. outstanding fees) always float to top, then sort by date
-  activity.sort((a, b) => {
-    if (a.highlight && !b.highlight) return -1;
-    if (!a.highlight && b.highlight) return 1;
-    return new Date(b.createdAt) - new Date(a.createdAt);
-  });
+  // New signups (customers created in last 7 days with course_purchase_count = 0 or 1)
+  {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const { data: newCustomers } = await supabaseDb.supabase
+      .from('customers')
+      .select('id, first_name, last_name, created_at')
+      .gte('created_at', sevenDaysAgo.toISOString())
+      .lte('course_purchase_count', 1)
+      .not('first_name', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(5);
+    (newCustomers || []).forEach(c => {
+      const name = `${c.first_name} ${c.last_name}`.trim();
+      addActivity('Signup', name, 'New student', timeAgo(c.created_at), c.created_at);
+    });
+  }
+
+  // Sort by date, preserve highlight flag
+  activity.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   const topActivity = activity.slice(0, 8).map(({ createdAt, highlight, ...rest }) => ({ ...rest, ...(highlight ? { highlight } : {}) }));
 
   res.json({ alerts: topAlerts, activity: topActivity });

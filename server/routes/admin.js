@@ -1581,9 +1581,71 @@ app.get('/api/admin/students/:id/enrollment', authenticateToken, requireAdmin, a
     return res.json(null);
   }
 
-  // Split into active/paused vs completed
-  const activeEnrollments = enrollments.filter(e => e.status === 'active' || e.status === 'paused');
+  // Read-only predicate: is an 'active' enrollment actually ENDED?
+  // Mirrors autoCompleteFinishedEnrollments() in routes/shopify.js exactly,
+  // but performs NO database writes. Returns true only when the course has
+  // genuinely finished and the auto-complete routine would mark it completed.
+  const todayStr = new Date().toISOString().split('T')[0];
+  const isActiveEnrollmentEnded = async (enrollment) => {
+    // Get all bookings for this enrollment
+    const { data: bookings } = await supabaseDb.supabase
+      .from('bookings')
+      .select('id, class_instances!bookings_class_instance_id_fkey(class_date)')
+      .eq('course_enrollment_id', enrollment.id)
+      .in('status', ['booked', 'completed', 'attended']);
+
+    if (!bookings || bookings.length === 0) return false;
+
+    // Check if ALL booking dates are strictly in the past
+    const allPast = bookings.every(b => {
+      const d = b.class_instances?.class_date?.split(/[T ]/)[0];
+      return d && d < todayStr;
+    });
+
+    if (!allPast) return false;
+
+    // Compute credits from actual bookings (never trust stale DB columns)
+    const credits = await supabaseDb.getEnrollmentCredits(enrollment.id);
+
+    // Skip HB credit-based enrollments that still have remaining credits
+    const isHB = enrollment.course_type && enrollment.course_type.toLowerCase().includes('handbuilding');
+    if (isHB && credits.remaining > 0) {
+      return false; // Student still has credits to use — still active
+    }
+
+    // 10-class packages (number_of_weeks=10, total_weeks=6) holding/owed flex
+    // credits: auto-complete allocates flex credits instead of completing.
+    const is10ClassPackage = enrollment.number_of_weeks === 10 && (enrollment.total_weeks === 6 || bookings.length === 6);
+    if (is10ClassPackage && !enrollment.class_credits_allocated) {
+      return false; // Flex credits still owed — still active
+    }
+
+    // Skip if enrollment still has flex/credit remaining
+    if (credits.remaining > 0) {
+      return false;
+    }
+
+    return true; // All classes past, no remaining credits — ended
+  };
+
+  // Split into active/paused vs completed.
+  // An 'active' enrollment whose course has actually ended (per the predicate
+  // above) is reclassified into completed history without any DB write.
   const completedEnrollments = enrollments.filter(e => e.status === 'completed');
+  const activeEnrollments = [];
+  const endedActiveEnrollments = [];
+  for (const e of enrollments) {
+    if (e.status === 'paused') {
+      // Paused enrollments are left completely unchanged.
+      activeEnrollments.push(e);
+    } else if (e.status === 'active') {
+      if (await isActiveEnrollmentEnded(e)) {
+        endedActiveEnrollments.push(e);
+      } else {
+        activeEnrollments.push(e);
+      }
+    }
+  }
 
   // Enrich all active enrollments
   const enrichedEnrollments = [];
@@ -1660,16 +1722,23 @@ app.get('/api/admin/students/:id/enrollment', authenticateToken, requireAdmin, a
     return 0;
   });
 
+  // 'active' enrollments whose course has ended are treated as completed
+  // history (display_status 'completed'), alongside truly-completed ones.
+  const completedHistoryAll = [
+    ...endedActiveEnrollments.map(e => ({ ...e, display_status: 'completed' })),
+    ...completedEnrollments.map(e => ({ ...e, display_status: 'completed' })),
+  ].sort((a, b) => String(b.course_start_date || '').localeCompare(String(a.course_start_date || '')));
+
   // Fall back to most recent completed if no active enrollments
-  if (enrichedEnrollments.length === 0 && completedEnrollments.length > 0) {
-    enrichedEnrollments.push({ ...completedEnrollments[0], display_status: 'completed' });
+  if (enrichedEnrollments.length === 0 && completedHistoryAll.length > 0) {
+    enrichedEnrollments.push(completedHistoryAll[0]);
   }
 
   // Return all enrollments + backward-compat single enrollment (first one)
   const currentEnrollment = enrichedEnrollments[0] || null;
-  console.log(`[enrollment] student=${studentId} active=${activeEnrollments.length} completed=${completedEnrollments.length} returning=${enrichedEnrollments.length}`);
+  console.log(`[enrollment] student=${studentId} active=${activeEnrollments.length} endedActive=${endedActiveEnrollments.length} completed=${completedEnrollments.length} returning=${enrichedEnrollments.length}`);
   if (currentEnrollment) {
-    const history = completedEnrollments.filter(e => e.id !== currentEnrollment.id);
+    const history = completedHistoryAll.filter(e => e.id !== currentEnrollment.id);
     res.json({ ...currentEnrollment, completed_history: history, all_enrollments: enrichedEnrollments });
   } else {
     res.json(null);

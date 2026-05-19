@@ -1628,6 +1628,31 @@ app.get('/api/admin/students/:id/enrollment', authenticateToken, requireAdmin, a
     return true; // All classes past, no remaining credits — ended
   };
 
+  // Read-only package-progress enrichment. Computes course counts for
+  // multi-course package enrollments. Applied to BOTH active enrollments and
+  // completed-history entries, so a package student *between courses* (every
+  // course so far completed, none currently active) still shows accurate
+  // "Course X of N", "X completed", and "Y more courses remaining". No writes.
+  const enrichPackageProgress = async (enrollment) => {
+    if (!enrollment.package_total_courses || enrollment.package_total_courses <= 1) {
+      return enrollment;
+    }
+    const { data: pkgEnrollments } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('id, status')
+      .eq('student_id', studentId)
+      .ilike('course_title', '%3 Course Package%');
+
+    const completedInPackage = (pkgEnrollments || []).filter(e => e.status === 'completed').length;
+    const activeInPackage = (pkgEnrollments || []).filter(e => e.status === 'active').length;
+    return {
+      ...enrollment,
+      package_courses_completed: completedInPackage,
+      package_current_course: completedInPackage + activeInPackage,
+      package_courses_remaining: enrollment.package_total_courses - completedInPackage - activeInPackage,
+    };
+  };
+
   // Split into active/paused vs completed.
   // An 'active' enrollment whose course has actually ended (per the predicate
   // above) is reclassified into completed history without any DB write.
@@ -1679,22 +1704,7 @@ app.get('/api/admin/students/:id/enrollment', authenticateToken, requireAdmin, a
     }
 
     // If package enrollment, count completed courses
-    if (enrollment.package_total_courses && enrollment.package_total_courses > 1) {
-      const { data: allEnrollments } = await supabaseDb.supabase
-        .from('course_enrollments')
-        .select('id, status')
-        .eq('student_id', studentId)
-        .ilike('course_title', '%3 Course Package%');
-
-      const completedInPackage = (allEnrollments || []).filter(e => e.status === 'completed').length;
-      const activeInPackage = (allEnrollments || []).filter(e => e.status === 'active').length;
-      enrollment = {
-        ...enrollment,
-        package_courses_completed: completedInPackage,
-        package_current_course: completedInPackage + activeInPackage,
-        package_courses_remaining: enrollment.package_total_courses - completedInPackage - activeInPackage,
-      };
-    }
+    enrollment = await enrichPackageProgress(enrollment);
 
     // Determine if upcoming (start_date in future) vs active
     const today = new Date().toISOString().split('T')[0];
@@ -1724,10 +1734,16 @@ app.get('/api/admin/students/:id/enrollment', authenticateToken, requireAdmin, a
 
   // 'active' enrollments whose course has ended are treated as completed
   // history (display_status 'completed'), alongside truly-completed ones.
-  const completedHistoryAll = [
+  const completedHistorySorted = [
     ...endedActiveEnrollments.map(e => ({ ...e, display_status: 'completed' })),
     ...completedEnrollments.map(e => ({ ...e, display_status: 'completed' })),
   ].sort((a, b) => String(b.course_start_date || '').localeCompare(String(a.course_start_date || '')));
+  // Enrich package-progress so a package student who has completed every course
+  // so far (no active enrollment between courses) still shows accurate counts.
+  // Promise.all preserves order. Read-only — no DB writes.
+  const completedHistoryAll = await Promise.all(
+    completedHistorySorted.map(e => enrichPackageProgress(e))
+  );
 
   // Fall back to most recent completed if no active enrollments
   if (enrichedEnrollments.length === 0 && completedHistoryAll.length > 0) {

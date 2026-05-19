@@ -1330,9 +1330,19 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
       (bookingEnrollment?.course_title?.includes('10 Classes') ?? false);
   }
 
-  // Check if this is a glazing class (Week 6/6 Glazing)
-  const isOldClassGlazing = oldClass.class_type?.includes('Week 6/6') && oldClass.class_type?.includes('Glazing');
-  const isNewClassGlazing = newClass.class_type?.includes('Week 6/6') && newClass.class_type?.includes('Glazing');
+  // Check if this is a glazing class. class_type is the coded format
+  // (e.g. WT0206NT_JL6.6, WT1104AM_DL7.7) — glazing is the FINAL week, i.e.
+  // the trailing <totalWeeks>.<weekNum> are equal. The old code matched the
+  // literal strings 'Week 6/6'/'Glazing' which never appear in real data, so
+  // glazing was misclassified as a regular class and blocked from
+  // cross-cohort reschedule. Matches isGlazing() in
+  // scripts/backfill-glazing-capacity.js and the week regex used below.
+  const isGlazingClassType = (ct) => {
+    const m = (ct || '').match(/(\d+)\.(\d+)$/);
+    return !!m && m[1] === m[2];
+  };
+  const isOldClassGlazing = isGlazingClassType(oldClass.class_type);
+  const isNewClassGlazing = isGlazingClassType(newClass.class_type);
 
   // For 10-class package: check if this is their 10th class (final class must be glazing)
   if (has10ClassPackage) {

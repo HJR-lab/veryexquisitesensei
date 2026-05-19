@@ -372,7 +372,7 @@ export default function ClassScheduleNew() {
     // Server validates all complex rules on submit
     return allClasses.filter(c => {
       const isDifferentClass = c.id !== selectedClass.id;
-      const hasSpace = (c.currentEnrollment || 0) < 10;
+      const hasSpace = (c.currentEnrollment || 0) < (c.maxCapacity || 10);
       const classDateTime = parseClassDateTime(c.classDate, c.startTime);
       const isAtLeast24HoursAway = classDateTime >= twentyFourHoursFromNow;
       const isValidTime = !isNaN(classDateTime.getTime());

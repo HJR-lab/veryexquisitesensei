@@ -289,9 +289,9 @@ export default function AdminStudentDetail() {
       });
     });
     if (isUnbooked) {
-      return flatClasses.filter(c => c.currentEnrollment < 10);
+      return flatClasses.filter(c => c.currentEnrollment < (c.maxCapacity || 10));
     }
-    return flatClasses.filter(c => c.id !== selectedBookingForMakeup.class_instance_id && c.currentEnrollment < 10);
+    return flatClasses.filter(c => c.id !== selectedBookingForMakeup.class_instance_id && c.currentEnrollment < (c.maxCapacity || 10));
   };
 
   const getMakeupClassesForDate = (date) => {
@@ -517,6 +517,7 @@ export default function AdminStudentDetail() {
             id: cls.id,
             classDate: cls.class_date,
             classType: cls.class_type,
+            maxCapacity: cls.max_capacity,
             currentEnrollment: cls.bookingCount || 0,
           });
         });
@@ -528,10 +529,10 @@ export default function AdminStudentDetail() {
 
       let availableClasses;
       if (isUnbookedCredit) {
-        availableClasses = futureClasses.filter(c => c.currentEnrollment < 10);
+        availableClasses = futureClasses.filter(c => c.currentEnrollment < (c.maxCapacity || 10));
       } else {
         availableClasses = futureClasses.filter(c => {
-          return c.id !== booking.class_instance_id && c.currentEnrollment < 10;
+          return c.id !== booking.class_instance_id && c.currentEnrollment < (c.maxCapacity || 10);
         });
       }
 

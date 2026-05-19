@@ -293,6 +293,92 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
     }
   });
 
+  // Continuation-pending package students: WT multi-course package students
+  // who completed every course created so far but still have package courses
+  // remaining (between cohorts — no active/paused/upcoming enrollment exists
+  // yet for the next course). Without this they are invisible in the admin
+  // list/search, which blocks the admin from opening their detail page to
+  // click "Continue Package". Read-only.
+  const { data: completedPkgAll } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select(`
+      id, student_id, course_type, course_title, course_variant_title,
+      course_identifier, schedule_pattern, class_time, status,
+      number_of_weeks, class_credits_allocated, class_credits_used, class_credits_remaining,
+      course_start_date, course_end_date, created_at, package_total_courses,
+      customers!course_enrollments_student_id_fkey (
+        id, email, first_name, last_name, customer_type,
+        course_purchase_count, classes_allocated, created_at,
+        last_login_at, login_count
+      )
+    `)
+    .eq('status', 'completed')
+    .gt('package_total_courses', 1)
+    .order('created_at', { ascending: false });
+
+  if (completedPkgAll && completedPkgAll.length) {
+    const sids = [...new Set(completedPkgAll.map(e => e.student_id))];
+    // Count consumed package courses (active + completed) per student in one
+    // grouped query — avoids an N+1 across the candidate list.
+    const { data: pkgRows } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('student_id, status, package_total_courses')
+      .in('student_id', sids)
+      .in('status', ['active', 'completed'])
+      .gt('package_total_courses', 1);
+    const usedByStudent = {};
+    (pkgRows || []).forEach(r => {
+      usedByStudent[r.student_id] = (usedByStudent[r.student_id] || 0) + 1;
+    });
+
+    const seenSid = new Set();
+    for (const enr of completedPkgAll) {
+      // completedPkgAll is ordered created_at desc → first row per student
+      // is their latest completed package course.
+      const sid = enr.student_id;
+      if (seenSid.has(sid)) continue;
+      seenSid.add(sid);
+      const student = enr.customers;
+      if (!student) continue;
+      if (emailSet.has(student.email)) continue; // already listed (has active/paused/upcoming)
+      const remaining = (enr.package_total_courses || 0) - (usedByStudent[sid] || 0);
+      if (remaining <= 0) continue; // package fully consumed — genuinely done
+      students.push({
+        name: `${student.first_name || ''} ${student.last_name || ''}`.trim() || 'Unknown',
+        email: student.email,
+        courseType: enr.course_type,
+        courseTitle: enr.course_title,
+        variantTitle: enr.course_variant_title || null,
+        courseIdentifier: enr.course_identifier,
+        // Surfaces via the existing WT-active frontend filter (a between-
+        // courses package customer is functionally an active customer).
+        enrollmentStatus: 'active',
+        continuationPending: true,
+        packageCoursesRemaining: remaining,
+        enrollmentId: enr.id,
+        enrollmentCreatedAt: enr.created_at,
+        schedulePattern: enr.schedule_pattern,
+        classTime: enr.class_time,
+        numberOfWeeks: enr.number_of_weeks,
+        packageTotalCourses: enr.package_total_courses,
+        creditsAllocated: null,
+        creditsUsed: null,
+        creditsRemaining: null,
+        classesAllocated: enr.number_of_weeks || 6,
+        classesAttended: attendedByEnrollment[enr.id] || 0,
+        coursePurchaseCount: student.course_purchase_count || 1,
+        customerType: student.customer_type,
+        isHB: false,
+        isWT: true,
+        membership: membershipByEmail[student.email] || null,
+        lastLoginAt: student.last_login_at || null,
+        loginCount: student.login_count || 0,
+        latestEnrollmentDate: enr.created_at,
+      });
+      emailSet.add(student.email);
+    }
+  }
+
   // Apply filter
   if (filter !== 'all') {
     students = students.filter(s => {

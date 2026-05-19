@@ -313,7 +313,6 @@ async function checkCourseEmailReminders() {
 async function checkUnconfirmedCourses() {
   try {
     const { sendAndLogEmail } = require('./emailService');
-    const { generateCourseUnconfirmedEmail } = require('../email-templates/course-unconfirmed');
 
     const threeDaysFromNow = new Date();
     threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3);
@@ -384,33 +383,22 @@ async function checkUnconfirmedCourses() {
       const formattedStart = new Date(cohort.startDate + 'T00:00:00')
         .toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
 
-      const { subject, html } = generateCourseUnconfirmedEmail({
-        courseType: cohort.courseType || 'Wheelthrowing',
-        dayOfWeek,
-        startDate: formattedStart,
-        timeSlot: cohort.classTime || '',
-      });
-
+      // Student-facing unconfirmed/postponement emails are DISABLED.
+      // Only notify admin internally so they can decide what to do.
+      // Sent via sendAndLogEmail (email_type 'course_unconfirmed') so the
+      // alreadySent dedup check above stops this re-firing every day.
       await sendAndLogEmail({
         emailType: 'course_unconfirmed',
         courseIdentifier: cohortId,
-        subject,
-        html,
-        recipientEmails: studentEmails,
-        sentBy: 'system',
-      });
-
-      console.log(`[Auto-Processor] Sent unconfirmed course email to ${studentEmails.length} students for ${cohortId}`);
-
-      // Also notify admin
-      const { sendEmail } = require('./emailService');
-      await sendEmail({
-        to: 'info@ves.sg',
         subject: `VES Admin: Course unconfirmed — ${cohortId} (${studentCount} students)`,
         html: `<p>The following course starts in 3 days but only has ${studentCount} student(s) (minimum ${unconfirmedMinStudents} required):</p>
           <p><strong>${cohort.courseType}</strong> — ${dayOfWeek}s, ${formattedStart} (${cohort.classTime})</p>
-          <p>An unconfirmed/postponement email has been sent to the enrolled students.</p>`,
+          <p>No email was sent to the enrolled students — handle this cohort manually.</p>`,
+        recipientEmails: ['info@ves.sg'],
+        sentBy: 'system',
       });
+
+      console.log(`[Auto-Processor] Course unconfirmed (admin-only notice) for ${cohortId} — ${studentCount} students, NO student email sent`);
     }
   } catch (error) {
     console.error('[Auto-Processor] Unconfirmed course check failed:', error);

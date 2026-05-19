@@ -313,7 +313,8 @@ function generateCourseIdentifier(courseInfo, actualClassDate, instructorCode, w
  * @param {string} options.instructorName - Instructor name (e.g., "Joyce Lim")
  * @param {string} options.instructorCode - Instructor code (e.g., "JL")
  * @param {string} options.room - Room name (default: "Studio A")
- * @param {number} options.maxCapacity - Max capacity (default: 10)
+ * @param {number} options.maxCapacity - Max capacity for regular weeks (default: 10)
+ * @param {number} options.glazingCapacity - Max capacity for the final glazing week (default: 14)
  * @param {string} options.startTime - Start time (default: "7:00 PM")
  * @param {string} options.endTime - End time (default: "9:30 PM")
  * @returns {Array<Object>} Array of class instance objects
@@ -324,6 +325,7 @@ function createClassInstances(courseInfo, options = {}) {
     instructorCode = 'JL',
     room = 'Studio A',
     maxCapacity = 10,
+    glazingCapacity = 14,
     startTime = '7:00 PM',
     endTime = '9:30 PM'
   } = options;
@@ -339,6 +341,8 @@ function createClassInstances(courseInfo, options = {}) {
 
   return classDates.map((date, index) => {
     const weekNumber = index + 1;
+    // The final week is the glazing class — it gets a higher capacity
+    const isLastClass = index === classDates.length - 1;
     // Pass the first class date to generate the base identifier
     const courseIdentifier = generateCourseIdentifier(courseInfo, firstClassDate, instructorCode, weekNumber);
 
@@ -356,7 +360,7 @@ function createClassInstances(courseInfo, options = {}) {
       class_type: courseIdentifier || `${courseInfo.courseType} (Week ${weekNumber}/${classDates.length})`,
       instructor: courseInfo.instructor || instructorName,
       room: courseInfo.room || room,
-      max_capacity: maxCapacity,
+      max_capacity: isLastClass ? glazingCapacity : maxCapacity,
       current_enrollment: 0,
       status: 'active',
       updated_at: new Date().toISOString()

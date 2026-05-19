@@ -3236,25 +3236,32 @@ app.put('/api/admin/students/:email', authenticateToken, requireAdmin, asyncHand
   if (phone !== undefined)               updateData.phone = phone;
   if (wheel_preference !== undefined)    updateData.wheel_preference = wheel_preference;
 
-  // If name changed, try to set name_locked flag to prevent sync overwrite
+  // If name changed, set name_locked so sync won't revert the admin's value
   if (nameChanged) updateData.name_locked = true;
+  // If email changed, set email_locked so sync won't revert the admin's value
+  const emailChanged = newEmail !== undefined;
+  if (emailChanged) updateData.email_locked = true;
 
-  let { data, error } = await supabaseDb.supabase
+  const runUpdate = () => supabaseDb.supabase
     .from('customers')
     .update(updateData)
     .eq('email', decodedEmail)
     .select()
     .single();
 
-  // If name_locked column doesn't exist yet, retry without it
-  if (error && nameChanged && error.message?.includes('name_locked')) {
-    delete updateData.name_locked;
-    ({ data, error } = await supabaseDb.supabase
-      .from('customers')
-      .update(updateData)
-      .eq('email', decodedEmail)
-      .select()
-      .single());
+  let { data, error } = await runUpdate();
+
+  // Defensive: if a *_locked column doesn't exist yet, drop it and retry.
+  // Retry up to twice so a missing name_locked AND email_locked both degrade gracefully.
+  for (let attempt = 0; attempt < 2 && error; attempt++) {
+    if (nameChanged && error.message?.includes('name_locked')) {
+      delete updateData.name_locked;
+    } else if (emailChanged && error.message?.includes('email_locked')) {
+      delete updateData.email_locked;
+    } else {
+      break;
+    }
+    ({ data, error } = await runUpdate());
   }
 
   if (error) throw error;

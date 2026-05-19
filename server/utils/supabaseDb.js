@@ -114,24 +114,32 @@ async function syncCustomer(shopifyCustomer, shopifyCustomerId, classStartDate =
     const expiryDate = classEndDate ? classEndDate.toISOString().split('T')[0] : null;
 
     if (existingCustomer) {
-      // Update existing customer — preserve manual edits
-      // name_locked: permanent flag set when admin manually edits name — survives syncs
-      // Fallback: detect manual edit via updated_at > last_synced_at (one-time protection)
+      // Update existing customer — preserve manual edits.
+      // *_locked: permanent flag set when admin manually edits the field — survives every sync.
+      // Fallback: detect a recent manual edit via updated_at > last_synced_at. This is only
+      // one-time protection (the next sync rewrites last_synced_at), which is exactly why the
+      // permanent *_locked flags exist.
       const nameLocked = existingCustomer.name_locked === true;
-      const wasManuallyEdited = !nameLocked && existingCustomer.updated_at && existingCustomer.last_synced_at &&
+      const emailLocked = existingCustomer.email_locked === true;
+      const recentlyEdited = existingCustomer.updated_at && existingCustomer.last_synced_at &&
         new Date(existingCustomer.updated_at) > new Date(existingCustomer.last_synced_at);
 
       const updates = {
-        email: shopifyCustomer.email,
         last_synced_at: new Date().toISOString()
       };
 
-      if (!nameLocked && !wasManuallyEdited) {
-        // No manual edits and not locked — safe to overwrite from Shopify
+      if (!emailLocked && !recentlyEdited && shopifyCustomer.email) {
+        // Email not locked or recently edited — safe to take Shopify's value
+        updates.email = shopifyCustomer.email;
+      }
+      // else: email is locked or manually edited — preserve admin's value
+
+      if (!nameLocked && !recentlyEdited) {
+        // Name not locked or recently edited — safe to overwrite from Shopify
         updates.first_name = shopifyCustomer.firstName;
         updates.last_name = shopifyCustomer.lastName;
       }
-      // else: name is locked or manually edited — preserve name
+      // else: name is locked or manually edited — preserve admin's value
 
       // Update course dates if we have them
       if (purchaseDate) {

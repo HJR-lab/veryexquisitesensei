@@ -195,6 +195,15 @@ async function processCoursePurchase(order, lineItem) {
       console.log(`📦 Package enrollment: ${classesFromThisPurchase} classes from this purchase`);
     }
 
+    // For 10-class packages (6 WT + 4 flex), set flex credits at creation time
+    if (extraFlexClasses > 0 && !isHandbuilding) {
+      enrollmentData.totalWeeks = weeksPerCourse; // base WT course weeks (6)
+      enrollmentData.classCreditsAllocated = extraFlexClasses; // flex credits (4)
+      enrollmentData.classCreditsUsed = 0;
+      enrollmentData.classCreditsRemaining = extraFlexClasses;
+      console.log(`🎯 10-class package: ${weeksPerCourse} base WT weeks + ${extraFlexClasses} flex credits allocated at creation`);
+    }
+
     const enrollment = await createCourseEnrollment(enrollmentData);
 
     console.log(`✅ Created enrollment ${enrollment.id} for ${student.email} - ${courseInfo.courseType}`);

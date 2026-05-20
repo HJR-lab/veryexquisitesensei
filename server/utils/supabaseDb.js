@@ -1286,7 +1286,11 @@ async function createCourseEnrollment(enrollmentData) {
       status: enrollmentData.status || 'pending',
       ...(enrollmentData.packageTotalCourses && { package_total_courses: enrollmentData.packageTotalCourses }),
       ...(enrollmentData.packageTotalClasses && { package_total_classes: enrollmentData.packageTotalClasses }),
-      ...(enrollmentData.packageCoursesRemaining != null && { package_courses_remaining: enrollmentData.packageCoursesRemaining })
+      ...(enrollmentData.packageCoursesRemaining != null && { package_courses_remaining: enrollmentData.packageCoursesRemaining }),
+      ...(enrollmentData.totalWeeks && { total_weeks: enrollmentData.totalWeeks }),
+      ...(enrollmentData.classCreditsAllocated && { class_credits_allocated: enrollmentData.classCreditsAllocated }),
+      ...(enrollmentData.classCreditsRemaining != null && { class_credits_remaining: enrollmentData.classCreditsRemaining }),
+      ...(enrollmentData.classCreditsUsed != null && { class_credits_used: enrollmentData.classCreditsUsed })
     }])
     .select()
     .single();

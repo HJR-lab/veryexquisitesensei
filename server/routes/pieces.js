@@ -8,7 +8,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
 
   // Get student's piece batches
   app.get('/api/pieces/my-batches', authenticateToken, asyncHandler(async (req, res) => {
-    const customerId = req.user.customerId;
+    const customerId = req.user.dbCustomerId;
     const batches = await supabaseDb.getPieceBatchesByCustomerId(customerId);
 
     // Enrich with allowance from course_config
@@ -28,7 +28,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
 
   // Log a new piece batch
   app.post('/api/pieces/log', authenticateToken, upload.array('photos', 5), asyncHandler(async (req, res) => {
-    const customerId = req.user.customerId;
+    const customerId = req.user.dbCustomerId;
     const { courseEnrollmentId, pieceCount, initials, notes } = req.body;
 
     if (!initials || !pieceCount) {
@@ -75,7 +75,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
   // Update a piece batch (add photos, update count/notes)
   app.put('/api/pieces/batches/:id', authenticateToken, asyncHandler(async (req, res) => {
     const batchId = parseInt(req.params.id);
-    const customerId = req.user.customerId;
+    const customerId = req.user.dbCustomerId;
 
     const batch = await supabaseDb.getPieceBatchById(batchId);
     if (!batch || batch.customer_id !== customerId) {
@@ -95,7 +95,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
   // Set delivery method (with optional collection date)
   app.put('/api/pieces/batches/:id/delivery', authenticateToken, asyncHandler(async (req, res) => {
     const batchId = parseInt(req.params.id);
-    const customerId = req.user.customerId;
+    const customerId = req.user.dbCustomerId;
     const { method, collectionDate } = req.body; // 'collect' or 'deliver'
 
     if (!['collect', 'deliver'].includes(method)) {
@@ -135,7 +135,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
   // Student: Confirm collection
   app.put('/api/pieces/batches/:id/confirm-collected', authenticateToken, asyncHandler(async (req, res) => {
     const batchId = parseInt(req.params.id);
-    const customerId = req.user.customerId;
+    const customerId = req.user.dbCustomerId;
 
     const batch = await supabaseDb.getPieceBatchById(batchId);
     if (!batch || batch.customer_id !== customerId) {

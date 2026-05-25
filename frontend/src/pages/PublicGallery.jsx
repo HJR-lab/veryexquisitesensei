@@ -19,12 +19,15 @@ const ROLE_COLORS = {
   instructor: { bg: TC_LIGHT, color: TC_DARK },
 };
 
+const IS_DEV = import.meta.env.DEV;
+
 export default function PublicGallery() {
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
-  const { login } = useAuth();
+  const { login, loginWithPassword } = useAuth();
   const navigate = useNavigate();
 
   // Gallery state
@@ -78,10 +81,15 @@ export default function PublicGallery() {
     setError('');
     setLoginLoading(true);
     try {
-      await login(email);
-      setMagicLinkSent(true);
+      if (IS_DEV) {
+        await loginWithPassword(email, password);
+        // Supabase session is set; onAuthStateChange will fetch user
+      } else {
+        await login(email);
+        setMagicLinkSent(true);
+      }
     } catch (err) {
-      setError(err.message || 'Failed to send sign-in link');
+      setError(err.message || (IS_DEV ? 'Login failed' : 'Failed to send sign-in link'));
     } finally {
       setLoginLoading(false);
     }
@@ -186,9 +194,24 @@ export default function PublicGallery() {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   placeholder="Email"
+                  autoComplete="email"
                   style={inputStyle}
                 />
               </div>
+
+              {IS_DEV && (
+                <div style={{ marginBottom: '16px' }}>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    placeholder="Password (dev only)"
+                    autoComplete="current-password"
+                    style={inputStyle}
+                  />
+                </div>
+              )}
 
               <button
                 type="submit"
@@ -203,7 +226,7 @@ export default function PublicGallery() {
                   fontFamily: 'inherit',
                 }}
               >
-                {loginLoading ? 'Sending...' : 'Send Sign-In Link'}
+                {loginLoading ? (IS_DEV ? 'Signing in...' : 'Sending...') : (IS_DEV ? 'Sign In' : 'Send Sign-In Link')}
               </button>
             </form>
           )}

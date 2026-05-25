@@ -145,6 +145,7 @@ export default function AdminNav({ active, onSyncComplete }) {
                   { label: 'Events', href: '/admin/events' },
                   { label: 'Policy', href: '/admin/policy' },
                   { type: 'header', label: 'Studio' },
+                  { label: 'Memberships', href: '/admin/memberships' },
                   { label: 'Fire', href: '/admin/pieces' },
                   { label: 'Inventory', href: '/admin/reference' },
                   { label: 'Instructors', href: '/admin/instructors' },

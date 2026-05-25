@@ -124,6 +124,11 @@ export function AuthProvider({ children }) {
     // No immediate user — they need to click the magic link
   };
 
+  const loginWithPassword = async (email, password) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+  };
+
   const logout = async () => {
     clearCachedAuth();
     await supabase.auth.signOut();
@@ -142,7 +147,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, updateUser, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, login, loginWithPassword, logout, updateUser, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

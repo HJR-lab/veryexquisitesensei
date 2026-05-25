@@ -87,6 +87,7 @@ export default function AdminMemberships() {
   const [tab,                 setTab]                 = useState('all');
   const [search,              setSearch]              = useState('');
   const [showCreateModal,     setShowCreateModal]     = useState(false);
+  const [editing,             setEditing]             = useState(null); // membership object being edited
 
   const [createForm, setCreateForm] = useState({
     customerId:     '',
@@ -156,6 +157,43 @@ export default function AdminMemberships() {
     });
   };
 
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    if (!editing) return;
+    try {
+      setLoading(true);
+      await api.put(`/admin/memberships/${editing.id}`, {
+        membershipType: editing.type,
+        startDate:      editing.startDate,
+        endDate:        editing.endDate,
+        status:         editing.status,
+      });
+      setEditing(null);
+      await loadData();
+    } catch (error) {
+      console.error('Failed to update membership:', error);
+      alert('Failed to update membership');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!editing) return;
+    if (!confirm(`Delete membership for ${editing.studentName || editing.studentEmail}? This cannot be undone.`)) return;
+    try {
+      setLoading(true);
+      await api.delete(`/admin/memberships/${editing.id}`);
+      setEditing(null);
+      await loadData();
+    } catch (error) {
+      console.error('Failed to delete membership:', error);
+      alert('Failed to delete membership');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleCreateSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -185,31 +223,59 @@ export default function AdminMemberships() {
     }
   };
 
-  // ── Derived data ───────────────────────────────────────────────────────────
+  // ── Derived data: group memberships by member ─────────────────────────────
+  // Each member gets one card, with all their membership periods listed inside.
+  const STATUS_ORDER = { active: 0, expiring: 1, expired: 2, cancelled: 3 };
+
+  function memberStatus(periods) {
+    const seen = periods.map(deriveStatus);
+    if (seen.includes('active'))   return 'active';
+    if (seen.includes('expiring')) return 'expiring';
+    if (seen.includes('expired'))  return 'expired';
+    return 'cancelled';
+  }
+
+  const members = (() => {
+    const groups = new Map();
+    for (const m of memberships) {
+      const key = m.studentEmail || `id-${m.id}`;
+      if (!groups.has(key)) {
+        groups.set(key, { email: m.studentEmail, name: m.studentName, periods: [] });
+      }
+      groups.get(key).periods.push(m);
+    }
+    for (const g of groups.values()) {
+      // newest first by end date
+      g.periods.sort((a, b) => new Date(b.endDate) - new Date(a.endDate));
+      g.status = memberStatus(g.periods);
+    }
+    return [...groups.values()];
+  })();
+
   const counts = {
-    all:       memberships.length,
-    active:    memberships.filter(m => deriveStatus(m) === 'active').length,
-    expiring:  memberships.filter(m => deriveStatus(m) === 'expiring').length,
-    expired:   memberships.filter(m => deriveStatus(m) === 'expired').length,
-    cancelled: memberships.filter(m => deriveStatus(m) === 'cancelled').length,
+    all:       members.length,
+    active:    members.filter(g => g.status === 'active').length,
+    expiring:  members.filter(g => g.status === 'expiring').length,
+    expired:   members.filter(g => g.status === 'expired').length,
+    cancelled: members.filter(g => g.status === 'cancelled').length,
   };
 
-  const filtered = memberships
-    .filter(m => {
-      if (tab === 'all')       return true;
-      if (tab === 'expired')   return deriveStatus(m) === 'expired' || deriveStatus(m) === 'cancelled';
-      return deriveStatus(m) === tab;
+  const filtered = members
+    .filter(g => {
+      if (tab === 'all')     return true;
+      if (tab === 'expired') return g.status === 'expired' || g.status === 'cancelled';
+      return g.status === tab;
     })
-    .filter(m =>
-      (m.studentName  || '').toLowerCase().includes(search.toLowerCase()) ||
-      (m.studentEmail || '').toLowerCase().includes(search.toLowerCase())
+    .filter(g =>
+      (g.name  || '').toLowerCase().includes(search.toLowerCase()) ||
+      (g.email || '').toLowerCase().includes(search.toLowerCase())
     )
     .sort((a, b) => {
-      const order = { active: 0, expiring: 1, expired: 2, cancelled: 3 };
-      const sa = order[deriveStatus(a)] ?? 4;
-      const sb = order[deriveStatus(b)] ?? 4;
+      const sa = STATUS_ORDER[a.status] ?? 4;
+      const sb = STATUS_ORDER[b.status] ?? 4;
       if (sa !== sb) return sa - sb;
-      return new Date(a.endDate) - new Date(b.endDate);
+      // tie-break: latest period end date, newest first
+      return new Date(b.periods[0].endDate) - new Date(a.periods[0].endDate);
     });
 
   // ── Stat button style ─────────────────────────────────────────────────────
@@ -276,43 +342,42 @@ export default function AdminMemberships() {
         )}
 
         {!loading && filtered.length === 0 && (
-          <div style={{ padding: '32px', textAlign: 'center', color: MUTED, fontSize: '13px' }}>No memberships found</div>
+          <div style={{ padding: '32px', textAlign: 'center', color: MUTED, fontSize: '13px' }}>No members found</div>
         )}
 
         {!loading && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {filtered.map(m => {
-              const status    = deriveStatus(m);
-              const daysLeft  = getDaysLeft(m);
-              const totalDays = getTotalDays(m);
-              const pct       = totalDays > 0 ? Math.min(100, Math.max(0, Math.round(((totalDays - Math.max(daysLeft, 0)) / totalDays) * 100))) : 100;
-              const tier      = getTier(m.type);
+            {filtered.map(group => {
+              const current   = group.periods[0]; // newest by endDate
+              const status    = group.status;
+              const tier      = getTier(current.type);
               const tierStyle = TIER_BADGE[tier] || TIER_BADGE.Bronze;
-              const displayType = getDisplayType(m.type);
-              const perks     = m.perks ? (typeof m.perks === 'object' ? Object.keys(m.perks) : m.perks) : [];
 
               return (
                 <div
-                  key={m.id}
-                  onClick={() => m.studentEmail && navigate(`/admin/students/${encodeURIComponent(m.studentEmail)}`, { state: { from: 'memberships' } })}
+                  key={group.email || `id-${current.id}`}
                   style={{
                     border: `1px solid ${status === 'expiring' ? '#E6A817' : RULE}`,
                     backgroundColor: '#FFFFFF',
-                    cursor: 'pointer',
                     transition: 'box-shadow 0.15s',
-                    padding: '14px 16px',
                   }}
                   onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'}
                   onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
                 >
-                  {/* Row 1: name, tier, status, arrow */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-                    <span style={{ fontSize: '14px', fontWeight: 700, color: INK }}>{m.studentName || '—'}</span>
+                  {/* Member header */}
+                  <div
+                    onClick={() => group.email && navigate(`/admin/students/${encodeURIComponent(group.email)}`, { state: { from: 'memberships' } })}
+                    style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 16px', cursor: group.email ? 'pointer' : 'default', borderBottom: `1px solid ${RULE}` }}
+                  >
+                    <span style={{ fontSize: '14px', fontWeight: 700, color: INK }}>{group.name || '—'}</span>
                     <span style={{
                       fontSize: '8px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
                       padding: '2px 6px', backgroundColor: tierStyle.bg, color: tierStyle.color,
                     }}>{tier}</span>
-                    <span style={{ fontSize: '11px', color: MUTED, flex: 1 }}>{m.studentEmail || ''}</span>
+                    <span style={{ fontSize: '11px', color: MUTED, flex: 1 }}>{group.email || ''}</span>
+                    <span style={{ fontSize: '10px', color: MUTED, flexShrink: 0 }}>
+                      {group.periods.length} period{group.periods.length === 1 ? '' : 's'}
+                    </span>
                     <span style={{
                       fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
                       padding: '4px 8px', flexShrink: 0,
@@ -322,41 +387,60 @@ export default function AdminMemberships() {
                     <span className="material-symbols-outlined" style={{ fontSize: '16px', color: MUTED, flexShrink: 0 }}>chevron_right</span>
                   </div>
 
-                  {/* Row 2: plan, dates, progress bar, perks */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '12px' : '24px', flexWrap: 'wrap' }}>
-                    <div style={{ minWidth: '60px' }}>
-                      <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '2px' }}>Plan</div>
-                      <div style={{ fontSize: '12px', fontWeight: 700, color: INK }}>{displayType}</div>
-                    </div>
-                    <div style={{ minWidth: '80px' }}>
-                      <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '2px' }}>Start</div>
-                      <div style={{ fontSize: '12px', color: INK }}>{fmtDate(m.startDate)}</div>
-                    </div>
-                    <div style={{ minWidth: '80px' }}>
-                      <div style={{ fontSize: '10px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '2px' }}>Expires</div>
-                      <div style={{ fontSize: '12px', fontWeight: status === 'expiring' ? 700 : 400, color: status === 'expiring' ? '#9E6200' : INK }}>{fmtDate(m.endDate)}</div>
-                    </div>
-                    <div style={{ width: '120px', flexShrink: 0 }}>
-                      <div style={{ fontSize: '10px', color: MUTED, marginBottom: '4px' }}>
-                        {daysLeft > 0 ? `${daysLeft} days left` : status === 'cancelled' ? 'Cancelled' : 'Expired'}
-                      </div>
-                      <div style={{ height: '3px', backgroundColor: 'rgba(40,40,40,0.08)', position: 'relative' }}>
-                        <div style={{
-                          position: 'absolute', left: 0, top: 0, height: '3px',
-                          width: `${status === 'expired' || status === 'cancelled' ? 100 : pct}%`,
-                          backgroundColor: status === 'expired' || status === 'cancelled' ? MUTED : status === 'expiring' ? '#E6A817' : TC,
-                        }} />
-                      </div>
-                    </div>
-                    {/* Perks inline */}
-                    {perks.length > 0 && !isMobile && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', flex: 1, minWidth: 0 }}>
-                        {perks.slice(0, 3).map((p, j) => (
-                          <span key={j} style={{ fontSize: '10px', padding: '2px 7px', backgroundColor: ALT, color: MUTED, whiteSpace: 'nowrap' }}>{p}</span>
-                        ))}
-                        {perks.length > 3 && <span style={{ fontSize: '10px', color: MUTED }}>+{perks.length - 3}</span>}
-                      </div>
-                    )}
+                  {/* Period rows */}
+                  <div>
+                    {group.periods.map((m, idx) => {
+                      const pStatus    = deriveStatus(m);
+                      const daysLeft   = getDaysLeft(m);
+                      const totalDays  = getTotalDays(m);
+                      const pct        = totalDays > 0 ? Math.min(100, Math.max(0, Math.round(((totalDays - Math.max(daysLeft, 0)) / totalDays) * 100))) : 100;
+                      const displayType = getDisplayType(m.type);
+                      return (
+                        <div
+                          key={m.id}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: isMobile ? '10px' : '20px', flexWrap: 'wrap',
+                            padding: '10px 16px',
+                            borderBottom: idx === group.periods.length - 1 ? 'none' : `1px solid ${RULE}`,
+                            backgroundColor: idx === 0 ? '#FFF' : '#FCFBFA',
+                          }}
+                        >
+                          <span style={{
+                            fontSize: '8px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                            padding: '3px 7px', flexShrink: 0,
+                            backgroundColor: STATUS_STYLE[pStatus]?.bg || ALT,
+                            color: STATUS_STYLE[pStatus]?.text || MUTED,
+                          }}>{pStatus}</span>
+                          <div style={{ minWidth: '60px' }}>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: INK }}>{displayType}</div>
+                          </div>
+                          <div style={{ minWidth: '160px', fontSize: '12px', color: INK }}>
+                            {fmtDate(m.startDate)} <span style={{ color: MUTED }}>→</span> <span style={{ fontWeight: pStatus === 'expiring' ? 700 : 400, color: pStatus === 'expiring' ? '#9E6200' : INK }}>{fmtDate(m.endDate)}</span>
+                          </div>
+                          <div style={{ width: '120px', flexShrink: 0 }}>
+                            <div style={{ fontSize: '10px', color: MUTED, marginBottom: '3px' }}>
+                              {daysLeft > 0 ? `${daysLeft} days left` : pStatus === 'cancelled' ? 'Cancelled' : 'Expired'}
+                            </div>
+                            <div style={{ height: '3px', backgroundColor: 'rgba(40,40,40,0.08)', position: 'relative' }}>
+                              <div style={{
+                                position: 'absolute', left: 0, top: 0, height: '3px',
+                                width: `${pStatus === 'expired' || pStatus === 'cancelled' ? 100 : pct}%`,
+                                backgroundColor: pStatus === 'expired' || pStatus === 'cancelled' ? MUTED : pStatus === 'expiring' ? '#E6A817' : TC,
+                              }} />
+                            </div>
+                          </div>
+                          <div style={{ flex: 1 }} />
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setEditing({ ...m, studentName: group.name, studentEmail: group.email }); }}
+                            title="Edit period"
+                            style={{ border: `1px solid ${RULE}`, background: '#FFF', cursor: 'pointer', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0, fontSize: '11px', color: INK, fontFamily: 'Atak, sans-serif' }}
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>edit</span>
+                            Edit
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               );
@@ -432,6 +516,109 @@ export default function AdminMemberships() {
                 </button>
                 <button type="submit" disabled={loading} style={{ flex: 1, padding: '12px', backgroundColor: TC, color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', opacity: loading ? 0.5 : 1 }}>
                   {loading ? 'Creating...' : 'Create Membership'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Membership Modal ──────────────────────────────────────────────── */}
+      {editing && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div style={{ backgroundColor: '#FFFFFF', padding: '32px', width: '480px', maxWidth: '90vw', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <div style={{ fontSize: '16px', fontWeight: 700 }}>Edit Membership</div>
+              <button onClick={() => setEditing(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '18px', color: MUTED }}>✕</button>
+            </div>
+            <div style={{ fontSize: '12px', color: MUTED, marginBottom: '20px' }}>
+              {editing.studentName} <span style={{ color: RULE }}>·</span> {editing.studentEmail}
+            </div>
+
+            <form onSubmit={handleEditSubmit}>
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '5px' }}>Plan</label>
+                <select
+                  value={editing.type || ''}
+                  onChange={e => setEditing({ ...editing, type: e.target.value })}
+                  style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'Atak, sans-serif', boxSizing: 'border-box', outline: 'none' }}
+                >
+                  {['3 Month', '6 Month', '12 Month'].map(t => <option key={t} value={t}>{t}</option>)}
+                  {editing.type && !['3 Month', '6 Month', '12 Month'].includes(editing.type) && (
+                    <option value={editing.type}>{editing.type}</option>
+                  )}
+                </select>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '14px' }}>
+                <div>
+                  <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '5px' }}>Start Date</label>
+                  <input
+                    type="date"
+                    value={(editing.startDate || '').slice(0, 10)}
+                    onChange={e => setEditing({ ...editing, startDate: e.target.value })}
+                    style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'Atak, sans-serif', boxSizing: 'border-box', outline: 'none' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '5px' }}>End Date</label>
+                  <input
+                    type="date"
+                    value={(editing.endDate || '').slice(0, 10)}
+                    onChange={e => setEditing({ ...editing, endDate: e.target.value })}
+                    required
+                    style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'Atak, sans-serif', boxSizing: 'border-box', outline: 'none' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '5px' }}>Status</label>
+                <select
+                  value={editing.status || 'active'}
+                  onChange={e => setEditing({ ...editing, status: e.target.value })}
+                  style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'Atak, sans-serif', boxSizing: 'border-box', outline: 'none' }}
+                >
+                  <option value="active">active</option>
+                  <option value="cancelled">cancelled</option>
+                </select>
+              </div>
+
+              {/* Quick-extend shortcuts */}
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '6px' }}>Quick extend</div>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {[
+                    { label: '+7 days',  days: 7 },
+                    { label: '+30 days', days: 30 },
+                    { label: '+3 months', days: 90 },
+                    { label: '+6 months', days: 180 },
+                    { label: '+1 year',  days: 365 },
+                  ].map(opt => (
+                    <button
+                      key={opt.days}
+                      type="button"
+                      onClick={() => {
+                        const base = editing.endDate ? new Date(editing.endDate) : new Date();
+                        base.setDate(base.getDate() + opt.days);
+                        setEditing({ ...editing, endDate: base.toISOString().slice(0, 10) });
+                      }}
+                      style={{ padding: '6px 10px', border: `1px solid ${RULE}`, backgroundColor: '#FFF', fontSize: '11px', cursor: 'pointer', fontFamily: 'Atak, sans-serif' }}
+                    >{opt.label}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button type="button" onClick={handleDelete} disabled={loading} style={{ padding: '12px 14px', border: `1px solid ${RULE}`, backgroundColor: '#FFF', color: '#C0392B', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}>
+                  Delete
+                </button>
+                <div style={{ flex: 1 }} />
+                <button type="button" onClick={() => setEditing(null)} style={{ padding: '12px 18px', border: `1px solid ${RULE}`, backgroundColor: 'transparent', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={loading} style={{ padding: '12px 18px', backgroundColor: TC, color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', opacity: loading ? 0.5 : 1 }}>
+                  {loading ? 'Saving...' : 'Save'}
                 </button>
               </div>
             </form>

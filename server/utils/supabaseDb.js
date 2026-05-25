@@ -1591,6 +1591,16 @@ async function updatePieceBatch(batchId, updates) {
   return data;
 }
 
+async function deletePieceBatch(batchId) {
+  const { error } = await supabase
+    .from('piece_batches')
+    .delete()
+    .eq('id', batchId);
+
+  if (error) throw error;
+  return true;
+}
+
 async function searchPieceBatchesByInitials(initials) {
   const { data, error } = await supabase
     .from('piece_batches')
@@ -1960,6 +1970,7 @@ module.exports = {
   getAllActivePieceBatches,
   updatePieceBatchStatus,
   updatePieceBatch,
+  deletePieceBatch,
   searchPieceBatchesByInitials,
   getReadyBatchesNeedingReminder,
   // Notification functions

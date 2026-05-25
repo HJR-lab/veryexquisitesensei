@@ -307,18 +307,33 @@ export default function UploadPiece() {
               onChange={handleImageSelect} disabled={uploading || images.length >= 5}
               style={{ display: 'none' }}
             />
+            <input
+              type="file" id="firing-images-library" multiple accept="image/*"
+              onChange={handleImageSelect} disabled={uploading || images.length >= 5}
+              style={{ display: 'none' }}
+            />
             {imagePreviews.length === 0 ? (
-              <label htmlFor="firing-images" style={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                height: '220px', border: `2px dashed rgba(196,98,45,0.3)`, borderRadius: '16px',
-                background: TC_LIGHT, cursor: 'pointer', transition: 'all 0.2s',
-              }}>
-                <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '12px', boxShadow: '0 2px 8px rgba(196,98,45,0.15)' }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: '26px', color: TC }}>photo_camera</span>
-                </div>
-                <span style={{ fontSize: '15px', fontWeight: 600, color: TC_DARK }}>Photo All Your Pieces</span>
-                <span style={{ fontSize: '12px', color: MUTED, marginTop: '4px' }}>Show shapes and initials · up to 5</span>
-              </label>
+              <>
+                <label htmlFor="firing-images" style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  height: '220px', border: `2px dashed rgba(196,98,45,0.3)`, borderRadius: '16px',
+                  background: TC_LIGHT, cursor: 'pointer', transition: 'all 0.2s',
+                }}>
+                  <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '12px', boxShadow: '0 2px 8px rgba(196,98,45,0.15)' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: '26px', color: TC }}>photo_camera</span>
+                  </div>
+                  <span style={{ fontSize: '15px', fontWeight: 600, color: TC_DARK }}>Photo All Your Pieces</span>
+                  <span style={{ fontSize: '12px', color: MUTED, marginTop: '4px' }}>Show shapes and initials · up to 5</span>
+                </label>
+                <label htmlFor="firing-images-library" style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  marginTop: 10, padding: '10px', cursor: 'pointer',
+                  fontSize: 13, color: TC, fontWeight: 600,
+                }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>photo_library</span>
+                  Choose from Library
+                </label>
+              </>
             ) : (
               <div>
                 <div style={{ display: 'grid', gridTemplateColumns: imagePreviews.length === 1 ? '1fr' : 'repeat(2, 1fr)', gap: '8px' }}>
@@ -421,20 +436,35 @@ export default function UploadPiece() {
             onChange={handleImageSelect} disabled={uploading || images.length >= 5}
             style={{ display: 'none' }}
           />
+          <input
+            type="file" id="images-library" multiple accept="image/*"
+            onChange={handleImageSelect} disabled={uploading || images.length >= 5}
+            style={{ display: 'none' }}
+          />
 
           {imagePreviews.length === 0 ? (
-            <label htmlFor="images" style={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-              height: '220px', border: `2px dashed rgba(196,98,45,0.3)`, borderRadius: '16px',
-              background: TC_LIGHT, cursor: images.length >= 5 ? 'not-allowed' : 'pointer',
-              opacity: images.length >= 5 ? 0.5 : 1, transition: 'all 0.2s',
-            }}>
-              <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '12px', boxShadow: '0 2px 8px rgba(196,98,45,0.15)' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: '26px', color: TC }}>photo_camera</span>
-              </div>
-              <span style={{ fontSize: '15px', fontWeight: 600, color: TC_DARK }}>Take a Photo</span>
-              <span style={{ fontSize: '12px', color: MUTED, marginTop: '4px' }}>or choose from library · up to 5</span>
-            </label>
+            <>
+              <label htmlFor="images" style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                height: '220px', border: `2px dashed rgba(196,98,45,0.3)`, borderRadius: '16px',
+                background: TC_LIGHT, cursor: images.length >= 5 ? 'not-allowed' : 'pointer',
+                opacity: images.length >= 5 ? 0.5 : 1, transition: 'all 0.2s',
+              }}>
+                <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '12px', boxShadow: '0 2px 8px rgba(196,98,45,0.15)' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '26px', color: TC }}>photo_camera</span>
+                </div>
+                <span style={{ fontSize: '15px', fontWeight: 600, color: TC_DARK }}>Take a Photo</span>
+                <span style={{ fontSize: '12px', color: MUTED, marginTop: '4px' }}>up to 5 photos</span>
+              </label>
+              <label htmlFor="images-library" style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                marginTop: 10, padding: '10px', cursor: 'pointer',
+                fontSize: 13, color: TC, fontWeight: 600,
+              }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>photo_library</span>
+                Choose from Library
+              </label>
+            </>
           ) : (
             <div>
               <div style={{ display: 'grid', gridTemplateColumns: imagePreviews.length === 1 ? '1fr' : 'repeat(2, 1fr)', gap: '8px' }}>

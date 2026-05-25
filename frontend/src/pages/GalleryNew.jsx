@@ -45,6 +45,14 @@ export default function GalleryNew() {
   const [editImagePreviewUrls, setEditImagePreviewUrls] = useState([]);
   const [showEditModal, setShowEditModal] = useState(false);
 
+  // --- batch edit state ---
+  const [selectedBatch, setSelectedBatch] = useState(null);
+  const [batchForm, setBatchForm] = useState({ pieceCount: 0, initials: '', notes: '', photos: [] });
+  const [batchUploading, setBatchUploading] = useState(false);
+
+  // Per-batch chosen collection date for the inline "ready" row picker
+  const [collectionDates, setCollectionDates] = useState({});
+
   // --- filters ---
   const [filterClayType, setFilterClayType] = useState('');
   const [filterGlaze, setFilterGlaze] = useState('');
@@ -118,12 +126,134 @@ export default function GalleryNew() {
     }
   };
 
+  const minCollectionDate = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 2); // server enforces 48hr advance
+    return d.toISOString().slice(0, 10);
+  };
+
   const handleDeliveryChoice = async (batchId, method) => {
     try {
-      await api.put(`/pieces/batches/${batchId}/delivery`, { method });
+      const payload = { method };
+      if (method === 'collect') {
+        const date = collectionDates[batchId];
+        if (!date) {
+          alert('Pick a collection date (at least 2 days from today) before tapping Collect.');
+          return;
+        }
+        payload.collectionDate = date;
+      }
+      await api.put(`/pieces/batches/${batchId}/delivery`, payload);
+      setCollectionDates(prev => { const next = { ...prev }; delete next[batchId]; return next; });
       fetchFiringBatches();
     } catch (err) {
       console.error('Failed to set delivery:', err);
+      alert(`Failed: ${err.response?.data?.error || err.message}`);
+    }
+  };
+
+  // Download a remote image to the user's device. Supabase URLs are cross-origin,
+  // so <a download> alone won't trigger a save — fetch into a blob first.
+  const downloadImage = async (url, filename) => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const ext = (blob.type.split('/')[1] || 'jpg').split('+')[0];
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename ? `${filename}.${ext}` : `pottery-photo.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    } catch (err) {
+      console.error('Download failed:', err);
+      alert('Could not download. On mobile, try long-pressing the image to save.');
+    }
+  };
+
+  // --- Batch edit handlers ---
+  const openBatchEdit = (batch) => {
+    setSelectedBatch(batch);
+    setBatchForm({
+      pieceCount: batch.piece_count || 0,
+      initials: batch.initials || '',
+      notes: batch.notes || '',
+      photos: Array.isArray(batch.photo_urls) ? batch.photo_urls : [],
+    });
+  };
+
+  const closeBatchEdit = () => {
+    setSelectedBatch(null);
+    setBatchForm({ pieceCount: 0, initials: '', notes: '', photos: [] });
+  };
+
+  const handleBatchPhotoUpload = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+    setBatchUploading(true);
+    try {
+      const formData = new FormData();
+      files.forEach(f => formData.append('images', f));
+      const { data } = await api.post('/upload/images', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setBatchForm(f => ({
+        ...f,
+        photos: [...f.photos, ...data.images.map(img => img.url)],
+      }));
+    } catch (err) {
+      console.error('Photo upload failed:', err);
+      alert('Photo upload failed. Please try again.');
+    } finally {
+      setBatchUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const removeBatchPhoto = (index) => {
+    setBatchForm(f => ({ ...f, photos: f.photos.filter((_, i) => i !== index) }));
+  };
+
+  const handleSaveBatch = async () => {
+    if (!selectedBatch) return;
+    if (!batchForm.initials || batchForm.pieceCount < 1) {
+      alert('Please enter initials and at least 1 piece.');
+      return;
+    }
+    setBatchUploading(true);
+    try {
+      await api.put(`/pieces/batches/${selectedBatch.id}`, {
+        pieceCount: batchForm.pieceCount,
+        initials: batchForm.initials,
+        notes: batchForm.notes,
+        photoUrls: batchForm.photos,
+      });
+      closeBatchEdit();
+      await fetchFiringBatches();
+    } catch (err) {
+      console.error('Failed to save batch:', err);
+      alert(`Failed to save: ${err.response?.data?.error || err.message}`);
+    } finally {
+      setBatchUploading(false);
+    }
+  };
+
+  const handleDeleteBatch = async () => {
+    if (!selectedBatch) return;
+    if (!confirm('Delete this batch? This cannot be undone.')) return;
+    setBatchUploading(true);
+    try {
+      await api.delete(`/pieces/batches/${selectedBatch.id}`);
+      closeBatchEdit();
+      await fetchFiringBatches();
+    } catch (err) {
+      console.error('Failed to delete batch:', err);
+      alert(`Failed to delete: ${err.response?.data?.error || err.message}`);
+    } finally {
+      setBatchUploading(false);
     }
   };
 
@@ -388,10 +518,14 @@ export default function GalleryNew() {
                   const courseName = batch.course_enrollments?.course_title || batch.course_enrollments?.course_variant_title || 'Course';
 
                   return (
-                    <div key={batch.id} style={{
-                      display: 'flex', gap: 12, padding: '12px 0',
-                      borderBottom: `1px solid ${RULE}`,
-                    }}>
+                    <div
+                      key={batch.id}
+                      onClick={() => openBatchEdit(batch)}
+                      style={{
+                        display: 'flex', gap: 12, padding: '12px 0',
+                        borderBottom: `1px solid ${RULE}`, cursor: 'pointer',
+                      }}
+                    >
                       {/* Thumbnail */}
                       <div style={{ width: 56, height: 56, flexShrink: 0, backgroundColor: ALT, overflow: 'hidden' }}>
                         {photoUrl ? (
@@ -416,21 +550,45 @@ export default function GalleryNew() {
                           {batch.piece_count} piece{batch.piece_count !== 1 ? 's' : ''} · {batch.initials}
                         </div>
 
-                        {/* Collect / Deliver buttons */}
+                        {/* Collect (with date) / Deliver buttons */}
                         {isReady && (
-                          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                            <button
-                              onClick={() => handleDeliveryChoice(batch.id, 'collect')}
-                              style={{ padding: '5px 12px', background: '#2D8C4E', color: 'white', border: 'none', fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', cursor: 'pointer' }}
-                            >Collect</button>
-                            <button
-                              onClick={() => handleDeliveryChoice(batch.id, 'deliver')}
-                              style={{ padding: '5px 12px', background: 'transparent', color: TC, border: `1px solid ${TC}`, fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', cursor: 'pointer' }}
-                            >Deliver ($10)</button>
+                          <div style={{ marginTop: 8 }}>
+                            <div style={{ fontSize: 10, color: MUTED, marginBottom: 4 }}>
+                              Pick a collection date (at least 2 days from today)
+                            </div>
+                            <input
+                              type="date"
+                              min={minCollectionDate()}
+                              value={collectionDates[batch.id] || ''}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => { e.stopPropagation(); setCollectionDates(prev => ({ ...prev, [batch.id]: e.target.value })); }}
+                              style={{ padding: '4px 6px', border: `1px solid ${RULE}`, fontSize: 11, marginBottom: 6, width: '100%', boxSizing: 'border-box' }}
+                            />
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleDeliveryChoice(batch.id, 'collect'); }}
+                                disabled={!collectionDates[batch.id]}
+                                style={{
+                                  padding: '5px 12px',
+                                  background: collectionDates[batch.id] ? '#2D8C4E' : '#ccc',
+                                  color: 'white', border: 'none',
+                                  fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase',
+                                  cursor: collectionDates[batch.id] ? 'pointer' : 'not-allowed',
+                                }}
+                              >Collect</button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleDeliveryChoice(batch.id, 'deliver'); }}
+                                style={{ padding: '5px 12px', background: 'transparent', color: TC, border: `1px solid ${TC}`, fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', cursor: 'pointer' }}
+                              >Deliver ($10)</button>
+                            </div>
                           </div>
                         )}
                         {batch.status === 'collecting' && (
-                          <div style={{ fontSize: 11, color: '#2D8C4E', fontWeight: 600, marginTop: 4 }}>Come visit the studio to collect</div>
+                          <div style={{ fontSize: 11, color: '#2D8C4E', fontWeight: 600, marginTop: 4 }}>
+                            {batch.collection_date
+                              ? `Collecting ${new Date(batch.collection_date).toLocaleDateString('en-SG', { weekday: 'short', day: 'numeric', month: 'short' })}`
+                              : 'Come visit the studio to collect'}
+                          </div>
                         )}
                         {batch.status === 'delivering' && (
                           <div style={{ fontSize: 11, color: TC, fontWeight: 600, marginTop: 4 }}>Delivery arranged ($10)</div>
@@ -470,11 +628,11 @@ export default function GalleryNew() {
                 style={{
                   flex: 1, padding: '14px 12px', border: 'none', borderRadius: '10px', cursor: 'pointer',
                   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
-                  fontFamily: 'inherit', background: '#fff', color: MUTED,
-                  boxShadow: `inset 0 0 0 1px ${RULE}`, opacity: 0.5,
+                  fontFamily: 'inherit', background: '#fff', color: TC,
+                  boxShadow: `inset 0 0 0 1px ${TC}`,
                 }}
               >
-                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Step 2</span>
+                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.7 }}>Step 2</span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600 }}>
                   <span className="material-symbols-outlined" style={{ fontSize: 18 }}>photo_library</span>
                   Upload Finished Work
@@ -565,6 +723,233 @@ export default function GalleryNew() {
         )}
       </main>
 
+      {/* BATCH EDIT BOTTOM SHEET */}
+      {selectedBatch && (() => {
+        const canEdit = selectedBatch.status === 'logged';
+        const canDelete = selectedBatch.status === 'logged';
+        return (
+          <>
+            <div
+              onClick={closeBatchEdit}
+              style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 70 }}
+            />
+            <div style={{
+              position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 71,
+              backgroundColor: '#FFFFFF', maxWidth: '520px', margin: '0 auto',
+              maxHeight: '90vh', overflowY: 'auto',
+              borderTopLeftRadius: '16px', borderTopRightRadius: '16px',
+            }}>
+              {/* Sticky header */}
+              <div style={{
+                position: 'sticky', top: 0, backgroundColor: '#FFFFFF',
+                borderBottom: `1px solid ${RULE}`, padding: '16px 20px',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              }}>
+                <div style={{ fontSize: 18, fontWeight: 700 }}>
+                  {canEdit ? 'Edit Batch' : 'Batch Details'}
+                </div>
+                <button onClick={closeBatchEdit} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 20, color: MUTED }}>close</span>
+                </button>
+              </div>
+
+              <div style={{ padding: 20 }}>
+                {!canEdit && (
+                  <div style={{
+                    padding: 12, backgroundColor: ALT, border: `1px solid ${RULE}`,
+                    fontSize: 12, color: MUTED, marginBottom: 16, lineHeight: 1.5,
+                  }}>
+                    This batch is already in the firing pipeline, so it can't be edited or deleted.
+                    Need a change? Ask the studio.
+                  </div>
+                )}
+
+                {/* Photos */}
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: 10 }}>
+                    Photos ({batchForm.photos.length})
+                  </div>
+                  {batchForm.photos.length > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
+                      {batchForm.photos.map((url, i) => (
+                        <div key={i} style={{ position: 'relative' }}>
+                          <img src={url} alt={`Batch ${i + 1}`} style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', display: 'block' }} />
+                          {canEdit && (
+                            <button
+                              onClick={() => removeBatchPhoto(i)}
+                              style={{
+                                position: 'absolute', top: 4, right: 4,
+                                width: 22, height: 22, borderRadius: '50%',
+                                backgroundColor: 'rgba(0,0,0,0.6)', border: 'none', cursor: 'pointer',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              }}
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#FFF' }}>close</span>
+                            </button>
+                          )}
+                          <button
+                            onClick={() => downloadImage(url, `batch-${selectedBatch.id}-photo-${i + 1}`)}
+                            style={{
+                              position: 'absolute', bottom: 4, right: 4,
+                              width: 22, height: 22, borderRadius: '50%',
+                              backgroundColor: 'rgba(0,0,0,0.6)', border: 'none', cursor: 'pointer',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            }}
+                            title="Download photo"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#FFF' }}>download</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {canEdit && (
+                    <>
+                      <input
+                        type="file" accept="image/*" capture="environment" multiple
+                        onChange={handleBatchPhotoUpload}
+                        disabled={batchUploading}
+                        id="batch-photo-camera"
+                        style={{ display: 'none' }}
+                      />
+                      <input
+                        type="file" accept="image/*" multiple
+                        onChange={handleBatchPhotoUpload}
+                        disabled={batchUploading}
+                        id="batch-photo-library"
+                        style={{ display: 'none' }}
+                      />
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <label htmlFor="batch-photo-camera" style={{
+                          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                          border: `1px dashed ${RULE}`, padding: 14,
+                          cursor: batchUploading ? 'wait' : 'pointer', backgroundColor: ALT,
+                          fontSize: 12, color: MUTED, fontWeight: 600,
+                        }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>photo_camera</span>
+                          {batchUploading ? 'Uploading…' : 'Take Photo'}
+                        </label>
+                        <label htmlFor="batch-photo-library" style={{
+                          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                          border: `1px dashed ${RULE}`, padding: 14,
+                          cursor: batchUploading ? 'wait' : 'pointer', backgroundColor: ALT,
+                          fontSize: 12, color: MUTED, fontWeight: 600,
+                        }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>photo_library</span>
+                          Choose from Library
+                        </label>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Piece count */}
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: 8 }}>
+                    Piece count
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <button
+                      onClick={() => setBatchForm(f => ({ ...f, pieceCount: Math.max(1, f.pieceCount - 1) }))}
+                      disabled={!canEdit}
+                      style={{ width: 36, height: 36, borderRadius: '50%', border: `1px solid ${RULE}`, background: '#fff', fontSize: 18, cursor: canEdit ? 'pointer' : 'not-allowed', opacity: canEdit ? 1 : 0.5 }}
+                    >−</button>
+                    <span style={{ fontSize: 22, fontWeight: 700, color: TC, minWidth: 30, textAlign: 'center' }}>
+                      {batchForm.pieceCount}
+                    </span>
+                    <button
+                      onClick={() => setBatchForm(f => ({ ...f, pieceCount: f.pieceCount + 1 }))}
+                      disabled={!canEdit}
+                      style={{ width: 36, height: 36, borderRadius: '50%', border: `1px solid ${RULE}`, background: '#fff', fontSize: 18, cursor: canEdit ? 'pointer' : 'not-allowed', opacity: canEdit ? 1 : 0.5 }}
+                    >+</button>
+                  </div>
+                </div>
+
+                {/* Initials */}
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: 8 }}>
+                    Your mark
+                  </label>
+                  <input
+                    type="text"
+                    value={batchForm.initials}
+                    onChange={e => setBatchForm(f => ({ ...f, initials: e.target.value.toUpperCase() }))}
+                    disabled={!canEdit}
+                    maxLength={10}
+                    style={{
+                      width: 120, padding: 10, border: `1px solid ${RULE}`, backgroundColor: ALT,
+                      fontSize: 18, textAlign: 'center', letterSpacing: 4, fontWeight: 600,
+                      boxSizing: 'border-box', outline: 'none',
+                    }}
+                  />
+                </div>
+
+                {/* Notes */}
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: 8 }}>
+                    Notes
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={batchForm.notes}
+                    onChange={e => setBatchForm(f => ({ ...f, notes: e.target.value }))}
+                    disabled={!canEdit}
+                    placeholder="e.g. 3 bowls, 2 mugs, 2 plates"
+                    style={{
+                      width: '100%', padding: 10, border: `1px solid ${RULE}`, backgroundColor: ALT,
+                      fontSize: 14, boxSizing: 'border-box', outline: 'none', resize: 'vertical',
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Sticky footer */}
+              {(canEdit || canDelete) && (
+                <div style={{
+                  position: 'sticky', bottom: 0, backgroundColor: '#FFFFFF',
+                  borderTop: `1px solid ${RULE}`, padding: '16px 20px',
+                  display: 'flex', gap: 8,
+                }}>
+                  {canDelete && (
+                    <button
+                      onClick={handleDeleteBatch}
+                      disabled={batchUploading}
+                      style={{
+                        padding: '12px 16px', border: '1px solid rgba(200,50,50,0.3)', backgroundColor: 'transparent',
+                        fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                        cursor: batchUploading ? 'not-allowed' : 'pointer', color: '#C03030', opacity: batchUploading ? 0.5 : 1,
+                      }}
+                    >Delete</button>
+                  )}
+                  <button
+                    onClick={closeBatchEdit}
+                    style={{
+                      flex: 1, padding: 12, border: `1px solid ${RULE}`, backgroundColor: 'transparent',
+                      fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                      cursor: 'pointer', color: MUTED,
+                    }}
+                  >Cancel</button>
+                  {canEdit && (
+                    <button
+                      onClick={handleSaveBatch}
+                      disabled={batchUploading || !batchForm.initials || batchForm.pieceCount < 1}
+                      style={{
+                        flex: 2, padding: 12, border: 'none', backgroundColor: TC, color: '#FFF',
+                        fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                        cursor: batchUploading ? 'not-allowed' : 'pointer',
+                        opacity: (batchUploading || !batchForm.initials || batchForm.pieceCount < 1) ? 0.5 : 1,
+                      }}
+                    >
+                      {batchUploading ? 'Saving…' : 'Save Changes'}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </>
+        );
+      })()}
+
       {/* PIECE DETAIL BOTTOM SHEET */}
       {selectedPiece && !showEditModal && (
         <>
@@ -586,13 +971,32 @@ export default function GalleryNew() {
             </div>
 
             {/* Image */}
-            <div style={{ aspectRatio: '1', overflow: 'hidden', backgroundColor: '#F0EDE9', margin: '12px 0 0' }}>
+            <div style={{ aspectRatio: '1', overflow: 'hidden', backgroundColor: '#F0EDE9', margin: '12px 0 0', position: 'relative' }}>
               {selectedPiece.images?.[0] ? (
-                <img
-                  src={selectedPiece.images[0]}
-                  alt={selectedPiece.title}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                />
+                <>
+                  <img
+                    src={selectedPiece.images[0]}
+                    alt={selectedPiece.title}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                  />
+                  <button
+                    onClick={() => downloadImage(
+                      selectedPiece.images[0],
+                      `${(selectedPiece.title || 'piece').replace(/[^a-z0-9-_]+/gi, '-')}`
+                    )}
+                    style={{
+                      position: 'absolute', bottom: 12, right: 12,
+                      padding: '8px 14px', backgroundColor: 'rgba(0,0,0,0.65)', color: '#FFF',
+                      border: 'none', cursor: 'pointer',
+                      fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                      display: 'flex', alignItems: 'center', gap: 6,
+                    }}
+                    title="Save photo to device"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>download</span>
+                    Save Photo
+                  </button>
+                </>
               ) : (
                 <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <span className="material-symbols-outlined" style={{ fontSize: '48px', color: MUTED }}>image_not_supported</span>
@@ -757,21 +1161,35 @@ export default function GalleryNew() {
                     Add Images (up to {3 - (selectedPiece.images?.length || 0)} more)
                   </div>
                   <input
-                    type="file"
-                    multiple
-                    accept="image/*"
-                    capture="environment"
+                    type="file" multiple accept="image/*" capture="environment"
                     onChange={handleEditImageSelect}
-                    id="edit-image-upload"
+                    id="edit-image-camera"
                     style={{ display: 'none' }}
                   />
-                  <label htmlFor="edit-image-upload" style={{
-                    display: 'block', border: `1px dashed ${RULE}`, padding: '20px',
-                    textAlign: 'center', cursor: 'pointer', backgroundColor: ALT,
-                  }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: '28px', color: MUTED, display: 'block', marginBottom: '6px' }}>add_photo_alternate</span>
-                    <div style={{ fontSize: '12px', color: MUTED }}>Tap to add photos</div>
-                  </label>
+                  <input
+                    type="file" multiple accept="image/*"
+                    onChange={handleEditImageSelect}
+                    id="edit-image-library"
+                    style={{ display: 'none' }}
+                  />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <label htmlFor="edit-image-camera" style={{
+                      flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      border: `1px dashed ${RULE}`, padding: 16, cursor: 'pointer', backgroundColor: ALT,
+                      fontSize: 12, color: MUTED, fontWeight: 600,
+                    }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 20 }}>photo_camera</span>
+                      Take Photo
+                    </label>
+                    <label htmlFor="edit-image-library" style={{
+                      flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      border: `1px dashed ${RULE}`, padding: 16, cursor: 'pointer', backgroundColor: ALT,
+                      fontSize: 12, color: MUTED, fontWeight: 600,
+                    }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 20 }}>photo_library</span>
+                      Choose from Library
+                    </label>
+                  </div>
                   {editImagePreviewUrls.length > 0 && (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginTop: '8px' }}>
                       {editImagePreviewUrls.map((url, index) => (

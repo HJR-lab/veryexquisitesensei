@@ -92,6 +92,23 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
     res.json({ success: true, batch: updated });
   }));
 
+  // Student: Delete a batch they logged (only before any firing run)
+  app.delete('/api/pieces/batches/:id', authenticateToken, asyncHandler(async (req, res) => {
+    const batchId = parseInt(req.params.id);
+    const customerId = req.user.dbCustomerId;
+
+    const batch = await supabaseDb.getPieceBatchById(batchId);
+    if (!batch || batch.customer_id !== customerId) {
+      return res.status(404).json({ error: 'Batch not found' });
+    }
+    if (batch.status !== 'logged') {
+      return res.status(400).json({ error: 'Cannot delete — pieces are already in the firing pipeline. Ask the studio if you need this removed.' });
+    }
+
+    await supabaseDb.deletePieceBatch(batchId);
+    res.json({ success: true });
+  }));
+
   // Set delivery method (with optional collection date)
   app.put('/api/pieces/batches/:id/delivery', authenticateToken, asyncHandler(async (req, res) => {
     const batchId = parseInt(req.params.id);

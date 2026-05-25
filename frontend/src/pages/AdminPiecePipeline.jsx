@@ -831,7 +831,7 @@ function BatchCard({ batch, daysSince, onStatusUpdate, onComplete, onPlaceInCabi
             {daysReady !== null && ` · Ready ${daysReady}d ago`}
             {batch.delivery_method === 'collect' && <span style={{ color: SUCCESS, fontWeight: 700 }}> · Collecting</span>}
             {batch.delivery_method === 'deliver' && <span style={{ color: TC, fontWeight: 700 }}> · Delivery</span>}
-            {batch.collection_date && <span style={{ color: TC }}> · Pickup: {new Date(batch.collection_date).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })}</span>}
+            {batch.collection_date && <span style={{ color: TC }}> · Pickup: {new Date(batch.collection_date).toLocaleDateString('en-SG', { weekday: 'short', day: 'numeric', month: 'short' })}</span>}
             {hasDiscrepancyNote && <span style={{ color: WARN, fontWeight: 700 }}> · Count adjusted</span>}
           </div>
           {noResponse && (
@@ -859,9 +859,30 @@ function BatchCard({ batch, daysSince, onStatusUpdate, onComplete, onPlaceInCabi
             </button>
           )}
           {batch.status === 'collecting' && (
-            <button onClick={() => onPlaceInCabinet(batch.id)} style={btnAccentSt}>
-              Place in Cabinet
-            </button>
+            <>
+              {batch.collection_date && (() => {
+                const d = new Date(batch.collection_date);
+                const today = new Date(); today.setHours(0,0,0,0);
+                const diffDays = Math.ceil((d - today) / 86400000);
+                const urgent = diffDays <= 1;
+                return (
+                  <div style={{
+                    padding: '4px 10px', backgroundColor: urgent ? '#FFF3E0' : TC_LIGHT,
+                    border: `1px solid ${urgent ? '#E65100' : TC}`,
+                    color: urgent ? '#E65100' : TC,
+                    fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase',
+                    display: 'flex', alignItems: 'center',
+                  }}>
+                    {d.toLocaleDateString('en-SG', { weekday: 'short', day: 'numeric', month: 'short' })}
+                    {urgent && diffDays === 0 && ' · TODAY'}
+                    {urgent && diffDays === 1 && ' · TOMORROW'}
+                  </div>
+                );
+              })()}
+              <button onClick={() => onPlaceInCabinet(batch.id)} style={btnAccentSt}>
+                Place in Cabinet
+              </button>
+            </>
           )}
           {batch.status === 'in_cabinet' && (
             <button onClick={() => onMarkCollected(batch.id)} style={btnSt}>

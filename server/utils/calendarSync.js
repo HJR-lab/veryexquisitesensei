@@ -22,6 +22,20 @@ function isEnabled() {
   return !!REFRESH_TOKEN;
 }
 
+// Per-class_instance sync serialization.
+// Two concurrent syncs for the same class_instance race in two ways:
+//   1. Both see google_calendar_event_id=null and INSERT — second event is orphaned.
+//   2. Both UPDATE — older-read description overwrites newer-read.
+// We chain syncs by id so only one runs at a time per class_instance.
+const syncChains = new Map();
+function withClassInstanceLock(id, fn) {
+  const prev = syncChains.get(id) || Promise.resolve();
+  const next = prev.catch(() => {}).then(fn);
+  syncChains.set(id, next);
+  next.finally(() => { if (syncChains.get(id) === next) syncChains.delete(id); });
+  return next;
+}
+
 function getBase(id) {
   if (!id) return '';
   const i = id.lastIndexOf('.');
@@ -175,66 +189,72 @@ function buildEventPayload(classInstance, description) {
 // Create or update a class instance's calendar event (only for today/future)
 async function syncClassInstance(classInstanceId) {
   if (!isEnabled()) return;
-  try {
-    const { data: classInstance } = await supabaseDb.supabase
-      .from('class_instances')
-      .select('*')
-      .eq('id', classInstanceId)
-      .single();
-    if (!classInstance) return;
-
-    // Skip past classes
-    const today = new Date().toISOString().split('T')[0];
-    const classDate = (classInstance.class_date || '').split('T')[0];
-    if (classDate < today) return;
-
-    const description = await buildClassDescription(classInstance);
-    const payload = buildEventPayload(classInstance, description);
-
-    if (classInstance.google_calendar_event_id) {
-      // Update existing
-      await cal.events.update({
-        calendarId: CALENDAR_ID,
-        eventId: classInstance.google_calendar_event_id,
-        resource: payload
-      });
-    } else {
-      // Create new
-      const res = await cal.events.insert({
-        calendarId: CALENDAR_ID,
-        resource: payload
-      });
-      await supabaseDb.supabase
+  return withClassInstanceLock(classInstanceId, async () => {
+    try {
+      // Re-read inside the lock so the second waiter sees the event_id the
+      // first waiter just wrote (otherwise both INSERT and one is orphaned).
+      const { data: classInstance } = await supabaseDb.supabase
         .from('class_instances')
-        .update({ google_calendar_event_id: res.data.id })
-        .eq('id', classInstanceId);
+        .select('*')
+        .eq('id', classInstanceId)
+        .single();
+      if (!classInstance) return;
+
+      // Skip past classes
+      const today = new Date().toISOString().split('T')[0];
+      const classDate = (classInstance.class_date || '').split('T')[0];
+      if (classDate < today) return;
+
+      const description = await buildClassDescription(classInstance);
+      const payload = buildEventPayload(classInstance, description);
+
+      if (classInstance.google_calendar_event_id) {
+        // Update existing
+        await cal.events.update({
+          calendarId: CALENDAR_ID,
+          eventId: classInstance.google_calendar_event_id,
+          resource: payload
+        });
+      } else {
+        // Create new
+        const res = await cal.events.insert({
+          calendarId: CALENDAR_ID,
+          resource: payload
+        });
+        await supabaseDb.supabase
+          .from('class_instances')
+          .update({ google_calendar_event_id: res.data.id })
+          .eq('id', classInstanceId);
+      }
+    } catch (err) {
+      console.error('[CalendarSync] syncClassInstance error:', err.message);
     }
-  } catch (err) {
-    console.error('[CalendarSync] syncClassInstance error:', err.message);
-  }
+  });
 }
 
 // Delete a class event
 async function deleteClassInstance(classInstanceId) {
   if (!isEnabled()) return;
-  try {
-    const { data: classInstance } = await supabaseDb.supabase
-      .from('class_instances')
-      .select('google_calendar_event_id')
-      .eq('id', classInstanceId)
-      .single();
-    if (!classInstance?.google_calendar_event_id) return;
-    await cal.events.delete({
-      calendarId: CALENDAR_ID,
-      eventId: classInstance.google_calendar_event_id
-    });
-    await supabaseDb.supabase
-      .from('class_instances')
-      .update({ google_calendar_event_id: null })
-      .eq('id', classInstanceId);
-  } catch (err) {
-    console.error('[CalendarSync] deleteClassInstance error:', err.message);
-  }
+  return withClassInstanceLock(classInstanceId, async () => {
+    try {
+      const { data: classInstance } = await supabaseDb.supabase
+        .from('class_instances')
+        .select('google_calendar_event_id')
+        .eq('id', classInstanceId)
+        .single();
+      if (!classInstance?.google_calendar_event_id) return;
+      await cal.events.delete({
+        calendarId: CALENDAR_ID,
+        eventId: classInstance.google_calendar_event_id
+      });
+      await supabaseDb.supabase
+        .from('class_instances')
+        .update({ google_calendar_event_id: null })
+        .eq('id', classInstanceId);
+    } catch (err) {
+      console.error('[CalendarSync] deleteClassInstance error:', err.message);
+    }
+  });
 }
 
 // Create/update studio access booking event

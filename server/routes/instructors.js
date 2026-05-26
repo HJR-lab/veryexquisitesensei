@@ -1,6 +1,7 @@
 const supabaseDb = require('../utils/supabaseDb');
 const { getStudioAccessPasses } = require('../utils/studioAccess');
 const { uploadImageToSupabase, deleteImageFromSupabase } = require('../utils/imageUpload');
+const { readMembershipSettings, writeMembershipSettings } = require('../utils/membershipSettings');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, upload }) {
 
@@ -110,6 +111,28 @@ app.put('/api/admin/settings/studio-policy', authenticateToken, requireAdmin, as
     if (error) throw error;
   }
 
+  res.json({ success: true });
+}));
+
+// ── Admin Settings (membership: entry code + studio hours) ──────────────────
+app.get('/api/admin/settings/membership', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  res.json(await readMembershipSettings());
+}));
+
+app.put('/api/admin/settings/membership', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { accessCode, studioHours } = req.body || {};
+  if (typeof accessCode !== 'string' || !accessCode.trim()) {
+    return res.status(400).json({ error: 'accessCode must be a non-empty string' });
+  }
+  if (!Array.isArray(studioHours) || studioHours.length !== 7) {
+    return res.status(400).json({ error: 'studioHours must be an array of 7 entries (Mon–Sun)' });
+  }
+  for (const entry of studioHours) {
+    if (!entry || typeof entry.day !== 'string' || typeof entry.hours !== 'string') {
+      return res.status(400).json({ error: 'each studioHours entry needs { day, hours } strings' });
+    }
+  }
+  await writeMembershipSettings({ accessCode, studioHours });
   res.json({ success: true });
 }));
 

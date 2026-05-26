@@ -36,6 +36,16 @@ const TIER_PERKS = {
   },
 };
 
+const DEFAULT_STUDIO_HOURS = [
+  { day: 'Monday',    hours: '11:00 am – 9:00 pm' },
+  { day: 'Tuesday',   hours: '11:00 am – 6:00 pm' },
+  { day: 'Wednesday', hours: '11:00 am – 6:00 pm' },
+  { day: 'Thursday',  hours: '11:00 am – 6:00 pm' },
+  { day: 'Friday',    hours: '11:00 am – 9:00 pm' },
+  { day: 'Saturday',  hours: '4:00 pm – 8:00 pm' },
+  { day: 'Sunday',    hours: '12:00 pm – 6:00 pm' },
+];
+
 /**
  * Generate membership confirmation email
  * @param {Object} params
@@ -43,19 +53,31 @@ const TIER_PERKS = {
  * @param {number} params.months - Membership duration (1, 6, or 12)
  * @param {string} params.startDate - e.g. "27 March 2026"
  * @param {string} params.endDate - e.g. "27 April 2026"
+ * @param {string} [params.accessCode] - Studio entry keypad code (e.g. "050590#")
+ * @param {Array<{day:string,hours:string}>} [params.studioHours] - Per-day access hours
  * @returns {{ subject: string, html: string }}
  */
-function generateMembershipConfirmedEmail({ firstName, months, startDate, endDate }) {
+function generateMembershipConfirmedEmail({ firstName, months, startDate, endDate, accessCode, studioHours }) {
   const tierInfo = TIER_PERKS[months] || TIER_PERKS[1];
   const greeting = firstName ? `Dear ${firstName},` : 'Dear Member,';
   const durationLabel = `${months} Month${months !== 1 ? 's' : ''}`;
   const subject = `VES — Welcome to Ves Clay Club (${durationLabel} ${tierInfo.tier} Membership)`;
+  const code = accessCode || '050590#';
+  const hours = Array.isArray(studioHours) && studioHours.length > 0 ? studioHours : DEFAULT_STUDIO_HOURS;
 
   const perksHtml = tierInfo.perks.map(p =>
     `<tr><td style="padding: 4px 0 4px 0; font-size: 14px; color: #282828; vertical-align: top;">
       <span style="color: #C4622D; margin-right: 8px;">&#10003;</span> ${p}
     </td></tr>`
   ).join('');
+
+  const hoursHtml = hours.map(({ day, hours: hrs }) =>
+    `<tr>
+      <td style="padding: 3px 0; font-size: 14px; color: #282828; width: 110px;">${day}</td>
+      <td style="padding: 3px 0; font-size: 14px; color: #282828;">${hrs}</td>
+    </tr>`
+  ).join('');
+
 
   const body = `
     <h1 style="margin: 0 0 16px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">
@@ -100,9 +122,41 @@ function generateMembershipConfirmedEmail({ firstName, months, startDate, endDat
 
     <!-- Perks -->
     <p style="margin: 0 0 8px; font-size: 14px; font-weight: 600; color: #282828;">Your membership includes:</p>
-    <table cellpadding="0" cellspacing="0" style="margin: 0 0 20px;">
+    <table cellpadding="0" cellspacing="0" style="margin: 0 0 24px;">
       ${perksHtml}
     </table>
+
+    <!-- Entry code -->
+    <p style="margin: 0 0 6px; font-size: 14px; font-weight: 600; color: #282828;">Entry</p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #F9EDE6; border-radius: 8px; margin: 0 0 24px;">
+      <tr>
+        <td align="center" style="padding: 14px 16px;">
+          <div style="font-size: 11px; color: #9E4A1E; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px;">Studio Keypad Code</div>
+          <div style="font-size: 22px; font-weight: 700; color: #282828; letter-spacing: 0.08em; font-family: 'SFMono-Regular', Menlo, Consolas, monospace;">${code}</div>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Studio hours -->
+    <p style="margin: 0 0 6px; font-size: 14px; font-weight: 600; color: #282828;">Studio Access</p>
+    <p style="margin: 0 0 8px; font-size: 13px; color: #888888;">Strictly for Ves Clay Club Members only.</p>
+    <table cellpadding="0" cellspacing="0" style="margin: 0 0 24px;">
+      ${hoursHtml}
+    </table>
+
+    <!-- WhatsApp group -->
+    <p style="margin: 0 0 6px; font-size: 14px; font-weight: 600; color: #282828;">WhatsApp Group</p>
+    <p style="margin: 0 0 24px; font-size: 14px; line-height: 1.6; color: #282828;">
+      You'll be added to our members-only WhatsApp group — we'll send the invite to the mobile number on your account shortly.
+    </p>
+
+    <!-- Orientation -->
+    <p style="margin: 0 0 6px; font-size: 14px; font-weight: 600; color: #282828;">Orientation</p>
+    <p style="margin: 0 0 24px; font-size: 14px; line-height: 1.6; color: #282828;">
+      Let us know when you intend to start. Our studio manager will attend to you on your first visit
+      for an initial orientation — pails, clay, tools, reclaim buckets, towels, power supply, glazes,
+      firing charges, studio cleanliness and discipline.
+    </p>
 
     <p style="margin: 0 0 8px; font-size: 14px; line-height: 1.5; color: #282828;">
       <strong>Address:</strong> 75 Jalan Kelabu Asap, Chip Bee Gardens 278268

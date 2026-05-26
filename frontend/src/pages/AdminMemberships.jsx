@@ -89,6 +89,9 @@ export default function AdminMemberships() {
   const [search,              setSearch]              = useState('');
   const [showCreateModal,     setShowCreateModal]     = useState(false);
   const [editing,             setEditing]             = useState(null); // membership object being edited
+  const [showSettings,        setShowSettings]        = useState(false);
+  const [settings,            setSettings]            = useState(null);
+  const [savingSettings,      setSavingSettings]      = useState(false);
 
   const [createForm, setCreateForm] = useState({
     customerId:     '',
@@ -195,6 +198,37 @@ export default function AdminMemberships() {
     }
   };
 
+  const openSettings = async () => {
+    setShowSettings(true);
+    if (settings) return;
+    try {
+      const res = await api.get('/admin/settings/membership');
+      setSettings(res.data);
+    } catch (err) {
+      console.error('Failed to load membership settings:', err);
+      alert('Failed to load settings');
+      setShowSettings(false);
+    }
+  };
+
+  const handleSettingsSubmit = async (e) => {
+    e.preventDefault();
+    if (!settings) return;
+    try {
+      setSavingSettings(true);
+      await api.put('/admin/settings/membership', {
+        accessCode:  settings.accessCode,
+        studioHours: settings.studioHours,
+      });
+      setShowSettings(false);
+    } catch (err) {
+      console.error('Failed to save membership settings:', err);
+      alert(err?.response?.data?.error || 'Failed to save settings');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
   const handleCreateSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -294,12 +328,22 @@ export default function AdminMemberships() {
       <AdminPage
         title="Memberships"
         actions={
-          <button
-            onClick={() => setShowCreateModal(true)}
-            style={{ padding: isMobile ? '9px 14px' : '10px 18px', backgroundColor: TC, color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
-          >
-            + Create Membership
-          </button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={openSettings}
+              title="Membership settings"
+              style={{ padding: isMobile ? '9px 12px' : '10px 14px', backgroundColor: '#FFF', color: INK, border: `1px solid ${RULE}`, fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>settings</span>
+              {!isMobile && 'Settings'}
+            </button>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              style={{ padding: isMobile ? '9px 14px' : '10px 18px', backgroundColor: TC, color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
+            >
+              + Create Membership
+            </button>
+          </div>
         }
       >
         {/* ── Stats row (clickable tab selectors) ── */}
@@ -618,6 +662,70 @@ export default function AdminMemberships() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Membership Settings Modal ──────────────────────────────────────────── */}
+      {showSettings && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div style={{ backgroundColor: '#FFFFFF', padding: '32px', width: '520px', maxWidth: '90vw', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <div style={{ fontSize: '16px', fontWeight: 700 }}>Membership Settings</div>
+              <button onClick={() => setShowSettings(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '18px', color: MUTED }}>✕</button>
+            </div>
+            <div style={{ fontSize: '12px', color: MUTED, marginBottom: '20px' }}>
+              Values shown in the membership confirmation email sent on every Clay Club purchase.
+            </div>
+
+            {!settings ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: MUTED, fontSize: '13px' }}>Loading…</div>
+            ) : (
+              <form onSubmit={handleSettingsSubmit}>
+                <div style={{ marginBottom: '20px' }}>
+                  <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '5px' }}>Studio Entry Code</label>
+                  <input
+                    type="text"
+                    value={settings.accessCode}
+                    onChange={e => setSettings({ ...settings, accessCode: e.target.value })}
+                    required
+                    style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '14px', fontFamily: 'SFMono-Regular, Menlo, Consolas, monospace', letterSpacing: '0.06em', boxSizing: 'border-box', outline: 'none' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: '20px' }}>
+                  <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '8px' }}>Studio Access Hours</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {settings.studioHours.map((entry, idx) => (
+                      <div key={entry.day} style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: '8px', alignItems: 'center' }}>
+                        <div style={{ fontSize: '13px', color: INK }}>{entry.day}</div>
+                        <input
+                          type="text"
+                          value={entry.hours}
+                          onChange={e => {
+                            const next = settings.studioHours.slice();
+                            next[idx] = { ...next[idx], hours: e.target.value };
+                            setSettings({ ...settings, studioHours: next });
+                          }}
+                          placeholder="e.g. 11:00 am – 6:00 pm or Closed"
+                          style={{ width: '100%', padding: '8px 10px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'Atak, sans-serif', boxSizing: 'border-box', outline: 'none' }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ flex: 1 }} />
+                  <button type="button" onClick={() => setShowSettings(false)} style={{ padding: '12px 18px', border: `1px solid ${RULE}`, backgroundColor: 'transparent', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}>
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={savingSettings} style={{ padding: '12px 18px', backgroundColor: TC, color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', opacity: savingSettings ? 0.5 : 1 }}>
+                    {savingSettings ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

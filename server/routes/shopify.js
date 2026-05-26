@@ -7,6 +7,7 @@ const courseConfig = require('../utils/courseConfig');
 const { generateKidsOutreachEmail } = require('../email-templates/kids-outreach');
 const { generateMembershipConfirmedEmail } = require('../email-templates/membership-confirmed');
 const { generateVoucherOutreachEmail } = require('../email-templates/voucher-outreach');
+const { readMembershipSettings } = require('../utils/membershipSettings');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, getShopifyClient, shopify }) {
 
@@ -1344,11 +1345,14 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
 
               const formatDate = (d) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
+              const membershipSettings = await readMembershipSettings();
               const { subject, html } = generateMembershipConfirmedEmail({
                 firstName: customer.first_name || '',
                 months,
                 startDate: formatDate(orderDate),
                 endDate: formatDate(endDate),
+                accessCode: membershipSettings.accessCode,
+                studioHours: membershipSettings.studioHours,
               });
               await sendAndLogEmail({
                 emailType: 'membership_confirmed',

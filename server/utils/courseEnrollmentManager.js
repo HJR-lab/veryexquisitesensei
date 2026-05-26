@@ -72,13 +72,17 @@ async function processCoursePurchase(order, lineItem) {
     // Check for duplicate enrollment (same order + line item)
     const { data: existingEnrollment } = await supabase
       .from('course_enrollments')
-      .select('id')
+      .select('id, student_id, manual_student_override')
       .eq('shopify_order_id', order.id)
       .eq('shopify_line_item_id', lineItem.id)
       .maybeSingle();
 
     if (existingEnrollment) {
-      console.log(`⏭️  Enrollment already exists for order ${order.id} / item ${lineItem.id}, skipping`);
+      if (existingEnrollment.manual_student_override) {
+        console.log(`🔒 Enrollment ${existingEnrollment.id} has manual_student_override=true (student_id=${existingEnrollment.student_id}); leaving as-is.`);
+      } else {
+        console.log(`⏭️  Enrollment already exists for order ${order.id} / item ${lineItem.id}, skipping`);
+      }
       return { success: true, skipped: true, enrollment: existingEnrollment };
     }
 

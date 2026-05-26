@@ -242,9 +242,9 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
         email: customer.email,
         firstName: customer.first_name,
         lastName: customer.last_name,
-        mobile: customer.phone,
-        dateOfBirth: customer.date_of_birth,
-        profilePicture: customer.profile_picture,
+        mobile: '',
+        dateOfBirth: null,
+        profilePicture: customer.profile_image,
         coursePurchaseCount: customer.course_purchase_count || 0,
         classesAllocated: customer.classes_allocated || 0,
         classesUsed: customer.classes_used || 0,
@@ -336,19 +336,19 @@ app.put('/api/auth/profile', authenticateToken, asyncHandler(async (req, res) =>
     }
   }
 
-  // Update customer in database
+  // Update customer in database.
+  // Note: customers table has no `mobile` or `date_of_birth` columns yet —
+  // the form sends them but they are dropped here until the schema is extended.
+  // Profile picture is stored in the `profile_image` column.
   const updateData = {
     first_name: firstName,
     last_name: lastName,
     email: email,
-    mobile: mobile || null,
-    date_of_birth: dateOfBirth || null,
     updated_at: new Date().toISOString()
   };
 
-  // Only update profile_picture if it's provided in the request
   if (profilePicture !== undefined) {
-    updateData.profile_picture = profilePicture || null;
+    updateData.profile_image = profilePicture || null;
   }
 
   const { data: updatedCustomer, error } = await supabaseDb.supabase
@@ -359,8 +359,18 @@ app.put('/api/auth/profile', authenticateToken, asyncHandler(async (req, res) =>
     .single();
 
   if (error) {
-    console.error('Error updating profile:', error);
-    return res.status(500).json({ error: 'Failed to update profile' });
+    console.error('[PUT /api/auth/profile] supabase update failed', {
+      dbCustomerId,
+      email: req.user?.email,
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
+    return res.status(500).json({
+      error: error.message ? `Failed to update profile: ${error.message}` : 'Failed to update profile',
+      code: error.code,
+    });
   }
 
   // Invalidate auth cache since profile data changed
@@ -374,9 +384,9 @@ app.put('/api/auth/profile', authenticateToken, asyncHandler(async (req, res) =>
       email: updatedCustomer.email,
       firstName: updatedCustomer.first_name,
       lastName: updatedCustomer.last_name,
-      mobile: updatedCustomer.mobile,
-      dateOfBirth: updatedCustomer.date_of_birth,
-      profilePicture: updatedCustomer.profile_picture
+      mobile: '',
+      dateOfBirth: null,
+      profilePicture: updatedCustomer.profile_image
     }
   });
 }));

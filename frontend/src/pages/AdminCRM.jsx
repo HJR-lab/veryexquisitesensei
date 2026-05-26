@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../utils/api';
+import AdminPage from '../components/AdminPage';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const TC       = '#C4622D';
@@ -713,9 +714,7 @@ export default function AdminCRM() {
   const [tab, setTab] = useState('campaigns');
 
   return (
-    <div style={{ maxWidth: '960px', margin: '0 auto', padding: '24px 20px' }}>
-      <h2 style={{ margin: '0 0 20px', color: INK, fontSize: '20px', fontWeight: 700 }}>CRM</h2>
-
+    <AdminPage title="CRM">
       {/* Tab bar */}
       <div style={{ display: 'flex', gap: '0', borderBottom: `1px solid ${RULE}`, marginBottom: '24px' }}>
         {TABS.map(t => (
@@ -738,6 +737,6 @@ export default function AdminCRM() {
       {tab === 'campaigns' && <CampaignsTab />}
       {tab === 'automation' && <AutomationTab />}
       {tab === 'events' && <EventsTab />}
-    </div>
+    </AdminPage>
   );
 }

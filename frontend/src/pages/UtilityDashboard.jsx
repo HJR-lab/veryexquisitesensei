@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import AdminPage from '../components/AdminPage';
 import '../styles/UtilityDashboard.css';
 
 const sidebarItems = [
@@ -40,53 +41,50 @@ const usageDetails = [
 
 export default function UtilityDashboard() {
   return (
-    <div className="utility-dashboard">
-      <aside className="utility-sidebar">
-        <div className="utility-brand">
-          <div className="utility-brand-mark">
-            <span className="material-symbols-outlined">offline_bolt</span>
-          </div>
-          <div>
-            <div className="utility-brand-name">LUNARIS GRID</div>
-            <div className="utility-brand-subtitle">DOE frontend shell</div>
-          </div>
+    <AdminPage
+      title="Utility Operations"
+      subtitle="Track live usage, peak demand, and billing trends across the current cycle."
+      actions={
+        <div className="utility-header-actions">
+          <button type="button" className="utility-button utility-button-secondary">Feb 2026</button>
+          <button type="button" className="utility-button utility-button-primary">Export report</button>
         </div>
-
-        <div className="utility-sidebar-group-label">Operations</div>
-        <nav className="utility-sidebar-nav">
-          {sidebarItems.map((item) => (
-            <Link
-              key={item.label}
-              to={item.href}
-              className={`utility-sidebar-link${item.active ? ' is-active' : ''}`}
-            >
-              <span className="material-symbols-outlined">{item.icon}</span>
-              <span>{item.label}</span>
-            </Link>
-          ))}
-        </nav>
-
-        <div className="utility-sidebar-footer">
-          <div className="utility-sidebar-footer-title">North Utility Ops</div>
-          <div className="utility-sidebar-footer-copy">ops@lunaris.energy</div>
-        </div>
-      </aside>
-
-      <main className="utility-main">
-        <header className="utility-header">
-          <div>
-            <div className="utility-eyebrow">Department of Energy</div>
-            <h1>Utility Operations Dashboard</h1>
-            <p>Track live usage, peak demand, and billing trends across the current cycle.</p>
+      }
+    >
+      <div className="utility-dashboard">
+        <aside className="utility-sidebar">
+          <div className="utility-brand">
+            <div className="utility-brand-mark">
+              <span className="material-symbols-outlined">offline_bolt</span>
+            </div>
+            <div>
+              <div className="utility-brand-name">LUNARIS GRID</div>
+              <div className="utility-brand-subtitle">DOE frontend shell</div>
+            </div>
           </div>
 
-          <div className="utility-header-actions">
-            <button type="button" className="utility-button utility-button-secondary">Feb 2026</button>
-            <button type="button" className="utility-button utility-button-primary">Export report</button>
-          </div>
-        </header>
+          <div className="utility-sidebar-group-label">Operations</div>
+          <nav className="utility-sidebar-nav">
+            {sidebarItems.map((item) => (
+              <Link
+                key={item.label}
+                to={item.href}
+                className={`utility-sidebar-link${item.active ? ' is-active' : ''}`}
+              >
+                <span className="material-symbols-outlined">{item.icon}</span>
+                <span>{item.label}</span>
+              </Link>
+            ))}
+          </nav>
 
-        <section className="utility-metrics">
+          <div className="utility-sidebar-footer">
+            <div className="utility-sidebar-footer-title">North Utility Ops</div>
+            <div className="utility-sidebar-footer-copy">ops@lunaris.energy</div>
+          </div>
+        </aside>
+
+        <div className="utility-main">
+          <section className="utility-metrics">
           {metrics.map((metric) => (
             <article key={metric.label} className="utility-card utility-metric-card">
               <div className="utility-card-label">{metric.label}</div>
@@ -177,7 +175,8 @@ export default function UtilityDashboard() {
             </div>
           </article>
         </section>
-      </main>
-    </div>
+        </div>
+      </div>
+    </AdminPage>
   );
 }

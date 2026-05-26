@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
+import AdminPage from '../components/AdminPage';
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
 const TC_DARK  = '#9E4A1E';
@@ -119,28 +120,22 @@ export default function AdminInstructors() {
   };
 
   return (
-    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <main style={{ maxWidth: '900px', margin: '0 auto', padding: '32px 24px 60px' }}>
-        <div style={{ marginBottom: '28px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-          <div>
-            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>
-              Manage
-            </div>
-            <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Instructors</h1>
-          </div>
-          <button
-            onClick={() => { setShowForm(!showForm); setFormMsg(null); setProfileFile(null); setProfilePreview(null); }}
-            style={{
-              fontSize: '11px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
-              padding: '9px 18px',
-              backgroundColor: showForm ? '#FFFFFF' : TC, color: showForm ? TC : '#FFFFFF',
-              border: `1px solid ${TC}`, cursor: 'pointer', fontFamily: 'inherit',
-            }}
-          >
-            {showForm ? 'Cancel' : 'Add Instructor'}
-          </button>
-        </div>
-
+    <AdminPage
+      title="Instructors"
+      actions={
+        <button
+          onClick={() => { setShowForm(!showForm); setFormMsg(null); setProfileFile(null); setProfilePreview(null); }}
+          style={{
+            fontSize: '11px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
+            padding: '9px 18px',
+            backgroundColor: showForm ? '#FFFFFF' : TC, color: showForm ? TC : '#FFFFFF',
+            border: `1px solid ${TC}`, cursor: 'pointer', fontFamily: 'inherit',
+          }}
+        >
+          {showForm ? 'Cancel' : 'Add Instructor'}
+        </button>
+      }
+    >
         {/* Create form */}
         {showForm && (
           <section style={{ marginBottom: '32px', padding: '20px', backgroundColor: '#FFFFFF', border: `1px solid ${RULE}` }}>
@@ -302,7 +297,6 @@ export default function AdminInstructors() {
           </div>
         </section>
 
-      </main>
-    </div>
+    </AdminPage>
   );
 }

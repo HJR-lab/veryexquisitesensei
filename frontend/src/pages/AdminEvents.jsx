@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../utils/api';
+import AdminPage from '../components/AdminPage';
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
 const TC_DARK  = '#9E4A1E';
@@ -146,18 +147,15 @@ export default function AdminEvents() {
   };
 
   return (
-    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <main style={{ maxWidth: '900px', margin: '0 auto', padding: '32px 24px 60px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-          <div>
-            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>Admin</div>
-            <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Events</h1>
-          </div>
-          <button onClick={openNew} style={{ padding: '8px 16px', backgroundColor: TC, color: '#FFF', border: 'none', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-            + New Event
-          </button>
-        </div>
-
+    <AdminPage
+      title="Events"
+      subtitle="Studio events, sales, workshops, and exhibitions"
+      actions={
+        <button onClick={openNew} style={{ padding: '8px 16px', backgroundColor: TC, color: '#FFF', border: 'none', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+          + New Event
+        </button>
+      }
+    >
         {/* ── Edit / Create form ── */}
         {editing && (
           <div style={{ backgroundColor: '#FFF', border: `1px solid ${RULE}`, padding: '24px', marginBottom: '24px' }}>
@@ -290,7 +288,6 @@ export default function AdminEvents() {
             ))}
           </div>
         )}
-      </main>
-    </div>
+    </AdminPage>
   );
 }

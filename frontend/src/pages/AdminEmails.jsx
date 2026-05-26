@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 
+import AdminPage from '../components/AdminPage';
 import api from '../utils/api';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -229,47 +230,40 @@ export default function AdminEmails() {
   // ─────────────────────────────────────────────────────────────────────────────
   // RENDER
   // ─────────────────────────────────────────────────────────────────────────────
+  const headerActions = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      {saveStatus && (
+        <span style={{ fontSize: '11px', fontWeight: 600, color: saveStatus === 'error' ? '#C0392B' : saveStatus === 'saving' ? MUTED : GREEN }}>
+          {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : 'Error saving'}
+        </span>
+      )}
+      {statusMsg && (
+        <span style={{ fontSize: '11px', fontWeight: 600, color: statusMsg.type === 'error' ? '#C0392B' : GREEN }}>
+          {statusMsg.text}
+        </span>
+      )}
+      {view === 'settings' && tab === 'courses' && (
+        <button
+          onClick={() => setView('history')}
+          style={{ padding: '8px 14px', border: `1px solid ${RULE}`, backgroundColor: 'transparent', fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', cursor: 'pointer', color: MUTED }}
+        >
+          View History
+        </button>
+      )}
+      {(view === 'compose' || view === 'history') && (
+        <button
+          onClick={() => { setView('settings'); setDraft(null); setComposeCourse(null); }}
+          style={{ background: 'none', border: 'none', color: TC, cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}
+        >
+          &larr; Back to Settings
+        </button>
+      )}
+    </div>
+  );
+
   return (
-    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '32px 24px 60px' }}>
-
-        {/* ── Page header ── */}
-        <div style={{ marginBottom: '28px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>Admin</div>
-            <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Emails</h1>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {saveStatus && (
-              <span style={{ fontSize: '11px', fontWeight: 600, color: saveStatus === 'error' ? '#C0392B' : saveStatus === 'saving' ? MUTED : GREEN }}>
-                {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : 'Error saving'}
-              </span>
-            )}
-            {statusMsg && (
-              <span style={{ fontSize: '11px', fontWeight: 600, color: statusMsg.type === 'error' ? '#C0392B' : GREEN }}>
-                {statusMsg.text}
-              </span>
-            )}
-            {view === 'settings' && tab === 'courses' && (
-              <button
-                onClick={() => setView('history')}
-                style={{ padding: '8px 14px', border: `1px solid ${RULE}`, backgroundColor: 'transparent', fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', cursor: 'pointer', color: MUTED }}
-              >
-                View History
-              </button>
-            )}
-            {(view === 'compose' || view === 'history') && (
-              <button
-                onClick={() => { setView('settings'); setDraft(null); setComposeCourse(null); }}
-                style={{ background: 'none', border: 'none', color: TC, cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}
-              >
-                &larr; Back to Settings
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* ── Tab bar ── */}
+    <AdminPage title="Emails" actions={headerActions}>
+      {/* ── Tab bar ── */}
         <div style={{ display: 'flex', gap: '0', marginBottom: '24px', borderBottom: `2px solid ${RULE}` }}>
           {[
             { key: 'courses', label: 'Courses' },
@@ -884,7 +878,6 @@ export default function AdminEmails() {
             )}
           </>
         )}
-      </main>
-    </div>
+    </AdminPage>
   );
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 
 import api from '../utils/api';
+import AdminPage from '../components/AdminPage';
 
 const TC       = '#C4622D';
 const INK      = '#282828';
@@ -47,7 +48,7 @@ function formatValue(value, col, courseKey) {
   return value !== null && value !== undefined ? String(value) : '—';
 }
 
-export default function AdminCourseConfig() {
+export default function AdminCourseConfig({ embedded = false }) {
   const [configs, setConfigs]       = useState([]);
   const [loading, setLoading]       = useState(true);
   const [editingCell, setEditingCell] = useState(null); // { key, column }
@@ -141,23 +142,20 @@ export default function AdminCourseConfig() {
     editingCell && editingCell.key === courseKey && editingCell.column === columnKey;
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#FAFAF9', fontFamily: 'Atak, sans-serif' }}>
-      <div style={{ maxWidth: '1140px', margin: '0 auto', padding: '32px 10px' }}>
-        {/* Page header */}
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: '24px' }}>
-          <h1 style={{ fontSize: '20px', fontWeight: 700, color: INK, margin: 0 }}>
-            Course Configuration
-          </h1>
-          <span style={{
-            fontSize: '11px',
-            fontWeight: 600,
-            color: saveStatus === 'saved' ? '#2E7D32' : saveStatus === 'failed' ? '#C0392B' : 'transparent',
-            transition: 'color 0.2s',
-          }}>
-            {saveStatus === 'saved' ? 'Saved' : saveStatus === 'failed' ? 'Save failed' : 'Saved'}
-          </span>
-        </div>
-
+    <AdminPage
+      embedded={embedded}
+      title="Course Settings"
+      actions={
+        <span style={{
+          fontSize: '11px',
+          fontWeight: 600,
+          color: saveStatus === 'saved' ? '#2E7D32' : saveStatus === 'failed' ? '#C0392B' : 'transparent',
+          transition: 'color 0.2s',
+        }}>
+          {saveStatus === 'saved' ? 'Saved' : saveStatus === 'failed' ? 'Save failed' : 'Saved'}
+        </span>
+      }
+    >
         {loading ? (
           <div style={{ padding: '48px 0', textAlign: 'center', fontSize: '13px', color: MUTED }}>
             Loading…
@@ -272,7 +270,6 @@ export default function AdminCourseConfig() {
             </table>
           </div>
         )}
-      </div>
-    </div>
+    </AdminPage>
   );
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
+import AdminPage from '../components/AdminPage';
 
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
@@ -206,30 +207,21 @@ export default function AdminReference() {
     backgroundColor: 'rgba(220,38,38,0.05)',
   };
 
-  return (
-    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <main style={{ maxWidth: '900px', margin: '0 auto', padding: isMobile ? '20px 16px 60px' : '32px 24px 60px' }}>
+  const headerActions = (
+    <button
+      onClick={() => activeTab === 'clay' ? openClayModal() : openGlazeModal()}
+      style={btnAccentSt}
+    >
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+        <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>add</span>
+        Add {activeTab === 'clay' ? 'Clay Type' : activeTab === 'underglazes' ? 'Underglaze' : 'Glaze'}
+      </span>
+    </button>
+  );
 
-        {/* Header */}
-        <div style={{ marginBottom: '28px' }}>
-          <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>
-            Admin
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>
-              Inventory
-            </h1>
-            <button
-              onClick={() => activeTab === 'clay' ? openClayModal() : openGlazeModal()}
-              style={btnAccentSt}
-            >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>add</span>
-                Add {activeTab === 'clay' ? 'Clay Type' : activeTab === 'underglazes' ? 'Underglaze' : 'Glaze'}
-              </span>
-            </button>
-          </div>
-        </div>
+  return (
+    <>
+      <AdminPage title="Reference" actions={headerActions}>
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0', borderBottom: `1px solid ${RULE}`, marginBottom: '24px' }}>
@@ -409,7 +401,7 @@ export default function AdminReference() {
             </div>
           );
         })()}
-      </main>
+      </AdminPage>
 
       {/* Clay Type Modal */}
       {showClayModal && (
@@ -612,6 +604,6 @@ export default function AdminReference() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

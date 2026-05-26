@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../utils/api';
+import AdminPage from '../components/AdminPage';
 
 export default function AdminGallery() {
   const [pieces, setPieces] = useState([]);
@@ -68,13 +69,15 @@ export default function AdminGallery() {
   };
 
   if (loading) {
-    return <div style={{ padding: 40, textAlign: 'center', color: '#888' }}>Loading gallery...</div>;
+    return (
+      <AdminPage title="Gallery">
+        <div style={{ padding: 40, textAlign: 'center', color: '#888' }}>Loading gallery...</div>
+      </AdminPage>
+    );
   }
 
   return (
-    <div style={{ maxWidth: 960, margin: '0 auto', padding: '24px 16px' }}>
-      <h1 style={{ margin: '0 0 20px', fontSize: 24, color: '#282828' }}>Gallery Management</h1>
-
+    <AdminPage title="Gallery">
       {/* Search */}
       <div style={{ background: 'white', borderRadius: 10, padding: 16, marginBottom: 24, border: '1px solid #e0e0e0' }}>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -168,6 +171,6 @@ export default function AdminGallery() {
           })}
         </div>
       )}
-    </div>
+    </AdminPage>
   );
 }

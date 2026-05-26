@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
+import AdminPage from '../components/AdminPage';
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
@@ -289,23 +290,18 @@ export default function AdminMemberships() {
 
   // ─────────────────────────────────────────────────────────────────────────────
   return (
-    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '32px 24px 60px' }}>
-
-        {/* ── Page header ── */}
-        <div style={{ marginBottom: '24px', display: 'flex', alignItems: isMobile ? 'flex-start' : 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>Admin</div>
-            <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Memberships</h1>
-          </div>
+    <>
+      <AdminPage
+        title="Memberships"
+        actions={
           <button
             onClick={() => setShowCreateModal(true)}
             style={{ padding: isMobile ? '9px 14px' : '10px 18px', backgroundColor: TC, color: '#FFF', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
           >
             + Create Membership
           </button>
-        </div>
-
+        }
+      >
         {/* ── Stats row (clickable tab selectors) ── */}
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(5, 1fr)', gap: '1px', backgroundColor: RULE, border: `1px solid ${RULE}`, marginBottom: '24px' }}>
           {[
@@ -447,7 +443,7 @@ export default function AdminMemberships() {
             })}
           </div>
         )}
-      </main>
+      </AdminPage>
 
       {/* ── Create Membership Modal ────────────────────────────────────────────── */}
       {showCreateModal && (
@@ -625,6 +621,6 @@ export default function AdminMemberships() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../utils/api';
+import AdminPage from '../components/AdminPage';
 const TC       = '#C4622D';
 const INK      = '#282828';
 const MUTED    = '#888888';
@@ -99,21 +100,19 @@ export default function AdminStudioPolicy() {
   );
 
   return (
-    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-
-      <main style={{ maxWidth: '800px', margin: '0 auto', padding: '32px 24px 80px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-          <h1 style={{ fontSize: '24px', fontWeight: 700, margin: 0 }}>Studio Policy</h1>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button onClick={addSection} style={{ padding: '8px 16px', border: `1px solid ${TC}`, background: 'none', color: TC, fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-              + Add Section
-            </button>
-            <button onClick={save} disabled={saving} style={{ padding: '8px 20px', background: TC, color: '#FFF', border: 'none', fontSize: '12px', fontWeight: 700, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
-              {saving ? 'Saving...' : saved ? 'Saved!' : 'Save'}
-            </button>
-          </div>
+    <AdminPage
+      title="Studio Policy"
+      actions={
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button onClick={addSection} style={{ padding: '8px 16px', border: `1px solid ${TC}`, background: 'none', color: TC, fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+            + Add Section
+          </button>
+          <button onClick={save} disabled={saving} style={{ padding: '8px 20px', background: TC, color: '#FFF', border: 'none', fontSize: '12px', fontWeight: 700, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
+            {saving ? 'Saving...' : saved ? 'Saved!' : 'Save'}
+          </button>
         </div>
-
+      }
+    >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {sections.map((section, si) => (
             <div key={si} style={{ background: '#FFF', border: `1px solid ${RULE}`, padding: '20px' }}>
@@ -163,7 +162,6 @@ export default function AdminStudioPolicy() {
             </div>
           ))}
         </div>
-      </main>
-    </div>
+    </AdminPage>
   );
 }

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
+import AdminPage from '../components/AdminPage';
 function useIsMobile(bp = 768) {
   const [m, setM] = useState(typeof window !== 'undefined' ? window.innerWidth < bp : false);
   useEffect(() => {
@@ -625,16 +626,7 @@ export default function AdminStudents() {
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <main style={{ maxWidth: '1140px', margin: '0 auto', padding: isMobile ? '12px 12px 60px' : '32px 24px 60px' }}>
-
-        {/* ── Page header ──────────────────────────────────────────────── */}
-        <div style={{ marginBottom: isMobile ? '12px' : '24px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ fontSize: isMobile ? '9px' : '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '2px' }}>Admin</div>
-            <h1 style={{ fontSize: isMobile ? '18px' : '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Users</h1>
-          </div>
-        </div>
+    <AdminPage title="Users">
 
         {/* ── Stats strip (clickable filter) + sort ────────────────────── */}
         <div style={{ border: `1px solid ${RULE}`, marginBottom: '0' }}>
@@ -972,7 +964,6 @@ export default function AdminStudents() {
           </div>
         )}
 
-      </main>
-    </div>
+    </AdminPage>
   );
 }

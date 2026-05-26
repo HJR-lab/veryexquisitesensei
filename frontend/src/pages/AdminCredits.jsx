@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
+import AdminPage from '../components/AdminPage';
 
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
@@ -160,24 +161,18 @@ export default function AdminCredits() {
     return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   };
 
+  const backAction = (
+    <button
+      onClick={() => navigate('/admin')}
+      style={{ background: 'none', border: 'none', color: TC, fontSize: '12px', fontWeight: 600, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: '4px' }}
+    >
+      <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>arrow_back</span>
+      Dashboard
+    </button>
+  );
+
   return (
-    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <main style={{ maxWidth: '960px', margin: '0 auto', padding: isMobile ? '20px 16px 60px' : '32px 24px 60px' }}>
-
-        {/* Header */}
-        <div style={{ marginBottom: '24px' }}>
-          <button
-            onClick={() => navigate('/admin')}
-            style={{ background: 'none', border: 'none', color: TC, fontSize: '12px', fontWeight: 600, cursor: 'pointer', padding: 0, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>arrow_back</span>
-            Dashboard
-          </button>
-          <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>
-            Credits
-          </h1>
-        </div>
-
+    <AdminPage title="Credits" actions={backAction}>
         {/* Summary cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', backgroundColor: RULE, border: `1px solid ${RULE}`, marginBottom: '24px' }}>
           {[
@@ -452,8 +447,6 @@ export default function AdminCredits() {
             </div>
           </div>
         )}
-
-      </main>
-    </div>
+    </AdminPage>
   );
 }

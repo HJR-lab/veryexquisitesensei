@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../utils/api';
+import AdminPage from '../components/AdminPage';
 
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
@@ -52,7 +53,7 @@ const btnAccentSt = { ...btnSt, backgroundColor: TC, color: '#FFFFFF', border: `
 const btnSuccessSt = { ...btnSt, backgroundColor: SUCCESS, color: '#FFFFFF', border: `1px solid ${SUCCESS}` };
 const btnWarnSt = { ...btnSt, backgroundColor: WARN, color: '#FFFFFF', border: `1px solid ${WARN}` };
 
-export default function AdminPiecePipeline() {
+export default function AdminPiecePipeline({ embedded = false }) {
   const [pipeline, setPipeline] = useState({ batches: {}, stats: {} });
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -218,35 +219,21 @@ export default function AdminPiecePipeline() {
 
   if (loading) {
     return (
-      <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-        <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '32px 24px 60px' }}>
-          <div style={{ fontSize: '13px', color: MUTED }}>Loading pipeline…</div>
-        </main>
-      </div>
+      <AdminPage embedded={embedded} title="Fire">
+        <div style={{ fontSize: '13px', color: MUTED }}>Loading pipeline…</div>
+      </AdminPage>
     );
   }
 
   const stats = pipeline.stats || {};
 
   return (
-    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '32px 24px 60px' }}>
-
-        {/* Header */}
-        <div style={{ marginBottom: '28px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-          <div>
-            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>
-              Admin
-            </div>
-            <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>
-              Fire
-            </h1>
-          </div>
-          <button onClick={() => setShowLogForm(true)} style={btnAccentSt}>
-            + Log Batch
-          </button>
-        </div>
-
+    <>
+    <AdminPage
+      embedded={embedded}
+      title="Fire"
+      actions={<button onClick={() => setShowLogForm(true)} style={btnAccentSt}>+ Log Batch</button>}
+    >
         {/* Stats Bar */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1px', backgroundColor: RULE, border: `1px solid ${RULE}`, marginBottom: '24px' }}>
           {['glaze_fired', 'unmatched', 'ready', 'collecting', 'in_cabinet'].map(key => (
@@ -428,7 +415,7 @@ export default function AdminPiecePipeline() {
             </div>
           )}
         </div>
-      </main>
+    </AdminPage>
 
       {/* Photo lightbox */}
       {viewingBatch && (
@@ -488,7 +475,7 @@ export default function AdminPiecePipeline() {
           onSaved={() => { setShowLogForm(false); fetchPipeline(); }}
         />
       )}
-    </div>
+    </>
   );
 }
 

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../utils/api';
+import AdminPage from '../components/AdminPage';
 
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
@@ -122,35 +123,26 @@ export default function AdminReschedules() {
 
   const columns = ['Student', 'Type', 'From', 'To', 'Reason', 'Fee', 'Date'];
 
+  const filterButtons = (
+    <div style={{ display: 'flex', gap: '6px', marginTop: '12px' }}>
+      {[
+        { key: 'all', label: 'All' },
+        { key: 'reschedules', label: 'Reschedules' },
+        { key: 'bookings', label: 'Bookings' },
+        { key: 'cancelled', label: 'Cancelled / Missed' },
+      ].map(f => (
+        <button key={f.key} onClick={() => setFilter(f.key)} style={{
+          padding: '5px 12px', border: `1px solid ${filter === f.key ? TC : RULE}`,
+          backgroundColor: filter === f.key ? TC_LIGHT : 'transparent',
+          fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
+          color: filter === f.key ? TC_DARK : MUTED, cursor: 'pointer',
+        }}>{f.label}</button>
+      ))}
+    </div>
+  );
+
   return (
-    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '32px 24px 60px' }}>
-
-        {/* Page header */}
-        <div style={{ marginBottom: '28px' }}>
-          <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>
-            VES Pottery Studio
-          </div>
-          <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>
-            Booking Activity
-          </h1>
-          <div style={{ display: 'flex', gap: '6px', marginTop: '12px' }}>
-            {[
-              { key: 'all', label: 'All' },
-              { key: 'reschedules', label: 'Reschedules' },
-              { key: 'bookings', label: 'Bookings' },
-              { key: 'cancelled', label: 'Cancelled / Missed' },
-            ].map(f => (
-              <button key={f.key} onClick={() => setFilter(f.key)} style={{
-                padding: '5px 12px', border: `1px solid ${filter === f.key ? TC : RULE}`,
-                backgroundColor: filter === f.key ? TC_LIGHT : 'transparent',
-                fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
-                color: filter === f.key ? TC_DARK : MUTED, cursor: 'pointer',
-              }}>{f.label}</button>
-            ))}
-          </div>
-        </div>
-
+    <AdminPage title="Booking Activity" actions={filterButtons}>
         {/* Content */}
         {loading ? (
           <div style={{ padding: '40px 0', textAlign: 'center', fontSize: '13px', color: MUTED }}>
@@ -250,7 +242,6 @@ export default function AdminReschedules() {
             </table>
           </div>
         )}
-      </main>
-    </div>
+    </AdminPage>
   );
 }

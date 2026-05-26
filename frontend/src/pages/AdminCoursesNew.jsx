@@ -1,5 +1,10 @@
 import { useState, useEffect } from 'react';
 import api from '../utils/api';
+import AdminPage from '../components/AdminPage';
+import AdminCohorts from './AdminCohorts';
+import AdminCourseConfig from './AdminCourseConfig';
+import AdminPiecePipeline from './AdminPiecePipeline';
+
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
 const TC_DARK  = '#9E4A1E';
@@ -11,7 +16,86 @@ const ALT      = '#F5F3F0';
 const labelSt = { fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '5px' };
 const inputSt = { width: '100%', padding: '9px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' };
 
+const TABS = [
+  { key: 'courses',    label: 'Courses' },
+  { key: 'cohort',     label: 'Cohort' },
+  { key: 'settings',   label: 'Settings' },
+  { key: 'collection', label: 'Collection' },
+  { key: 'waitlist',   label: 'Waitlist' },
+];
+
 export default function AdminCoursesNew() {
+  const initialTab = (() => {
+    if (typeof window === 'undefined') return 'courses';
+    const fromUrl = new URLSearchParams(window.location.search).get('tab');
+    return TABS.some(t => t.key === fromUrl) ? fromUrl : 'courses';
+  })();
+  const [activeTab, setActiveTab] = useState(initialTab);
+
+  const switchTab = (key) => {
+    setActiveTab(key);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', key);
+      window.history.replaceState({}, '', url);
+    }
+  };
+
+  return (
+    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
+      <div style={{ maxWidth: '1140px', margin: '0 auto', padding: '24px 24px 0' }}>
+        <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>Admin</div>
+        <div style={{ display: 'flex', gap: '4px', borderBottom: `1px solid ${RULE}`, marginTop: '12px' }}>
+          {TABS.map(t => {
+            const isActive = activeTab === t.key;
+            return (
+              <button
+                key={t.key}
+                onClick={() => switchTab(t.key)}
+                style={{
+                  padding: '10px 16px',
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: `2px solid ${isActive ? TC : 'transparent'}`,
+                  marginBottom: '-1px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                  color: isActive ? TC : MUTED,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {activeTab === 'courses'    && <CoursesTab />}
+      {activeTab === 'cohort'     && <AdminCohorts embedded />}
+      {activeTab === 'settings'   && <AdminCourseConfig embedded />}
+      {activeTab === 'collection' && <AdminPiecePipeline embedded />}
+      {activeTab === 'waitlist'   && <WaitlistPlaceholder />}
+    </div>
+  );
+}
+
+function WaitlistPlaceholder() {
+  return (
+    <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '60px 24px' }}>
+      <div style={{ padding: '80px 40px', textAlign: 'center', color: MUTED, backgroundColor: '#FFF', border: `1px solid ${RULE}` }}>
+        <span className="material-symbols-outlined" style={{ fontSize: '40px', color: RULE, marginBottom: '12px', display: 'block' }}>schedule</span>
+        <div style={{ fontSize: '14px', fontWeight: 700, color: INK, marginBottom: '4px' }}>Waitlist</div>
+        <div style={{ fontSize: '12px' }}>Parked — coming soon.</div>
+      </div>
+    </main>
+  );
+}
+
+function CoursesTab() {
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
@@ -101,15 +185,11 @@ export default function AdminCoursesNew() {
   };
 
   return (
-    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '32px 24px 60px' }}>
-        {/* Header */}
-        <div style={{ marginBottom: '24px' }}>
-          <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>Admin</div>
-          <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Courses</h1>
-          <p style={{ fontSize: '12px', color: MUTED, marginTop: '4px' }}>{courseTypes.length} course types &middot; {courses.length} total class instances</p>
-        </div>
-
+    <AdminPage
+      embedded
+      title="Courses"
+      subtitle={`${courseTypes.length} course types · ${courses.length} total class instances`}
+    >
         <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-start' }}>
           {/* Left: Course type list */}
           <div style={{ width: '320px', flexShrink: 0 }}>
@@ -316,7 +396,6 @@ export default function AdminCoursesNew() {
             )}
           </div>
         </div>
-      </main>
-    </div>
+    </AdminPage>
   );
 }

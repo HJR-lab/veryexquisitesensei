@@ -5,6 +5,7 @@ import api from '../utils/api';
 import ClassCalendarGrid from '../components/ClassCalendarGrid';
 import ClassDayDetail from '../components/ClassDayDetail';
 import { AddSingleClassModal, CreateCourseModal, EditClassModal, RescheduleModal, AddStudentModal } from '../components/ClassModals';
+import AdminPage from '../components/AdminPage';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const TC       = '#C4622D';
@@ -1363,13 +1364,8 @@ export default function AdminClasses() {
   // RENDER
   // ─────────────────────────────────────────────────────────────────────────────
   return (
-    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <main style={{ maxWidth: '1140px', margin: '0 auto', padding: isMobile ? '20px 16px 60px' : '32px 24px 60px' }}>
-
-        {/* ── Page header ──────────────────────────────────────────────── */}
-        <div style={{ marginBottom: '24px' }}>
-          <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>Admin</div>
-        </div>
+    <>
+      <AdminPage title="Classes">
 
         {loading && (
           <div style={{ textAlign: 'center', padding: '48px', color: MUTED, fontSize: '13px' }}>
@@ -1492,7 +1488,7 @@ export default function AdminClasses() {
             )}
           </>
         )}
-      </main>
+      </AdminPage>
 
       {/* ═══ MODALS ═══════════════════════════════════════════════════════════ */}
 
@@ -1698,6 +1694,6 @@ export default function AdminClasses() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
+import AdminPage from '../components/AdminPage';
 
 const TC = '#C4622D', TC_DARK = '#9E4A1E', TC_LIGHT = '#F9EDE6';
 const INK = '#282828', MUTED = '#888888', RULE = '#E5E2DD', ALT = '#F5F3F0';
@@ -140,25 +141,18 @@ export default function AdminVouchers() {
   const btnSecondary = { fontSize: '11px', fontWeight: 700, padding: '6px 16px', backgroundColor: ALT, color: MUTED, border: `1px solid ${RULE}`, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.04em' };
 
   return (
-    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '32px 24px 60px' }}>
-        {/* Header */}
-        <div style={{ marginBottom: '24px' }}>
-          <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>Admin</div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Vouchers</h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {backfillMsg && <span style={{ fontSize: '10px', fontWeight: 600, color: backfillMsg.includes('Failed') ? '#C0392B' : '#1E6B1E' }}>{backfillMsg}</span>}
-              <button onClick={handleBackfill} disabled={backfilling} style={{ ...btnSecondary, fontSize: '9px', padding: '4px 10px', opacity: backfilling ? 0.5 : 1 }}>
-                {backfilling ? 'Importing...' : 'Import from Shopify'}
-              </button>
-            </div>
-          </div>
-          <p style={{ fontSize: '13px', color: MUTED, marginTop: '4px' }}>
-            {pendingCount} pending &middot; {redeemedCount} redeemed
-          </p>
+    <AdminPage
+      title="Vouchers"
+      subtitle={`${pendingCount} pending · ${redeemedCount} redeemed`}
+      actions={
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {backfillMsg && <span style={{ fontSize: '10px', fontWeight: 600, color: backfillMsg.includes('Failed') ? '#C0392B' : '#1E6B1E' }}>{backfillMsg}</span>}
+          <button onClick={handleBackfill} disabled={backfilling} style={{ ...btnSecondary, fontSize: '9px', padding: '4px 10px', opacity: backfilling ? 0.5 : 1 }}>
+            {backfilling ? 'Importing...' : 'Import from Shopify'}
+          </button>
         </div>
-
+      }
+    >
         {/* Filter tabs */}
         <div style={{ display: 'flex', gap: '0', marginBottom: '20px', borderBottom: `1px solid ${RULE}` }}>
           {[
@@ -366,7 +360,6 @@ export default function AdminVouchers() {
             )}
           </div>
         ))}
-      </main>
-    </div>
+    </AdminPage>
   );
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
+import AdminPage from '../components/AdminPage';
 
 const TC = '#C4622D', TC_DARK = '#9E4A1E', TC_LIGHT = '#F9EDE6';
 const INK = '#282828', MUTED = '#888888', RULE = '#E5E2DD', ALT = '#F5F3F0';
@@ -51,16 +52,10 @@ export default function AdminFees() {
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 
   return (
-    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '32px 24px 60px' }}>
-        <div style={{ marginBottom: '24px' }}>
-          <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>Admin</div>
-          <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Fees</h1>
-          <p style={{ fontSize: '13px', color: MUTED, marginTop: '4px' }}>
-            {pendingCount} student{pendingCount !== 1 ? 's' : ''} with fees owing &middot; ${totalOwing} total
-          </p>
-        </div>
-
+    <AdminPage
+      title="Fees"
+      subtitle={`${pendingCount} student${pendingCount !== 1 ? 's' : ''} with fees owing · $${totalOwing} total`}
+    >
         {/* Filter tabs */}
         <div style={{ display: 'flex', gap: '0', marginBottom: '20px', borderBottom: `1px solid ${RULE}` }}>
           {[
@@ -169,7 +164,6 @@ export default function AdminFees() {
             );
           })}
         </div>
-      </main>
-    </div>
+    </AdminPage>
   );
 }

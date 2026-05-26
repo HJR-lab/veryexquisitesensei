@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
+import AdminPage from '../components/AdminPage';
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
 const TC_DARK  = '#9E4A1E';
@@ -91,22 +92,10 @@ export default function AdminDashboard() {
   });
 
   return (
-    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <main style={{ maxWidth: '1140px', margin: '0 auto', padding: isMobile ? '20px 16px 60px' : '32px 24px 60px' }}>
-
-        {/* Page header */}
-        <div style={{ marginBottom: '28px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>
-              VES Pottery Studio
-            </div>
-            <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>
-              Admin Dashboard
-            </h1>
-          </div>
-          <div style={{ fontSize: '12px', color: MUTED }}>{dateStr}</div>
-        </div>
-
+    <AdminPage
+      title="Admin Dashboard"
+      actions={<div style={{ fontSize: '12px', color: MUTED }}>{dateStr}</div>}
+    >
         {/* Layout: modules + right column */}
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 300px', gap: '24px', alignItems: 'start' }}>
 
@@ -402,7 +391,6 @@ export default function AdminDashboard() {
             </div>{/* end right sub-column */}
           </div>
         </div>
-      </main>
-    </div>
+    </AdminPage>
   );
 }

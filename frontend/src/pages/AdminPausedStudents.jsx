@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import Navigation from '../components/Navigation';
 import Footer from '../components/Footer';
+import AdminPage from '../components/AdminPage';
 import axios from 'axios';
 
 export default function AdminPausedStudents() {
@@ -53,38 +54,33 @@ export default function AdminPausedStudents() {
     });
   };
 
+  const actions = (
+    <div className="flex items-center gap-3">
+      <button
+        onClick={() => navigate('/admin')}
+        className="flex items-center gap-2 text-text-muted hover:text-accent transition-colors"
+      >
+        <span className="material-symbols-outlined">arrow_back</span>
+        <span>Back to Dashboard</span>
+      </button>
+      <button
+        onClick={logout}
+        className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500/20 transition-colors"
+      >
+        <span className="material-symbols-outlined text-sm">logout</span>
+        <span className="hidden sm:inline">Sign Out</span>
+      </button>
+    </div>
+  );
+
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <>
       <Navigation />
-
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center gap-4 mb-4">
-            <button
-              onClick={() => navigate('/admin')}
-              className="flex items-center gap-2 text-text-muted hover:text-accent transition-colors"
-            >
-              <span className="material-symbols-outlined">arrow_back</span>
-              <span>Back to Dashboard</span>
-            </button>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-4xl font-bold text-text mb-2">Paused Students</h1>
-              <p className="text-text-muted">Students who have paused their courses</p>
-            </div>
-            <button
-              onClick={logout}
-              className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500/20 transition-colors"
-            >
-              <span className="material-symbols-outlined text-sm">logout</span>
-              <span className="hidden sm:inline">Sign Out</span>
-            </button>
-          </div>
-        </div>
-
+      <AdminPage
+        title="Paused Students"
+        subtitle="Students who have paused their courses"
+        actions={actions}
+      >
         {/* Paused Students List */}
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
           {loading ? (
@@ -185,9 +181,8 @@ export default function AdminPausedStudents() {
             </div>
           )}
         </div>
-      </main>
-
+      </AdminPage>
       <Footer />
-    </div>
+    </>
   );
 }

@@ -1,15 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../utils/api';
-function useIsMobile(bp = 768) {
-  const [m, setM] = useState(typeof window !== 'undefined' ? window.innerWidth < bp : false);
-  useEffect(() => {
-    const h = () => setM(window.innerWidth < bp);
-    window.addEventListener('resize', h);
-    return () => window.removeEventListener('resize', h);
-  }, [bp]);
-  return m;
-}
+import AdminPage from '../components/AdminPage';
 
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
@@ -56,7 +48,6 @@ function fmt24to12(t) {
 }
 
 export default function AdminStudioAccess() {
-  const isMobile = useIsMobile();
   const TODAY = new Date();
   TODAY.setHours(0, 0, 0, 0);
   const todayStr = fmtKey(TODAY);
@@ -215,23 +206,15 @@ export default function AdminStudioAccess() {
   });
 
   return (
-    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <main style={{ maxWidth: '1140px', margin: '0 auto', padding: isMobile ? '20px 16px 60px' : '32px 24px 60px' }}>
-
-        {/* Page header */}
-        <div style={{ marginBottom: '28px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>
-              Admin
-            </div>
-            <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>
-              Studio Access
-            </h1>
-          </div>
+    <>
+      <AdminPage
+        title="Studio Access"
+        actions={
           <button onClick={() => setShowCreateForm(!showCreateForm)} style={btnStyle(TC, '#FFF')}>
             + Create Booking
           </button>
-        </div>
+        }
+      >
 
         {/* Calendar strip */}
         <div ref={stripRef} style={{ display: 'flex', gap: '4px', overflowX: 'auto', marginBottom: '24px', paddingBottom: '4px' }}>
@@ -464,6 +447,8 @@ export default function AdminStudioAccess() {
             </div>
         </div>
 
+      </AdminPage>
+
       {/* Attended modal — settle actual hours */}
       {attendedModal && (
         <>
@@ -497,7 +482,6 @@ export default function AdminStudioAccess() {
           </div>
         </>
       )}
-      </main>
-    </div>
+    </>
   );
 }

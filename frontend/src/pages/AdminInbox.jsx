@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../utils/api';
+import AdminPage from '../components/AdminPage';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const TC       = '#C4622D';
@@ -446,44 +447,36 @@ export default function AdminInbox() {
   // ─────────────────────────────────────────────────────────────────────────────
   // RENDER
   // ─────────────────────────────────────────────────────────────────────────────
+  const headerActions = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      {/* Status message */}
+      {statusMsg && (
+        <span style={{ fontSize: '11px', fontWeight: 600, color: statusMsg.type === 'error' ? '#C0392B' : GREEN }}>
+          {statusMsg.text}
+        </span>
+      )}
+
+      {connected && (
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          style={{
+            padding: '8px 16px', border: `1px solid ${RULE}`,
+            backgroundColor: 'transparent', fontSize: '11px', fontWeight: 700,
+            letterSpacing: '0.06em', textTransform: 'uppercase',
+            cursor: refreshing ? 'default' : 'pointer', color: refreshing ? MUTED : INK,
+            display: 'flex', alignItems: 'center', gap: '6px',
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>refresh</span>
+          {refreshing ? 'Refreshing…' : 'Refresh'}
+        </button>
+      )}
+    </div>
+  );
+
   return (
-    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <main style={{ maxWidth: '1140px', margin: '0 auto', padding: '32px 24px 60px' }}>
-
-        {/* ── Page header ── */}
-        <div style={{ marginBottom: '28px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>Admin</div>
-            <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>Inbox</h1>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {/* Status message */}
-            {statusMsg && (
-              <span style={{ fontSize: '11px', fontWeight: 600, color: statusMsg.type === 'error' ? '#C0392B' : GREEN }}>
-                {statusMsg.text}
-              </span>
-            )}
-
-            {connected && (
-              <button
-                onClick={handleRefresh}
-                disabled={refreshing}
-                style={{
-                  padding: '8px 16px', border: `1px solid ${RULE}`,
-                  backgroundColor: 'transparent', fontSize: '11px', fontWeight: 700,
-                  letterSpacing: '0.06em', textTransform: 'uppercase',
-                  cursor: refreshing ? 'default' : 'pointer', color: refreshing ? MUTED : INK,
-                  display: 'flex', alignItems: 'center', gap: '6px',
-                }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>refresh</span>
-                {refreshing ? 'Refreshing…' : 'Refresh'}
-              </button>
-            )}
-          </div>
-        </div>
-
+    <AdminPage title="Inbox" actions={headerActions}>
         {/* ── Gmail not connected ── */}
         {connected === false && (
           <div style={{
@@ -638,7 +631,6 @@ export default function AdminInbox() {
             )}
           </>
         )}
-      </main>
-    </div>
+    </AdminPage>
   );
 }

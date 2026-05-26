@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../utils/api';
+import AdminPage from '../components/AdminPage';
 
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
@@ -8,7 +9,7 @@ const INK      = '#282828';
 const MUTED    = '#888888';
 const RULE     = 'rgba(40,40,40,0.09)';
 
-export default function AdminCohorts() {
+export default function AdminCohorts({ embedded = false }) {
   const [periods, setPeriods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editId, setEditId] = useState(null);
@@ -87,26 +88,17 @@ export default function AdminCohorts() {
   };
 
   return (
-    <div style={{ fontFamily: 'Atak, sans-serif', color: INK, backgroundColor: '#F8F7F5', minHeight: '100vh' }}>
-      <main style={{ maxWidth: '800px', margin: '0 auto', padding: '32px 24px 60px' }}>
-
-        <div style={{ marginBottom: '28px' }}>
-          <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: TC, marginBottom: '6px' }}>
-            VES Pottery Studio
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <h1 style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>
-              Cohort Dates
-            </h1>
-            <button onClick={addNew} disabled={saving} style={{
-              padding: '6px 14px', fontSize: '11px', fontWeight: 700, letterSpacing: '0.05em',
-              border: 'none', backgroundColor: TC, color: '#FFF', cursor: saving ? 'default' : 'pointer',
-            }}>+ Add Cohort</button>
-          </div>
-          <p style={{ fontSize: '12px', color: MUTED, marginTop: '6px' }}>
-            WT students can reschedule to any WT class within the same cohort period.
-          </p>
-        </div>
+    <AdminPage
+      embedded={embedded}
+      title="Cohort Dates"
+      subtitle="WT students can reschedule to any WT class within the same cohort period."
+      actions={
+        <button onClick={addNew} disabled={saving} style={{
+          padding: '6px 14px', fontSize: '11px', fontWeight: 700, letterSpacing: '0.05em',
+          border: 'none', backgroundColor: TC, color: '#FFF', cursor: saving ? 'default' : 'pointer',
+        }}>+ Add Cohort</button>
+      }
+    >
 
         {message && (
           <div style={{
@@ -178,7 +170,6 @@ export default function AdminCohorts() {
             })}
           </div>
         )}
-      </main>
-    </div>
+    </AdminPage>
   );
 }

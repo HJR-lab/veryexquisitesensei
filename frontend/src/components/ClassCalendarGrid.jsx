@@ -61,12 +61,12 @@ export default function ClassCalendarGrid({
                 style={{ padding: '5px 12px', border: `1px solid ${RULE}`, backgroundColor: 'transparent', fontSize: '14px', fontWeight: 700, cursor: calPage === CAL_MONTHS.length - 1 ? 'default' : 'pointer', color: calPage === CAL_MONTHS.length - 1 ? '#CCC' : INK }}
               >&rarr;</button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: `1px solid ${RULE}` }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', borderBottom: `1px solid ${RULE}` }}>
               {WEEKDAY_LABELS.map(d => (
                 <div key={d} style={{ textAlign: 'center', padding: '5px 0', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED }}>{d.charAt(0)}</div>
               ))}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))' }}>
               {CAL_MONTHS[calPage] && buildCalendar(CAL_MONTHS[calPage].year, CAL_MONTHS[calPage].month).map((day, idx) => renderCalCell(day, idx))}
             </div>
           </div>
@@ -84,12 +84,12 @@ export default function ClassCalendarGrid({
             return (
               <div key={`${year}-${month}`} style={{ backgroundColor: '#FFFFFF', border: `1px solid ${RULE}` }}>
                 <div style={{ padding: '10px 14px', borderBottom: `1px solid ${RULE}`, fontSize: '13px', fontWeight: 700 }}>{label}</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: `1px solid ${RULE}` }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', borderBottom: `1px solid ${RULE}` }}>
                   {WEEKDAY_LABELS.map(d => (
                     <div key={d} style={{ textAlign: 'center', padding: '5px 0', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED }}>{d}</div>
                   ))}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))' }}>
                   {calDays.map((day, idx) => renderCalCell(day, idx))}
                 </div>
               </div>

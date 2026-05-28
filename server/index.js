@@ -143,13 +143,15 @@ const asyncHandler = (fn) => (req, res, next) => {
 };
 
 // Rate limiting
+// Note: login itself happens via Supabase Auth (not this server), so /api/auth/*
+// here is just status/profile/impersonation — hit on every page load by /me.
+// A strict per-IP limit on /api/auth/* locks users out after normal navigation;
+// rely on the general apiLimiter for those routes.
 const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false });
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false });
 const writeLimiter = rateLimit({ windowMs: 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
 const syncLimiter = rateLimit({ windowMs: 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false });
 
 app.use('/api/', apiLimiter);
-app.use('/api/auth/', authLimiter);
 app.use('/api/classes/book', writeLimiter);
 app.use('/api/credits/delivery', writeLimiter);
 app.use('/api/admin/sync', syncLimiter);

@@ -1855,7 +1855,7 @@ async function getEnrollmentCredits(enrollmentId) {
   if (!enr) return { allocated: 0, attended: 0, booked: 0, committed: 0, remaining: 0 };
 
   const isHB = (enr.course_type || '').toLowerCase().includes('handbuilding');
-  const is10Class = enr.number_of_weeks === 10;
+  const is10Class = (enr.number_of_weeks || 0) >= 10;
   const allocated = enr.class_credits_allocated || (isHB ? (enr.number_of_weeks || 4) : 0);
 
   // For 10-class packages, count ALL active bookings (WT core + flex of any type)

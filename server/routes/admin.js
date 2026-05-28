@@ -1798,7 +1798,7 @@ app.get('/api/admin/students/:id/enrollment', authenticateToken, requireAdmin, a
     enrollment = { ...enrollment, display_status: isUpcoming ? 'upcoming' : enrollment.status };
 
     // Compute credits from bookings for HB and 10-class enrollments
-    const isHBOrCredit = (enrollment.course_type || '').toLowerCase().includes('handbuilding') || enrollment.number_of_weeks === 10;
+    const isHBOrCredit = (enrollment.course_type || '').toLowerCase().includes('handbuilding') || (enrollment.number_of_weeks || 0) >= 10;
     if (isHBOrCredit && enrollment.class_credits_allocated > 0) {
       const credits = await supabaseDb.getEnrollmentCredits(enrollment.id);
       enrollment = {
@@ -5908,16 +5908,21 @@ app.post('/api/admin/clay-types/:id/image', authenticateToken, requireAdmin, upl
   res.json({ success: true, image_url: url });
 }));
 
-// Get flex credits for a student (from any 10-class package enrollment)
+// Get flex credits for a student (from any 10-class package enrollment).
+// number_of_weeks is normally 10, but admins can bump it (e.g. 12) to grant
+// extra flex credits, so we accept >=10 and prefer the active enrollment.
 app.get('/api/admin/students/:studentId/flex-credits', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { studentId } = req.params;
   const { data: enrollments } = await supabaseDb.supabase
     .from('course_enrollments')
-    .select('id, number_of_weeks, class_credits_allocated, status')
+    .select('id, number_of_weeks, class_credits_allocated, status, created_at')
     .eq('student_id', parseInt(studentId))
-    .eq('number_of_weeks', 10);
+    .gte('number_of_weeks', 10)
+    .order('created_at', { ascending: false });
 
-  const pkg = (enrollments || []).find(e => e.class_credits_allocated > 0) || (enrollments || [])[0];
+  const pkg = (enrollments || []).find(e => e.status === 'active' && e.class_credits_allocated > 0)
+           || (enrollments || []).find(e => e.class_credits_allocated > 0)
+           || (enrollments || [])[0];
   if (!pkg) {
     return res.json({ remaining: 0, allocated: 0, used: 0, enrollmentId: null });
   }

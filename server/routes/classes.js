@@ -363,7 +363,7 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
       .eq('status', 'active');
 
     const has10ClassPackage = (activeEnrollments || []).some(e =>
-      e.number_of_weeks === 10 || (e.course_type || '').includes('10 Classes')
+      e.number_of_weeks >= 10 || (e.course_type || '').includes('10 Classes')
     );
 
     if (!has10ClassPackage && activeEnrollments && activeEnrollments.length > 0) {
@@ -510,7 +510,7 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
 
     if (activeEnrollments && activeEnrollments.length > 0) {
       // Prefer 10-class package, then any enrollment with credits
-      creditEnrollment = activeEnrollments.find(e => e.number_of_weeks === 10 || (e.course_type || '').includes('10 Classes'))
+      creditEnrollment = activeEnrollments.find(e => e.number_of_weeks >= 10 || (e.course_type || '').includes('10 Classes'))
         || activeEnrollments[0];
       enrollmentCredits = creditEnrollment.class_credits_remaining;
     }
@@ -565,7 +565,7 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
       .eq('status', 'active');
 
     const has10ClassPackage = (activeEnrollments || []).some(e =>
-      e.number_of_weeks === 10 || (e.course_type || '').includes('10 Classes')
+      e.number_of_weeks >= 10 || (e.course_type || '').includes('10 Classes')
     );
 
     if (!has10ClassPackage && activeEnrollments && activeEnrollments.length > 0) {
@@ -610,7 +610,7 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
       .eq('status', 'active');
 
     const has10ClassPackage = (studentEnrollments || []).some(e =>
-      e.number_of_weeks === 10 || (e.course_type || '').includes('10 Classes')
+      e.number_of_weeks >= 10 || (e.course_type || '').includes('10 Classes')
     );
 
     if (!has10ClassPackage) {
@@ -1106,7 +1106,7 @@ app.post('/api/classes/cancel', authenticateToken, asyncHandler(async (req, res)
       .single();
 
     const isHB = enr && (enr.course_type || '').toLowerCase().includes('handbuilding');
-    const is10Class = enr && (enr.number_of_weeks === 10 || (enr.course_type || '').includes('10 Classes'));
+    const is10Class = enr && (enr.number_of_weeks >= 10 || (enr.course_type || '').includes('10 Classes'));
 
     if (enr && (isHB || is10Class)) {
       await supabaseDb.supabase
@@ -1326,7 +1326,7 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
       .select('number_of_weeks, course_title')
       .eq('id', currentBooking.course_enrollment_id)
       .single();
-    has10ClassPackage = bookingEnrollment?.number_of_weeks === 10 ||
+    has10ClassPackage = bookingEnrollment?.number_of_weeks >= 10 ||
       (bookingEnrollment?.course_title?.includes('10 Classes') ?? false);
   }
 

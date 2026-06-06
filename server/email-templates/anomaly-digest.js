@@ -1,5 +1,15 @@
 const { wrapEmailTemplate } = require('./base');
 
+// Escape any dynamic value before interpolating into the HTML email.
+// Findings carry DB-sourced values (e.g. student names synced from Shopify),
+// so they must not be trusted as safe markup.
+const esc = s => String(s ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
 const TYPE_LABEL = {
   over_allocated: 'Over-allocated enrollment',
   stale_unassigned_10class: 'Stale unassigned 10-class package',
@@ -20,22 +30,22 @@ function buildAnomalyDigestEmail({ findings, baseUrl }) {
     const label = TYPE_LABEL[f.type] || f.type;
     const sevColor = SEV_COLOR[f.severity] || '#888888';
     const link = baseUrl
-      ? `<a href="${baseUrl}/admin/students/${f.student_id}" style="color: #C4622D; text-decoration: none;">${f.student_name}</a>`
-      : f.student_name;
+      ? `<a href="${esc(baseUrl)}/admin/students/${encodeURIComponent(f.student_id)}" style="color: #C4622D; text-decoration: none;">${esc(f.student_name)}</a>`
+      : esc(f.student_name);
     return `
       <tr>
         <td style="padding: 12px 14px; border-bottom: 1px solid rgba(40,40,40,0.09); vertical-align: top;">
           <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: ${sevColor}; margin-bottom: 4px;">
-            ${f.severity} &middot; ${label}
+            ${esc(f.severity)} &middot; ${esc(label)}
           </div>
           <div style="font-size: 14px; font-weight: 600; color: #282828; margin-bottom: 2px;">
-            ${link} <span style="font-weight: 400; color: #888;">(#${f.student_id})</span>
+            ${link} <span style="font-weight: 400; color: #888;">(#${esc(f.student_id)})</span>
           </div>
           <div style="font-size: 12px; color: #555; line-height: 1.45;">
-            ${f.details}
+            ${esc(f.details)}
           </div>
           <div style="font-size: 11px; color: #888; margin-top: 4px;">
-            Enrollment #${f.enrollment_id}
+            Enrollment #${esc(f.enrollment_id)}
           </div>
         </td>
       </tr>`;

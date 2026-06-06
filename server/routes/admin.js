@@ -4604,7 +4604,16 @@ app.post('/api/admin/courses/:courseIdentifier/postpone', authenticateToken, req
     }
   }
 
-  // 7. Return success
+  // 7. Push new dates to Google Calendar (fire-and-forget; syncClassInstance
+  //    re-reads class_instances by id so it picks up the new class_date).
+  try {
+    const calendarSync = require('../utils/calendarSync');
+    for (const cls of classesToPostpone) {
+      calendarSync.syncClassInstance(cls.id).catch(() => {});
+    }
+  } catch (e) { /* ignore */ }
+
+  // 8. Return success
   res.json({
     message: `Successfully postponed ${classesToPostpone.length} class(es) by ${weeks} week(s)`,
     updatedClasses: updatedDates,
@@ -5168,6 +5177,34 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
     .single();
 
   if (fetchError) throw fetchError;
+
+  // Block reschedule if target class is at capacity. Count actual booked rows
+  // rather than the cached current_enrollment, and use the same fallback (10)
+  // as the student reschedule path.
+  const { data: targetClass, error: targetClassErr } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('id, max_capacity')
+    .eq('id', parseInt(newClassInstanceId))
+    .single();
+
+  if (targetClassErr || !targetClass) {
+    return res.status(404).json({ error: 'Target class not found' });
+  }
+
+  const { count: targetBookedCount, error: targetCountErr } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id', { count: 'exact', head: true })
+    .eq('class_instance_id', parseInt(newClassInstanceId))
+    .eq('status', 'booked');
+
+  if (targetCountErr) {
+    console.error('Error counting target class bookings:', targetCountErr);
+    return res.status(500).json({ error: 'Failed to check class capacity' });
+  }
+
+  if (targetBookedCount >= (targetClass.max_capacity || 10)) {
+    return res.status(400).json({ error: 'This class is full. Cannot reschedule to a class at max capacity.' });
+  }
 
   // If the student already has a cancelled/rescheduled booking at the target
   // class (e.g. from the old DELETE+POST reschedule flow), hard-delete it
@@ -7320,6 +7357,21 @@ app.post('/api/admin/vouchers/:id/convert-to-enrollment', authenticateToken, req
     enrollment,
     bookingsCreated: classInstances.length
   });
+}));
+
+// Account anomalies — run the daily invariant probe on demand.
+// Source of truth: server/utils/anomalyProbe.js (matches getEnrollmentCredits semantics).
+app.get('/api/admin/anomalies', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { runAnomalyProbe } = require('../utils/anomalyProbe');
+  const findings = await runAnomalyProbe();
+  res.json({ findings, count: findings.length, generatedAt: new Date().toISOString() });
+}));
+
+// Manual trigger for the digest email (admin-only) — for testing/forcing a send.
+app.post('/api/admin/anomalies/send-digest', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { runAnomalyProbeAndAlert } = require('../utils/cohortAutoProcessor');
+  await runAnomalyProbeAndAlert();
+  res.json({ success: true });
 }));
 
 };

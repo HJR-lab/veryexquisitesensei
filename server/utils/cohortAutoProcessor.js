@@ -614,6 +614,14 @@ function startAutomaticProcessing() {
       cleanupExpiredWaitlist().catch(console.error);
     }
 
+    // Run anomaly probe at 2:15 AM — after the 2:00 AM batch so any
+    // attendance/booking transitions have settled before we evaluate invariants.
+    if (hour === 2 && minute === 15) {
+      runAnomalyProbeAndAlert().catch(err => {
+        console.error('[Anomaly Probe] Daily run failed:', err);
+      });
+    }
+
     // Check waitlist 24h notifications and process campaigns every hour
     if (minute === 30) {
       notifyWaitlist24Hours().catch(console.error);
@@ -785,6 +793,50 @@ async function cleanupExpiredWaitlist() {
   }
 }
 
+/**
+ * Run the daily anomaly probe and email the digest to admin if findings exist.
+ * Idempotent — checks sent_emails for today before sending, so cron restarts
+ * or multiple ticks at minute=15 won't double-send.
+ */
+async function runAnomalyProbeAndAlert() {
+  const { runAnomalyProbe } = require('./anomalyProbe');
+  const findings = await runAnomalyProbe();
+  console.log(`[Anomaly Probe] ${findings.length} finding(s) at ${new Date().toISOString()}`);
+
+  if (findings.length === 0) return;
+
+  // Idempotency: don't re-send if we already emailed a digest today.
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const { data: alreadySent } = await supabase
+    .from('sent_emails')
+    .select('id')
+    .eq('email_type', 'anomaly_digest')
+    .gte('sent_at', todayStart.toISOString())
+    .limit(1);
+
+  if (alreadySent && alreadySent.length > 0) {
+    console.log('[Anomaly Probe] Digest already sent today, skipping email');
+    return;
+  }
+
+  const { sendAndLogEmail } = require('./emailService');
+  const { buildAnomalyDigestEmail } = require('../email-templates/anomaly-digest');
+
+  const baseUrl = process.env.APP_URL || process.env.PUBLIC_APP_URL || 'https://club.ves.sg';
+  const html = buildAnomalyDigestEmail({ findings, baseUrl });
+  const subject = `[VES] ${findings.length} account anomal${findings.length === 1 ? 'y' : 'ies'} detected`;
+
+  await sendAndLogEmail({
+    emailType: 'anomaly_digest',
+    courseIdentifier: null,
+    subject,
+    html,
+    recipientEmails: ['info@ves.sg'],
+    sentBy: 'anomaly-probe-cron',
+  });
+}
+
 module.exports = {
   processReadyCohorts,
   autoMarkPastBookingsAsAttended,
@@ -795,5 +847,6 @@ module.exports = {
   autoRecycleExpiredBatches,
   cleanupExpiredWaitlist,
   notifyWaitlist24Hours,
+  runAnomalyProbeAndAlert,
   startAutomaticProcessing
 };

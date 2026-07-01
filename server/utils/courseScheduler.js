@@ -86,7 +86,9 @@ function parseCourseInfo(title, variantTitle, orderDate) {
     'dec': 11, 'december': 11
   };
 
-  const dateRangeMatch = variantTitle.match(/(\d{1,2})\s+(\w+)\s*[-–]\s*(\d{1,2})\s+(\w+)/i);
+  // Dash class covers ASCII hyphen plus Unicode figure/en/em/horizontal-bar dashes
+  // and the minus sign — Shopify variant titles have used en dash "–" and em dash "—".
+  const dateRangeMatch = variantTitle.match(/(\d{1,2})\s+(\w+)\s*[-‒-―−]\s*(\d{1,2})\s+(\w+)/i);
   if (dateRangeMatch) {
     const startDay = parseInt(dateRangeMatch[1]);
     const startMonthStr = dateRangeMatch[2].toLowerCase();
@@ -124,7 +126,7 @@ function parseCourseInfo(title, variantTitle, orderDate) {
   }
 
   // Parse time if present (e.g., "7:00 PM - 9:30 PM" or "7:00pm–9:00pm" or "4:00pm-6:00pm")
-  const timeMatch = variantTitle.match(/(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm))\s*[-–]\s*(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm))/i);
+  const timeMatch = variantTitle.match(/(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm))\s*[-‒-―−]\s*(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm))/i);
   if (timeMatch) {
     // Normalize to uppercase AM/PM with space
     const normalizeTime = (t) => t.replace(/\s*(am|pm)/i, (m) => ' ' + m.toUpperCase());

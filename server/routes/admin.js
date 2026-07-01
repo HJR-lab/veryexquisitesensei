@@ -258,11 +258,16 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
 
   // Build flat list
   let students = Object.values(studentMap).map(({ current, upcoming }) => {
-    const primary = current || upcoming;
+    // Prefer a live (active/paused) enrollment. Otherwise an upcoming course
+    // outranks a completed one — a finished HB with leftover credits must not
+    // mask an active/upcoming WT enrollment that simply starts in the future.
+    const primary = (current && current.enrollmentStatus !== 'completed')
+      ? current
+      : (upcoming || current);
     if (!primary) return null;
     return {
       ...primary,
-      upcomingCourse: upcoming && current ? {
+      upcomingCourse: (upcoming && primary !== upcoming) ? {
         courseIdentifier: upcoming.courseIdentifier,
         variantTitle: upcoming.variantTitle,
         numberOfWeeks: upcoming.numberOfWeeks || 6

@@ -761,9 +761,12 @@ async function activateDraftClasses(enrollment) {
           });
           console.log(`💰 Awarded deferred $20 VES Credit to student ${enr.student_id} (course confirmed)`);
 
-          // Send credit earned email
+          // Send credit earned email (credits category may be paused)
           const { data: student } = await supabase.from('customers').select('email, first_name').eq('id', enr.student_id).single();
-          if (student?.email) {
+          const { isEmailCategoryPaused } = require('./emailService');
+          if (student?.email && isEmailCategoryPaused('credits')) {
+            console.log(`[Credits] Email paused — skipping deferred credit email to ${student.email}`);
+          } else if (student?.email) {
             try {
               const { generate: generateCreditEarned } = require('../email-templates/credits-earned');
               const newBalance = await getCreditBalance(enr.student_id);

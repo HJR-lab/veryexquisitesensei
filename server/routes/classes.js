@@ -1132,9 +1132,11 @@ app.post('/api/classes/cancel', authenticateToken, asyncHandler(async (req, res)
         expiresAt: expiresAt.toISOString()
       });
 
-      // Send email notification
-      const { sendEmail } = require('../utils/emailService');
-      if (nextInLine.student?.email) {
+      // Send email notification (waitlist category may be paused)
+      const { sendEmail, isEmailCategoryPaused } = require('../utils/emailService');
+      if (nextInLine.student?.email && isEmailCategoryPaused('waitlist')) {
+        console.log(`[Waitlist] Email paused — skipping spot-opened email to ${nextInLine.student.email}`);
+      } else if (nextInLine.student?.email) {
         const classDate = new Date(booking.class_instance?.class_date || '').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
         await sendEmail({
           to: nextInLine.student.email,

@@ -1222,17 +1222,22 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
                   });
                   console.log(`💰 Awarded $20 VES Credit to ${customer.email}`);
 
-                  // Send credit earned email
+                  // Send credit earned email (credits category may be paused)
                   try {
-                    const { generate: generateCreditEarned } = require('../email-templates/credits-earned');
-                    const newBalance = await getCreditBalance(dbCustomer.id);
-                    const { subject, html } = generateCreditEarned({
-                      firstName: customer.first_name,
-                      amountEarned: 20,
-                      courseName: productTitle,
-                      newBalance,
-                    });
-                    await sendEmail({ to: customer.email, subject, html });
+                    const { isEmailCategoryPaused } = require('../utils/emailService');
+                    if (isEmailCategoryPaused('credits')) {
+                      console.log('[Credits] Email paused — skipping credit earned email');
+                    } else {
+                      const { generate: generateCreditEarned } = require('../email-templates/credits-earned');
+                      const newBalance = await getCreditBalance(dbCustomer.id);
+                      const { subject, html } = generateCreditEarned({
+                        firstName: customer.first_name,
+                        amountEarned: 20,
+                        courseName: productTitle,
+                        newBalance,
+                      });
+                      await sendEmail({ to: customer.email, subject, html });
+                    }
                   } catch (emailErr) {
                     console.error('[Credits] Failed to send credit earned email:', emailErr);
                   }
@@ -1378,7 +1383,10 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
         if (title.includes('voucher') || title.includes('gift voucher')) {
           try {
             const buyerEmail = customer.email;
-            if (buyerEmail) {
+            const { isEmailCategoryPaused } = require('../utils/emailService');
+            if (buyerEmail && isEmailCategoryPaused('vouchers')) {
+              console.log('[Voucher] Email paused — skipping voucher outreach email');
+            } else if (buyerEmail) {
               const { subject, html } = generateVoucherOutreachEmail({
                 buyerName: customer.first_name || '',
                 courseVariant: item.variant_title || item.title || 'Pottery Course',

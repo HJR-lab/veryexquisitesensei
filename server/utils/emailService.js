@@ -2,6 +2,25 @@ const { Resend } = require('resend');
 
 const FROM_ADDRESS = 'VES Studio <info@mail.ves.sg>';
 
+// Temporarily paused automated email categories. Override via the
+// PAUSED_EMAIL_CATEGORIES env var (comma-separated) or set it to an empty
+// string to resume all. Only gates AUTOMATED sends — admin-initiated
+// (manual) emails always go through.
+const PAUSED_EMAIL_CATEGORIES = new Set(
+  (process.env.PAUSED_EMAIL_CATEGORIES ?? 'credits,waitlist,vouchers')
+    .split(',')
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean)
+);
+
+/**
+ * Whether an automated email category is currently paused.
+ * @param {string} category e.g. 'credits' | 'waitlist' | 'vouchers'
+ */
+function isEmailCategoryPaused(category) {
+  return PAUSED_EMAIL_CATEGORIES.has(String(category || '').toLowerCase());
+}
+
 let _resend;
 function getResend() {
   if (!_resend) {
@@ -93,4 +112,4 @@ function detectCourseTemplate(enrollment) {
   return 'wt-6week';
 }
 
-module.exports = { sendEmail, sendAndLogEmail, detectCourseTemplate, FROM_ADDRESS };
+module.exports = { sendEmail, sendAndLogEmail, detectCourseTemplate, isEmailCategoryPaused, FROM_ADDRESS };

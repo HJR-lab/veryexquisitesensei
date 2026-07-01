@@ -687,8 +687,15 @@ async function notifyWaitlist24Hours() {
 
     if (toNotify.length === 0) return;
 
-    const { sendEmail } = require('./emailService');
+    const { sendEmail, isEmailCategoryPaused } = require('./emailService');
     const { wrapEmailTemplate } = require('../email-templates/base');
+
+    // While the waitlist email category is paused, don't process notifications
+    // at all — leave entries intact (deletion is coupled to the email send).
+    if (isEmailCategoryPaused('waitlist')) {
+      console.log(`[Waitlist 24h] Email paused — skipping ${toNotify.length} notification(s); entries left intact`);
+      return;
+    }
 
     for (const entry of toNotify) {
       const student = entry.customers;

@@ -121,9 +121,13 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
     .ilike('course_type', '%handbuilding%')
     .order('created_at', { ascending: false });
 
-  // Filter completed HB enrollments that still have remaining credits (computed from bookings)
+  // Filter completed HB enrollments that still have remaining credits (computed from bookings).
+  // An admin who has explicitly zeroed the credit column (class_credits_remaining === 0) has
+  // marked the block done/forfeited — honour that even when the computed value disagrees
+  // (e.g. no-shows with 0 bookings would otherwise compute a full "remaining").
   const completedHB = [];
   for (const enr of (completedHBAll || [])) {
+    if (enr.class_credits_remaining === 0) continue;
     const credits = await supabaseDb.getEnrollmentCredits(enr.id);
     if (credits.remaining > 0) completedHB.push(enr);
   }

@@ -114,7 +114,10 @@ export default function StudentBookingsTab({
             const isPast = classDate < today;
             const displayStatus = booking._isWaitlist ? 'waitlisted' : (isPast && booking.status === 'booked') ? 'attended' : booking.status;
             const isHBGlazing = isHBEnrollment && booking.id === lastHBBookingId;
-            const courseName = booking._isWaitlist ? (booking.class_type || '—') : isHBGlazing ? 'Glazing' : parseCourseName(booking.course_identifier, booking.class_type);
+            // WT glazing = final session of a course (6th of 6, 7th of 7) — matches getClassLabel()
+            const ctStr = booking.course_identifier || booking.class_type || '';
+            const isWTGlazing = !booking._isWaitlist && (ctStr.includes('6.6') || ctStr.includes('7.7'));
+            const courseName = booking._isWaitlist ? (booking.class_type || '—') : (isHBGlazing || isWTGlazing) ? 'Glazing' : parseCourseName(booking.course_identifier, booking.class_type);
             const timeStr = booking.start_time && booking.end_time ? `${booking.start_time} – ${booking.end_time}` : booking.start_time || '—';
             const dateStr = new Date(booking.class_date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
             const isDeleting = deletingBookingId === booking.id;

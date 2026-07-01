@@ -221,14 +221,14 @@ export default function StudentBookingsTab({
                   padding: '11px 16px', alignItems: 'center',
                   backgroundColor: '#FFFBEA',
                 }}>
-                  <span style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 700, color: TC_DARK }}>Flex</span>
+                  <span style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 700, color: MUTED }}>—</span>
                   <div style={{ fontSize: '13px', color: MUTED }}>—</div>
                   <span style={{ fontSize: '12px', color: MUTED }}>—</span>
                   <span style={{
                     fontSize: '9px', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase',
                     padding: '3px 8px', display: 'inline-block',
                     backgroundColor: '#FFF7E6', color: '#9E6200',
-                  }}>flex credit</span>
+                  }}>unbooked</span>
                   <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
                     <button
                       onClick={() => handleOpenMakeupModal(placeholderBooking)}

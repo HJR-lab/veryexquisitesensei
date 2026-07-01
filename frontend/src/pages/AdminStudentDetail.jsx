@@ -564,7 +564,9 @@ export default function AdminStudentDetail() {
           classInstanceId: newClassId,
           bookingType:     'regular',
           status:          'booked',
-          courseEnrollmentId: enrollment?.id,
+          // Flex placeholders carry their own (package) enrollment id; fall back
+          // to the currently-displayed enrollment for regular placeholders.
+          courseEnrollmentId: selectedBookingForMakeup?.courseEnrollmentId || enrollment?.id,
         });
         alert('Student booked successfully!');
       } else {
@@ -833,23 +835,35 @@ export default function AdminStudentDetail() {
   const enrollmentAllocated = isHBEnrollment ? hbCreditsAllocated : (enrollment?.number_of_weeks || 0);
   const totalAllocated = Math.max(allBookedCount, enrollmentAllocated);
   const is10ClassPkg = enrollment?.number_of_weeks === 10;
-  const flexRemaining = flexCredits?.remaining || (is10ClassPkg ? (enrollment?.class_credits_remaining || 0) : 0);
   // Count all bookings that consume a credit (booked, attended, completed, missed/absent, rescheduled)
   const creditsUsedCount = currentEnrollmentBookings.filter(b =>
     b.status === 'booked' || b.status === 'attended' || b.status === 'completed' ||
     b.status === 'absent' || b.status === 'missed' || b.status === 'rescheduled' || b.status === 'forfeited'
   ).length;
   const waitlistCredits = studentWaitlist.length;
-  // remaining is computed on server: allocated - attended - booked. No need to subtract booked again.
-  // For 10-class packages, show flex credit placeholders even if current enrollment is a different one
-  const hasFlexCredits = flexCredits?.remaining > 0;
-  const unbookedCount  = isHBEnrollment
+
+  // Flex credits (from a 10-class package) live on their own enrollment and stay
+  // bookable from ANY view — even when the "current" enrollment on screen is a
+  // different one (e.g. an HB course), because a future-dated package sorts last
+  // and never becomes the primary enrollment. flexCredits comes from the
+  // /flex-credits endpoint and carries the owning enrollment id.
+  const flexEnrollmentId = flexCredits?.enrollmentId || null;
+  const currentIsFlexEnrollment = (flexEnrollmentId && enrollment?.id)
+    ? enrollment.id === flexEnrollmentId
+    : is10ClassPkg;
+  const flexRemainingCount = Math.max(0, flexCredits?.remaining
+    ?? (is10ClassPkg ? (enrollment?.class_credits_remaining || 0) : 0));
+
+  // Placeholders for the CURRENT enrollment's own credits (never flex).
+  const unbookedCount = isHBEnrollment
     ? Math.max(0, hbCreditsRemaining)
-    : is10ClassPkg
-      ? Math.max(0, flexRemaining)
-      : hasFlexCredits
-        ? Math.max(0, flexCredits.remaining)
-        : Math.max(0, enrollmentAllocated - creditsUsedCount - waitlistCredits);
+    : currentIsFlexEnrollment
+      ? flexRemainingCount
+      : Math.max(0, enrollmentAllocated - creditsUsedCount - waitlistCredits);
+  // Separate flex placeholders, shown when the package is NOT the current
+  // enrollment. These book into the package enrollment (flexEnrollmentId), not
+  // whatever enrollment is currently displayed.
+  const flexPlaceholderCount = (!currentIsFlexEnrollment && flexEnrollmentId) ? flexRemainingCount : 0;
 
   const filteredBookings = [...(showCompletedCourses ? bookings : activeBookings)]
     .filter(b => statusFilter === 'all' || b.status === statusFilter)
@@ -1311,6 +1325,8 @@ export default function AdminStudentDetail() {
                 showCompletedCourses={showCompletedCourses}
                 setShowCompletedCourses={setShowCompletedCourses}
                 unbookedCount={unbookedCount}
+                flexPlaceholderCount={flexPlaceholderCount}
+                flexEnrollmentId={flexEnrollmentId}
                 today={today}
                 parseCourseName={parseCourseName}
                 handleToggleAttended={handleToggleAttended}

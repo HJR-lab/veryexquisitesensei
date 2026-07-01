@@ -25,6 +25,8 @@ export default function StudentBookingsTab({
   showCompletedCourses,
   setShowCompletedCourses,
   unbookedCount,
+  flexPlaceholderCount = 0,
+  flexEnrollmentId = null,
   today,
   parseCourseName,
   handleToggleAttended,
@@ -207,8 +209,39 @@ export default function StudentBookingsTab({
             );
           })}
 
+          {/* Flex credit placeholder rows (from a 10-class package whose enrollment
+              is not the one currently displayed). These book into the package
+              enrollment, and can be used for either a WT or HB class. */}
+          {statusFilter === 'all' && Array.from({ length: flexPlaceholderCount }).map((_, i) => {
+            const placeholderBooking = { id: `flex-${i}`, isPlaceholder: true, isFlex: true, courseEnrollmentId: flexEnrollmentId };
+            return (
+              <div key={`flex-${i}`} style={{ borderBottom: `1px solid ${RULE}` }}>
+                <div style={{
+                  display: 'grid', gridTemplateColumns: '130px 110px 120px 90px 1fr',
+                  padding: '11px 16px', alignItems: 'center',
+                  backgroundColor: '#FFFBEA',
+                }}>
+                  <span style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 700, color: TC_DARK }}>Flex</span>
+                  <div style={{ fontSize: '13px', color: MUTED }}>—</div>
+                  <span style={{ fontSize: '12px', color: MUTED }}>—</span>
+                  <span style={{
+                    fontSize: '9px', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase',
+                    padding: '3px 8px', display: 'inline-block',
+                    backgroundColor: '#FFF7E6', color: '#9E6200',
+                  }}>flex credit</span>
+                  <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                    <button
+                      onClick={() => handleOpenMakeupModal(placeholderBooking)}
+                      style={{ padding: '4px 10px', border: `1px solid ${TC}`, background: 'none', cursor: 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: TC }}
+                    >Book</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+
           {/* Empty state */}
-          {filteredBookings.length === 0 && unbookedCount === 0 && (
+          {filteredBookings.length === 0 && unbookedCount === 0 && flexPlaceholderCount === 0 && (
             <div style={{ padding: '40px 0', textAlign: 'center', color: MUTED, fontSize: '13px' }}>No bookings found.</div>
           )}
         </div>

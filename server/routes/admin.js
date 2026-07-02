@@ -6784,7 +6784,7 @@ app.post('/api/admin/enrollments/:enrollmentId/switch-type', authenticateToken, 
     const { data: targetInfo } = await supabaseDb.supabase
       .from('class_instances')
       .select('class_date, start_time, end_time, instructor')
-      .like('class_type', `${toCourseId}%`)
+      .like('class_type', `${toCourseId}.%`)
       .order('class_date', { ascending: true })
       .limit(1);
 
@@ -6800,11 +6800,15 @@ app.post('/api/admin/enrollments/:enrollmentId/switch-type', authenticateToken, 
       updateData.course_start_date = first.class_date;
     }
 
-    // Count total classes for this course to set number_of_weeks
+    // Count total classes for this course to set number_of_weeks.
+    // Anchor the match with ".%" so we only count THIS cohort's weekly sessions
+    // (e.g. WT0206NT_JL6.1..6) and never sweep in another cohort that merely
+    // shares the same prefix — an unanchored "%" here silently inflated
+    // number_of_weeks (e.g. to 12) and mis-classified the student.
     const { data: allTarget } = await supabaseDb.supabase
       .from('class_instances')
       .select('id', { count: 'exact' })
-      .like('class_type', `${toCourseId}%`)
+      .like('class_type', `${toCourseId}.%`)
       .neq('status', 'cancelled');
 
     if (allTarget) {
@@ -6813,7 +6817,7 @@ app.post('/api/admin/enrollments/:enrollmentId/switch-type', authenticateToken, 
       const { data: lastClass } = await supabaseDb.supabase
         .from('class_instances')
         .select('class_date')
-        .like('class_type', `${toCourseId}%`)
+        .like('class_type', `${toCourseId}.%`)
         .neq('status', 'cancelled')
         .order('class_date', { ascending: false })
         .limit(1);

@@ -426,13 +426,30 @@ app.post('/api/admin/hb-enrollments/:enrollmentId/set-credits', authenticateToke
     return res.status(400).json({ error: 'allocated and used are required' });
   }
 
-  const remaining = Math.max(allocated - used, 0);
+  // Sanity-check the numbers so a typo can't silently corrupt an enrollment
+  // (this endpoint writes credit columns directly from the request body).
+  const allocatedNum = Number(allocated);
+  const usedNum = Number(used);
+  if (!Number.isInteger(allocatedNum) || !Number.isInteger(usedNum)) {
+    return res.status(400).json({ error: 'allocated and used must be integers' });
+  }
+  if (allocatedNum < 0 || usedNum < 0) {
+    return res.status(400).json({ error: 'allocated and used must be non-negative' });
+  }
+  if (allocatedNum > 50) {
+    return res.status(400).json({ error: 'allocated exceeds sane maximum (50) — check the value' });
+  }
+  if (usedNum > allocatedNum) {
+    return res.status(400).json({ error: `used (${usedNum}) cannot exceed allocated (${allocatedNum})` });
+  }
+
+  const remaining = Math.max(allocatedNum - usedNum, 0);
 
   const { data: updated, error } = await supabaseDb.supabase
     .from('course_enrollments')
     .update({
-      class_credits_allocated: allocated,
-      class_credits_used: used,
+      class_credits_allocated: allocatedNum,
+      class_credits_used: usedNum,
       class_credits_remaining: remaining,
       updated_at: new Date().toISOString()
     })
@@ -442,13 +459,13 @@ app.post('/api/admin/hb-enrollments/:enrollmentId/set-credits', authenticateToke
 
   if (error) throw error;
 
-  console.log(`✅ HB enrollment ${enrollmentId}: credits set to ${allocated} allocated, ${used} used, ${remaining} remaining`);
+  console.log(`✅ HB enrollment ${enrollmentId}: credits set to ${allocatedNum} allocated, ${usedNum} used, ${remaining} remaining`);
 
   res.json({
     success: true,
-    creditsUsed: used,
+    creditsUsed: usedNum,
     creditsRemaining: remaining,
-    creditsAllocated: allocated
+    creditsAllocated: allocatedNum
   });
 
 }));

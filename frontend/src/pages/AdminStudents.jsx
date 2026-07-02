@@ -554,8 +554,7 @@ export default function AdminStudents() {
     const total = isWT ? (s._wtTotal || 6) : (s._hbTotal || 0);
     if (isWT && total <= 6) return 'pkg-wt6';
     if (isWT && total === 7) return 'pkg-wt7';
-    if (isWT && total <= 10) return 'pkg-wt10';
-    if (isWT && total > 10) return 'pkg-wt18';
+    if (isWT && total > 7) return 'pkg-wt10';   // 8+ classes = class-pool package (e.g. 10-class); real 3-course bundle is caught above via _packageTotalCourses === 3
     if (isHB && total <= 4) return 'pkg-hb4';
     if (isHB) return 'pkg-hb8';
     return 'pkg-other';

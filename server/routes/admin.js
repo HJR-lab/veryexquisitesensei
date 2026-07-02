@@ -396,8 +396,8 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
       if (filter === 'members') return !!s.membership;
       if (filter === 'pkg-wt6') return s.isWT && (s.numberOfWeeks || 6) <= 6 && !s.packageTotalCourses;
       if (filter === 'pkg-wt7') return s.isWT && s.numberOfWeeks === 7;
-      if (filter === 'pkg-wt10') return s.isWT && (s.numberOfWeeks || 0) >= 8 && (s.numberOfWeeks || 0) <= 10;
-      if (filter === 'pkg-wt18') return s.isWT && (s.packageTotalCourses === 3 || (s.numberOfWeeks || 0) > 10);
+      if (filter === 'pkg-wt10') return s.isWT && s.packageTotalCourses !== 3 && (s.numberOfWeeks || 0) >= 8;
+      if (filter === 'pkg-wt18') return s.isWT && s.packageTotalCourses === 3;
       if (filter === 'pkg-hb4') return s.isHB && (s.creditsAllocated || 4) <= 4;
       if (filter === 'pkg-hb8') return s.isHB && (s.creditsAllocated || 0) > 4;
       return true;

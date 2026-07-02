@@ -492,7 +492,11 @@ async function createClassesAndBookings(cohortEnrollments, classStatus = 'active
       startDate: new Date(firstEnrollment.course_start_date),
       endDate: firstEnrollment.course_end_date ? new Date(firstEnrollment.course_end_date) : null,
       schedulePattern: firstEnrollment.schedule_pattern,
-      numberOfWeeks: firstEnrollment.number_of_weeks,
+      // WT cohort length is the base course block (total_weeks, e.g. 6), NOT the
+      // package total. For a "10 Classes" package number_of_weeks=10 but total_weeks=6
+      // (+4 flex credits booked separately) — using number_of_weeks here would both
+      // over-schedule the cohort and mislabel it as WT..._DL10.x instead of _DL6.x.
+      numberOfWeeks: firstEnrollment.total_weeks || firstEnrollment.number_of_weeks,
       classTime: firstEnrollment.class_time,
       instructor: firstEnrollment.instructor,
       room: firstEnrollment.room

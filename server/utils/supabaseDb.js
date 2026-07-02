@@ -50,6 +50,57 @@ async function findCustomerByEmail(email) {
 }
 
 /**
+ * Create (or return existing) a duplicate customer record for an extra "pax" spot
+ * on a multi-quantity course order. Each extra spot needs its own account/portfolio.
+ *
+ * IMPORTANT: customers.shopify_customer_id is NOT NULL, so a synthetic unique id is
+ * derived from the primary customer's shopify id (e.g. "<baseId>-2"). Historically this
+ * insert omitted shopify_customer_id and silently failed (supabase-js returns the error
+ * on the result object rather than throwing), so extra spots were never enrolled. This
+ * helper surfaces any failure instead of swallowing it.
+ *
+ * @param {Object} p
+ * @param {string} p.baseEmail  - primary buyer's email (to derive the synthetic shopify id)
+ * @param {string} p.paxEmail   - the extra pax's email (e.g. buyer+dup@…)
+ * @param {string} p.firstName
+ * @param {string} p.lastName
+ * @param {number} p.paxIndex   - 0-based pax index (>=1 for extras)
+ * @returns {Promise<Object>} the customer row (existing or newly created)
+ */
+async function createDuplicatePaxCustomer({ baseEmail, paxEmail, firstName, lastName, paxIndex }) {
+  const existing = await findCustomerByEmail(paxEmail);
+  if (existing) return existing;
+
+  const primary = baseEmail ? await findCustomerByEmail(baseEmail) : null;
+  const baseShopifyId = primary && primary.shopify_customer_id;
+  const dupShopifyId = baseShopifyId
+    ? `${baseShopifyId}-${paxIndex + 1}`
+    : `dup-${paxEmail}`; // fallback for manually-created primaries lacking a shopify id
+
+  const { data, error } = await supabase
+    .from('customers')
+    .insert({
+      email: paxEmail,
+      shopify_customer_id: dupShopifyId,
+      customer_type: 'student',
+      first_name: firstName || '',
+      last_name: lastName || '',
+      classes_allocated: 0, // column DEFAULT is 6; start extra-pax at 0 so additive allocation is correct
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    })
+    .select()
+    .single();
+
+  if (error) {
+    // Unique violation → created concurrently; return whatever exists now
+    if (error.code === '23505') return await findCustomerByEmail(paxEmail);
+    throw new Error(`Failed to create duplicate pax customer ${paxEmail}: ${error.message}`);
+  }
+  return data;
+}
+
+/**
  * Create customer
  */
 async function createCustomer(customerData) {
@@ -795,6 +846,41 @@ async function getClassInstanceById(classInstanceId) {
   return data;
 }
 
+// The studio has 10 wheels total. A "timeslot" (class_date + start_time) can hold
+// at most 10 booked students across ALL cohorts that share it — even when two
+// concurrent courses run at the same time (internally split as Studio A / Studio B).
+const STUDIO_WHEELS = 10;
+
+// Normalize start_time for slot matching — the column has drifted between formats
+// ("9:30am" vs "9:30 AM"), so compare case/space-insensitively.
+function normalizeSlotTime(t) {
+  return String(t || '').toLowerCase().replace(/\s+/g, '');
+}
+
+/**
+ * Count booked students in a timeslot (class_date + start_time) across every
+ * class_instance that shares it — this is the true "wheels in use" number.
+ * Returns { count, instanceIds }.
+ */
+async function getSlotWheelUsage(classDate, startTime) {
+  const { data: sameDay } = await supabase
+    .from('class_instances')
+    .select('id, start_time')
+    .eq('class_date', classDate);
+
+  const nt = normalizeSlotTime(startTime);
+  const instanceIds = (sameDay || []).filter(c => normalizeSlotTime(c.start_time) === nt).map(c => c.id);
+  if (!instanceIds.length) return { count: 0, instanceIds: [] };
+
+  const { count } = await supabase
+    .from('bookings')
+    .select('id', { count: 'exact', head: true })
+    .in('class_instance_id', instanceIds)
+    .eq('status', 'booked');
+
+  return { count: count || 0, instanceIds };
+}
+
 /**
  * Create booking
  */
@@ -809,7 +895,7 @@ async function createBooking(bookingData) {
 
     const { data: cls } = await supabase
       .from('class_instances')
-      .select('max_capacity')
+      .select('max_capacity, class_date, start_time')
       .eq('id', bookingData.classInstanceId)
       .single();
 
@@ -818,6 +904,16 @@ async function createBooking(bookingData) {
       const err = new Error(`Class is full (${count}/${cap})`);
       err.code = 'CLASS_FULL';
       throw err;
+    }
+
+    // Studio-wide 10-wheel cap across all cohorts sharing this timeslot.
+    if (cls?.class_date && cls?.start_time) {
+      const { count: wheels } = await getSlotWheelUsage(cls.class_date, cls.start_time);
+      if (wheels >= STUDIO_WHEELS) {
+        const err = new Error(`Studio is full — all ${STUDIO_WHEELS} wheels are booked for this timeslot (${wheels}/${STUDIO_WHEELS})`);
+        err.code = 'CLASS_FULL';
+        throw err;
+      }
     }
   }
 
@@ -1895,6 +1991,7 @@ module.exports = {
   // Customer functions
   findCustomerByShopifyId,
   findCustomerByEmail,
+  createDuplicatePaxCustomer,
   createCustomer,
   updateCustomer,
   syncCustomer,
@@ -1928,6 +2025,8 @@ module.exports = {
   getClassBookings,
   getBookingById,
   createBooking,
+  getSlotWheelUsage,
+  STUDIO_WHEELS,
   updateBooking,
   findBooking,
   getMakeupBookingCount,

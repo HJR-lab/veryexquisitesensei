@@ -795,28 +795,20 @@ app.post('/api/admin/sync-shopify-orders', authenticateToken, requireAdmin, asyn
             if (isExtraPax) {
               console.log(`👥 Processing pax ${paxIndex + 1}/${paxCount}: ${paxEmail}`);
 
-              // Create duplicate customer record for extra pax
-              const dupFirstName = customer.firstName || '';
-              const dupLastName = `${customer.lastName || ''} (${paxIndex + 1})`;
-
+              // Create duplicate customer record for extra pax (own account/portfolio).
+              // Sets a synthetic shopify_customer_id (NOT NULL) and surfaces failures.
               try {
-                const { findCustomerByEmail } = require('../utils/supabaseDb');
-                const existingDup = await findCustomerByEmail(paxEmail);
-                if (!existingDup) {
-                  const { supabase: db } = require('../utils/supabaseDb');
-                  await db.from('customers').insert({
-                    email: paxEmail,
-                    first_name: dupFirstName,
-                    last_name: dupLastName,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString()
-                  });
-                  console.log(`👥 Created duplicate customer: ${paxEmail}`);
-                }
+                const { createDuplicatePaxCustomer } = require('../utils/supabaseDb');
+                await createDuplicatePaxCustomer({
+                  baseEmail: customer.email,
+                  paxEmail,
+                  firstName: customer.firstName || '',
+                  lastName: `${customer.lastName || ''} (${paxIndex + 1})`,
+                  paxIndex
+                });
               } catch (err) {
-                if (err.code !== '23505') {
-                  console.error(`Error creating dup customer:`, err.message);
-                }
+                console.error(`❌ Could not create extra-pax customer ${paxEmail}:`, err.message);
+                continue; // skip this spot; keep processing the rest of the order
               }
             }
 

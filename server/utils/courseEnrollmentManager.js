@@ -12,6 +12,7 @@ const {
   createClassInstances,
   createMultipleBookings,
   findCustomerByEmail,
+  createDuplicatePaxCustomer,
   updateCustomer
 } = require('./supabaseDb');
 const courseConfig = require('./courseConfig');
@@ -297,25 +298,20 @@ async function enrollAllPax({ order, lineItem, customer, quantity }) {
       : customer.email;
 
     if (isExtraPax) {
-      // Create a duplicate customer record for the extra spot (own account/portfolio)
-      const dupFirstName = customer.firstName || '';
-      const dupLastName = `${customer.lastName || ''} (${paxIndex + 1})`;
+      // Create a duplicate customer record for the extra spot (own account/portfolio).
+      // Surfaces failures instead of swallowing them (see createDuplicatePaxCustomer).
       try {
-        const existingDup = await findCustomerByEmail(paxEmail);
-        if (!existingDup) {
-          await supabase.from('customers').insert({
-            email: paxEmail,
-            first_name: dupFirstName,
-            last_name: dupLastName,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          });
-          console.log(`👥 Created duplicate customer: ${paxEmail}`);
-        }
+        await createDuplicatePaxCustomer({
+          baseEmail: customer.email,
+          paxEmail,
+          firstName: customer.firstName || '',
+          lastName: `${customer.lastName || ''} (${paxIndex + 1})`,
+          paxIndex
+        });
       } catch (err) {
-        if (err.code !== '23505') {
-          console.error(`Error creating dup customer:`, err.message);
-        }
+        console.error(`❌ Could not create extra-pax customer ${paxEmail}:`, err.message);
+        results.push({ success: false, error: err.message, paxEmail });
+        continue; // skip this spot; do not lose the whole order
       }
     }
 

@@ -106,7 +106,9 @@ function detectCourseTemplate(enrollment) {
   if (course_type && course_type.toLowerCase().includes('handbuilding')) {
     return number_of_weeks <= 4 ? 'hb-4credit' : 'hb-8credit';
   }
-  if (number_of_weeks === 10) return 'wt-10class';
+  // A "10 Classes NO EXPIRY" package is a 6-week WT cohort + 4 flex credits, so its
+  // course_details email describes the 6-week schedule — use wt-6week, never wt-10class.
+  if (number_of_weeks === 10) return 'wt-6week';
   if (number_of_weeks >= 18) return 'wt-3x6week';
   if (number_of_weeks === 7) return 'wt-7week-inter';
   return 'wt-6week';

@@ -6542,12 +6542,20 @@ app.post('/api/admin/course-emails/:courseId/send', authenticateToken, requireAd
     return res.status(400).json({ error: 'templateType and recipientEmails are required' });
   }
 
+  // Safety net: 10-Class packages are a 6-week WT cohort + 4 flex — we never send a
+  // "10-Class" course email. Coerce so it can never leak from any stale caller.
+  let safeTemplateType = templateType;
+  if (safeTemplateType === 'wt-10class') {
+    console.warn(`[course-email] Blocked wt-10class for ${courseId} → coerced to wt-6week`);
+    safeTemplateType = 'wt-6week';
+  }
+
   // Load the correct template
   let template;
   try {
-    template = require(`../email-templates/courses/${templateType}`);
+    template = require(`../email-templates/courses/${safeTemplateType}`);
   } catch (err) {
-    return res.status(400).json({ error: `Unknown template type: ${templateType}` });
+    return res.status(400).json({ error: `Unknown template type: ${safeTemplateType}` });
   }
 
   // Generate email HTML

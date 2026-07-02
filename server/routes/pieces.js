@@ -859,7 +859,8 @@ function detectCourseTypeKey(enrollment) {
   if (courseType.includes('handbuilding')) {
     return title.includes('8') ? 'hb-8credit' : 'hb-4credit';
   }
-  if (title.includes('10') || title.includes('ten')) return 'wt-10class';
+  // "10 Classes" package = 6-week WT cohort + 4 flex credits → use the 6-week template
+  if (title.includes('10') || title.includes('ten')) return 'wt-6week';
   if (title.includes('3x') || title.includes('3 course')) return 'wt-3x6week';
   if (title.includes('intermediate') || title.includes('7')) return 'wt-7week-inter';
   return 'wt-6week';

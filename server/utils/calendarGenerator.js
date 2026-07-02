@@ -62,8 +62,7 @@ function generateICS(booking, classInstance, studentInfo) {
   const description = escapeICalText(
     `Pottery Class at VES\\n` +
     `Type: ${classInstance.classType}\\n` +
-    `Instructor: ${classInstance.instructor}\\n` +
-    `Room: ${classInstance.room || 'TBA'}\\n\\n` +
+    `Instructor: ${classInstance.instructor}\\n\\n` +
     `Booking ID: ${booking.id}`
   );
   const location = escapeICalText('VES Pottery Studio, Singapore');
@@ -121,8 +120,7 @@ function generateMultipleICS(bookingsWithClasses, studentInfo) {
     const description = escapeICalText(
       `Pottery Class at VES\\n` +
       `Type: ${classInstance.classType}\\n` +
-      `Instructor: ${classInstance.instructor}\\n` +
-      `Room: ${classInstance.room || 'TBA'}\\n\\n` +
+      `Instructor: ${classInstance.instructor}\\n\\n` +
       `Booking ID: ${booking.id}\\n` +
       `Status: ${booking.status}`
     );

@@ -3889,6 +3889,14 @@ app.post('/api/admin/classes/:classId/add-student', authenticateToken, requireAd
     .eq('id', classId)
     .single();
 
+  // Studio-wide 10-wheel cap across all cohorts sharing this timeslot.
+  if (thisClass?.class_date && thisClass?.start_time) {
+    const { count: wheels } = await supabaseDb.getSlotWheelUsage(thisClass.class_date, thisClass.start_time);
+    if (wheels >= supabaseDb.STUDIO_WHEELS) {
+      return res.status(400).json({ error: `Studio is full — all ${supabaseDb.STUDIO_WHEELS} wheels are booked for this timeslot` });
+    }
+  }
+
   // Extract base course identifier (e.g. "WT2802AM_DL6" from "WT2802AM_DL6.2")
   const fullId = thisClass?.class_type || '';
   const lastDot = fullId.lastIndexOf('.');
@@ -5192,7 +5200,7 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
   // as the student reschedule path.
   const { data: targetClass, error: targetClassErr } = await supabaseDb.supabase
     .from('class_instances')
-    .select('id, max_capacity')
+    .select('id, max_capacity, class_date, start_time')
     .eq('id', parseInt(newClassInstanceId))
     .single();
 
@@ -5213,6 +5221,14 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
 
   if (targetBookedCount >= (targetClass.max_capacity || 10)) {
     return res.status(400).json({ error: 'This class is full. Cannot reschedule to a class at max capacity.' });
+  }
+
+  // Studio-wide 10-wheel cap across all cohorts sharing this timeslot.
+  if (targetClass.class_date && targetClass.start_time) {
+    const { count: wheels } = await supabaseDb.getSlotWheelUsage(targetClass.class_date, targetClass.start_time);
+    if (wheels >= supabaseDb.STUDIO_WHEELS) {
+      return res.status(400).json({ error: `Studio is full — all ${supabaseDb.STUDIO_WHEELS} wheels are booked for this timeslot.` });
+    }
   }
 
   // If the student already has a cancelled/rescheduled booking at the target

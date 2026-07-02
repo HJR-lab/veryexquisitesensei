@@ -1541,6 +1541,12 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
     return res.status(400).json({ error: 'This class is completely full' });
   }
 
+  // Studio-wide 10-wheel cap: total booked across all cohorts sharing this timeslot.
+  const { count: rsWheels } = await supabaseDb.getSlotWheelUsage(newClass.class_date, newClass.start_time);
+  if (rsWheels >= supabaseDb.STUDIO_WHEELS) {
+    return res.status(400).json({ error: `Studio is full — all ${supabaseDb.STUDIO_WHEELS} wheels are booked for this timeslot` });
+  }
+
   // Check if student already has any booking row for the target class
   const { data: targetBookingAnyStatus, error: targetBookingLookupError } = await supabaseDb.supabase
     .from('bookings')

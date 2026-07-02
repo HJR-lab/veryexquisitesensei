@@ -238,7 +238,16 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
     // Keep most recent enrollment per student, but track upcoming separately
     // Priority: active/paused > completed (completed only used if no active/paused exists)
     if (!studentMap[sid]) {
-      studentMap[sid] = { current: null, upcoming: null };
+      studentMap[sid] = { current: null, upcoming: null, pkgCourses: 0 };
+    }
+
+    // Track the largest multi-course package flag across ALL of this student's
+    // enrollments. A 3-course package sitting on an upcoming (future-dated) or
+    // otherwise non-primary enrollment must still classify the student as a
+    // package buyer (x3) — otherwise a concurrent single-course enrollment that
+    // happens to be "primary" hides it.
+    if ((enr.package_total_courses || 0) > studentMap[sid].pkgCourses) {
+      studentMap[sid].pkgCourses = enr.package_total_courses;
     }
 
     if (enr.status === 'upcoming' || (enr.course_start_date && new Date(enr.course_start_date) > new Date())) {
@@ -261,7 +270,7 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
   }
 
   // Build flat list
-  let students = Object.values(studentMap).map(({ current, upcoming }) => {
+  let students = Object.values(studentMap).map(({ current, upcoming, pkgCourses }) => {
     // Prefer a live (active/paused) enrollment. Otherwise an upcoming course
     // outranks a completed one — a finished HB with leftover credits must not
     // mask an active/upcoming WT enrollment that simply starts in the future.
@@ -271,6 +280,9 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
     if (!primary) return null;
     return {
       ...primary,
+      // Student-level package flag: reflects a package on ANY enrollment, not
+      // just whichever one was chosen as primary above.
+      packageTotalCourses: pkgCourses || primary.packageTotalCourses || null,
       upcomingCourse: (upcoming && primary !== upcoming) ? {
         courseIdentifier: upcoming.courseIdentifier,
         variantTitle: upcoming.variantTitle,

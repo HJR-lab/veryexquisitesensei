@@ -20,7 +20,8 @@ function parseCourseInfo(title, variantTitle, orderDate) {
     endDate: null,
     classTime: null,
     instructor: null,
-    room: null
+    room: null,
+    excludeDates: [] // Weeks to skip, e.g. { month, day, year } from "NO CLASS 22 AUG"
   };
 
   // Extract course type from title
@@ -122,6 +123,22 @@ function parseCourseInfo(title, variantTitle, orderDate) {
       // Create end date in GMT+8 (Singapore timezone)
       const endDateStr = `${endYear}-${String(endMonth + 1).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`;
       result.endDate = new Date(endDateStr + 'T00:00:00+08:00');
+
+      // Parse "NO CLASS" holiday exclusions stated in the product/variant title,
+      // e.g. "NO CLASS 22 AUG" or "NO CLASS 18 APR GOOD FRIDAY". Each is a skipped
+      // week: generateClassDates omits that date but still emits numberOfWeeks
+      // sessions, so the course simply ends one week later.
+      const exclusionText = `${title || ''} ${variantTitle || ''}`;
+      const exclusionRegex = /NO\s*CLASS\s+(\d{1,2})\s+([A-Za-z]+)/gi;
+      let exMatch;
+      while ((exMatch = exclusionRegex.exec(exclusionText)) !== null) {
+        const exDay = parseInt(exMatch[1]);
+        const exMonth = monthMap[exMatch[2].toLowerCase()];
+        if (exMonth === undefined) continue; // second word wasn't a month (e.g. "GOOD")
+        // Roll into next year if the excluded month precedes the start month
+        const exYear = exMonth < startMonth ? startYear + 1 : startYear;
+        result.excludeDates.push({ year: exYear, month: exMonth, day: exDay });
+      }
     }
   }
 
@@ -206,7 +223,18 @@ function generateClassDates(courseInfo) {
     maxEndDay = startDay;
   }
 
-  for (let week = 0; week < maxWeeks; week++) {
+  // Skipped "NO CLASS" weeks (e.g. public holidays) don't count toward the
+  // session total — the course keeps running until numberOfWeeks sessions exist,
+  // so a skip simply pushes the end date one week later.
+  const excludeDates = courseInfo.excludeDates || [];
+  const isExcluded = (y, m, d) => excludeDates.some(ex =>
+    ex.month === m && ex.day === d && (ex.year === undefined || ex.year === y));
+
+  // Safety bound so a bad exclusion can never loop forever, while leaving room
+  // for however many weeks get skipped.
+  const hardCap = maxWeeks + excludeDates.length + 12;
+
+  for (let week = 0; dates.length < maxWeeks && week < hardCap; week++) {
     // Check if current date is after the end date (compare date components)
     const curYear = currentDate.getFullYear();
     const curMonth = currentDate.getMonth();
@@ -218,7 +246,10 @@ function generateClassDates(courseInfo) {
       break;
     }
 
-    dates.push(new Date(currentDate));
+    // Skip "NO CLASS" weeks without consuming a session slot
+    if (!isExcluded(curYear, curMonth, curDay)) {
+      dates.push(new Date(currentDate));
+    }
 
     // Move to next week
     currentDate.setDate(currentDate.getDate() + 7);

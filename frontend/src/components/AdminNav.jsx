@@ -44,12 +44,26 @@ export default function AdminNav({ active, onSyncComplete }) {
   }, []);
 
   const handleSync = async () => {
+    setSyncing(true);
+    setSyncMessage(null);
+
+    // Order sync is the critical leg — it creates enrollments (and the customer
+    // record) for new orders, which is what makes new buyers appear in the list.
+    // Run it FIRST and in its own try so a slow/failing customer-sync sweep can
+    // never block it. Each leg is isolated so one failure doesn't kill the rest.
+    let ordersResponse = null;
+    let orderSyncFailed = false;
     try {
-      setSyncing(true);
-      setSyncMessage(null);
-      await api.post('/admin/sync-shopify-customers');
-      const ordersResponse = await api.post('/admin/sync-shopify-orders');
-      await api.post('/admin/backfill-hb-credits');
+      ordersResponse = await api.post('/admin/sync-shopify-orders');
+    } catch (error) {
+      orderSyncFailed = true;
+    }
+
+    // Non-critical follow-ups: full customer sweep + HB credit backfill.
+    try { await api.post('/admin/sync-shopify-customers'); } catch (e) { /* non-fatal */ }
+    try { await api.post('/admin/backfill-hb-credits'); } catch (e) { /* non-fatal */ }
+
+    if (ordersResponse) {
       const n = ordersResponse.data.enrollmentsCreated || 0;
       const expired = ordersResponse.data.membershipsExpired || 0;
       let text = n > 0 ? `Synced — ${n} new enrollment${n !== 1 ? 's' : ''}` : 'Synced — no new enrollments';
@@ -57,12 +71,12 @@ export default function AdminNav({ active, onSyncComplete }) {
       setSyncMessage({ type: 'ok', text });
       if (onSyncComplete) onSyncComplete();
       setTimeout(() => window.location.reload(), 1500);
-    } catch (error) {
-      setSyncMessage({ type: 'err', text: 'Sync failed' });
-    } finally {
-      setSyncing(false);
-      setTimeout(() => setSyncMessage(null), 5000);
+    } else if (orderSyncFailed) {
+      setSyncMessage({ type: 'err', text: 'Order sync failed — try again' });
     }
+
+    setSyncing(false);
+    setTimeout(() => setSyncMessage(null), 5000);
   };
 
   return (

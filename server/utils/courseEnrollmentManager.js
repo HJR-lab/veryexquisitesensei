@@ -265,6 +265,79 @@ async function processCoursePurchase(order, lineItem) {
 }
 
 /**
+ * Enroll all "pax" (spots) for a course line item, honoring quantity.
+ * A quantity of 2 means the customer bought 2 spots (e.g. for a partner/friend),
+ * so we create one enrollment per spot — NOT a single enrollment. Extra spots get
+ * their own duplicate customer record (email +dup alias) so each person has their
+ * own account/portfolio, mirroring the multi-pax logic used by the main order sync.
+ *
+ * Idempotent: extra-pax customers are created only if missing, and processCoursePurchase
+ * dedupes each spot by (shopify_order_id, shopify_line_item_id) — the per-pax id suffix
+ * keeps the spots distinct so re-syncing does not collapse them back into one.
+ *
+ * @param {Object} params
+ * @param {Object} params.order - Order object (as passed to processCoursePurchase)
+ * @param {Object} params.lineItem - Line item object (as passed to processCoursePurchase)
+ * @param {Object} params.customer - { email, firstName, lastName } for the buyer
+ * @param {number} params.quantity - Purchased quantity (number of spots)
+ * @returns {Promise<Array>} Array of per-spot results from processCoursePurchase
+ */
+async function enrollAllPax({ order, lineItem, customer, quantity }) {
+  const paxCount = Math.max(1, quantity || 1);
+  if (paxCount > 1) {
+    console.log(`👥 ${paxCount}-pax order detected for ${customer.email} - ${lineItem.title}`);
+  }
+
+  const results = [];
+  for (let paxIndex = 0; paxIndex < paxCount; paxIndex++) {
+    const isExtraPax = paxIndex > 0;
+    const paxSuffix = isExtraPax ? `-${paxIndex + 1}` : '';
+    const paxEmail = isExtraPax
+      ? customer.email.replace('@', `+dup${paxIndex > 1 ? paxIndex : ''}@`)
+      : customer.email;
+
+    if (isExtraPax) {
+      // Create a duplicate customer record for the extra spot (own account/portfolio)
+      const dupFirstName = customer.firstName || '';
+      const dupLastName = `${customer.lastName || ''} (${paxIndex + 1})`;
+      try {
+        const existingDup = await findCustomerByEmail(paxEmail);
+        if (!existingDup) {
+          await supabase.from('customers').insert({
+            email: paxEmail,
+            first_name: dupFirstName,
+            last_name: dupLastName,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+          console.log(`👥 Created duplicate customer: ${paxEmail}`);
+        }
+      } catch (err) {
+        if (err.code !== '23505') {
+          console.error(`Error creating dup customer:`, err.message);
+        }
+      }
+    }
+
+    const paxOrder = {
+      ...order,
+      customer: {
+        ...order.customer,
+        email: paxEmail,
+        first_name: isExtraPax ? (customer.firstName || '') : order.customer.first_name,
+        last_name: isExtraPax ? `${customer.lastName || ''} (${paxIndex + 1})` : order.customer.last_name
+      }
+    };
+    const paxLineItem = { ...lineItem, id: `${lineItem.id}${paxSuffix}` };
+
+    console.log(`🎓 Processing pax ${paxIndex + 1}/${paxCount}: ${paxEmail} - ${lineItem.title}`);
+    results.push(await processCoursePurchase(paxOrder, paxLineItem));
+  }
+
+  return results;
+}
+
+/**
  * Check cohort status and create/update classes automatically
  * @param {Object} newEnrollment - The newly created course enrollment
  * @returns {Promise<Object>} Result object with created class instances and bookings
@@ -803,6 +876,7 @@ async function activateDraftClasses(enrollment) {
 
 module.exports = {
   processCoursePurchase,
+  enrollAllPax,
   checkAndProcessThreshold,
   createClassesAndBookings,
   addStudentToExistingCohort,

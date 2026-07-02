@@ -1164,7 +1164,7 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
 
     // Process line items to check for course purchases
     if (orderData.line_items && orderData.line_items.length > 0) {
-      const { processCoursePurchase } = require('../utils/courseEnrollmentManager');
+      const { enrollAllPax } = require('../utils/courseEnrollmentManager');
 
       for (const item of orderData.line_items) {
         const productTitle = item.title || '';
@@ -1196,8 +1196,16 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
             variantTitle: variantTitle
           };
 
-          // Process the course purchase using the new enrollment manager
-          const result = await processCoursePurchase(order, lineItem);
+          // Process the course purchase using the new enrollment manager.
+          // Honor quantity: qty 2 = 2 spots = 2 enrollments (one dup customer per extra spot).
+          const results = await enrollAllPax({
+            order,
+            lineItem,
+            customer: { email: customer.email, firstName: customer.first_name, lastName: customer.last_name },
+            quantity: item.quantity || 1
+          });
+          // Downstream (VES Credit, threshold) keys off the primary buyer's spot.
+          const result = results[0] || { success: false };
 
           if (result.success) {
             console.log(`✅ Course enrollment processed successfully`);

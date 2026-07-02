@@ -88,7 +88,7 @@ async function syncShopifyOrdersForCustomer(customer) {
 
     if (orders.length === 0) return;
 
-    const { processCoursePurchase } = require('../utils/courseEnrollmentManager');
+    const { enrollAllPax } = require('../utils/courseEnrollmentManager');
 
     for (const { node: orderNode } of orders) {
       // Skip orders older than 6 months — prevents old courses from creating future enrollments
@@ -121,9 +121,15 @@ async function syncShopifyOrdersForCustomer(customer) {
             variantTitle: item.variantTitle || '',
           };
 
-          const result = await processCoursePurchase(order, lineItem);
-          if (result.success && !result.skipped) {
-            console.log(`✅ On-demand enrollment created for ${email}: ${item.title}`);
+          // Honor quantity: qty 2 = 2 spots = 2 enrollments (one dup customer per extra spot).
+          const results = await enrollAllPax({
+            order,
+            lineItem,
+            customer: { email: customer.email, firstName: customer.first_name, lastName: customer.last_name },
+            quantity: item.quantity || 1
+          });
+          if (results.some(r => r.success && !r.skipped)) {
+            console.log(`✅ On-demand enrollment created for ${email}: ${item.title} (${results.length} spot(s))`);
           }
         }
       }

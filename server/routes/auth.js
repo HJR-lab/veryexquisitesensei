@@ -723,18 +723,6 @@ app.get('/api/students/me/dashboard', authenticateToken, asyncHandler(async (req
       requiredStudents: 4,
     };
 
-    // Check if this is part of a package
-    if (enrollment.package_total_courses) {
-      if (!packageInfo) {
-        packageInfo = {
-          totalCourses: enrollment.package_total_courses,
-          totalClasses: enrollment.package_total_classes,
-          coursesRemaining: enrollment.package_courses_remaining || 0,
-          currentCourse: enrollment.package_total_courses - (enrollment.package_courses_remaining || 0),
-        };
-      }
-    }
-
     switch (status) {
       case 'active':
         activeEnrollments.push(enrollmentWithBookings);
@@ -750,6 +738,45 @@ app.get('/api/students/me/dashboard', authenticateToken, asyncHandler(async (req
         break;
     }
   });
+
+  // Build packageInfo from the student's package enrollments. A student can hold
+  // more than one package at once (e.g. finishing the last course of one package
+  // while a newly-purchased package is queued). Prefer the package that still has
+  // courses remaining, and among those the latest-starting one (the package they
+  // are currently advancing through) — otherwise a just-finished package's
+  // "0 remaining" would mask the new package's remaining courses.
+  const pkgEnrollments = enrollments.filter(e => e.package_total_courses);
+  let pkgSource = null;
+  if (pkgEnrollments.length) {
+    const withRemaining = pkgEnrollments.filter(e => (e.package_courses_remaining || 0) > 0);
+    const pool = withRemaining.length ? withRemaining : pkgEnrollments;
+    pkgSource = pool.reduce((best, e) =>
+      !best || new Date(e.course_start_date) > new Date(best.course_start_date) ? e : best, null);
+  } else {
+    // Between-cohorts gap: package continuation is manual, so between cohorts no
+    // active enrollment exists yet for the next course. Fall back to the latest
+    // completed package course so the student still sees their remaining paid
+    // courses (mirrors the admin list's continuation-pending handling).
+    const { data: completedPkg } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('package_total_courses, package_total_classes, package_courses_remaining, course_start_date')
+      .eq('student_id', dbCustomerId)
+      .eq('status', 'completed')
+      .gt('package_total_courses', 1)
+      .gt('package_courses_remaining', 0)
+      .order('course_start_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (completedPkg) pkgSource = completedPkg;
+  }
+  if (pkgSource) {
+    packageInfo = {
+      totalCourses: pkgSource.package_total_courses,
+      totalClasses: pkgSource.package_total_classes,
+      coursesRemaining: pkgSource.package_courses_remaining || 0,
+      currentCourse: pkgSource.package_total_courses - (pkgSource.package_courses_remaining || 0),
+    };
+  }
 
   // Calculate total classes allocated from ACTIVE enrollments only
   const totalClassesAllocated = enrollments.reduce((sum, e) => {

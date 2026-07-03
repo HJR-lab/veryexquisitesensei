@@ -1,9 +1,25 @@
 require('dotenv').config();
-// Prefer IPv4 for all outbound DNS resolution. Railway containers have IPv6
-// egress and Node otherwise picks Shopify's AAAA record, whose IPv6 path is
-// broken — every Shopify GraphQL call dies mid-response ("Premature close"),
-// breaking order/customer sync. Forcing IPv4-first routes over the working path.
-require('dns').setDefaultResultOrder('ipv4first');
+// ── Force IPv4 for ALL outbound connections ──────────────────────────────────
+// Railway's container egress reaches Shopify over IPv6, whose path has a broken
+// PMTU: large gzip responses are truncated mid-body (ERR_STREAM_PREMATURE_CLOSE
+// at Gunzip), which silently broke order/customer sync even though no app code
+// changed. Soft ordering (setDefaultResultOrder('ipv4first')) was NOT enough —
+// Node/node-fetch still opened the IPv6 socket — so we hard-override dns.lookup
+// to only ever return IPv4 addresses. No dependency here is IPv6-only (Supabase
+// is reached via its IPv4 REST endpoint), so this is safe and permanent.
+const dns = require('dns');
+dns.setDefaultResultOrder('ipv4first');
+const _dnsLookup = dns.lookup;
+dns.lookup = function (hostname, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  else if (typeof options === 'number') { options = { family: options }; }
+  return _dnsLookup.call(dns, hostname, { ...options, family: 4 }, callback);
+};
+if (dns.promises && dns.promises.lookup) {
+  const _dnsLookupPromise = dns.promises.lookup.bind(dns.promises);
+  dns.promises.lookup = (hostname, options = {}) =>
+    _dnsLookupPromise(hostname, { ...(typeof options === 'number' ? { family: options } : options), family: 4 });
+}
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');

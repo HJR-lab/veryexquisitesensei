@@ -164,7 +164,6 @@ async function autoCompleteFinishedEnrollments() {
 // Sync all customers from Shopify
 app.post('/api/admin/sync-shopify-customers', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   console.log('🔄 Starting Shopify customer sync...');
-  const client = getShopifyClient();
 
   let syncedCount = 0;
   let hasNextPage = true;
@@ -253,12 +252,7 @@ app.post('/api/admin/sync-shopify-customers', authenticateToken, requireAdmin, a
       variables = {};
     }
 
-    const response = await client.query({
-      data: {
-        query,
-        variables
-      }
-    });
+    const response = await shopifyGraphQL(query, variables);
     const customersData = response.body.data.customers;
 
     for (const edge of customersData.edges) {
@@ -1556,7 +1550,6 @@ app.post('/api/shopify/webhook/customers', express.raw({ type: 'application/json
 
 app.post('/api/admin/vouchers/backfill', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   console.log('🎁 Starting voucher backfill from Shopify...');
-  const client = getShopifyClient();
   const { supabase } = supabaseDb;
 
   let processedCount = 0;
@@ -1654,9 +1647,7 @@ app.post('/api/admin/vouchers/backfill', authenticateToken, requireAdmin, asyncH
       variables = {};
     }
 
-    const response = await client.query({
-      data: { query, variables }
-    });
+    const response = await shopifyGraphQL(query, variables);
 
     const orders = response?.body?.data?.orders;
     if (!orders || !orders.edges || orders.edges.length === 0) {

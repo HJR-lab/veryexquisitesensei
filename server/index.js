@@ -1,4 +1,9 @@
 require('dotenv').config();
+// Prefer IPv4 for all outbound DNS resolution. Railway containers have IPv6
+// egress and Node otherwise picks Shopify's AAAA record, whose IPv6 path is
+// broken — every Shopify GraphQL call dies mid-response ("Premature close"),
+// breaking order/customer sync. Forcing IPv4-first routes over the working path.
+require('dns').setDefaultResultOrder('ipv4first');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');

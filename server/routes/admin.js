@@ -5699,6 +5699,24 @@ app.patch('/api/admin/fees/:feeId/payment', authenticateToken, requireAdmin, asy
     return res.status(400).json({ error: 'Invalid payment status' });
   }
 
+  // Waiving a fee = forgiving it. If VES Credit was auto-applied to offset it,
+  // refund that credit — otherwise the spend transaction is orphaned and the
+  // customer's balance goes negative. (Same reasoning as fee deletion.)
+  if (paymentStatus === 'waived') {
+    const { data: refunded, error: refundError } = await supabaseDb.supabase
+      .from('credit_transactions')
+      .delete()
+      .eq('type', 'spend')
+      .eq('source', 'reschedule_fee')
+      .eq('reference_id', String(feeId))
+      .select();
+    if (refundError) throw refundError;
+    if (refunded && refunded.length) {
+      const total = refunded.reduce((s, r) => s + Number(r.amount), 0);
+      console.log(`💰 Refunded $${total} VES Credit on waiving reschedule fee ${feeId}`);
+    }
+  }
+
   const { data: fee, error } = await supabaseDb.supabase
     .from('reschedule_fees')
     .update({
@@ -5717,6 +5735,23 @@ app.patch('/api/admin/fees/:feeId/payment', authenticateToken, requireAdmin, asy
 
 app.delete('/api/admin/fees/:feeId', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { feeId } = req.params;
+
+  // Reverse any VES Credit that was auto-applied to offset this fee. Deleting a
+  // fee = waiving it, so the credit it consumed must be refunded — otherwise the
+  // spend transaction is orphaned and the customer's balance goes negative.
+  const { data: refunded, error: refundError } = await supabaseDb.supabase
+    .from('credit_transactions')
+    .delete()
+    .eq('type', 'spend')
+    .eq('source', 'reschedule_fee')
+    .eq('reference_id', String(feeId))
+    .select();
+
+  if (refundError) throw refundError;
+  if (refunded && refunded.length) {
+    const total = refunded.reduce((s, r) => s + Number(r.amount), 0);
+    console.log(`💰 Refunded $${total} VES Credit on deletion of reschedule fee ${feeId}`);
+  }
 
   const { error } = await supabaseDb.supabase
     .from('reschedule_fees')

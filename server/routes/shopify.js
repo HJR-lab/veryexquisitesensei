@@ -994,83 +994,75 @@ app.post('/api/admin/sync-shopify-orders', authenticateToken, requireAdmin, asyn
             else if (combined.includes('6 month')) months = 6;
 
             const membershipType = `Clay Club ${months} Month${months !== 1 ? 's' : ''}`;
-            const startDate = new Date(orderNode.createdAt);
-            const endDate = new Date(startDate);
-            endDate.setMonth(endDate.getMonth() + months);
+            const purchaseDate = new Date(orderNode.createdAt).toISOString().split('T')[0];
 
-            // Check if membership already exists for this customer + start date
+            // Idempotency: one membership row per purchase, keyed by
+            // (customer, purchase_date, type). Re-syncs of the same order skip.
             const { data: existing } = await supabase
               .from('memberships')
-              .select('id, end_date, membership_type, status')
+              .select('id, status')
               .eq('customer_id', memberCustomer.id)
-              .eq('start_date', startDate.toISOString().split('T')[0])
+              .eq('purchase_date', purchaseDate)
+              .eq('membership_type', membershipType)
               .maybeSingle();
 
             if (existing) {
-              // Update end_date, type, and status if they differ
-              const expectedEnd = endDate.toISOString().split('T')[0];
-              const now = new Date();
-              const expectedStatus = endDate < now ? 'expired' : 'active';
-              const needsUpdate = existing.end_date !== expectedEnd || existing.membership_type !== membershipType || existing.status !== expectedStatus;
-
-              if (needsUpdate) {
-                await supabase
-                  .from('memberships')
-                  .update({
-                    end_date: expectedEnd,
-                    membership_type: membershipType,
-                    status: expectedStatus,
-                    updated_at: new Date().toISOString()
-                  })
-                  .eq('id', existing.id);
-                console.log(`🔄 Updated membership for ${customer.email}: end_date=${expectedEnd}, type=${membershipType}, status=${expectedStatus}`);
-              } else {
-                console.log(`⏭️  Membership already exists for ${customer.email} (${membershipType})`);
-              }
+              // Already recorded. Leave its status alone — activation from
+              // pending → active is the studio manager's call on first visit.
+              console.log(`⏭️  Membership already recorded for ${customer.email} (${membershipType}, purchased ${purchaseDate})`);
               skippedCount++;
             } else {
-              // Check if there's an active membership to extend
-              const { data: activeMembership } = await supabase
-                .from('memberships')
-                .select('id, end_date, membership_type')
-                .eq('customer_id', memberCustomer.id)
-                .eq('status', 'active')
-                .order('end_date', { ascending: false })
-                .limit(1)
-                .maybeSingle();
+              // New purchase → create as PENDING (reserved). The term does NOT
+              // start now; it begins on the member's first studio visit, when
+              // the studio manager activates it (sets start/end dates).
+              await createMembership({
+                customerId: memberCustomer.id,
+                membershipType,
+                status: 'pending',
+                startDate: null,
+                endDate: null,
+                purchaseDate,
+                perks: {}
+              });
+              console.log(`🎫 Reserved (pending) membership for ${customer.email}: ${membershipType} (purchased ${purchaseDate})`);
+              enrollmentsCreated++;
 
-              if (activeMembership) {
-                // Extend the existing active membership's end_date
-                const currentEnd = new Date(activeMembership.end_date);
-                const newEnd = new Date(currentEnd);
-                newEnd.setMonth(newEnd.getMonth() + months);
+              // Send the confirmation email from this reliable sync path (the
+              // Shopify order webhook is not a guaranteed delivery channel).
+              // Dedup per purchase so re-syncs / the webhook can't double-send.
+              try {
+                const courseIdentifier = `MEMBERSHIP_${months}M_${purchaseDate}`;
+                const { data: alreadySent } = await supabase
+                  .from('sent_emails')
+                  .select('id')
+                  .eq('email_type', 'membership_confirmed')
+                  .eq('course_identifier', courseIdentifier)
+                  .contains('recipient_emails', [memberCustomer.email])
+                  .maybeSingle();
 
-                await supabase
-                  .from('memberships')
-                  .update({
-                    end_date: newEnd.toISOString().split('T')[0],
-                    membership_type: membershipType,
-                    updated_at: new Date().toISOString()
-                  })
-                  .eq('id', activeMembership.id);
-
-                console.log(`🎫 Extended membership for ${customer.email}: ${currentEnd.toISOString().split('T')[0]} → ${newEnd.toISOString().split('T')[0]} (+${months} months)`);
-                enrollmentsCreated++;
-              } else {
-                // No active membership — create new
-                const now = new Date();
-                const status = endDate < now ? 'expired' : 'active';
-
-                await createMembership({
-                  customerId: memberCustomer.id,
-                  membershipType,
-                  startDate,
-                  endDate,
-                  status,
-                  perks: {}
-                });
-                console.log(`🎫 Created ${status} membership for ${customer.email}: ${membershipType} (${startDate.toISOString().split('T')[0]} → ${endDate.toISOString().split('T')[0]})`);
-                enrollmentsCreated++;
+                if (!alreadySent) {
+                  const membershipSettings = await readMembershipSettings();
+                  const purchasedOnLabel = new Date(orderNode.createdAt)
+                    .toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+                  const { subject, html } = generateMembershipConfirmedEmail({
+                    firstName: memberCustomer.first_name || '',
+                    months,
+                    purchaseDate: purchasedOnLabel,
+                    accessCode: membershipSettings.accessCode,
+                    studioHours: membershipSettings.studioHours,
+                  });
+                  await sendAndLogEmail({
+                    emailType: 'membership_confirmed',
+                    courseIdentifier,
+                    subject,
+                    html,
+                    recipientEmails: [memberCustomer.email],
+                    sentBy: 'system',
+                  });
+                  console.log(`📧 Membership confirmation email sent to ${memberCustomer.email} (${months} months, purchased ${purchaseDate})`);
+                }
+              } catch (emailErr) {
+                console.error('[Email] Failed to send membership confirmation (sync path):', emailErr);
               }
             }
           }
@@ -1415,29 +1407,39 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
               else if (combined.includes('6 month')) months = 6;
 
               const orderDate = new Date(orderData.created_at);
-              const endDate = new Date(orderDate);
-              endDate.setMonth(endDate.getMonth() + months);
-
+              const purchaseDate = orderDate.toISOString().split('T')[0];
               const formatDate = (d) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
-              const membershipSettings = await readMembershipSettings();
-              const { subject, html } = generateMembershipConfirmedEmail({
-                firstName: customer.first_name || '',
-                months,
-                startDate: formatDate(orderDate),
-                endDate: formatDate(endDate),
-                accessCode: membershipSettings.accessCode,
-                studioHours: membershipSettings.studioHours,
-              });
-              await sendAndLogEmail({
-                emailType: 'membership_confirmed',
-                courseIdentifier: `MEMBERSHIP_${months}M`,
-                subject,
-                html,
-                recipientEmails: [memberEmail],
-                sentBy: 'system',
-              });
-              console.log(`📧 Membership confirmation email sent to ${memberEmail} (${months} months)`);
+              // Dedup per purchase so the webhook and the order-sync sweep can't
+              // both send. Keyed by purchase date, matching the sweep's identifier.
+              const courseIdentifier = `MEMBERSHIP_${months}M_${purchaseDate}`;
+              const { data: alreadySent } = await supabaseDb.supabase
+                .from('sent_emails')
+                .select('id')
+                .eq('email_type', 'membership_confirmed')
+                .eq('course_identifier', courseIdentifier)
+                .contains('recipient_emails', [memberEmail])
+                .maybeSingle();
+
+              if (!alreadySent) {
+                const membershipSettings = await readMembershipSettings();
+                const { subject, html } = generateMembershipConfirmedEmail({
+                  firstName: customer.first_name || '',
+                  months,
+                  purchaseDate: formatDate(orderDate),
+                  accessCode: membershipSettings.accessCode,
+                  studioHours: membershipSettings.studioHours,
+                });
+                await sendAndLogEmail({
+                  emailType: 'membership_confirmed',
+                  courseIdentifier,
+                  subject,
+                  html,
+                  recipientEmails: [memberEmail],
+                  sentBy: 'system',
+                });
+                console.log(`📧 Membership confirmation email sent to ${memberEmail} (${months} months, purchased ${purchaseDate})`);
+              }
             }
           } catch (emailErr) {
             console.error('[Email] Failed to send membership confirmation:', emailErr);

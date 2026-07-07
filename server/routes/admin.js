@@ -6116,6 +6116,7 @@ app.get('/api/admin/memberships', authenticateToken, requireAdmin, asyncHandler(
     status: m.status,
     startDate: m.start_date,
     endDate: m.end_date,
+    purchaseDate: m.purchase_date,
     perks: m.perks,
     studentId: m.customer_id,
     studentName: m.customer
@@ -6166,6 +6167,49 @@ app.put('/api/admin/memberships/:id', authenticateToken, requireAdmin, asyncHand
   // Update customer_type after membership change
   if (membership.customer_id) {
     await supabaseDb.updateSingleCustomerType(membership.customer_id);
+  }
+
+  res.json({ success: true, membership });
+}));
+
+// Activate a pending (reserved) membership — starts the term on the member's
+// first studio visit. Sets start_date (defaults to today), end_date = start + N
+// months (parsed from the membership type), and status = active.
+app.post('/api/admin/memberships/:id/activate', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { startDate } = req.body || {};
+
+  const { data: existing, error: fetchErr } = await supabaseDb.supabase
+    .from('memberships')
+    .select('id, customer_id, membership_type')
+    .eq('id', parseInt(id))
+    .single();
+  if (fetchErr || !existing) {
+    return res.status(404).json({ error: 'Membership not found' });
+  }
+
+  const monthsMatch = (existing.membership_type || '').match(/(\d+)/);
+  const months = monthsMatch ? parseInt(monthsMatch[1]) : 6;
+
+  // Anchor the term to the chosen start date (default: today in SGT). All math
+  // is done on UTC-constructed dates so a plain YYYY-MM-DD never shifts a day
+  // due to the server's timezone.
+  const sgtTodayStr = new Date(Date.now() + 8 * 3600 * 1000).toISOString().split('T')[0];
+  const startStr = /^\d{4}-\d{2}-\d{2}$/.test(startDate || '') ? startDate : sgtTodayStr;
+  const [sy, sm, sd] = startStr.split('-').map(Number);
+  const end = new Date(Date.UTC(sy, sm - 1, sd));
+  end.setUTCMonth(end.getUTCMonth() + months);
+  const endStr = end.toISOString().split('T')[0];
+
+  const membership = await supabaseDb.updateMembership(parseInt(id), {
+    startDate: startStr,
+    endDate: endStr,
+    status: 'active',
+  });
+
+  // Keep customer_type in sync (pending → active is still a member).
+  if (existing.customer_id) {
+    await supabaseDb.updateSingleCustomerType(existing.customer_id);
   }
 
   res.json({ success: true, membership });

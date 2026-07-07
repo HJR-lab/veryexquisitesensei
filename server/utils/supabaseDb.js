@@ -1272,8 +1272,9 @@ async function createMembership(membershipData) {
       customer_id: membershipData.customerId,
       membership_type: membershipData.membershipType,
       status: membershipData.status || 'active',
-      start_date: membershipData.startDate,
-      end_date: membershipData.endDate,
+      start_date: membershipData.startDate ?? null,
+      end_date: membershipData.endDate ?? null,
+      purchase_date: membershipData.purchaseDate ?? null,
       shopify_subscription_id: membershipData.shopifySubscriptionId || null,
       perks: membershipData.perks || null
     }])
@@ -1314,6 +1315,7 @@ async function updateMembership(membershipId, updates) {
   if (updates.membershipType !== undefined) dbUpdates.membership_type = updates.membershipType;
   if (updates.startDate !== undefined) dbUpdates.start_date = updates.startDate;
   if (updates.endDate !== undefined) dbUpdates.end_date = updates.endDate;
+  if (updates.purchaseDate !== undefined) dbUpdates.purchase_date = updates.purchaseDate;
   if (updates.perks !== undefined) dbUpdates.perks = updates.perks;
 
   const { data, error } = await supabase
@@ -1495,12 +1497,14 @@ async function syncCustomerTypeFromMemberships() {
   const today = new Date().toISOString().split('T')[0];
   let updated = 0;
 
-  // Get all active memberships (status=active, end_date >= today)
+  // Members = anyone with a live membership. That includes:
+  //   • active memberships not yet expired (status=active, end_date >= today), and
+  //   • pending memberships — purchased but not yet started (term begins on first
+  //     studio visit, so they have no end_date yet but are still paying members).
   const { data: activeMemberships, error: memErr } = await supabase
     .from('memberships')
     .select('customer_id')
-    .eq('status', 'active')
-    .gte('end_date', today);
+    .or(`status.eq.pending,and(status.eq.active,end_date.gte.${today})`);
 
   if (memErr) {
     console.error('Error fetching active memberships:', memErr);

@@ -48,16 +48,23 @@ const DEFAULT_STUDIO_HOURS = [
 
 /**
  * Generate membership confirmation email
+ *
+ * The membership term does NOT start on the purchase date — it starts on the
+ * member's first studio visit (activated by the studio manager at orientation).
+ * So the email shows the purchase date and states the term begins on the first
+ * visit, rather than printing a fixed start/end date.
+ *
  * @param {Object} params
  * @param {string} params.firstName - Member's first name
  * @param {number} params.months - Membership duration (1, 6, or 12)
- * @param {string} params.startDate - e.g. "27 March 2026"
- * @param {string} params.endDate - e.g. "27 April 2026"
+ * @param {string} params.purchaseDate - e.g. "5 July 2026" (falls back to startDate)
+ * @param {string} [params.startDate] - deprecated alias for purchaseDate
  * @param {string} [params.accessCode] - Studio entry keypad code (e.g. "050590#")
  * @param {Array<{day:string,hours:string}>} [params.studioHours] - Per-day access hours
  * @returns {{ subject: string, html: string }}
  */
-function generateMembershipConfirmedEmail({ firstName, months, startDate, endDate, accessCode, studioHours }) {
+function generateMembershipConfirmedEmail({ firstName, months, purchaseDate, startDate, accessCode, studioHours }) {
+  const purchasedOn = purchaseDate || startDate || '';
   const tierInfo = TIER_PERKS[months] || TIER_PERKS[1];
   const greeting = firstName ? `Dear ${firstName},` : 'Dear Member,';
   const durationLabel = `${months} Month${months !== 1 ? 's' : ''}`;
@@ -87,7 +94,10 @@ function generateMembershipConfirmedEmail({ firstName, months, startDate, endDat
       ${greeting}
     </p>
     <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">
-      Thank you for joining Ves Clay Club! Your <strong>${durationLabel} ${tierInfo.tier} Membership</strong> is now active.
+      Thank you for joining Ves Clay Club! Your <strong>${durationLabel} ${tierInfo.tier} Membership</strong>
+      is confirmed and reserved for you. Your ${durationLabel} term <strong>begins on your first studio visit</strong>,
+      not on the purchase date &mdash; so you're free to start whenever you're ready. We'll set your start and end
+      dates when you come in for your orientation.
     </p>
 
     <!-- Membership Card -->
@@ -107,12 +117,12 @@ function generateMembershipConfirmedEmail({ firstName, months, startDate, endDat
           <table width="100%" cellpadding="0" cellspacing="0" style="margin-top: 12px;">
             <tr>
               <td width="50%">
-                <div style="font-size: 11px; color: #888888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px;">Start</div>
-                <div style="font-size: 14px; font-weight: 600; color: #282828;">${startDate}</div>
+                <div style="font-size: 11px; color: #888888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px;">Purchased</div>
+                <div style="font-size: 14px; font-weight: 600; color: #282828;">${purchasedOn || '&mdash;'}</div>
               </td>
               <td width="50%">
-                <div style="font-size: 11px; color: #888888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px;">End</div>
-                <div style="font-size: 14px; font-weight: 600; color: #282828;">${endDate}</div>
+                <div style="font-size: 11px; color: #888888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px;">Term</div>
+                <div style="font-size: 14px; font-weight: 600; color: #282828;">${durationLabel} from your first visit</div>
               </td>
             </tr>
           </table>

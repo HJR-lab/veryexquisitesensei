@@ -25,6 +25,7 @@ function useIsMobile(bp = 768) {
 
 // ─── Status / type helpers ────────────────────────────────────────────────────
 const STATUS_STYLE = {
+  pending:   { bg: '#EAF2FB', text: '#2A5C8A' },
   active:    { bg: TC_LIGHT,  text: TC_DARK  },
   expiring:  { bg: '#FFF7E6', text: '#9E6200' },
   expired:   { bg: ALT,       text: MUTED    },
@@ -56,6 +57,8 @@ function getTier(rawType) {
 
 function deriveStatus(membership) {
   if (membership.status === 'cancelled') return 'cancelled';
+  // Reserved: purchased but not yet started (term begins on first studio visit).
+  if (membership.status === 'pending' || !membership.endDate) return 'pending';
   const daysLeft = Math.ceil((new Date(membership.endDate) - new Date()) / (1000 * 60 * 60 * 24));
   if (daysLeft < 0) return 'expired';
   if (daysLeft <= 30) return 'expiring';
@@ -198,6 +201,32 @@ export default function AdminMemberships() {
     }
   };
 
+  // Activate a reserved (pending) membership — starts the term on the member's
+  // first studio visit. Prompts for the start date (defaults to today).
+  const handleActivate = async (m, name) => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const input = prompt(
+      `Activate ${name || 'member'}'s membership — start the term on their first visit.\n\nStart date (YYYY-MM-DD):`,
+      todayStr
+    );
+    if (input === null) return; // cancelled
+    const startDate = input.trim() || todayStr;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+      alert('Please enter a valid date as YYYY-MM-DD.');
+      return;
+    }
+    try {
+      setLoading(true);
+      await api.post(`/admin/memberships/${m.id}/activate`, { startDate });
+      await loadData();
+    } catch (error) {
+      console.error('Failed to activate membership:', error);
+      alert('Failed to activate membership');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const openSettings = async () => {
     setShowSettings(true);
     if (settings) return;
@@ -260,10 +289,11 @@ export default function AdminMemberships() {
 
   // ── Derived data: group memberships by member ─────────────────────────────
   // Each member gets one card, with all their membership periods listed inside.
-  const STATUS_ORDER = { active: 0, expiring: 1, expired: 2, cancelled: 3 };
+  const STATUS_ORDER = { pending: 0, expiring: 1, active: 2, expired: 3, cancelled: 4 };
 
   function memberStatus(periods) {
     const seen = periods.map(deriveStatus);
+    if (seen.includes('pending'))  return 'pending';
     if (seen.includes('active'))   return 'active';
     if (seen.includes('expiring')) return 'expiring';
     if (seen.includes('expired'))  return 'expired';
@@ -289,6 +319,7 @@ export default function AdminMemberships() {
 
   const counts = {
     all:       members.length,
+    pending:   members.filter(g => g.status === 'pending').length,
     active:    members.filter(g => g.status === 'active').length,
     expiring:  members.filter(g => g.status === 'expiring').length,
     expired:   members.filter(g => g.status === 'expired').length,
@@ -347,9 +378,10 @@ export default function AdminMemberships() {
         }
       >
         {/* ── Stats row (clickable tab selectors) ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(5, 1fr)', gap: '1px', backgroundColor: RULE, border: `1px solid ${RULE}`, marginBottom: '24px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(6, 1fr)', gap: '1px', backgroundColor: RULE, border: `1px solid ${RULE}`, marginBottom: '24px' }}>
           {[
             { key: 'all',       label: 'Total',     value: counts.all       },
+            { key: 'pending',   label: 'Reserved',   value: counts.pending   },
             { key: 'active',    label: 'Active',     value: counts.active    },
             { key: 'expiring',  label: 'Expiring',   value: counts.expiring  },
             { key: 'expired',   label: 'Expired',    value: counts.expired   },
@@ -454,22 +486,41 @@ export default function AdminMemberships() {
                           <div style={{ minWidth: '60px' }}>
                             <div style={{ fontSize: '12px', fontWeight: 700, color: INK }}>{displayType}</div>
                           </div>
-                          <div style={{ minWidth: '160px', fontSize: '12px', color: INK }}>
-                            {fmtDate(m.startDate)} <span style={{ color: MUTED }}>→</span> <span style={{ fontWeight: pStatus === 'expiring' ? 700 : 400, color: pStatus === 'expiring' ? '#9E6200' : INK }}>{fmtDate(m.endDate)}</span>
-                          </div>
-                          <div style={{ width: '120px', flexShrink: 0 }}>
-                            <div style={{ fontSize: '10px', color: MUTED, marginBottom: '3px' }}>
-                              {daysLeft > 0 ? `${daysLeft} days left` : pStatus === 'cancelled' ? 'Cancelled' : 'Expired'}
+                          {pStatus === 'pending' ? (
+                            <div style={{ minWidth: '160px', fontSize: '12px', color: INK }}>
+                              Starts on first visit
+                              <span style={{ color: MUTED }}> · purchased {fmtDate(m.purchaseDate || m.startDate)}</span>
                             </div>
-                            <div style={{ height: '3px', backgroundColor: 'rgba(40,40,40,0.08)', position: 'relative' }}>
-                              <div style={{
-                                position: 'absolute', left: 0, top: 0, height: '3px',
-                                width: `${pStatus === 'expired' || pStatus === 'cancelled' ? 100 : pct}%`,
-                                backgroundColor: pStatus === 'expired' || pStatus === 'cancelled' ? MUTED : pStatus === 'expiring' ? '#E6A817' : TC,
-                              }} />
-                            </div>
-                          </div>
+                          ) : (
+                            <>
+                              <div style={{ minWidth: '160px', fontSize: '12px', color: INK }}>
+                                {fmtDate(m.startDate)} <span style={{ color: MUTED }}>→</span> <span style={{ fontWeight: pStatus === 'expiring' ? 700 : 400, color: pStatus === 'expiring' ? '#9E6200' : INK }}>{fmtDate(m.endDate)}</span>
+                              </div>
+                              <div style={{ width: '120px', flexShrink: 0 }}>
+                                <div style={{ fontSize: '10px', color: MUTED, marginBottom: '3px' }}>
+                                  {daysLeft > 0 ? `${daysLeft} days left` : pStatus === 'cancelled' ? 'Cancelled' : 'Expired'}
+                                </div>
+                                <div style={{ height: '3px', backgroundColor: 'rgba(40,40,40,0.08)', position: 'relative' }}>
+                                  <div style={{
+                                    position: 'absolute', left: 0, top: 0, height: '3px',
+                                    width: `${pStatus === 'expired' || pStatus === 'cancelled' ? 100 : pct}%`,
+                                    backgroundColor: pStatus === 'expired' || pStatus === 'cancelled' ? MUTED : pStatus === 'expiring' ? '#E6A817' : TC,
+                                  }} />
+                                </div>
+                              </div>
+                            </>
+                          )}
                           <div style={{ flex: 1 }} />
+                          {pStatus === 'pending' && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleActivate(m, group.name); }}
+                              title="Activate — start the term on the member's first visit"
+                              style={{ border: 'none', background: TC, color: '#FFF', cursor: 'pointer', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0, fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', fontFamily: 'Atak, sans-serif' }}
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>play_arrow</span>
+                              Activate
+                            </button>
+                          )}
                           <button
                             onClick={(e) => { e.stopPropagation(); setEditing({ ...m, studentName: group.name, studentEmail: group.email }); }}
                             title="Edit period"
@@ -619,6 +670,7 @@ export default function AdminMemberships() {
                   onChange={e => setEditing({ ...editing, status: e.target.value })}
                   style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'Atak, sans-serif', boxSizing: 'border-box', outline: 'none' }}
                 >
+                  <option value="pending">pending (reserved)</option>
                   <option value="active">active</option>
                   <option value="cancelled">cancelled</option>
                 </select>

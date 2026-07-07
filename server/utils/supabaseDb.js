@@ -1565,12 +1565,13 @@ async function syncCustomerTypeFromMemberships() {
 async function updateSingleCustomerType(customerId) {
   const today = new Date().toISOString().split('T')[0];
 
+  // A live membership = active-and-unexpired OR pending (reserved: purchased but
+  // not yet started — term begins on first studio visit). Both make them a member.
   const { data: activeMembership } = await supabase
     .from('memberships')
     .select('id')
     .eq('customer_id', customerId)
-    .eq('status', 'active')
-    .gte('end_date', today)
+    .or(`status.eq.pending,and(status.eq.active,end_date.gte.${today})`)
     .limit(1)
     .maybeSingle();
 

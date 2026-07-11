@@ -422,24 +422,38 @@ export default function Dashboard() {
                 </div>
               )}
               {(() => {
-                const activeCourse = enrollmentsWithCounts.find(e => e.statusLabel === 'active' || e.statusLabel === 'upcoming');
-                if (activeCourse && activeCourse.creditsAvailable > 0) {
-                  const isHB = (activeCourse.enrollment?.course_type || '').toLowerCase().includes('handbuilding');
-                  if (activeCourse.is10Pkg || isHB) {
-                    return <div>You have <strong style={{ color: INK }}>{activeCourse.creditsAvailable} Class Credit{activeCourse.creditsAvailable !== 1 ? 's' : ''}</strong> available</div>;
-                  }
-                  return (
-                    <div style={{ backgroundColor: '#FFF0F0', border: '1px solid #F0C0C0', padding: '8px 12px', marginTop: '4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-                      <span style={{ fontSize: '11px', fontWeight: 700, color: '#C03030', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                        You have {activeCourse.creditsAvailable} class{activeCourse.creditsAvailable !== 1 ? 'es' : ''} unbooked
-                      </span>
-                      <a href="/classes" style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '5px 12px', backgroundColor: '#C03030', color: '#FFF', textDecoration: 'none', flexShrink: 0 }}>
-                        Book Now
-                      </a>
-                    </div>
-                  );
-                }
-                return null;
+                // Surface EVERY active/upcoming credit pool, not just the first course.
+                // A student can hold two distinct pools at once:
+                //   • HB-only credits — from a Handbuilding course (bookable for HB classes only)
+                //   • Flex credits    — from a 10-class WT package remainder (bookable for HB or WT)
+                const relevant = enrollmentsWithCounts.filter(
+                  e => (e.statusLabel === 'active' || e.statusLabel === 'upcoming') && e.creditsAvailable > 0
+                );
+                const isHBCourse = (e) => (e.enrollment?.course_type || '').toLowerCase().includes('handbuilding');
+                const hbOnlyCredits = relevant.filter(e => !e.is10Pkg && isHBCourse(e)).reduce((s, e) => s + e.creditsAvailable, 0);
+                const flexCredits = relevant.filter(e => e.is10Pkg).reduce((s, e) => s + e.creditsAvailable, 0);
+                // A plain WT course (not a 10-class package) still prompts to book its unbooked classes.
+                const plainWt = relevant.find(e => !e.is10Pkg && !isHBCourse(e));
+                return (
+                  <>
+                    {hbOnlyCredits > 0 && (
+                      <div>You have <strong style={{ color: INK }}>{hbOnlyCredits} HB Class Credit{hbOnlyCredits !== 1 ? 's' : ''}</strong> available <span style={{ color: MUTED }}>· Handbuilding only</span></div>
+                    )}
+                    {flexCredits > 0 && (
+                      <div>You have <strong style={{ color: INK }}>{flexCredits} Flex Class Credit{flexCredits !== 1 ? 's' : ''}</strong> available <span style={{ color: MUTED }}>· Handbuilding or Wheelthrowing</span></div>
+                    )}
+                    {plainWt && (
+                      <div style={{ backgroundColor: '#FFF0F0', border: '1px solid #F0C0C0', padding: '8px 12px', marginTop: '4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 700, color: '#C03030', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                          You have {plainWt.creditsAvailable} class{plainWt.creditsAvailable !== 1 ? 'es' : ''} unbooked
+                        </span>
+                        <a href="/classes" style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '5px 12px', backgroundColor: '#C03030', color: '#FFF', textDecoration: 'none', flexShrink: 0 }}>
+                          Book Now
+                        </a>
+                      </div>
+                    )}
+                  </>
+                );
               })()}
               {dashboardData?.packageInfo?.totalCourses > 1 && (() => {
                 const pkg = dashboardData.packageInfo;
@@ -643,10 +657,15 @@ export default function Dashboard() {
                           </>
                         </div>
                       </div>
-                      {/* Flex credits remaining for 10-class packages */}
+                      {/* Credits remaining — flex (HB or WT) for 10-class packages, HB-only for handbuilding courses */}
                       {is10Pkg && creditsAvailable > 0 && (
                         <div style={{ fontSize: '10px', color: TC_DARK, fontWeight: 600, textAlign: 'right', marginBottom: '4px' }}>
-                          {creditsAvailable} Class Credit{creditsAvailable !== 1 ? 's' : ''} remaining
+                          {creditsAvailable} Flex Credit{creditsAvailable !== 1 ? 's' : ''} remaining · HB or WT
+                        </div>
+                      )}
+                      {!is10Pkg && creditsAvailable > 0 && (enrollment.course_type || '').toLowerCase().includes('handbuilding') && (
+                        <div style={{ fontSize: '10px', color: TC_DARK, fontWeight: 600, textAlign: 'right', marginBottom: '4px' }}>
+                          {creditsAvailable} HB Credit{creditsAvailable !== 1 ? 's' : ''} remaining · HB only
                         </div>
                       )}
                       {/* Course details toggle (separate row for non-pending) */}

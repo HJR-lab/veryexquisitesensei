@@ -437,10 +437,10 @@ export default function Dashboard() {
                 return (
                   <>
                     {hbOnlyCredits > 0 && (
-                      <div>You have <strong style={{ color: INK }}>{hbOnlyCredits} HB Class Credit{hbOnlyCredits !== 1 ? 's' : ''}</strong> available <span style={{ color: MUTED }}>· Handbuilding only</span></div>
+                      <div>You have <strong style={{ color: INK }}>{hbOnlyCredits} Handbuilding Class Credit{hbOnlyCredits !== 1 ? 's' : ''}</strong> available</div>
                     )}
                     {flexCredits > 0 && (
-                      <div>You have <strong style={{ color: INK }}>{flexCredits} Flex Class Credit{flexCredits !== 1 ? 's' : ''}</strong> available <span style={{ color: MUTED }}>· Handbuilding or Wheelthrowing</span></div>
+                      <div>You have <strong style={{ color: INK }}>{flexCredits} Flex Class Credit{flexCredits !== 1 ? 's' : ''}</strong> available <span style={{ color: MUTED }}>· use for Handbuilding or Wheelthrowing</span></div>
                     )}
                     {plainWt && (
                       <div style={{ backgroundColor: '#FFF0F0', border: '1px solid #F0C0C0', padding: '8px 12px', marginTop: '4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
@@ -660,12 +660,12 @@ export default function Dashboard() {
                       {/* Credits remaining — flex (HB or WT) for 10-class packages, HB-only for handbuilding courses */}
                       {is10Pkg && creditsAvailable > 0 && (
                         <div style={{ fontSize: '10px', color: TC_DARK, fontWeight: 600, textAlign: 'right', marginBottom: '4px' }}>
-                          {creditsAvailable} Flex Credit{creditsAvailable !== 1 ? 's' : ''} remaining · HB or WT
+                          {creditsAvailable} Flex Credit{creditsAvailable !== 1 ? 's' : ''} remaining · Handbuilding or Wheelthrowing
                         </div>
                       )}
                       {!is10Pkg && creditsAvailable > 0 && (enrollment.course_type || '').toLowerCase().includes('handbuilding') && (
                         <div style={{ fontSize: '10px', color: TC_DARK, fontWeight: 600, textAlign: 'right', marginBottom: '4px' }}>
-                          {creditsAvailable} HB Credit{creditsAvailable !== 1 ? 's' : ''} remaining · HB only
+                          {creditsAvailable} Handbuilding Credit{creditsAvailable !== 1 ? 's' : ''} remaining
                         </div>
                       )}
                       {/* Course details toggle (separate row for non-pending) */}

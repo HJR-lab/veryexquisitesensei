@@ -667,6 +667,21 @@ export default function AdminStudentDetail() {
     }
   };
 
+  const handleCancelCourse = async () => {
+    if (!enrollment) return;
+    const studentName = `${student?.first_name || ''} ${student?.last_name || ''}`.trim();
+    const courseInfo = enrollment.course_type || enrollment.course_title || 'this course';
+    if (!confirm(`⚠️ CANCEL ENROLMENT\n\nStudent: ${studentName}\nCourse: ${courseInfo}\n\nThis will:\n• Cancel this enrolment\n• Cancel any upcoming classes it holds (frees the seats)\n• Keep past attendance as history\n\nUse this after a refund. Are you sure?`)) return;
+    try {
+      const { data } = await api.post(`/admin/enrollments/${enrollment.id}/cancel`);
+      alert(`Enrolment cancelled.${data?.cancelledBookings ? ` ${data.cancelledBookings} upcoming class(es) freed.` : ''}`);
+      await loadStudentData();
+    } catch (error) {
+      console.error('Failed to cancel enrolment:', error);
+      alert('Failed to cancel enrolment');
+    }
+  };
+
   const handleResumeCourse = async () => {
     if (!enrollment || enrollment.status !== 'paused') return;
     if (!confirm(`Are you sure you want to resume this student's course?\n\nThey will need to book ${enrollment.weeks_remaining} more classes to complete their course.`)) return;
@@ -947,6 +962,7 @@ export default function AdminStudentDetail() {
             handleResumeCourse={handleResumeCourse}
             handleImpersonate={handleImpersonate}
             handleCompleteCourse={handleCompleteCourse}
+            handleCancelCourse={handleCancelCourse}
             setShowPauseModal={setShowPauseModal}
             instructorNotes={instructorNotes}
             onAddNote={async (content) => {

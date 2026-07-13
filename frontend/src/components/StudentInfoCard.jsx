@@ -31,6 +31,7 @@ export default function StudentInfoCard({
   handleResumeCourse,
   handleImpersonate,
   handleCompleteCourse,
+  handleCancelCourse,
   setShowPauseModal,
   teachingData,
   instructorNotes = [],
@@ -280,6 +281,19 @@ export default function StudentInfoCard({
         {(!isInstructor || isAlsoStudent) && enrollment && enrollment.status === 'completed' && (
           <div style={{ flex: 1, padding: '11px', backgroundColor: '#E8F5E9', color: '#2E7D32', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', textAlign: 'center' }}>
             Completed
+          </div>
+        )}
+        {(!isInstructor || isAlsoStudent) && enrollment && enrollment.status !== 'completed' && enrollment.status !== 'cancelled' && handleCancelCourse && (
+          <button
+            onClick={handleCancelCourse}
+            style={{ flex: 1, padding: '11px', backgroundColor: 'transparent', color: '#C0392B', border: '1px solid #E3B0AA', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer' }}
+          >
+            Cancel Enrolment
+          </button>
+        )}
+        {(!isInstructor || isAlsoStudent) && enrollment && enrollment.status === 'cancelled' && (
+          <div style={{ flex: 1, padding: '11px', backgroundColor: '#FBEAE8', color: '#C0392B', border: 'none', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', textAlign: 'center' }}>
+            Cancelled
           </div>
         )}
         {(!isInstructor || isAlsoStudent) && enrollment && enrollment.status === 'paused' && (

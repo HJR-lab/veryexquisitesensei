@@ -2309,6 +2309,79 @@ app.post('/api/admin/enrollments/:id/complete', authenticateToken, requireAdmin,
   res.json({ success: true, attendedCount, message: 'Enrollment marked as completed' });
 }));
 
+// Cancel an enrollment — e.g. after a Shopify refund. Soft-cancels the enrollment
+// (status = 'cancelled') and frees any active seats it was holding by cancelling
+// its future bookings. Attendance history (attended/completed) is left intact.
+app.post('/api/admin/enrollments/:id/cancel', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const enrollmentId = parseInt(req.params.id);
+  const { reason } = req.body || {};
+
+  const { data: enrollment, error: fetchError } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('*, customers(first_name, last_name, email)')
+    .eq('id', enrollmentId)
+    .single();
+
+  if (fetchError || !enrollment) {
+    return res.status(404).json({ error: 'Enrollment not found' });
+  }
+
+  if (enrollment.status === 'cancelled') {
+    return res.json({ success: true, alreadyCancelled: true, message: 'Enrollment is already cancelled' });
+  }
+
+  // Free the student's seats: cancel this enrollment's active/future bookings.
+  // Scoped to this enrollment only (leaves any other enrollment's bookings alone).
+  const { data: activeBookings } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id, class_instance_id')
+    .eq('course_enrollment_id', enrollmentId)
+    .in('status', ['booked', 'pending', 'paused']);
+
+  const cancelledBookingIds = (activeBookings || []).map(b => b.id);
+  const affectedClassIds = (activeBookings || []).map(b => b.class_instance_id).filter(Boolean);
+
+  if (cancelledBookingIds.length > 0) {
+    await supabaseDb.supabase
+      .from('bookings')
+      .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+      .in('id', cancelledBookingIds);
+
+    // Refresh Google Calendar for the classes whose rosters changed.
+    try {
+      const calendarSync = require('../utils/calendarSync');
+      for (const classId of affectedClassIds) {
+        calendarSync.syncClassInstance(classId).catch(() => {});
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  // Soft-cancel the enrollment (reversible; keeps it out of active/upcoming views).
+  const { error: updateError } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .update({
+      status: 'cancelled',
+      actual_end_date: new Date().toISOString().split('T')[0],
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', enrollmentId);
+
+  if (updateError) {
+    console.error('Error cancelling enrollment:', updateError);
+    return res.status(500).json({ error: 'Failed to cancel enrollment' });
+  }
+
+  const who = `${enrollment.customers?.first_name || ''} ${enrollment.customers?.last_name || ''}`.trim() || `student ${enrollment.student_id}`;
+  console.log(`✅ Cancelled enrollment ${enrollmentId} (${who})${reason ? ` — ${reason}` : ''}; freed ${cancelledBookingIds.length} booking(s)`);
+
+  res.json({
+    success: true,
+    message: 'Enrollment cancelled successfully',
+    enrollment: { id: enrollmentId, status: 'cancelled' },
+    cancelledBookings: cancelledBookingIds.length
+  });
+}));
+
 // Get dashboard stats summary (lightweight, count-only)
 app.get('/api/admin/dashboard/stats/summary', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const todayStr = new Date().toISOString().split('T')[0];

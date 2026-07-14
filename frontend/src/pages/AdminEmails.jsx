@@ -10,6 +10,13 @@ const INK      = '#282828';
 const MUTED    = '#888888';
 const RULE     = 'rgba(40,40,40,0.09)';
 const ALT      = '#F5F3F0';
+
+// Package badges shown next to recipients whose own enrollment gets a
+// package-specific course email (server segments the send by these).
+const TEMPLATE_BADGES = {
+  'wt-10class':  { label: '10-CLASS', bg: TC_LIGHT, fg: '#9E4A1E' },
+  'wt-3x6week':  { label: '3×WT6',    bg: '#EEF1F4', fg: '#4A5A6A' },
+};
 const GREEN    = '#1E6B1E';
 
 // ─── Shared input style ───────────────────────────────────────────────────────
@@ -178,7 +185,7 @@ export default function AdminEmails() {
     setSending(true);
     try {
       const recipientEmails = draft.students.filter(s => s.selected).map(s => s.email);
-      await api.post(`/admin/course-emails/${composeCourse}/send`, {
+      const { data: sendResult } = await api.post(`/admin/course-emails/${composeCourse}/send`, {
         templateType:      draft.templateType,
         dayOfWeek:         draft.dayOfWeek,
         startDate:         draft.startDate,
@@ -191,7 +198,13 @@ export default function AdminEmails() {
         disposalDate:      draft.disposalDate,
         recipientEmails,
       });
-      showStatus('success', `Email sent to ${recipientEmails.length} student${recipientEmails.length !== 1 ? 's' : ''}`);
+      const breakdown = (sendResult?.sends || [])
+        .map(s => `${s.count}× ${TEMPLATE_BADGES[s.templateType]?.label || s.templateType}`)
+        .join(', ');
+      const failNote = (sendResult?.failures || []).length
+        ? ` — ${sendResult.failures.map(f => `${f.count}× ${f.templateType} FAILED`).join(', ')}`
+        : '';
+      showStatus(failNote ? 'error' : 'success', `Email sent to ${recipientEmails.length} student${recipientEmails.length !== 1 ? 's' : ''}${breakdown ? ` (${breakdown})` : ''}${failNote}`);
       setDraft(null);
       setComposeCourse(null);
       setView('settings');
@@ -715,6 +728,16 @@ export default function AdminEmails() {
                               <span style={{ fontSize: '13px', fontWeight: 600, color: s.selected ? INK : MUTED }}>
                                 {s.firstName} {s.lastName}
                               </span>
+                              {TEMPLATE_BADGES[s.templateType] && (
+                                <span style={{
+                                  fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em',
+                                  padding: '2px 7px', borderRadius: '3px', flexShrink: 0,
+                                  backgroundColor: TEMPLATE_BADGES[s.templateType].bg,
+                                  color: TEMPLATE_BADGES[s.templateType].fg,
+                                }}>
+                                  {TEMPLATE_BADGES[s.templateType].label}
+                                </span>
+                              )}
                               <span style={{ fontSize: '12px', color: MUTED, marginLeft: 'auto' }}>{s.email}</span>
                             </div>
                           ))

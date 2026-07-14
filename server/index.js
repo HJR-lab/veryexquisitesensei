@@ -168,7 +168,21 @@ const asyncHandler = (fn) => (req, res, next) => {
 // here is just status/profile/impersonation — hit on every page load by /me.
 // A strict per-IP limit on /api/auth/* locks users out after normal navigation;
 // rely on the general apiLimiter for those routes.
-const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false });
+//
+// IMPORTANT: a single admin page load fans out into many /api calls, and React
+// StrictMode double-fires them in dev. A 200/15min cap is far too low and once
+// tripped it 429s EVERYTHING — including /api/auth/me, which silently logs the
+// user out and blocks re-login. So: generous cap, and never rate-limit the
+// per-page-load auth status endpoint.
+const isProd = process.env.NODE_ENV === 'production';
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: isProd ? 2000 : 100000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Never throttle the session-status endpoint hit on every navigation/refresh.
+  skip: (req) => req.path === '/auth/me' || req.originalUrl.startsWith('/api/auth/me'),
+});
 const writeLimiter = rateLimit({ windowMs: 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
 const syncLimiter = rateLimit({ windowMs: 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false });
 
@@ -227,6 +241,7 @@ require('./routes/pieces')(app, deps);
 require('./routes/notifications')(app, deps);
 require('./routes/inbox')(app, deps);
 require('./routes/crm')(app, deps);
+require('./routes/studentDetails')(app, deps);
 
 // Manual trigger: mark all past bookings as attended
 app.post('/api/admin/mark-past-attended', deps.authenticateToken, deps.requireAdmin, deps.asyncHandler(async (req, res) => {

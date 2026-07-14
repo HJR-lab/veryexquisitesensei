@@ -290,6 +290,7 @@ async function enrollAllPax({ order, lineItem, customer, quantity }) {
   }
 
   const results = [];
+  const extraPaxPlaceholders = [];
   for (let paxIndex = 0; paxIndex < paxCount; paxIndex++) {
     const isExtraPax = paxIndex > 0;
     const paxSuffix = isExtraPax ? `-${paxIndex + 1}` : '';
@@ -301,13 +302,14 @@ async function enrollAllPax({ order, lineItem, customer, quantity }) {
       // Create a duplicate customer record for the extra spot (own account/portfolio).
       // Surfaces failures instead of swallowing them (see createDuplicatePaxCustomer).
       try {
-        await createDuplicatePaxCustomer({
+        const placeholder = await createDuplicatePaxCustomer({
           baseEmail: customer.email,
           paxEmail,
           firstName: customer.firstName || '',
           lastName: `${customer.lastName || ''} (${paxIndex + 1})`,
           paxIndex
         });
+        extraPaxPlaceholders.push(placeholder);
       } catch (err) {
         console.error(`❌ Could not create extra-pax customer ${paxEmail}:`, err.message);
         results.push({ success: false, error: err.message, paxEmail });
@@ -328,6 +330,19 @@ async function enrollAllPax({ order, lineItem, customer, quantity }) {
 
     console.log(`🎓 Processing pax ${paxIndex + 1}/${paxCount}: ${paxEmail} - ${lineItem.title}`);
     results.push(await processCoursePurchase(paxOrder, paxLineItem));
+  }
+
+  // One details-request email for the whole order covering every extra spot
+  // (idempotent inside — re-syncs never re-email the purchaser).
+  if (extraPaxPlaceholders.length > 0) {
+    const { createStudentDetailsRequests } = require('./studentDetailsRequest');
+    createStudentDetailsRequests({
+      placeholders: extraPaxPlaceholders,
+      purchaserEmail: customer.email,
+      purchaserFirstName: customer.firstName || '',
+      courseTitle: lineItem.title,
+      orderId: order.id,
+    }).catch(err => console.error('[StudentDetails] request failed:', err.message));
   }
 
   return results;

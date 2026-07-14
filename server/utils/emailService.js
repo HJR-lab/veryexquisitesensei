@@ -114,4 +114,20 @@ function detectCourseTemplate(enrollment) {
   return 'wt-6week';
 }
 
-module.exports = { sendEmail, sendAndLogEmail, detectCourseTemplate, isEmailCategoryPaused, FROM_ADDRESS };
+/**
+ * Detect which course-details template a SPECIFIC student should receive,
+ * based on their own enrollment. Unlike detectCourseTemplate (which describes
+ * the cohort's schedule), this is package-aware: 10-Class and 3x6-week package
+ * students get the template that explains their package on top of the shared
+ * 6-week cohort schedule. Package identity lives in package_* columns — a 3x
+ * package enrollment has number_of_weeks=6, so weeks alone cannot detect it.
+ */
+function detectStudentTemplate(enrollment) {
+  const title = (enrollment.course_title || enrollment.product_title || '').toLowerCase();
+
+  if (enrollment.package_total_classes === 10 || title.includes('10 class')) return 'wt-10class';
+  if (enrollment.package_total_courses === 3 || enrollment.package_total_classes === 18 || title.includes('3 course')) return 'wt-3x6week';
+  return detectCourseTemplate(enrollment);
+}
+
+module.exports = { sendEmail, sendAndLogEmail, detectCourseTemplate, detectStudentTemplate, isEmailCategoryPaused, FROM_ADDRESS };

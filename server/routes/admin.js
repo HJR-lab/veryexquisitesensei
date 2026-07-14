@@ -6326,7 +6326,7 @@ app.get('/api/classes/my-bookings/calendar', authenticateToken, asyncHandler(asy
 // COURSE EMAIL ENDPOINTS
 // ============================================
 
-const { sendAndLogEmail, detectCourseTemplate } = require('../utils/emailService');
+const { sendAndLogEmail, detectCourseTemplate, detectStudentTemplate } = require('../utils/emailService');
 
 // Helper: format date as "14 March" style
 function formatDateNice(dateStr) {
@@ -6530,7 +6530,7 @@ app.get('/api/admin/course-emails/:courseId/draft', authenticateToken, requireAd
   let students = [];
   const { data: studentEnrollments, error: enrollError } = await supabaseDb.supabase
     .from('course_enrollments')
-    .select('student_id, customers(id, first_name, last_name, email)')
+    .select('student_id, course_title, course_type, number_of_weeks, package_total_classes, package_total_courses, customers(id, first_name, last_name, email)')
     .like('course_identifier', `${courseId}%`)
     .in('status', ['active', 'pending', 'upcoming']);
 
@@ -6539,7 +6539,10 @@ app.get('/api/admin/course-emails/:courseId/draft', authenticateToken, requireAd
     return res.status(404).json({ error: 'No students found for this course' });
   }
 
-  // Dedupe by student_id in case of duplicate enrollments
+  // Dedupe by student_id in case of duplicate enrollments. Each student's
+  // templateType comes from THEIR enrollment (package-aware), not the cohort
+  // sample — 10-Class and 3x6-week package students share the cohort but get
+  // a different course-details email.
   const seen = new Set();
   students = studentEnrollments
     .filter(e => e.customers && !seen.has(e.student_id) && seen.add(e.student_id))
@@ -6549,6 +6552,7 @@ app.get('/api/admin/course-emails/:courseId/draft', authenticateToken, requireAd
       lastName: e.customers.last_name,
       email: e.customers.email,
       name: `${e.customers.first_name} ${e.customers.last_name}`.trim(),
+      templateType: detectStudentTemplate(e),
     }));
 
   // Get a sample enrollment for template detection
@@ -6633,24 +6637,37 @@ app.post('/api/admin/course-emails/:courseId/send', authenticateToken, requireAd
     return res.status(400).json({ error: 'templateType and recipientEmails are required' });
   }
 
-  // Safety net: 10-Class packages are a 6-week WT cohort + 4 flex — we never send a
-  // "10-Class" course email. Coerce so it can never leak from any stale caller.
-  let safeTemplateType = templateType;
-  if (safeTemplateType === 'wt-10class') {
-    console.warn(`[course-email] Blocked wt-10class for ${courseId} → coerced to wt-6week`);
-    safeTemplateType = 'wt-6week';
+  // Segment recipients by THEIR OWN enrollment, re-derived from the DB — never
+  // trust client-posted segmentation. Package students (10-Class, 3x6-week)
+  // share the cohort but receive a package-specific course-details email.
+  const { data: segEnrollments } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('course_title, course_type, number_of_weeks, package_total_classes, package_total_courses, customers(email)')
+    .like('course_identifier', `${courseId}%`)
+    .in('status', ['active', 'pending', 'upcoming']);
+
+  const templateByEmail = new Map();
+  for (const e of (segEnrollments || [])) {
+    if (e.customers?.email) templateByEmail.set(e.customers.email.toLowerCase(), detectStudentTemplate(e));
   }
 
-  // Load the correct template
-  let template;
-  try {
-    template = require(`../email-templates/courses/${safeTemplateType}`);
-  } catch (err) {
-    return res.status(400).json({ error: `Unknown template type: ${safeTemplateType}` });
+  // Fallback for recipients with no enrollment match: the posted templateType,
+  // with the original safety net — the package templates are only ever sent to
+  // students whose own enrollment proves the package, never as a blanket type.
+  let fallbackType = templateType;
+  if (fallbackType === 'wt-10class' || fallbackType === 'wt-3x6week') {
+    console.warn(`[course-email] Blocked blanket ${fallbackType} for ${courseId} → coerced to wt-6week`);
+    fallbackType = 'wt-6week';
   }
 
-  // Generate email HTML
-  const { subject, html } = template.generate({
+  const groups = new Map(); // templateType -> [emails]
+  for (const email of recipientEmails) {
+    const type = templateByEmail.get(String(email).toLowerCase()) || fallbackType;
+    if (!groups.has(type)) groups.set(type, []);
+    groups.get(type).push(email);
+  }
+
+  const templateFields = {
     dayOfWeek,
     startDate,
     endDate,
@@ -6660,23 +6677,40 @@ app.post('/api/admin/course-emails/:courseId/send', authenticateToken, requireAd
     collectionEnd,
     disposalDate,
     specialNotes: specialNotes || '',
-  });
+  };
 
-  // Send and log
-  const result = await sendAndLogEmail({
-    emailType: 'course_details',
-    courseIdentifier: courseId,
-    subject,
-    html,
-    recipientEmails,
-    sentBy: req.user.email,
-  });
+  const sends = [];
+  const failures = [];
+  for (const [type, emails] of groups) {
+    let template;
+    try {
+      template = require(`../email-templates/courses/${type}`);
+    } catch (err) {
+      return res.status(400).json({ error: `Unknown template type: ${type}` });
+    }
 
-  if (!result.success) {
-    return res.status(500).json({ error: 'Failed to send email', details: result.error });
+    const { subject, html } = template.generate(templateFields);
+    const result = await sendAndLogEmail({
+      emailType: 'course_details',
+      courseIdentifier: courseId,
+      subject,
+      html,
+      recipientEmails: emails,
+      sentBy: req.user.email,
+    });
+
+    if (result.success) {
+      sends.push({ templateType: type, count: emails.length, messageId: result.messageId });
+    } else {
+      failures.push({ templateType: type, count: emails.length, error: result.error });
+    }
   }
 
-  res.json({ success: true, messageId: result.messageId });
+  if (sends.length === 0) {
+    return res.status(500).json({ error: 'Failed to send email', details: failures.map(f => f.error).join('; ') });
+  }
+
+  res.json({ success: failures.length === 0, sends, failures });
 }));
 
 // 4. Email send history

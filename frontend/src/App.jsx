@@ -55,6 +55,7 @@ const AdminVouchers = lazy(() => import('./pages/AdminVouchers'));
 
 const Policies = lazy(() => import('./pages/Policies'));
 const EventRSVP = lazy(() => import('./pages/EventRSVP'));
+const StudentDetailsForm = lazy(() => import('./pages/StudentDetailsForm'));
 
 // Test pages — lazy loaded
 const TestDash = lazy(() => import('./test-pages/TestDash'));
@@ -187,6 +188,7 @@ function App() {
           <Route path="/instructor/:id/portfolio" element={<InstructorPortfolio />} />
           <Route path="/policies" element={<Policies />} />
           <Route path="/events/:eventId/rsvp" element={<EventRSVP />} />
+          <Route path="/student-details/:token" element={<StudentDetailsForm />} />
 
           {/* Instructor routes — no StudentLayout, uses own bottom nav */}
           <Route path="/my-classes" element={<PrivateRoute><Suspense fallback={<PageLoader />}><InstructorDashboard /></Suspense></PrivateRoute>} />

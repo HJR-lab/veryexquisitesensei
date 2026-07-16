@@ -8,6 +8,7 @@ const { createClassesAndBookings, MINIMUM_STUDENTS_THRESHOLD } = require('./cour
 const courseConfig = require('./courseConfig');
 const inboxProcessor = require('./inboxProcessor');
 const { processCampaigns } = require('./campaignCron');
+const calendarSync = require('./calendarSync');
 
 /**
  * Main function to process all ready cohorts
@@ -588,7 +589,9 @@ function startAutomaticProcessing() {
   setTimeout(() => {
     console.log('[Auto-Processor] Running initial check...');
     processReadyCohorts().catch(console.error);
-    autoMarkPastBookingsAsAttended().catch(console.error);
+    autoMarkPastBookingsAsAttended()
+      .then(() => calendarSync.resyncUpcoming())
+      .catch(console.error);
     checkPieceReminders().catch(console.error);
     autoRecycleExpiredBatches().catch(console.error);
     cleanupExpiredWaitlist().catch(console.error);
@@ -605,7 +608,11 @@ function startAutomaticProcessing() {
     if (hour === 2 && minute === 0) {
       console.log('[Auto-Processor] Running daily scheduled check...');
       processReadyCohorts().catch(console.error);
-      autoMarkPastBookingsAsAttended().catch(console.error);
+      // Mark yesterday's classes attended, THEN refresh the calendar so progress
+      // strings (which count attended bookings) reflect the new attendance.
+      autoMarkPastBookingsAsAttended()
+        .then(() => calendarSync.resyncUpcoming())
+        .catch(console.error);
       checkCourseEmailReminders().catch(console.error);
       checkUnconfirmedCourses().catch(console.error);
       checkWeeklyUnconfirmedRecheck().catch(console.error);

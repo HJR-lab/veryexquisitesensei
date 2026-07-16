@@ -345,10 +345,45 @@ async function deleteStudioAccess(bookingId) {
   }
 }
 
+// Re-sync every upcoming class_instance's calendar event so descriptions stay
+// current. Necessary because an event's roster/progress string is derived from
+// state that changes WITHOUT touching that class_instance directly:
+//   - progress positions count bookings across the whole enrollment, so any
+//     booking change on a peer class invalidates this class's string;
+//   - the daily auto-attendance job flips earlier bookings booked->attended,
+//     shifting progress on later classes that never get re-synced;
+//   - fire-and-forget syncClassInstance() calls can fail silently.
+// Per-instance syncs are idempotent (they update the existing event in place and
+// skip past classes), so a nightly sweep self-heals all drift within 24h.
+async function resyncUpcoming() {
+  if (!isEnabled()) return { synced: 0, skipped: true };
+  const today = new Date().toISOString().split('T')[0];
+  const { data: classes, error } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('id')
+    .gte('class_date', today)
+    .order('class_date', { ascending: true });
+  if (error) {
+    console.error('[CalendarSync] resyncUpcoming query failed:', error.message);
+    return { synced: 0, error: error.message };
+  }
+  let synced = 0;
+  for (const ci of (classes || [])) {
+    // await sequentially so we respect the per-instance lock and don't burst
+    // the Google API; syncClassInstance swallows its own errors.
+    await syncClassInstance(ci.id);
+    synced++;
+  }
+  console.log(`[CalendarSync] resyncUpcoming re-synced ${synced} upcoming class instances`);
+  return { synced };
+}
+
 module.exports = {
   isEnabled,
   syncClassInstance,
   deleteClassInstance,
   syncStudioAccess,
-  deleteStudioAccess
+  deleteStudioAccess,
+  buildClassDescription,
+  resyncUpcoming
 };

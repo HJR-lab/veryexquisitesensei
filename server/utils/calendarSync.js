@@ -187,8 +187,11 @@ function buildEventPayload(classInstance, description) {
 }
 
 // Create or update a class instance's calendar event (only for today/future)
+// Returns a status object so callers can await sync and surface partial failures
+// instead of abandoning an unawaited promise:
+//   { status: 'ok' | 'skipped' | 'failed', classInstanceId, reason?/error? }
 async function syncClassInstance(classInstanceId) {
-  if (!isEnabled()) return;
+  if (!isEnabled()) return { status: 'skipped', classInstanceId, reason: 'calendar_disabled' };
   return withClassInstanceLock(classInstanceId, async () => {
     try {
       // Re-read inside the lock so the second waiter sees the event_id the
@@ -198,12 +201,12 @@ async function syncClassInstance(classInstanceId) {
         .select('*')
         .eq('id', classInstanceId)
         .single();
-      if (!classInstance) return;
+      if (!classInstance) return { status: 'skipped', classInstanceId, reason: 'not_found' };
 
       // Skip past classes
       const today = new Date().toISOString().split('T')[0];
       const classDate = (classInstance.class_date || '').split('T')[0];
-      if (classDate < today) return;
+      if (classDate < today) return { status: 'skipped', classInstanceId, reason: 'past_class' };
 
       const description = await buildClassDescription(classInstance);
       const payload = buildEventPayload(classInstance, description);
@@ -226,10 +229,33 @@ async function syncClassInstance(classInstanceId) {
           .update({ google_calendar_event_id: res.data.id })
           .eq('id', classInstanceId);
       }
+      return { status: 'ok', classInstanceId };
     } catch (err) {
       console.error('[CalendarSync] syncClassInstance error:', err.message);
+      return { status: 'failed', classInstanceId, error: err.message };
     }
   });
+}
+
+// Fold an array of syncClassInstance results (or Promise.allSettled results) into
+// a compact partial-failure summary for an HTTP response.
+function summarizeSyncResults(results) {
+  const normalized = (results || []).map((r) => {
+    if (r && r.status === 'fulfilled') return r.value || { status: 'skipped' };
+    if (r && r.status === 'rejected') {
+      return { status: 'failed', error: r.reason && r.reason.message ? r.reason.message : String(r.reason) };
+    }
+    return r || { status: 'skipped' };
+  });
+  const failures = normalized.filter((r) => r.status === 'failed');
+  return {
+    ok: normalized.filter((r) => r.status === 'ok').length,
+    failed: failures.length,
+    skipped: normalized.filter((r) => r.status === 'skipped').length,
+    total: normalized.length,
+    allOk: failures.length === 0,
+    failures: failures.map((f) => ({ classInstanceId: f.classInstanceId, error: f.error })),
+  };
 }
 
 // Delete a class event
@@ -381,6 +407,7 @@ async function resyncUpcoming() {
 module.exports = {
   isEnabled,
   syncClassInstance,
+  summarizeSyncResults,
   deleteClassInstance,
   syncStudioAccess,
   deleteStudioAccess,

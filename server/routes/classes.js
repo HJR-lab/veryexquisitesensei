@@ -1,6 +1,13 @@
 const supabaseDb = require('../utils/supabaseDb');
+const FEES = require('../config/fees');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler }) {
+
+// Public: expose the authoritative fee schedule so the frontend can render
+// policy text from the same source the backend enforces (prevents drift).
+app.get('/api/policy/fees', (req, res) => {
+  res.json(FEES);
+});
 
 // Auto-cancel waitlist entries when student has no remaining credits
 async function cancelWaitlistIfNoCredits(studentId) {
@@ -455,6 +462,16 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
   // Auto-cancel waitlist if no credits remaining
   const cancelledWaitlist = await cancelWaitlistIfNoCredits(dbCustomerId);
 
+  // Refresh the class's Google Calendar event so the roster reflects this booking.
+  // Await so the sync actually completes (not abandoned after the response), but
+  // never roll back the committed booking when Calendar is unavailable — just
+  // report whether the roster sync succeeded.
+  const calendarSync = require('../utils/calendarSync');
+  const calSync = await calendarSync.syncClassInstance(parseInt(classInstanceId));
+  if (calSync && calSync.status === 'failed') {
+    console.error('[classes] calendar sync failed after booking:', calSync.error);
+  }
+
   res.json({
     success: true,
     booking: {
@@ -463,7 +480,8 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
       status: booking.status
     },
     message: 'Class booked successfully!',
-    cancelledWaitlist: cancelledWaitlist.length > 0 ? cancelledWaitlist.length : undefined
+    cancelledWaitlist: cancelledWaitlist.length > 0 ? cancelledWaitlist.length : undefined,
+    calendarSync: calSync ? calSync.status : 'skipped'
   });
 }));
 
@@ -739,6 +757,14 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   // Auto-cancel waitlist if no credits remaining
   const cancelledWaitlist = await cancelWaitlistIfNoCredits(dbCustomerId);
 
+  // Refresh the class's Google Calendar event so the roster reflects this makeup
+  // booking. Await it, but preserve the committed booking even if Calendar fails.
+  const calendarSync = require('../utils/calendarSync');
+  const calSync = await calendarSync.syncClassInstance(parseInt(classInstanceId));
+  if (calSync && calSync.status === 'failed') {
+    console.error('[classes] calendar sync failed after makeup booking:', calSync.error);
+  }
+
   res.json({
     success: true,
     booking: {
@@ -749,7 +775,8 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
     },
     remainingCredits: creditsLeft,
     message: 'Makeup class booked successfully!',
-    cancelledWaitlist: cancelledWaitlist.length > 0 ? cancelledWaitlist.length : undefined
+    cancelledWaitlist: cancelledWaitlist.length > 0 ? cancelledWaitlist.length : undefined,
+    calendarSync: calSync ? calSync.status : 'skipped'
   });
 }));
 
@@ -1035,6 +1062,18 @@ app.post('/api/classes/book-hb-schedule', authenticateToken, asyncHandler(async 
 
   console.log(`✅ HB schedule booked: ${bookings.length} classes for enrollment ${enrollmentId}`);
 
+  // Refresh each handbuilding class's Google Calendar event so rosters reflect
+  // these bookings. Run concurrently but await all with allSettled, and report
+  // partial failures instead of abandoning the promises after the response.
+  const calendarSync = require('../utils/calendarSync');
+  const calSyncResults = await Promise.allSettled(
+    hbClasses.map(cls => calendarSync.syncClassInstance(parseInt(cls.id)))
+  );
+  const calSyncSummary = calendarSync.summarizeSyncResults(calSyncResults);
+  if (!calSyncSummary.allOk) {
+    console.error('[classes] HB calendar sync partial failure:', calSyncSummary.failures);
+  }
+
   res.json({
     success: true,
     enrollmentId: enrollment.id,
@@ -1043,7 +1082,8 @@ app.post('/api/classes/book-hb-schedule', authenticateToken, asyncHandler(async 
       classInstanceId: b.class_instance_id
     })),
     creditsRemaining: enrollment.class_credits_remaining || 0,
-    message: `Successfully booked ${courseWeeks}-week handbuilding schedule!`
+    message: `Successfully booked ${courseWeeks}-week handbuilding schedule!`,
+    calendarSync: calSyncSummary
   });
 
 }));
@@ -1096,6 +1136,14 @@ app.post('/api/classes/cancel', authenticateToken, asyncHandler(async (req, res)
   });
 
   await supabaseDb.updateClassEnrollment(booking.class_instance_id, -1);
+
+  // Refresh the class's Google Calendar event so the roster reflects this
+  // cancellation. Await it, but keep the cancellation even if Calendar fails.
+  const calendarSync = require('../utils/calendarSync');
+  const calSync = await calendarSync.syncClassInstance(parseInt(booking.class_instance_id));
+  if (calSync && calSync.status === 'failed') {
+    console.error('[classes] calendar sync failed after cancellation:', calSync.error);
+  }
 
   // Restore credit when booking is cancelled (HB or 10-class package)
   if (booking.course_enrollment_id) {
@@ -1152,7 +1200,8 @@ app.post('/api/classes/cancel', authenticateToken, asyncHandler(async (req, res)
 
   res.json({
     success: true,
-    message: 'Booking cancelled successfully'
+    message: 'Booking cancelled successfully',
+    calendarSync: calSync ? calSync.status : 'skipped'
   });
 }));
 
@@ -1612,7 +1661,7 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
     }
 
     if (!isSameCohort) {
-      rescheduleFee = 40; // $40 reschedule fee only for rescheduling outside your cohort
+      rescheduleFee = FEES.RESCHEDULE_OUT_OF_COHORT; // fee only for rescheduling outside your cohort
 
       // Create reschedule fee record
       const { data: newFee, error: feeError } = await supabaseDb.supabase
@@ -1928,7 +1977,7 @@ app.post('/api/classes/pause/calculate', authenticateToken, asyncHandler(async (
   const remainingCount = Number.isFinite(enrollment.weeks_remaining)
     ? enrollment.weeks_remaining
     : Math.max(0, (enrollment.number_of_weeks || 0) - (enrollment.weeks_completed || 0));
-  const pauseFeePerClass = 40;
+  const pauseFeePerClass = FEES.PAUSE_PER_CLASS;
   const totalPauseFee = remainingCount * pauseFeePerClass;
 
   res.json({
@@ -2005,7 +2054,7 @@ app.post('/api/classes/pause', authenticateToken, asyncHandler(async (req, res) 
   const remainingCount = Number.isFinite(enrollment.weeks_remaining)
     ? enrollment.weeks_remaining
     : Math.max(0, (enrollment.number_of_weeks || 0) - (enrollment.weeks_completed || 0));
-  const pauseFeePerClass = 40;
+  const pauseFeePerClass = FEES.PAUSE_PER_CLASS;
   const totalPauseFee = remainingCount * pauseFeePerClass;
 
   // Update customer pause status
@@ -2175,7 +2224,7 @@ app.post('/api/classes/bookings/:bookingId/mark-attendance', authenticateToken, 
           student_id: booking.student.id,
           booking_id: booking.id,
           fee_type: 'no_show',
-          amount: 20,
+          amount: FEES.NO_SHOW,
           payment_status: 'pending',
           notes: `No-show fee for rescheduled class ${booking.class_instance?.class_type || ''} on ${booking.class_instance?.class_date || ''}`
         })
@@ -2627,6 +2676,14 @@ app.post('/api/classes/waitlist/claim', authenticateToken, asyncHandler(async (r
 
   await supabaseDb.updateClassEnrollment(waitlistEntry.class_instance_id, 1);
 
+  // Refresh the class's Google Calendar event so the roster reflects this claimed
+  // spot. Await it, but keep the claim even if Calendar is unavailable.
+  const calendarSync = require('../utils/calendarSync');
+  const calSync = await calendarSync.syncClassInstance(parseInt(waitlistEntry.class_instance_id));
+  if (calSync && calSync.status === 'failed') {
+    console.error('[classes] calendar sync failed after waitlist claim:', calSync.error);
+  }
+
   res.json({
     success: true,
     booking: {
@@ -2634,7 +2691,8 @@ app.post('/api/classes/waitlist/claim', authenticateToken, asyncHandler(async (r
       classInstanceId: booking.class_instance_id,
       status: booking.status
     },
-    message: 'Successfully claimed your spot!'
+    message: 'Successfully claimed your spot!',
+    calendarSync: calSync ? calSync.status : 'skipped'
   });
 }));
 

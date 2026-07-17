@@ -11,38 +11,56 @@ const MUTED    = '#888888';
 const RULE     = 'rgba(40,40,40,0.09)';
 const ALT      = '#F5F3F0';
 const GREEN    = '#1E6B1E';
+const RED      = '#B42318';
+const AMBER    = '#B54708';
 
-// ─── Category colours ─────────────────────────────────────────────────────────
+// ─── Obligation categories ────────────────────────────────────────────────────
 const CAT_COLORS = {
-  piece_collection: '#8B5E3C',
-  makeup_class:     '#2E7D32',
-  firing_enquiry:   '#D84315',
-  next_cohort:      '#1565C0',
-  membership:       '#6A1B9A',
-  studio_access:    '#00695C',
-  general:          MUTED,
+  urgent_customer_reply:       RED,
+  makeup_or_reschedule:        '#2E7D32',
+  piece_collection:            '#8B5E3C',
+  firing_or_piece_status:      '#D84315',
+  course_or_next_cohort:       '#1565C0',
+  membership_or_studio_access: '#6A1B9A',
+  payment_or_refund_sensitive: '#7A271A',
+  retention_risk:              AMBER,
+  general:                     MUTED,
 };
 
 const CAT_LABELS = {
-  piece_collection: 'Pieces',
-  makeup_class:     'Makeup',
-  firing_enquiry:   'Firing',
-  next_cohort:      'Next Cohort',
-  membership:       'Membership',
-  studio_access:    'Studio',
-  general:          'General',
+  urgent_customer_reply:       'Urgent Reply',
+  makeup_or_reschedule:        'Makeup / Reschedule',
+  piece_collection:            'Pieces',
+  firing_or_piece_status:      'Firing / Piece Status',
+  course_or_next_cohort:       'Course / Cohort',
+  membership_or_studio_access: 'Membership / Access',
+  payment_or_refund_sensitive: 'Payment / Refund',
+  retention_risk:              'Retention Risk',
+  general:                     'General',
 };
 
 const TABS = [
-  { key: 'all',              label: 'All' },
-  { key: 'piece_collection', label: 'Pieces' },
-  { key: 'makeup_class',     label: 'Makeup' },
-  { key: 'firing_enquiry',   label: 'Firing' },
-  { key: 'next_cohort',      label: 'Next Cohort' },
-  { key: 'membership',       label: 'Membership' },
-  { key: 'studio_access',    label: 'Studio' },
-  { key: 'general',          label: 'General' },
+  { key: 'all',                         label: 'All' },
+  { key: 'urgent_customer_reply',       label: 'Urgent' },
+  { key: 'makeup_or_reschedule',        label: 'Makeup' },
+  { key: 'piece_collection',            label: 'Pieces' },
+  { key: 'firing_or_piece_status',      label: 'Firing' },
+  { key: 'course_or_next_cohort',       label: 'Courses' },
+  { key: 'membership_or_studio_access', label: 'Membership' },
+  { key: 'payment_or_refund_sensitive', label: 'Payments' },
+  { key: 'retention_risk',              label: 'Retention' },
+  { key: 'general',                     label: 'General' },
 ];
+
+const PRIORITY_COLORS = { urgent: RED, high: AMBER, normal: MUTED, low: '#667085' };
+
+function formatLabel(value) {
+  return (value || '').replace(/_/g, ' ');
+}
+
+function riskFlags(msg) {
+  return Array.isArray(msg.risk_flags) ? msg.risk_flags : [];
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function timeAgo(dateStr) {
@@ -136,7 +154,15 @@ function MessageRow({ msg, isExpanded, onToggle, onSend, onDismiss, onSaveDraft 
           )}
         </div>
 
-        {/* Status pill */}
+        {/* Status / priority pills */}
+        {msg.needs_human_review && !isSent && !isDismissed && (
+          <span style={{ fontSize: '10px', fontWeight: 700, color: RED, letterSpacing: '0.05em', textTransform: 'uppercase', flexShrink: 0 }}>Review</span>
+        )}
+        {msg.priority && (
+          <span style={{ fontSize: '10px', fontWeight: 700, color: PRIORITY_COLORS[msg.priority] || MUTED, letterSpacing: '0.05em', textTransform: 'uppercase', flexShrink: 0 }}>
+            {msg.priority}
+          </span>
+        )}
         {isSent && (
           <span style={{ fontSize: '10px', fontWeight: 700, color: GREEN, letterSpacing: '0.05em', textTransform: 'uppercase', flexShrink: 0 }}>Sent</span>
         )}
@@ -159,6 +185,30 @@ function MessageRow({ msg, isExpanded, onToggle, onSend, onDismiss, onSaveDraft 
       {/* ── Expanded detail ── */}
       {isExpanded && (
         <div style={{ padding: '16px 20px 20px', backgroundColor: '#FDFBF9', borderTop: `1px solid ${RULE}` }}>
+
+          {/* Obligation state */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px', marginBottom: '16px' }}>
+            <div style={{ padding: '10px 12px', backgroundColor: '#FFF', border: `1px solid ${RULE}` }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: '4px' }}>Next Action</div>
+              <div style={{ fontSize: '13px', color: INK, lineHeight: 1.45 }}>{msg.next_action || 'Review and decide the next action.'}</div>
+            </div>
+            <div style={{ padding: '10px 12px', backgroundColor: '#FFF', border: `1px solid ${RULE}` }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: '4px' }}>Owner / Status</div>
+              <div style={{ fontSize: '13px', color: INK }}>{msg.owner || 'studio'} · {formatLabel(msg.status)}</div>
+            </div>
+            {riskFlags(msg).length > 0 && (
+              <div style={{ padding: '10px 12px', backgroundColor: '#FFF7ED', border: `1px solid ${AMBER}33` }}>
+                <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: AMBER, marginBottom: '4px' }}>Risk Flags</div>
+                <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                  {riskFlags(msg).map(flag => (
+                    <span key={flag} style={{ fontSize: '10px', fontWeight: 700, color: AMBER, backgroundColor: '#FFF', border: `1px solid ${AMBER}33`, padding: '2px 6px', textTransform: 'uppercase' }}>
+                      {formatLabel(flag)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* AI summary */}
           {msg.summary && (
@@ -200,14 +250,14 @@ function MessageRow({ msg, isExpanded, onToggle, onSend, onDismiss, onSaveDraft 
           </div>
 
           {/* Email body */}
-          {msg.body_snippet && (
+          {(msg.body_full || msg.body_snippet) && (
             <div style={{ marginBottom: '16px' }}>
-              <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: '6px' }}>Email</div>
+              <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: '6px' }}>Email Context</div>
               <div style={{
                 padding: '12px 14px', border: `1px solid ${RULE}`, backgroundColor: '#FFF',
-                fontSize: '13px', color: INK, lineHeight: '1.6', whiteSpace: 'pre-wrap',
+                fontSize: '13px', color: INK, lineHeight: '1.6', whiteSpace: 'pre-wrap', maxHeight: '260px', overflowY: 'auto',
               }}>
-                {msg.body_snippet}
+                {msg.body_full || msg.body_snippet}
               </div>
             </div>
           )}
@@ -414,7 +464,7 @@ export default function AdminInbox() {
   // ── Send reply ───────────────────────────────────────────────────────────────
   const handleSend = async (id, draftText) => {
     // Save latest draft text first, then confirm
-    if (!window.confirm('Send this reply now?')) return;
+    if (!window.confirm('Send this human-approved reply now? AI drafts are never auto-sent.')) return;
     try {
       // Save draft before sending in case it was edited inline
       await api.put(`/admin/inbox/${id}`, { draft_reply: draftText });
@@ -441,7 +491,7 @@ export default function AdminInbox() {
   const tabCount = (key) => {
     if (!stats) return null;
     if (key === 'all') return stats.total || null;
-    return stats[key] ?? null;
+    return stats.categories?.[key] ?? null;
   };
 
   // ─────────────────────────────────────────────────────────────────────────────

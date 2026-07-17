@@ -24,6 +24,9 @@ export default function AdminDashboard() {
   const [activity, setActivity] = useState([]);
   const [engagement, setEngagement] = useState(null);
   const [reschedules, setReschedules] = useState([]);
+  const [anomalies, setAnomalies] = useState(null); // null = loading, [] = clear (success, no findings)
+  const [anomaliesError, setAnomaliesError] = useState(false); // true = probe failed to run
+  const [anomaliesExpanded, setAnomaliesExpanded] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   useEffect(() => {
@@ -47,12 +50,25 @@ export default function AdminDashboard() {
       setReschedules(data.reschedules || []);
     }).catch(() => {});
 
+    // Account anomalies — daily invariant probe (over-allocated enrollments, stale unassigned packages)
+    loadAnomalies();
+
     // Phase 2: full stats + activity
     loadStats();
     const onResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+
+  const loadAnomalies = () => {
+    setAnomaliesError(false);
+    setAnomalies(null); // loading
+    api.get('/admin/anomalies').then(({ data }) => {
+      setAnomalies(data.findings || []); // [] only on a successful probe with no findings
+    }).catch(() => {
+      setAnomaliesError(true); // a failed probe must not read as "All clear"
+    });
+  };
 
   const loadStats = async () => {
     try {
@@ -142,6 +158,101 @@ export default function AdminDashboard() {
           <div style={isMobile ? { display: 'flex', gap: '24px', alignItems: 'flex-start' } : { display: 'flex', flexDirection: 'column', gap: '24px' }}>
             {/* Left sub-column */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', flex: 1, minWidth: 0 }}>
+
+            {/* Account Anomalies — daily invariant probe (silent when clear) */}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED }}>
+                  Account Anomalies
+                </div>
+                {anomalies && anomalies.length > 0 && (
+                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#9E1B1B', backgroundColor: '#FBE9E7', padding: '2px 8px', borderRadius: '10px' }}>
+                    {anomalies.length}
+                  </span>
+                )}
+              </div>
+              <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFFFFF' }}>
+                {anomaliesError ? (
+                  <div style={{ padding: '14px', fontSize: '12px', color: MUTED, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: '14px', color: '#9E4A1E' }}>error</span>
+                      Unable to check
+                    </span>
+                    <button
+                      type="button"
+                      onClick={loadAnomalies}
+                      style={{ fontSize: '11px', fontWeight: 700, color: TC, backgroundColor: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : anomalies === null ? (
+                  <div style={{ padding: '14px', fontSize: '12px', color: MUTED }}>Checking…</div>
+                ) : anomalies.length === 0 ? (
+                  <div style={{ padding: '14px', fontSize: '12px', color: MUTED, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: '14px', color: '#059669' }}>check_circle</span>
+                    All clear
+                  </div>
+                ) : (
+                  <>
+                    {(anomaliesExpanded ? anomalies : anomalies.slice(0, 3)).map((a, i, arr) => {
+                      const sevColor = a.severity === 'high' ? '#9E1B1B' : a.severity === 'medium' ? '#9E4A1E' : MUTED;
+                      const label = a.type === 'over_allocated' ? 'Over-allocated'
+                        : a.type === 'stale_unassigned_10class' ? 'Stale 10-class'
+                        : a.type;
+                      return (
+                        <div
+                          key={a.enrollment_id || i}
+                          style={{
+                            padding: '11px 14px',
+                            borderBottom: i < arr.length - 1 ? `1px solid ${RULE}` : 'none',
+                          }}
+                        >
+                          <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: sevColor, marginBottom: '3px' }}>
+                            {a.severity} · {label}
+                          </div>
+                          {a.student_email ? (
+                            <a
+                              href={`/admin/students/${encodeURIComponent(a.student_email)}`}
+                              style={{ fontSize: '12px', fontWeight: 600, color: INK, textDecoration: 'none' }}
+                            >
+                              {a.student_name}
+                            </a>
+                          ) : (
+                            <span style={{ fontSize: '12px', fontWeight: 600, color: INK }}>
+                              {a.student_name}
+                            </span>
+                          )}
+                          <div style={{ fontSize: '11px', color: MUTED, marginTop: '2px', lineHeight: 1.4 }}>
+                            {a.details}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {anomalies.length > 3 && (
+                      <button
+                        type="button"
+                        onClick={() => setAnomaliesExpanded(v => !v)}
+                        style={{
+                          width: '100%',
+                          padding: '10px 14px',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          color: TC,
+                          backgroundColor: 'transparent',
+                          border: 'none',
+                          borderTop: `1px solid ${RULE}`,
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                        }}
+                      >
+                        {anomaliesExpanded ? 'Show fewer' : `Show ${anomalies.length - 3} more`}
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
 
             {/* Alerts */}
             <div>

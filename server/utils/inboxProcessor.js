@@ -1,37 +1,96 @@
-/**
- * Inbox Processor
+/*
+ * VES Inbox Processor / Obligation v1
  *
- * Classifies incoming emails and generates draft replies using OpenAI.
- * Processes unread Gmail messages, matches senders to students, and
- * inserts results into the inbox_messages table.
+ * Gmail is an input channel. The durable object is a VES customer obligation:
+ * a reply/decision/resolution the studio owns. AI may classify, summarize, and
+ * draft. It must never send externally; send remains an explicit admin action.
  */
 
 const { supabase } = require('./supabaseDb');
 const { fetchUnreadEmails, isConnected } = require('./gmailClient');
 
 const CATEGORY_LINKS = {
+  urgent_customer_reply: '/admin/inbox',
+  makeup_or_reschedule: '/classes',
   piece_collection: '/dashboard',
-  firing_enquiry: '/dashboard',
-  makeup_class: '/classes',
-  next_cohort: '/classes',
-  membership: '/membership',
-  studio_access: '/studio-access',
+  firing_or_piece_status: '/dashboard',
+  course_or_next_cohort: '/classes',
+  membership_or_studio_access: '/membership',
+  payment_or_refund_sensitive: '/admin/inbox',
+  retention_risk: '/admin/students',
   general: '/dashboard',
 };
 
 const VALID_CATEGORIES = Object.keys(CATEGORY_LINKS);
+const VALID_PRIORITIES = ['low', 'normal', 'high', 'urgent'];
+const VALID_RISK_FLAGS = [
+  'low_confidence',
+  'no_matching_student',
+  'policy_sensitive',
+  'refund_or_payment',
+  'angry_or_disappointed',
+  'scheduling_conflict',
+  'inventory_or_piece_uncertain',
+  'needs_human_review',
+];
 
-/**
- * Looks up a customer by email and fetches their relevant studio context.
- * Returns null if no customer is found.
- */
-async function getStudentContext(email) {
-  // Find customer by email
-  const { data: customer, error: customerError } = await supabase
+function asArray(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') return value.split(',').map(v => v.trim()).filter(Boolean);
+  return [];
+}
+
+function normalizeRiskFlags(flags) {
+  return [...new Set(asArray(flags).filter(flag => VALID_RISK_FLAGS.includes(flag)))];
+}
+
+function inferFallbackTriage(email, studentContext) {
+  const text = `${email.subject || ''}\n${email.body || email.body_snippet || ''}`.toLowerCase();
+  const flags = [];
+  let category = 'general';
+  let priority = 'normal';
+
+  if (/refund|payment|charge|invoice|paid|money/.test(text)) {
+    category = 'payment_or_refund_sensitive';
+    priority = 'high';
+    flags.push('refund_or_payment', 'policy_sensitive', 'needs_human_review');
+  } else if (/angry|upset|disappointed|complain|unhappy|frustrat/.test(text)) {
+    category = 'urgent_customer_reply';
+    priority = 'urgent';
+    flags.push('angry_or_disappointed', 'needs_human_review');
+  } else if (/make.?up|resched|missed class|cannot attend|can't attend/.test(text)) {
+    category = 'makeup_or_reschedule';
+    priority = 'high';
+    flags.push('scheduling_conflict');
+  } else if (/collect|pickup|pick up|piece|ready/.test(text)) {
+    category = 'piece_collection';
+    flags.push('inventory_or_piece_uncertain');
+  } else if (/fire|firing|kiln|glaze|bisque/.test(text)) {
+    category = 'firing_or_piece_status';
+    flags.push('inventory_or_piece_uncertain');
+  } else if (/course|cohort|class|start|enrol|enroll/.test(text)) {
+    category = 'course_or_next_cohort';
+  } else if (/member|membership|studio access|open studio/.test(text)) {
+    category = 'membership_or_studio_access';
+  }
+
+  if (!studentContext) flags.push('no_matching_student');
+
+  return {
+    category,
+    priority,
+    riskFlags: normalizeRiskFlags(flags),
+    needsHumanReview: flags.includes('needs_human_review') || !studentContext,
+  };
+}
+
+async function getStudentContext(email, client = supabase) {
+  const { data: customer, error: customerError } = await client
     .from('customers')
-    .select('id, first_name, last_name, email, customer_type')
+    .select('id, first_name, last_name, email, customer_type, classes_used, membership_tier, historical_completed')
     .eq('email', email)
-    .single();
+    .maybeSingle();
 
   if (customerError && customerError.code !== 'PGRST116') {
     console.error('[InboxProcessor] Error looking up customer:', customerError.message);
@@ -39,52 +98,59 @@ async function getStudentContext(email) {
 
   if (!customer) return null;
 
-  // Fetch active enrollments
-  const { data: enrollments } = await supabase
+  // Every sub-query error is surfaced rather than silently degraded — inaccurate
+  // context (e.g. "0 upcoming bookings" from a failed query) would mislead the
+  // drafting model into a wrong customer reply.
+  const { data: enrollments, error: enrollmentsError } = await client
     .from('course_enrollments')
-    .select('course_type, course_title, course_identifier, status, class_credits_remaining, number_of_weeks')
+    .select('course_type, course_title, course_identifier, status, class_credits_remaining, number_of_weeks, course_start_date, course_end_date')
     .eq('student_id', customer.id)
-    .in('status', ['active', 'pending']);
+    .in('status', ['active', 'pending', 'paused']);
+  if (enrollmentsError) throw enrollmentsError;
 
-  // Count upcoming bookings (future class instances)
-  const now = new Date().toISOString();
-  const { count: upcomingBookingsCount } = await supabase
+  // Upcoming bookings: the class date lives on the related class_instances row,
+  // not on bookings. Join through the FK and count rows dated today or later.
+  const todayStr = new Date().toISOString().split('T')[0];
+  const { data: bookingRows, error: bookingsError } = await client
     .from('bookings')
-    .select('id', { count: 'exact', head: true })
+    .select('id, class_instances!bookings_class_instance_id_fkey(class_date)')
     .eq('student_id', customer.id)
-    .eq('status', 'booked')
-    .gt('class_date', now);
+    .eq('status', 'booked');
+  if (bookingsError) throw bookingsError;
+  const upcomingBookingsCount = (bookingRows || []).filter((b) => {
+    const cd = b.class_instances && b.class_instances.class_date;
+    const dateStr = cd ? String(cd).split(/[T ]/)[0] : '';
+    return dateStr && dateStr >= todayStr;
+  }).length;
 
-  // Fetch pottery pieces that are in progress
-  const { data: pieces } = await supabase
+  // Pottery pieces are keyed by customer_id (not student_id).
+  const { data: pieces, error: piecesError } = await client
     .from('pottery_pieces')
     .select('title, status, stage')
-    .eq('student_id', customer.id)
+    .eq('customer_id', customer.id)
     .in('stage', ['in_progress', 'firing', 'ready', 'glazing']);
+  if (piecesError) throw piecesError;
 
-  // Fetch active membership
-  const { data: membership } = await supabase
+  const { data: membership, error: membershipError } = await client
     .from('memberships')
     .select('status, start_date, end_date')
     .eq('customer_id', customer.id)
     .eq('status', 'active')
-    .single();
+    .maybeSingle();
+  if (membershipError && membershipError.code !== 'PGRST116') throw membershipError;
 
   return {
     customer,
     enrollments: enrollments || [],
-    upcomingBookingsCount: upcomingBookingsCount || 0,
+    upcomingBookingsCount,
     pieces: pieces || [],
     activeMembership: membership || null,
   };
 }
 
-/**
- * Classifies an email and generates a draft reply using OpenAI gpt-4o.
- * Returns { category, confidence, summary, draftReply }.
- */
 async function classifyAndDraft(email, studentContext) {
   const OpenAI = require('openai');
+  const fallback = inferFallbackTriage(email, studentContext);
   const openai = new OpenAI({
     apiKey: process.env.GEMINI_API_KEY,
     baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
@@ -92,13 +158,8 @@ async function classifyAndDraft(email, studentContext) {
 
   const studentInfo = studentContext
     ? buildStudentInfoBlock(studentContext)
-    : 'This sender is not a registered student in the system.';
+    : 'No matching VES customer/student record was found for this sender email. Do not pretend we know their class, piece, credits, or membership.';
 
-  const categoryLink = studentContext
-    ? null // determined after classification
-    : CATEGORY_LINKS.general;
-
-  // Load custom prompt instructions from admin_settings
   let customInstructions = '';
   try {
     const { data: setting } = await supabase
@@ -109,123 +170,157 @@ async function classifyAndDraft(email, studentContext) {
     if (setting?.setting_value) customInstructions = `\n\nAdditional instructions from the studio owner:\n${setting.setting_value}`;
   } catch (e) { /* ignore */ }
 
-  const systemPrompt = `You are Eve, an assistant at Ves Studio, a pottery studio in Singapore. Your job is to:
-1. Classify incoming emails into one of these categories: ${VALID_CATEGORIES.join(', ')}
-2. Write a warm, helpful draft reply on behalf of the studio
+  const systemPrompt = `You are Eve, VES Studio's customer obligation triage assistant. Classify an inbound VES customer/studio email and draft a reply for a human admin to review.
 
-Category definitions:
-- piece_collection: Student asking about collecting finished pottery pieces
-- makeup_class: Student asking to reschedule or make up a missed class
-- firing_enquiry: Questions about bisque or glaze firing, kiln schedules
-- next_cohort: Enquiries about upcoming courses, starting a new cohort
-- membership: Questions about studio membership plans or access
-- studio_access: Questions about open studio hours or independent studio access
-- general: Any other enquiry not fitting the above
+Valid categories: ${VALID_CATEGORIES.join(', ')}
+Valid priority values: ${VALID_PRIORITIES.join(', ')}
+Valid risk flags: ${VALID_RISK_FLAGS.join(', ')}
 
-Student context:
+Category guide:
+- urgent_customer_reply: time-sensitive or emotionally sensitive customer-facing message
+- makeup_or_reschedule: makeup class, reschedule, missed class, attendance friction
+- piece_collection: collecting finished pottery pieces
+- firing_or_piece_status: bisque/glaze firing, kiln, piece status
+- course_or_next_cohort: course dates, class availability, enrolment, next cohort
+- membership_or_studio_access: Clay Club, membership, studio access/open studio
+- payment_or_refund_sensitive: payments, refunds, fees, invoices, credits with financial sensitivity
+- retention_risk: student is drifting, upset, confused, or may churn
+- general: anything else
+
+Student/customer context available to use:
 ${studentInfo}
 
-Guidelines for the draft reply:
-- Address the student by first name if known, otherwise use a friendly greeting
-- Acknowledge their specific question briefly
-- Provide relevant information from their student context where applicable
-- Direct them to club.ves.sg for self-service actions (the link will be appended based on category)
-- Keep the reply concise (3-5 sentences)
-- Sign off as: Eve, Ves Studio
-- Do NOT include a subject line
-- Do NOT include placeholder text like [link] — the system will append the correct link
-${customInstructions}
+Guardrails:
+- Never invent policies, refund decisions, pickup dates, firing dates, availability, or exceptions.
+- If uncertain, draft a clarifying question and set needsHumanReview true.
+- Mention student context only when it is explicitly present above.
+- Payment/refund, angry/disappointed tone, unclear piece status, or low confidence must set needsHumanReview true.
+- Keep the draft warm and concise. No subject line. Sign off as: Eve, Ves Studio.
+- Sending is forbidden for AI; this draft is only for admin review.${customInstructions}
 
-Respond ONLY with valid JSON in this exact format:
+Respond ONLY with valid JSON:
 {
-  "category": "<one of the valid categories>",
-  "confidence": <float between 0 and 1>,
-  "summary": "<one sentence summary of what the email is about>",
-  "draftReply": "<the full draft reply text>"
+  "category": "<valid category>",
+  "priority": "low|normal|high|urgent",
+  "confidence": <float 0-1>,
+  "summary": "<one sentence>",
+  "draftReply": "<full draft reply>",
+  "riskFlags": ["<valid risk flag>"],
+  "needsHumanReview": <boolean>,
+  "nextAction": "<atomic next action for staff>"
 }`;
 
-  const userPrompt = `From: ${email.from_name || email.from_email}
-Subject: ${email.subject || '(no subject)'}
-Message:
-${email.body_snippet || '(no body)'}`;
+  const userPrompt = `From: ${email.from_name || email.from_email}\nSubject: ${email.subject || '(no subject)'}\nMessage:\n${email.body || email.body_snippet || '(no body)'}`;
 
-  const response = await openai.chat.completions.create({
-    model: 'gemini-2.5-flash',
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
-    temperature: 0.3,
-    response_format: { type: 'json_object' },
-  });
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gemini-2.5-flash',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.2,
+      response_format: { type: 'json_object' },
+    });
 
-  const raw = response.choices[0].message.content.trim();
-  const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(response.choices[0].message.content.trim());
+    const category = VALID_CATEGORIES.includes(parsed.category) ? parsed.category : fallback.category;
+    const priority = VALID_PRIORITIES.includes(parsed.priority) ? parsed.priority : fallback.priority;
+    let riskFlags = normalizeRiskFlags([...(parsed.riskFlags || []), ...fallback.riskFlags]);
+    const confidence = typeof parsed.confidence === 'number' ? Math.max(0, Math.min(1, parsed.confidence)) : 0.5;
+    if (confidence < 0.72) riskFlags.push('low_confidence');
+    riskFlags = normalizeRiskFlags(riskFlags);
 
-  // Normalise category
-  const category = VALID_CATEGORIES.includes(parsed.category) ? parsed.category : 'general';
-  const link = `https://club.ves.sg${CATEGORY_LINKS[category]}`;
+    const link = `https://club.ves.sg${CATEGORY_LINKS[category]}`;
+    let draftReply = parsed.draftReply || '';
+    if (draftReply && !draftReply.includes('club.ves.sg') && !['payment_or_refund_sensitive', 'urgent_customer_reply'].includes(category)) {
+      draftReply = `${draftReply}\n\nYou can also manage this at: ${link}`;
+    }
 
-  // Append self-service link to draft reply if not already present
-  let draftReply = parsed.draftReply || '';
-  if (draftReply && !draftReply.includes('club.ves.sg')) {
-    draftReply = `${draftReply}\n\nYou can also manage this at: ${link}`;
+    return {
+      category,
+      priority,
+      confidence,
+      summary: parsed.summary || '',
+      draftReply,
+      riskFlags,
+      needsHumanReview: Boolean(parsed.needsHumanReview) || riskFlags.includes('needs_human_review') || riskFlags.includes('low_confidence'),
+      nextAction: parsed.nextAction || defaultNextAction(category, riskFlags),
+    };
+  } catch (err) {
+    console.error('[InboxProcessor] AI classification failed; using fallback triage:', err.message);
+    const riskFlags = normalizeRiskFlags([...fallback.riskFlags, 'low_confidence', 'needs_human_review']);
+    return {
+      category: fallback.category,
+      priority: fallback.priority,
+      confidence: 0.35,
+      summary: `${email.from_email} needs a manual reply about: ${email.subject || 'their message'}`,
+      draftReply: buildFallbackDraft(email, studentContext),
+      riskFlags,
+      needsHumanReview: true,
+      nextAction: defaultNextAction(fallback.category, riskFlags),
+    };
   }
-
-  return {
-    category,
-    confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
-    summary: parsed.summary || '',
-    draftReply,
-  };
 }
 
-/**
- * Builds a human-readable student info block for the OpenAI prompt.
- */
+function defaultNextAction(category, riskFlags) {
+  if (riskFlags.includes('refund_or_payment')) return 'Review payment/refund context, edit draft, then send manually if accurate.';
+  if (riskFlags.includes('inventory_or_piece_uncertain')) return 'Verify piece/firing status before sending the draft.';
+  if (riskFlags.includes('scheduling_conflict')) return 'Check class availability/reschedule policy before sending.';
+  if (category === 'urgent_customer_reply') return 'Review immediately and send a human-approved reply.';
+  return 'Review the suggested reply, edit if needed, then click Send Reply.';
+}
+
+function buildFallbackDraft(email, studentContext) {
+  const name = studentContext?.customer?.first_name;
+  return `Hi${name ? ` ${name}` : ''},\n\nThanks for writing in. I want to make sure we give you the correct answer, so the studio team will check this and get back to you shortly.\n\nEve, Ves Studio`;
+}
+
 function buildStudentInfoBlock(ctx) {
   const { customer, enrollments, upcomingBookingsCount, pieces, activeMembership } = ctx;
   const lines = [];
-
-  lines.push(`Name: ${customer.first_name} ${customer.last_name}`);
+  lines.push(`Name: ${customer.first_name || ''} ${customer.last_name || ''}`.trim());
   lines.push(`Email: ${customer.email}`);
   lines.push(`Customer type: ${customer.customer_type || 'student'}`);
+  if (customer.classes_used != null) lines.push(`Classes used: ${customer.classes_used}`);
+  if (customer.historical_completed != null) lines.push(`Historical completed courses: ${customer.historical_completed}`);
+  if (customer.membership_tier) lines.push(`Membership tier: ${customer.membership_tier}`);
 
   if (enrollments.length > 0) {
-    lines.push(`Active enrollments (${enrollments.length}):`);
+    lines.push(`Active/pending/paused enrollments (${enrollments.length}):`);
     for (const e of enrollments) {
       const credits = e.class_credits_remaining != null ? `, credits remaining: ${e.class_credits_remaining}` : '';
-      lines.push(`  - ${e.course_title || e.course_type} (${e.status}${credits})`);
+      const dates = [e.course_start_date, e.course_end_date].filter(Boolean).join(' to ');
+      lines.push(`  - ${e.course_title || e.course_type} (${e.status}${credits}${dates ? `, ${dates}` : ''})`);
     }
   } else {
-    lines.push('No active enrollments.');
+    lines.push('No active/pending/paused enrollments found.');
   }
 
   lines.push(`Upcoming booked classes: ${upcomingBookingsCount}`);
 
   if (pieces.length > 0) {
     lines.push(`Pottery pieces in studio (${pieces.length}):`);
-    for (const p of pieces) {
-      lines.push(`  - "${p.title || 'Untitled'}" — stage: ${p.stage}, status: ${p.status}`);
-    }
+    for (const p of pieces) lines.push(`  - "${p.title || 'Untitled'}" — stage: ${p.stage}, status: ${p.status}`);
   } else {
-    lines.push('No pottery pieces currently in studio.');
+    lines.push('No pottery pieces currently found in studio records.');
   }
 
-  if (activeMembership) {
-    lines.push(`Active membership: yes (expires ${activeMembership.end_date || 'ongoing'})`);
-  } else {
-    lines.push('No active membership.');
-  }
-
+  lines.push(activeMembership ? `Active membership: yes (expires ${activeMembership.end_date || 'ongoing'})` : 'No active membership found.');
   return lines.join('\n');
 }
 
-/**
- * Main processing function. Fetches unread emails from Gmail (last 7 days),
- * skips already-processed messages, classifies each one, and inserts into
- * inbox_messages. Returns the count of newly processed emails.
- */
+function compactStudentContext(ctx) {
+  if (!ctx) return null;
+  return {
+    customer: ctx.customer,
+    enrollments: ctx.enrollments,
+    upcomingBookingsCount: ctx.upcomingBookingsCount,
+    pieces: ctx.pieces,
+    activeMembership: ctx.activeMembership,
+  };
+}
+
 async function processNewEmails() {
   if (!(await isConnected())) {
     console.log('[InboxProcessor] Gmail not connected — skipping inbox processing.');
@@ -248,56 +343,64 @@ async function processNewEmails() {
   let processedCount = 0;
 
   for (const email of emails) {
-    // Normalize field names (gmailClient returns camelCase)
     const msgId = email.gmailMessageId || email.gmail_message_id;
     const threadId = email.gmailThreadId || email.gmail_thread_id || null;
     const fromEmail = email.fromEmail || email.from_email;
     const fromName = email.fromName || email.from_name || null;
     const subject = email.subject || null;
-    const bodySnippet = (email.body || email.body_snippet || '').substring(0, 500);
+    const bodyFull = (email.body || email.body_full || '').substring(0, 12000);
+    const bodySnippet = (email.snippet || bodyFull || '').substring(0, 500);
     const receivedAt = email.receivedAt || email.received_at || new Date().toISOString();
 
     try {
-      // Skip if already in inbox_messages
       const { data: existing } = await supabase
         .from('inbox_messages')
         .select('id')
         .eq('gmail_message_id', msgId)
-        .single();
-
+        .maybeSingle();
       if (existing) continue;
 
-      // Match sender to student
       const studentContext = await getStudentContext(fromEmail);
-
-      // Classify and generate draft reply (add delay to respect rate limits)
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      const { category, confidence, summary, draftReply } = await classifyAndDraft(
-        { from_name: fromName, from_email: fromEmail, subject, body_snippet: bodySnippet },
+      await new Promise(resolve => setTimeout(resolve, 1200));
+      const triage = await classifyAndDraft(
+        { from_name: fromName, from_email: fromEmail, subject, body: bodyFull, body_snippet: bodySnippet },
         studentContext
       );
 
-      // Determine status
-      const status = draftReply ? 'draft_ready' : 'new';
+      const status = triage.draftReply ? 'draft_ready' : 'triaged';
+      const now = new Date().toISOString();
+      const actionHistory = [{ at: now, actor: 'ai', action: 'triaged_from_gmail', confidence: triage.confidence }];
 
-      // Insert into inbox_messages
       const { error: insertError } = await supabase
         .from('inbox_messages')
         .insert([{
           gmail_message_id: msgId,
           gmail_thread_id: threadId,
+          gmail_message_id_header: email.messageIdHeader || null,
           from_email: fromEmail,
           from_name: fromName,
           subject,
           body_snippet: bodySnippet,
+          body_full: bodyFull,
+          source_type: 'gmail',
+          source_url: threadId ? `https://mail.google.com/mail/u/0/#inbox/${threadId}` : null,
           received_at: receivedAt,
-          category,
-          confidence,
-          summary,
-          draft_reply: draftReply || null,
+          category: triage.category,
+          priority: triage.priority,
+          confidence: triage.confidence,
+          summary: triage.summary,
+          draft_reply: triage.draftReply || null,
           student_id: studentContext ? studentContext.customer.id : null,
+          customer_context: compactStudentContext(studentContext),
+          risk_flags: triage.riskFlags,
+          needs_human_review: triage.needsHumanReview,
+          owner: 'studio',
+          next_action: triage.nextAction,
           status,
-          created_at: new Date().toISOString(),
+          action_history: actionHistory,
+          gmail_label_state: { unread_at_ingest: true, handled_in_gmail: false },
+          created_at: now,
+          updated_at: now,
         }]);
 
       if (insertError) {
@@ -306,7 +409,7 @@ async function processNewEmails() {
       }
 
       processedCount++;
-      console.log(`[InboxProcessor] Processed: "${subject}" from ${fromEmail} → category: ${category} (${(confidence * 100).toFixed(0)}%)`);
+      console.log(`[InboxProcessor] Obligation: "${subject}" from ${fromEmail} → ${triage.category}/${triage.priority} (${(triage.confidence * 100).toFixed(0)}%)`);
     } catch (err) {
       console.error(`[InboxProcessor] Error processing email ${msgId}:`, err.message);
     }
@@ -320,4 +423,6 @@ module.exports = {
   getStudentContext,
   classifyAndDraft,
   processNewEmails,
+  VALID_CATEGORIES,
+  VALID_RISK_FLAGS,
 };

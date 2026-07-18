@@ -123,12 +123,14 @@ async function getStudentContext(email, client = supabase) {
     return dateStr && dateStr >= todayStr;
   }).length;
 
-  // Pottery pieces are keyed by customer_id (not student_id).
+  // Active firing-pipeline batches (not yet collected) live in piece_batches,
+  // keyed by customer_id. (pottery_pieces is the finished public gallery and has
+  // no status/stage columns — querying it here silently returned nothing before.)
   const { data: pieces, error: piecesError } = await client
-    .from('pottery_pieces')
-    .select('title, status, stage')
+    .from('piece_batches')
+    .select('status, piece_count, ready_at, collection_date')
     .eq('customer_id', customer.id)
-    .in('stage', ['in_progress', 'firing', 'ready', 'glazing']);
+    .neq('status', 'collected');
   if (piecesError) throw piecesError;
 
   const { data: membership, error: membershipError } = await client
@@ -300,10 +302,14 @@ function buildStudentInfoBlock(ctx) {
   lines.push(`Upcoming booked classes: ${upcomingBookingsCount}`);
 
   if (pieces.length > 0) {
-    lines.push(`Pottery pieces in studio (${pieces.length}):`);
-    for (const p of pieces) lines.push(`  - "${p.title || 'Untitled'}" — stage: ${p.stage}, status: ${p.status}`);
+    lines.push(`Piece batches in studio (${pieces.length}):`);
+    for (const p of pieces) {
+      const count = p.piece_count != null ? `${p.piece_count} piece(s)` : 'piece batch';
+      const ready = p.ready_at ? `, ready ${String(p.ready_at).split(/[T ]/)[0]}` : '';
+      lines.push(`  - ${count} — status: ${p.status}${ready}`);
+    }
   } else {
-    lines.push('No pottery pieces currently found in studio records.');
+    lines.push('No active piece batches in studio records.');
   }
 
   lines.push(activeMembership ? `Active membership: yes (expires ${activeMembership.end_date || 'ongoing'})` : 'No active membership found.');

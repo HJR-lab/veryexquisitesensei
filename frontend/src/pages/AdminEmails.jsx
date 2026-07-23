@@ -69,10 +69,11 @@ export default function AdminEmails() {
   const [draftLoading,   setDraftLoading]   = useState(false);
   const [sending,        setSending]        = useState(false);
 
-  // Voucher tab — admin-composed family HB gift voucher email
+  // Voucher tab — admin-composed gift voucher email (handbuilding / wheelthrowing / membership)
   const [voucher, setVoucher] = useState({
+    subject: 'handbuilding', months: 12,
     to: '', cc: '', recipientName: '', giverName: '',
-    giftLabel: 'Family Handbuilding Experience', giverMessage: '',
+    giftLabel: '', giverMessage: '',
   });
   const [voucherSending, setVoucherSending] = useState(false);
   const updateVoucher = (field, val) => setVoucher(prev => ({ ...prev, [field]: val }));
@@ -627,15 +628,50 @@ export default function AdminEmails() {
             {tab === 'voucher' && (
               <div style={{ maxWidth: '640px' }}>
                 <h2 style={{ fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, margin: '0 0 6px' }}>
-                  Gift Voucher — Family Handbuilding
+                  Gift Voucher
                 </h2>
                 <p style={{ fontSize: '13px', lineHeight: 1.6, color: MUTED, margin: '0 0 20px' }}>
-                  Compose the gift email for a family handbuilding voucher. The recipient sees the
-                  gift benefits and the giver's personal message. Add the recipient under <strong>To</strong>,
+                  Compose a gift email — the recipient sees the gift benefits and the giver's
+                  personal message. Pick the gift subject, add the recipient under <strong>To</strong>,
                   and optionally cc the giver or yourself.
+                  {voucher.subject === 'membership' && (
+                    <span style={{ display: 'block', marginTop: '6px', color: TC }}>
+                      For memberships, to also transfer an existing membership to the recipient, use
+                      the <strong>Gift</strong> button on the Memberships page.
+                    </span>
+                  )}
                 </p>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '20px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: voucher.subject === 'membership' ? '1fr 1fr' : '1fr', gap: '12px' }}>
+                    <div>
+                      <label style={labelSt}>Gift Subject</label>
+                      <select
+                        value={voucher.subject}
+                        onChange={e => updateVoucher('subject', e.target.value)}
+                        style={{ ...inputSt, cursor: 'pointer' }}
+                      >
+                        <option value="handbuilding">Handbuilding</option>
+                        <option value="wheelthrowing">Wheelthrowing</option>
+                        <option value="membership">Clay Club Membership</option>
+                      </select>
+                    </div>
+                    {voucher.subject === 'membership' && (
+                      <div>
+                        <label style={labelSt}>Membership Term</label>
+                        <select
+                          value={voucher.months}
+                          onChange={e => updateVoucher('months', parseInt(e.target.value))}
+                          style={{ ...inputSt, cursor: 'pointer' }}
+                        >
+                          <option value={1}>1 Month · Bronze</option>
+                          <option value={6}>6 Months · Silver</option>
+                          <option value={12}>12 Months · Gold</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                     <div>
                       <label style={labelSt}>To <span style={{ color: TC }}>*</span></label>
@@ -683,12 +719,16 @@ export default function AdminEmails() {
                   </div>
 
                   <div>
-                    <label style={labelSt}>Gift Label</label>
+                    <label style={labelSt}>Gift Label <span style={{ color: MUTED, fontWeight: 400 }}>(optional — overrides default)</span></label>
                     <input
                       type="text"
                       value={voucher.giftLabel}
                       onChange={e => updateVoucher('giftLabel', e.target.value)}
-                      placeholder="Family Handbuilding Experience"
+                      placeholder={
+                        voucher.subject === 'wheelthrowing' ? 'Wheelthrowing Course'
+                        : voucher.subject === 'membership' ? `Clay Club ${voucher.months} Month${voucher.months !== 1 ? 's' : ''} Membership`
+                        : 'Family Handbuilding Experience'
+                      }
                       style={inputSt}
                     />
                   </div>

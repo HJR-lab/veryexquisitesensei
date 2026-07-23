@@ -199,4 +199,4 @@ function generateMembershipConfirmedEmail({ firstName, months, purchaseDate, sta
   return { subject, html: wrapEmailTemplate(body) };
 }
 
-module.exports = { generateMembershipConfirmedEmail };
+module.exports = { generateMembershipConfirmedEmail, TIER_PERKS };

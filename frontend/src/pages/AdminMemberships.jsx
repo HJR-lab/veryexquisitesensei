@@ -227,6 +227,49 @@ export default function AdminMemberships() {
     }
   };
 
+  // Gift a membership to a recipient — reassigns the entitlement to them,
+  // records who gave it + their message, and emails them the gift email.
+  // This is the Fadilah→Iman flow: the purchaser buys, admin gifts it over.
+  const handleGift = async (m, name) => {
+    const recipientEmail = prompt(
+      `Gift ${name || 'this'} membership to someone else.\n\nRecipient's email (they must already have an account):`,
+      ''
+    );
+    if (recipientEmail === null) return;
+    if (!recipientEmail.trim()) { alert('Recipient email is required.'); return; }
+
+    const giverName = prompt(
+      "Giver's name (shown as \"from …\" in the email):",
+      name || ''
+    );
+    if (giverName === null) return;
+
+    const giverMessage = prompt(
+      "Personal message from the giver (optional — appears as a card in the email):",
+      ''
+    );
+    if (giverMessage === null) return;
+
+    if (!confirm(`Transfer this membership to ${recipientEmail.trim()} and email them the gift?`)) return;
+
+    try {
+      setLoading(true);
+      const { data } = await api.post(`/admin/memberships/${m.id}/gift`, {
+        recipientEmail: recipientEmail.trim(),
+        giverName: giverName.trim(),
+        giverMessage: giverMessage.trim(),
+        sendEmail: true,
+      });
+      await loadData();
+      alert(`Gifted to ${data.recipient.name || data.recipient.email}.${data.emailed ? ' Gift email sent.' : ' (Email not sent — send it from the Emails tab if needed.)'}`);
+    } catch (error) {
+      console.error('Failed to gift membership:', error);
+      alert(error.response?.data?.error || 'Failed to gift membership');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const openSettings = async () => {
     setShowSettings(true);
     if (settings) return;
@@ -519,6 +562,16 @@ export default function AdminMemberships() {
                             >
                               <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>play_arrow</span>
                               Activate
+                            </button>
+                          )}
+                          {pStatus !== 'cancelled' && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleGift(m, group.name); }}
+                              title="Gift — transfer this membership to another person and email them"
+                              style={{ border: `1px solid ${RULE}`, background: '#FFF', cursor: 'pointer', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0, fontSize: '11px', color: INK, fontFamily: 'Atak, sans-serif' }}
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>redeem</span>
+                              Gift
                             </button>
                           )}
                           <button

@@ -5605,10 +5605,12 @@ function parseEmailList(raw) {
 function buildGiftVoucherEmail(body) {
   const { generateGiftVoucherEmail } = require('../email-templates/gift-voucher');
   return generateGiftVoucherEmail({
+    subject: body.subject,
     recipientName: body.recipientName,
     giverName: body.giverName,
     giftLabel: body.giftLabel,
     giverMessage: body.giverMessage,
+    months: body.months ? parseInt(body.months) : undefined,
   });
 }
 
@@ -5638,6 +5640,83 @@ app.post('/api/admin/emails/gift-voucher/send', authenticateToken, requireAdmin,
   });
   if (!result.success) return res.status(502).json({ error: result.error || 'Send failed' });
   res.json({ success: true, to: to.list, cc: cc.list, messageId: result.messageId });
+}));
+
+// Gift a membership to a recipient — reassigns the entitlement, records who
+// gave it + their message, recomputes both customers' types, and (optionally)
+// emails the recipient the gift email. This is the Fadilah→Iman flow made
+// first-class: the purchaser buys, admin gifts it to the recipient in one step.
+app.post('/api/admin/memberships/:id/gift', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { recipientEmail, giverName, giverMessage, sendEmail: doSend = true } = req.body || {};
+
+  const rcpt = parseEmailList(recipientEmail);
+  if (rcpt.error) return res.status(400).json({ error: rcpt.error });
+  if (rcpt.list.length !== 1) return res.status(400).json({ error: 'Provide exactly one recipient email' });
+  const recipientAddr = rcpt.list[0];
+
+  // The membership being gifted
+  const { data: membership, error: mErr } = await supabaseDb.supabase
+    .from('memberships')
+    .select('id, customer_id, membership_type, status')
+    .eq('id', parseInt(id))
+    .single();
+  if (mErr || !membership) return res.status(404).json({ error: 'Membership not found' });
+
+  // Recipient must already be a customer (they need an account to own it).
+  const { data: recipient } = await supabaseDb.supabase
+    .from('customers')
+    .select('id, email, first_name, last_name')
+    .ilike('email', recipientAddr)
+    .maybeSingle();
+  if (!recipient) {
+    return res.status(404).json({ error: `No customer found for ${recipientAddr}. Create their account first, then gift the membership.` });
+  }
+  if (recipient.id === membership.customer_id) {
+    return res.status(400).json({ error: 'This membership already belongs to that customer' });
+  }
+
+  const purchaserId = membership.customer_id;
+
+  // Reassign the entitlement to the recipient and stamp the gift metadata.
+  const { error: updErr } = await supabaseDb.supabase
+    .from('memberships')
+    .update({
+      customer_id: recipient.id,
+      gifted_by_customer_id: purchaserId,
+      gift_message: giverMessage || null,
+      gifted_at: new Date().toISOString(),
+    })
+    .eq('id', membership.id);
+  if (updErr) return res.status(500).json({ error: updErr.message });
+
+  // Keep both customers' types in sync (purchaser may lose member status; the
+  // recipient gains it — pending counts as member).
+  if (purchaserId) await supabaseDb.updateSingleCustomerType(purchaserId);
+  await supabaseDb.updateSingleCustomerType(recipient.id);
+
+  // Email the recipient the membership gift email.
+  let emailResult = { skipped: true };
+  if (doSend) {
+    const monthsMatch = (membership.membership_type || '').match(/(\d+)/);
+    const months = monthsMatch ? parseInt(monthsMatch[1]) : 6;
+    const { subject, html } = buildGiftVoucherEmail({
+      subject: 'membership',
+      recipientName: recipient.first_name || '',
+      giverName,
+      giverMessage,
+      months,
+    });
+    emailResult = await require('../utils/emailService').sendEmail({ to: recipient.email, subject, html });
+  }
+
+  res.json({
+    success: true,
+    membershipId: membership.id,
+    recipient: { id: recipient.id, email: recipient.email, name: `${recipient.first_name || ''} ${recipient.last_name || ''}`.trim() },
+    emailed: doSend ? emailResult.success === true : false,
+    emailError: doSend && emailResult.success === false ? emailResult.error : undefined,
+  });
 }));
 
 // Get class notes (admin)

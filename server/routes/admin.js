@@ -5593,12 +5593,25 @@ app.post('/api/admin/waitlist/:id/send-email', authenticateToken, requireAdmin, 
 // Parse a comma / newline / semicolon separated list of addresses into a
 // validated array. Returns { list } or { error } for a bad address.
 function parseEmailList(raw) {
-  const list = (Array.isArray(raw) ? raw : String(raw || '').split(/[,\n;]+/))
-    .map(s => String(s).trim())
-    .filter(Boolean);
   const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  const bad = list.find(e => !emailRe.test(e));
-  return bad ? { error: `Invalid email address: ${bad}` } : { list };
+  // Strip invisible characters that survive copy-paste (zero-width spaces,
+  // BOM, non-breaking spaces) and would otherwise reach Resend and be rejected.
+  const clean = s => String(s)
+    .replace(/[\u200B-\u200D\u2060\uFEFF\u00A0]/g, '')
+    .trim();
+  const tokens = (Array.isArray(raw) ? raw : String(raw || '').split(/[,\n;]+/))
+    .map(clean)
+    .filter(Boolean);
+  const list = [];
+  for (const tok of tokens) {
+    // Accept a "Name <email@x.com>" form by extracting the bracketed address.
+    const m = tok.match(/<\s*([^>]+?)\s*>\s*$/);
+    const email = clean(m ? m[1] : tok);
+    if (!emailRe.test(email)) return { error: `Invalid email address: ${tok}` };
+    // Resend accepts both plain and "Name <email>"; preserve display name if given.
+    list.push(m ? `${tok.slice(0, m.index).trim()} <${email}>`.trim() : email);
+  }
+  return { list };
 }
 
 // Build the subject + html for a gift-voucher email from the request body.

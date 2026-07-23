@@ -1403,8 +1403,11 @@ app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandl
         const name = `${m.customers.first_name || ''} ${m.customers.last_name || ''}`.trim() || 'Unknown';
         const daysLeft = Math.ceil((new Date(m.end_date) - new Date()) / (1000 * 60 * 60 * 24));
         const totalDays = Math.ceil((new Date(m.end_date) - new Date(m.start_date)) / (1000 * 60 * 60 * 24));
+        // Pending (reserved) memberships have no start/end date yet — the term
+        // begins on first-visit activation. Never run them through the expiry
+        // math (null end_date → epoch → false "expired"); keep them as pending.
         let derivedStatus = m.status;
-        if (m.status !== 'cancelled') {
+        if (m.status !== 'cancelled' && m.status !== 'pending') {
           if (daysLeft < 0) derivedStatus = 'expired';
           else if (daysLeft <= 30) derivedStatus = 'expiring';
           else derivedStatus = 'active';
@@ -1438,9 +1441,9 @@ app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandl
 
     // Sort members: active first, then by expiry date
     membersList.sort((a, b) => {
-      const order = { active: 0, expiring: 1, expired: 2, cancelled: 3 };
-      const sa = order[a.membershipStatus] ?? 4;
-      const sb = order[b.membershipStatus] ?? 4;
+      const order = { pending: 0, active: 1, expiring: 2, expired: 3, cancelled: 4 };
+      const sa = order[a.membershipStatus] ?? 5;
+      const sb = order[b.membershipStatus] ?? 5;
       if (sa !== sb) return sa - sb;
       return (a.daysRemaining || 0) - (b.daysRemaining || 0);
     });
@@ -5584,6 +5587,57 @@ app.post('/api/admin/waitlist/:id/send-email', authenticateToken, requireAdmin, 
   }
 
   res.json({ success: result.success, emailType, studentName: `${student.first_name} ${student.last_name}`, error: result.error });
+}));
+
+// ── Gift-voucher email (admin-composed family HB gift) ──────────────────────
+// Parse a comma / newline / semicolon separated list of addresses into a
+// validated array. Returns { list } or { error } for a bad address.
+function parseEmailList(raw) {
+  const list = (Array.isArray(raw) ? raw : String(raw || '').split(/[,\n;]+/))
+    .map(s => String(s).trim())
+    .filter(Boolean);
+  const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const bad = list.find(e => !emailRe.test(e));
+  return bad ? { error: `Invalid email address: ${bad}` } : { list };
+}
+
+// Build the subject + html for a gift-voucher email from the request body.
+function buildGiftVoucherEmail(body) {
+  const { generateGiftVoucherEmail } = require('../email-templates/gift-voucher');
+  return generateGiftVoucherEmail({
+    recipientName: body.recipientName,
+    giverName: body.giverName,
+    giftLabel: body.giftLabel,
+    giverMessage: body.giverMessage,
+  });
+}
+
+// Preview — returns rendered subject + html without sending.
+app.post('/api/admin/emails/gift-voucher/preview', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { subject, html } = buildGiftVoucherEmail(req.body || {});
+  res.json({ subject, html });
+}));
+
+// Send — to (required) + optional cc, both accepting multiple addresses.
+app.post('/api/admin/emails/gift-voucher/send', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const to = parseEmailList(body.to);
+  if (to.error) return res.status(400).json({ error: to.error });
+  if (to.list.length === 0) return res.status(400).json({ error: 'At least one "To" address is required' });
+  const cc = parseEmailList(body.cc);
+  if (cc.error) return res.status(400).json({ error: cc.error });
+  if (!String(body.giverMessage || '').trim()) return res.status(400).json({ error: "The giver's message is required" });
+
+  const { sendEmail } = require('../utils/emailService');
+  const { subject, html } = buildGiftVoucherEmail(body);
+  const result = await sendEmail({
+    to: to.list,
+    cc: cc.list.length ? cc.list : undefined,
+    subject,
+    html,
+  });
+  if (!result.success) return res.status(502).json({ error: result.error || 'Send failed' });
+  res.json({ success: true, to: to.list, cc: cc.list, messageId: result.messageId });
 }));
 
 // Get class notes (admin)

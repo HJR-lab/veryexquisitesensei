@@ -69,6 +69,40 @@ export default function AdminEmails() {
   const [draftLoading,   setDraftLoading]   = useState(false);
   const [sending,        setSending]        = useState(false);
 
+  // Voucher tab — admin-composed family HB gift voucher email
+  const [voucher, setVoucher] = useState({
+    to: '', cc: '', recipientName: '', giverName: '',
+    giftLabel: 'Family Handbuilding Experience', giverMessage: '',
+  });
+  const [voucherSending, setVoucherSending] = useState(false);
+  const updateVoucher = (field, val) => setVoucher(prev => ({ ...prev, [field]: val }));
+
+  const handleVoucherPreview = async () => {
+    try {
+      const { data } = await api.post('/admin/emails/gift-voucher/preview', voucher);
+      const url = URL.createObjectURL(new Blob([data.html], { type: 'text/html' }));
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      showStatus('error', err.response?.data?.error || 'Failed to build preview');
+    }
+  };
+
+  const handleVoucherSend = async () => {
+    if (!voucher.to.trim())          { showStatus('error', 'Add at least one "To" address'); return; }
+    if (!voucher.giverMessage.trim()) { showStatus('error', "Add the giver's message"); return; }
+    setVoucherSending(true);
+    try {
+      const { data } = await api.post('/admin/emails/gift-voucher/send', voucher);
+      const ccNote = data.cc?.length ? `, cc ${data.cc.length}` : '';
+      showStatus('success', `Gift voucher sent to ${data.to.join(', ')}${ccNote}`);
+    } catch (err) {
+      showStatus('error', err.response?.data?.error || 'Failed to send');
+    } finally {
+      setVoucherSending(false);
+    }
+  };
+
 
   // ── Load all data on mount ──────────────────────────────────────────────────
   useEffect(() => { loadAll(); }, []);
@@ -282,6 +316,7 @@ export default function AdminEmails() {
             { key: 'courses', label: 'Courses' },
             { key: 'waitlist', label: `Waitlist${waitlistData.length > 0 ? ` (${waitlistData.length})` : ''}` },
             { key: 'collection', label: `Collection${collectionData.length > 0 ? ` (${collectionData.length})` : ''}` },
+            { key: 'voucher', label: 'Voucher' },
           ].map(t => (
             <button
               key={t.key}
@@ -585,6 +620,118 @@ export default function AdminEmails() {
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* ────────────────────────── VOUCHER TAB ─────────────────────────── */}
+            {tab === 'voucher' && (
+              <div style={{ maxWidth: '640px' }}>
+                <h2 style={{ fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, margin: '0 0 6px' }}>
+                  Gift Voucher — Family Handbuilding
+                </h2>
+                <p style={{ fontSize: '13px', lineHeight: 1.6, color: MUTED, margin: '0 0 20px' }}>
+                  Compose the gift email for a family handbuilding voucher. The recipient sees the
+                  gift benefits and the giver's personal message. Add the recipient under <strong>To</strong>,
+                  and optionally cc the giver or yourself.
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '20px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <label style={labelSt}>To <span style={{ color: TC }}>*</span></label>
+                      <input
+                        type="text"
+                        value={voucher.to}
+                        onChange={e => updateVoucher('to', e.target.value)}
+                        placeholder="recipient@email.com (comma-separate for multiple)"
+                        style={inputSt}
+                      />
+                    </div>
+                    <div>
+                      <label style={labelSt}>CC</label>
+                      <input
+                        type="text"
+                        value={voucher.cc}
+                        onChange={e => updateVoucher('cc', e.target.value)}
+                        placeholder="giver@email.com (optional, comma-separate)"
+                        style={inputSt}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <label style={labelSt}>Recipient Name</label>
+                      <input
+                        type="text"
+                        value={voucher.recipientName}
+                        onChange={e => updateVoucher('recipientName', e.target.value)}
+                        placeholder="e.g. Vera"
+                        style={inputSt}
+                      />
+                    </div>
+                    <div>
+                      <label style={labelSt}>From (Giver)</label>
+                      <input
+                        type="text"
+                        value={voucher.giverName}
+                        onChange={e => updateVoucher('giverName', e.target.value)}
+                        placeholder="e.g. 姑姑, Claris & Cayla"
+                        style={inputSt}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={labelSt}>Gift Label</label>
+                    <input
+                      type="text"
+                      value={voucher.giftLabel}
+                      onChange={e => updateVoucher('giftLabel', e.target.value)}
+                      placeholder="Family Handbuilding Experience"
+                      style={inputSt}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={labelSt}>Message from the Giver <span style={{ color: TC }}>*</span></label>
+                    <textarea
+                      value={voucher.giverMessage}
+                      onChange={e => updateVoucher('giverMessage', e.target.value)}
+                      placeholder={"Dear Vera, Happy 5th birthday!\nMay you keep growing wiser every day…"}
+                      rows={9}
+                      style={{ ...inputSt, resize: 'vertical', lineHeight: 1.6 }}
+                    />
+                    <p style={{ fontSize: '11px', color: MUTED, margin: '5px 0 0' }}>
+                      Line breaks are preserved. This renders as a personal card in the email.
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    onClick={handleVoucherPreview}
+                    style={{
+                      padding: '12px 20px', backgroundColor: '#FFF', color: INK,
+                      border: `1px solid ${RULE}`, fontSize: '13px', fontWeight: 700,
+                      letterSpacing: '0.04em', cursor: 'pointer',
+                    }}
+                  >
+                    Preview
+                  </button>
+                  <button
+                    onClick={handleVoucherSend}
+                    disabled={voucherSending}
+                    style={{
+                      flex: 1, padding: '12px', backgroundColor: voucherSending ? '#CCC' : TC,
+                      color: '#FFF', border: 'none', fontSize: '13px', fontWeight: 700,
+                      letterSpacing: '0.04em', cursor: voucherSending ? 'default' : 'pointer',
+                      opacity: voucherSending ? 0.7 : 1,
+                    }}
+                  >
+                    {voucherSending ? 'Sending…' : 'Send Gift Voucher'}
+                  </button>
+                </div>
               </div>
             )}
 

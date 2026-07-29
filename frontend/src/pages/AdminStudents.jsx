@@ -49,6 +49,7 @@ function StatusBadge({ status }) {
     completed: { label: 'Done',      bg: ALT,       color: MUTED },
     hb:        { label: 'HB',        bg: '#FFF3E0', color: '#E65100' },
     member:    { label: 'Member',    bg: MEMBER_BG, color: MEMBER_COLOR },
+    pending:   { label: 'Pending',   bg: '#EEF2FF', color: '#3730A3' },
     expiring:  { label: 'Expiring',  bg: '#FFF7E6', color: '#9E6200' },
     expired:   { label: 'Expired',   bg: ALT,       color: MUTED },
   };

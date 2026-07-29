@@ -36,7 +36,7 @@ function getResend() {
 /**
  * Send an email via Resend
  */
-async function sendEmail({ to, bcc, subject, html, replyTo }) {
+async function sendEmail({ to, cc, bcc, subject, html, replyTo }) {
   try {
     const resend = getResend();
     if (!resend) {
@@ -50,6 +50,7 @@ async function sendEmail({ to, bcc, subject, html, replyTo }) {
       subject,
       html,
     };
+    if (cc && cc.length > 0) payload.cc = cc;
     if (bcc && bcc.length > 0) payload.bcc = bcc;
     if (replyTo) payload.reply_to = replyTo;
 

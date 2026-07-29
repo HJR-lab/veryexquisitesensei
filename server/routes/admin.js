@@ -1403,8 +1403,11 @@ app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandl
         const name = `${m.customers.first_name || ''} ${m.customers.last_name || ''}`.trim() || 'Unknown';
         const daysLeft = Math.ceil((new Date(m.end_date) - new Date()) / (1000 * 60 * 60 * 24));
         const totalDays = Math.ceil((new Date(m.end_date) - new Date(m.start_date)) / (1000 * 60 * 60 * 24));
+        // Pending (reserved) memberships have no start/end date yet — the term
+        // begins on first-visit activation. Never run them through the expiry
+        // math (null end_date → epoch → false "expired"); keep them as pending.
         let derivedStatus = m.status;
-        if (m.status !== 'cancelled') {
+        if (m.status !== 'cancelled' && m.status !== 'pending') {
           if (daysLeft < 0) derivedStatus = 'expired';
           else if (daysLeft <= 30) derivedStatus = 'expiring';
           else derivedStatus = 'active';
@@ -1438,9 +1441,9 @@ app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandl
 
     // Sort members: active first, then by expiry date
     membersList.sort((a, b) => {
-      const order = { active: 0, expiring: 1, expired: 2, cancelled: 3 };
-      const sa = order[a.membershipStatus] ?? 4;
-      const sb = order[b.membershipStatus] ?? 4;
+      const order = { pending: 0, active: 1, expiring: 2, expired: 3, cancelled: 4 };
+      const sa = order[a.membershipStatus] ?? 5;
+      const sb = order[b.membershipStatus] ?? 5;
       if (sa !== sb) return sa - sb;
       return (a.daysRemaining || 0) - (b.daysRemaining || 0);
     });
@@ -5584,6 +5587,149 @@ app.post('/api/admin/waitlist/:id/send-email', authenticateToken, requireAdmin, 
   }
 
   res.json({ success: result.success, emailType, studentName: `${student.first_name} ${student.last_name}`, error: result.error });
+}));
+
+// ── Gift-voucher email (admin-composed family HB gift) ──────────────────────
+// Parse a comma / newline / semicolon separated list of addresses into a
+// validated array. Returns { list } or { error } for a bad address.
+function parseEmailList(raw) {
+  const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  // Strip invisible characters that survive copy-paste (zero-width spaces,
+  // BOM, non-breaking spaces) and would otherwise reach Resend and be rejected.
+  const clean = s => String(s)
+    .replace(/[\u200B-\u200D\u2060\uFEFF\u00A0]/g, '')
+    .trim();
+  const tokens = (Array.isArray(raw) ? raw : String(raw || '').split(/[,\n;]+/))
+    .map(clean)
+    .filter(Boolean);
+  const list = [];
+  for (const tok of tokens) {
+    // Accept a "Name <email@x.com>" form by extracting the bracketed address.
+    const m = tok.match(/<\s*([^>]+?)\s*>\s*$/);
+    const email = clean(m ? m[1] : tok);
+    if (!emailRe.test(email)) return { error: `Invalid email address: ${tok}` };
+    // Resend accepts both plain and "Name <email>"; preserve display name if given.
+    list.push(m ? `${tok.slice(0, m.index).trim()} <${email}>`.trim() : email);
+  }
+  return { list };
+}
+
+// Build the subject + html for a gift-voucher email from the request body.
+function buildGiftVoucherEmail(body) {
+  const { generateGiftVoucherEmail } = require('../email-templates/gift-voucher');
+  return generateGiftVoucherEmail({
+    subject: body.subject,
+    recipientName: body.recipientName,
+    giverName: body.giverName,
+    giftLabel: body.giftLabel,
+    giverMessage: body.giverMessage,
+    months: body.months ? parseInt(body.months) : undefined,
+  });
+}
+
+// Preview — returns rendered subject + html without sending.
+app.post('/api/admin/emails/gift-voucher/preview', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { subject, html } = buildGiftVoucherEmail(req.body || {});
+  res.json({ subject, html });
+}));
+
+// Send — to (required) + optional cc, both accepting multiple addresses.
+app.post('/api/admin/emails/gift-voucher/send', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const to = parseEmailList(body.to);
+  if (to.error) return res.status(400).json({ error: to.error });
+  if (to.list.length === 0) return res.status(400).json({ error: 'At least one "To" address is required' });
+  const cc = parseEmailList(body.cc);
+  if (cc.error) return res.status(400).json({ error: cc.error });
+  if (!String(body.giverMessage || '').trim()) return res.status(400).json({ error: "The giver's message is required" });
+
+  const { sendEmail } = require('../utils/emailService');
+  const { subject, html } = buildGiftVoucherEmail(body);
+  const result = await sendEmail({
+    to: to.list,
+    cc: cc.list.length ? cc.list : undefined,
+    subject,
+    html,
+  });
+  if (!result.success) return res.status(502).json({ error: result.error || 'Send failed' });
+  res.json({ success: true, to: to.list, cc: cc.list, messageId: result.messageId });
+}));
+
+// Gift a membership to a recipient — reassigns the entitlement, records who
+// gave it + their message, recomputes both customers' types, and (optionally)
+// emails the recipient the gift email. This is the Fadilah→Iman flow made
+// first-class: the purchaser buys, admin gifts it to the recipient in one step.
+app.post('/api/admin/memberships/:id/gift', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { recipientEmail, giverName, giverMessage, sendEmail: doSend = true } = req.body || {};
+
+  const rcpt = parseEmailList(recipientEmail);
+  if (rcpt.error) return res.status(400).json({ error: rcpt.error });
+  if (rcpt.list.length !== 1) return res.status(400).json({ error: 'Provide exactly one recipient email' });
+  const recipientAddr = rcpt.list[0];
+
+  // The membership being gifted
+  const { data: membership, error: mErr } = await supabaseDb.supabase
+    .from('memberships')
+    .select('id, customer_id, membership_type, status')
+    .eq('id', parseInt(id))
+    .single();
+  if (mErr || !membership) return res.status(404).json({ error: 'Membership not found' });
+
+  // Recipient must already be a customer (they need an account to own it).
+  const { data: recipient } = await supabaseDb.supabase
+    .from('customers')
+    .select('id, email, first_name, last_name')
+    .ilike('email', recipientAddr)
+    .maybeSingle();
+  if (!recipient) {
+    return res.status(404).json({ error: `No customer found for ${recipientAddr}. Create their account first, then gift the membership.` });
+  }
+  if (recipient.id === membership.customer_id) {
+    return res.status(400).json({ error: 'This membership already belongs to that customer' });
+  }
+
+  const purchaserId = membership.customer_id;
+
+  // Reassign the entitlement to the recipient and stamp the gift metadata.
+  const { error: updErr } = await supabaseDb.supabase
+    .from('memberships')
+    .update({
+      customer_id: recipient.id,
+      gifted_by_customer_id: purchaserId,
+      gift_message: giverMessage || null,
+      gifted_at: new Date().toISOString(),
+    })
+    .eq('id', membership.id);
+  if (updErr) return res.status(500).json({ error: updErr.message });
+
+  // Keep both customers' types in sync (purchaser may lose member status; the
+  // recipient gains it — pending counts as member).
+  if (purchaserId) await supabaseDb.updateSingleCustomerType(purchaserId);
+  await supabaseDb.updateSingleCustomerType(recipient.id);
+
+  // Email the recipient the membership gift email.
+  let emailResult = { skipped: true };
+  if (doSend) {
+    const monthsMatch = (membership.membership_type || '').match(/(\d+)/);
+    const months = monthsMatch ? parseInt(monthsMatch[1]) : 6;
+    const { subject, html } = buildGiftVoucherEmail({
+      subject: 'membership',
+      recipientName: recipient.first_name || '',
+      giverName,
+      giverMessage,
+      months,
+    });
+    emailResult = await require('../utils/emailService').sendEmail({ to: recipient.email, subject, html });
+  }
+
+  res.json({
+    success: true,
+    membershipId: membership.id,
+    recipient: { id: recipient.id, email: recipient.email, name: `${recipient.first_name || ''} ${recipient.last_name || ''}`.trim() },
+    emailed: doSend ? emailResult.success === true : false,
+    emailError: doSend && emailResult.success === false ? emailResult.error : undefined,
+  });
 }));
 
 // Get class notes (admin)

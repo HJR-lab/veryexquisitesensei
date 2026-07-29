@@ -491,15 +491,35 @@ export default function AdminClasses() {
         rescheduleReason: rescheduleData.reason,
         fee, isGlazingReschedule: rescheduleData.isGlazing, isAdminReschedule: true,
       });
+
+      const oldClassId = reschedulingBooking.classInstance.id;
+      const newClassId = rescheduleData.newClassInstanceId;
+
       await loadCourses();
-      setClassMembers(prev => { const u = { ...prev }; delete u[reschedulingBooking.classInstance.id]; delete u[rescheduleData.newClassInstanceId]; return u; });
+
+      // Explicit refetch for both affected classes — mirrors handleAddStudent/handleRemoveStudent.
+      // The auto-load useEffect is order-sensitive, so do this directly.
+      await Promise.all([oldClassId, newClassId].map(async (cid) => {
+        try {
+          setLoadingMembers(prev => ({ ...prev, [cid]: true }));
+          const { data } = await api.get(`/admin/classes/${cid}/members?t=${Date.now()}`);
+          setClassMembers(prev => ({ ...prev, [cid]: data.members || [] }));
+          setAbsentMembers(prev => ({ ...prev, [cid]: data.absentMembers || [] }));
+          setWaitlistMembersMap(prev => ({ ...prev, [cid]: data.waitlistMembers || [] }));
+        } catch (e) {
+          console.error('Failed to reload members after reschedule:', e);
+        } finally {
+          setLoadingMembers(prev => ({ ...prev, [cid]: false }));
+        }
+      }));
+
       alert(`Successfully rescheduled! ${fee > 0 ? `Fee: $${fee}` : 'No fee applied'}`);
       setShowRescheduleModal(false);
       setReschedulingBooking(null);
       setRescheduleData({ newClassInstanceId: null, reason: '', isGlazing: false });
     } catch (error) {
       console.error('Failed to reschedule:', error);
-      alert('Failed to reschedule booking. Please try again.');
+      alert(`Failed to reschedule booking: ${error.response?.data?.error || error.message}`);
     } finally {
       setRescheduling(false);
     }
@@ -835,14 +855,17 @@ export default function AdminClasses() {
   // Classes for selected day panel
   const dayClasses = selectedDate ? getClassesForDate(selectedDate) : [];
 
-  // Auto-load students for all classes when a day is selected
+  // Auto-load students for all classes when a day is selected.
+  // Depends on `courses` too — if the user clicks a date before courses finish
+  // loading, dayClasses is empty at first; this re-runs once courses arrive.
+  // loadClassMembers dedupes per class id so re-running on courses CRUD is safe.
   useEffect(() => {
     dayClasses.forEach(cls => {
       if (!classMembers[cls.id] && !loadingMembers[cls.id]) {
         loadClassMembers(cls);
       }
     });
-  }, [selectedDate]);
+  }, [selectedDate, courses]);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Render helpers

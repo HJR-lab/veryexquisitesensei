@@ -78,6 +78,7 @@ async function checkOverAllocated() {
         severity: overage >= 2 ? 'high' : 'medium',
         student_id: enr.student_id,
         student_name: formatStudentName(enr.customers),
+        student_email: enr.customers ? enr.customers.email || null : null,
         enrollment_id: enr.id,
         details: `${committed} bookings against ${allocated} credits (overage: ${overage}). Course: ${enr.course_identifier || 'unassigned'}, weeks: ${enr.number_of_weeks}.`,
       });
@@ -125,6 +126,7 @@ async function checkStaleUnassigned10Class() {
         severity: ageDays >= 30 ? 'high' : 'medium',
         student_id: s.student_id,
         student_name: formatStudentName(s.customers),
+        student_email: s.customers ? s.customers.email || null : null,
         enrollment_id: s.id,
         details: `10-class package created ${ageDays} days ago is still unassigned (no course, no bookings).`,
       };

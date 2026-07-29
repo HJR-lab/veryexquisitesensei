@@ -9,7 +9,27 @@ const SCOPES = [
   'https://www.googleapis.com/auth/gmail.modify',
 ];
 
+function getGmailEnvStatus() {
+  return {
+    hasClientId: Boolean(process.env.GOOGLE_CLIENT_ID),
+    hasClientSecret: Boolean(process.env.GOOGLE_CLIENT_SECRET),
+    hasRedirectUri: Boolean(process.env.GOOGLE_REDIRECT_URI),
+  };
+}
+
+function assertGmailEnv() {
+  const status = getGmailEnvStatus();
+  const missing = [];
+  if (!status.hasClientId) missing.push('GOOGLE_CLIENT_ID');
+  if (!status.hasClientSecret) missing.push('GOOGLE_CLIENT_SECRET');
+  if (!status.hasRedirectUri) missing.push('GOOGLE_REDIRECT_URI');
+  if (missing.length > 0) {
+    throw new Error(`Missing Gmail OAuth environment variables: ${missing.join(', ')}`);
+  }
+}
+
 function createOAuth2Client() {
+  assertGmailEnv();
   return new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
@@ -17,9 +37,6 @@ function createOAuth2Client() {
   );
 }
 
-/**
- * Returns the Google OAuth consent URL for Gmail access.
- */
 function getAuthUrl() {
   const oauth2Client = createOAuth2Client();
   return oauth2Client.generateAuthUrl({
@@ -29,15 +46,13 @@ function getAuthUrl() {
   });
 }
 
-/**
- * Exchanges an auth code for tokens and stores the refresh token in admin_settings.
- */
 async function handleCallback(code) {
+  if (!code) throw new Error('Missing Google OAuth code');
   const oauth2Client = createOAuth2Client();
   const { tokens } = await oauth2Client.getToken(code);
 
   if (!tokens.refresh_token) {
-    throw new Error('No refresh token returned. Ensure prompt=consent was used.');
+    throw new Error('No refresh token returned. Reconnect Gmail with prompt=consent.');
   }
 
   const now = new Date().toISOString();
@@ -48,90 +63,81 @@ async function handleCallback(code) {
       { onConflict: 'setting_key' }
     );
 
-  if (error) {
-    throw new Error(`Failed to store refresh token: ${error.message}`);
-  }
-
+  if (error) throw new Error(`Failed to store refresh token: ${error.message}`);
   return tokens;
 }
 
-/**
- * Loads the refresh token from DB and returns an authenticated Gmail client.
- * Returns null if no token is stored.
- */
 async function getGmailClient() {
+  let oauth2Client;
+  try {
+    oauth2Client = createOAuth2Client();
+  } catch (err) {
+    console.error('[gmailClient] Gmail OAuth env is incomplete:', err.message);
+    return null;
+  }
+
   const { data, error } = await supabase
     .from('admin_settings')
     .select('setting_value')
     .eq('setting_key', 'gmail_refresh_token')
-    .single();
+    .maybeSingle();
 
-  if (error || !data || !data.setting_value) {
-    return null;
-  }
+  if (error || !data?.setting_value) return null;
 
-  const oauth2Client = createOAuth2Client();
   oauth2Client.setCredentials({ refresh_token: data.setting_value });
-
   return google.gmail({ version: 'v1', auth: oauth2Client });
 }
 
-/**
- * Parses a "From" header like `"Name" <email@example.com>` or `email@example.com`.
- * Returns { fromName, fromEmail }.
- */
 function parseFromHeader(fromHeader) {
   if (!fromHeader) return { fromName: '', fromEmail: '' };
-
   const match = fromHeader.match(/^"?([^"<]*?)"?\s*<([^>]+)>/);
   if (match) {
-    return {
-      fromName: match[1].trim(),
-      fromEmail: match[2].trim().toLowerCase(),
-    };
+    return { fromName: match[1].trim(), fromEmail: match[2].trim().toLowerCase() };
   }
-
-  // Plain email with no display name
-  return {
-    fromName: '',
-    fromEmail: fromHeader.trim().toLowerCase(),
-  };
+  return { fromName: '', fromEmail: fromHeader.trim().toLowerCase() };
 }
 
-/**
- * Decodes a base64url-encoded string to UTF-8 text.
- */
 function decodeBase64Url(encoded) {
   if (!encoded) return '';
   const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
   return Buffer.from(base64, 'base64').toString('utf-8');
 }
 
-/**
- * Recursively finds the text/plain part in a MIME message payload.
- */
-function extractPlainTextBody(payload) {
-  if (!payload) return '';
-
-  if (payload.mimeType === 'text/plain' && payload.body && payload.body.data) {
-    return decodeBase64Url(payload.body.data);
-  }
-
-  if (payload.parts) {
-    for (const part of payload.parts) {
-      const result = extractPlainTextBody(part);
-      if (result) return result;
-    }
-  }
-
-  return '';
+function stripHtml(html) {
+  return (html || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<br\s*\/?>(?=.)/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
 }
 
-/**
- * Fetches unread emails from the last N days.
- * Filters out newsletters (List-Unsubscribe header) and noreply senders.
- * Returns an array of email objects.
- */
+function extractBodyParts(payload, result = { plain: '', html: '' }) {
+  if (!payload) return result;
+  if (payload.mimeType === 'text/plain' && payload.body?.data) {
+    result.plain += `${decodeBase64Url(payload.body.data)}\n`;
+  }
+  if (payload.mimeType === 'text/html' && payload.body?.data) {
+    result.html += `${decodeBase64Url(payload.body.data)}\n`;
+  }
+  if (payload.parts) {
+    for (const part of payload.parts) extractBodyParts(part, result);
+  }
+  return result;
+}
+
+function extractPlainTextBody(payload) {
+  const parts = extractBodyParts(payload);
+  return (parts.plain || stripHtml(parts.html)).trim();
+}
+
 async function fetchUnreadEmails(days = 7) {
   const gmail = await getGmailClient();
   if (!gmail) return [];
@@ -148,11 +154,7 @@ async function fetchUnreadEmails(days = 7) {
 
   let messageIds;
   try {
-    const listRes = await gmail.users.messages.list({
-      userId: 'me',
-      q: query,
-      maxResults: 50,
-    });
+    const listRes = await gmail.users.messages.list({ userId: 'me', q: query, maxResults: 50 });
     messageIds = listRes.data.messages || [];
   } catch (err) {
     console.error('[gmailClient] fetchUnreadEmails list error:', err.message);
@@ -160,43 +162,26 @@ async function fetchUnreadEmails(days = 7) {
   }
 
   const emails = [];
-
   for (const { id } of messageIds) {
     try {
-      const msgRes = await gmail.users.messages.get({
-        userId: 'me',
-        id,
-        format: 'full',
-      });
-
+      const msgRes = await gmail.users.messages.get({ userId: 'me', id, format: 'full' });
       const msg = msgRes.data;
-      const headers = msg.payload && msg.payload.headers ? msg.payload.headers : [];
-
+      const headers = msg.payload?.headers || [];
       const getHeader = (name) => {
-        const h = headers.find((h) => h.name.toLowerCase() === name.toLowerCase());
+        const h = headers.find((header) => header.name.toLowerCase() === name.toLowerCase());
         return h ? h.value : '';
       };
 
-      // Filter out newsletters via List-Unsubscribe header
       if (getHeader('List-Unsubscribe')) continue;
-
       const fromHeader = getHeader('From');
       const { fromName, fromEmail } = parseFromHeader(fromHeader);
-
-      // Extra guard on noreply in email address
       if (/no.?reply/i.test(fromEmail)) continue;
 
       const subject = getHeader('Subject');
       const messageIdHeader = getHeader('Message-ID');
-      const receivedAt = msg.internalDate
-        ? new Date(parseInt(msg.internalDate, 10)).toISOString()
-        : null;
-
-      let body = extractPlainTextBody(msg.payload);
-      if (!body) body = msg.snippet || '';
-
-      // Truncate to 2000 chars
-      if (body.length > 2000) body = body.slice(0, 2000);
+      const receivedAt = msg.internalDate ? new Date(parseInt(msg.internalDate, 10)).toISOString() : null;
+      let body = extractPlainTextBody(msg.payload) || msg.snippet || '';
+      if (body.length > 12000) body = body.slice(0, 12000);
 
       emails.push({
         gmailMessageId: msg.id,
@@ -217,21 +202,23 @@ async function fetchUnreadEmails(days = 7) {
   return emails;
 }
 
-/**
- * Sends a plain text reply in the same Gmail thread.
- * @param {Object} params
- * @param {string} params.to - Recipient email address
- * @param {string} params.subject - Email subject
- * @param {string} params.body - Plain text body
- * @param {string} params.threadId - Gmail thread ID to reply in
- * @param {string} [params.messageId] - Original Message-ID header for In-Reply-To/References
- */
+async function markMessageHandled(messageId) {
+  const gmail = await getGmailClient();
+  if (!gmail || !messageId) return null;
+  const res = await gmail.users.messages.modify({
+    userId: 'me',
+    id: messageId,
+    requestBody: { removeLabelIds: ['UNREAD'] },
+  });
+  return res.data;
+}
+
 async function sendReply({ to, subject, body, threadId, messageId }) {
   const gmail = await getGmailClient();
   if (!gmail) throw new Error('Gmail not connected');
+  if (!body || !body.trim()) throw new Error('Cannot send an empty draft reply');
 
-  const subjectLine = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
-
+  const subjectLine = subject?.startsWith('Re:') ? subject : `Re: ${subject || ''}`.trim();
   const headers = [
     `To: ${to}`,
     `Subject: ${subjectLine}`,
@@ -244,32 +231,20 @@ async function sendReply({ to, subject, body, threadId, messageId }) {
     headers.push(`References: ${messageId}`);
   }
 
-  const rawMessage = headers.join('\r\n') + '\r\n\r\n' + body;
+  const rawMessage = `${headers.join('\r\n')}\r\n\r\n${body}`;
   const encoded = Buffer.from(rawMessage)
     .toString('base64')
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/, '');
 
-  const res = await gmail.users.messages.send({
-    userId: 'me',
-    requestBody: {
-      raw: encoded,
-      threadId,
-    },
-  });
-
+  const res = await gmail.users.messages.send({ userId: 'me', requestBody: { raw: encoded, threadId } });
   return res.data;
 }
 
-/**
- * Checks if Gmail is connected and working.
- * Returns true if getProfile succeeds, false otherwise.
- */
 async function isConnected() {
   const gmail = await getGmailClient();
   if (!gmail) return false;
-
   try {
     await gmail.users.getProfile({ userId: 'me' });
     return true;
@@ -281,8 +256,10 @@ async function isConnected() {
 module.exports = {
   getAuthUrl,
   handleCallback,
+  getGmailEnvStatus,
   getGmailClient,
   fetchUnreadEmails,
   sendReply,
+  markMessageHandled,
   isConnected,
 };

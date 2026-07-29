@@ -1,5 +1,6 @@
 const { getCreditBalance, getCreditHistory, earnCredits, spendCredits, CREDIT_EXPIRY } = require('../utils/creditManager');
 const { supabase } = require('../utils/supabaseDb');
+const FEES = require('../config/fees');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler }) {
 
@@ -117,7 +118,7 @@ app.post('/api/credits/delivery', authenticateToken, asyncHandler(async (req, re
     return res.status(400).json({ error: 'customerId, deliveryType, recipientName, and recipientAddress are required' });
   }
 
-  const DELIVERY_FEE = 10;
+  const DELIVERY_FEE = FEES.DELIVERY;
 
   // Create delivery order record
   const { data: order, error: orderError } = await supabase

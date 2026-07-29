@@ -95,6 +95,10 @@ export default function AdminMemberships() {
   const [showSettings,        setShowSettings]        = useState(false);
   const [settings,            setSettings]            = useState(null);
   const [savingSettings,      setSavingSettings]      = useState(false);
+  const [gifting,             setGifting]             = useState(null); // { membership, currentName } when the Gift modal is open
+  const [giftForm,            setGiftForm]            = useState({ recipient: null, query: '', giverName: '', giverMessage: '' });
+  const [giftDropdown,        setGiftDropdown]        = useState(false);
+  const [giftSaving,          setGiftSaving]          = useState(false);
 
   const [createForm, setCreateForm] = useState({
     customerId:     '',
@@ -230,45 +234,49 @@ export default function AdminMemberships() {
   // Gift a membership to a recipient — reassigns the entitlement to them,
   // records who gave it + their message, and emails them the gift email.
   // This is the Fadilah→Iman flow: the purchaser buys, admin gifts it over.
-  const handleGift = async (m, name) => {
-    const recipientEmail = prompt(
-      `Gift ${name || 'this'} membership to someone else.\n\nRecipient's email (they must already have an account):`,
-      ''
-    );
-    if (recipientEmail === null) return;
-    if (!recipientEmail.trim()) { alert('Recipient email is required.'); return; }
+  // Open the Gift modal for a membership. Recipient is chosen from a searchable
+  // student picker (not a raw email) to avoid typos / bad addresses.
+  const handleGift = (m, name) => {
+    setGiftForm({ recipient: null, query: '', giverName: name || '', giverMessage: '' });
+    setGiftDropdown(false);
+    setGifting({ membership: m, currentName: name });
+  };
 
-    const giverName = prompt(
-      "Giver's name (shown as \"from …\" in the email):",
-      name || ''
-    );
-    if (giverName === null) return;
-
-    const giverMessage = prompt(
-      "Personal message from the giver (optional — appears as a card in the email):",
-      ''
-    );
-    if (giverMessage === null) return;
-
-    if (!confirm(`Transfer this membership to ${recipientEmail.trim()} and email them the gift?`)) return;
-
+  const submitGift = async () => {
+    if (!gifting) return;
+    if (!giftForm.recipient) { alert('Please choose a recipient from the list.'); return; }
     try {
-      setLoading(true);
-      const { data } = await api.post(`/admin/memberships/${m.id}/gift`, {
-        recipientEmail: recipientEmail.trim(),
-        giverName: giverName.trim(),
-        giverMessage: giverMessage.trim(),
+      setGiftSaving(true);
+      const { data } = await api.post(`/admin/memberships/${gifting.membership.id}/gift`, {
+        recipientEmail: giftForm.recipient.email,
+        giverName: giftForm.giverName.trim(),
+        giverMessage: giftForm.giverMessage.trim(),
         sendEmail: true,
       });
+      setGifting(null);
       await loadData();
       alert(`Gifted to ${data.recipient.name || data.recipient.email}.${data.emailed ? ' Gift email sent.' : ' (Email not sent — send it from the Emails tab if needed.)'}`);
     } catch (error) {
       console.error('Failed to gift membership:', error);
       alert(error.response?.data?.error || 'Failed to gift membership');
     } finally {
-      setLoading(false);
+      setGiftSaving(false);
     }
   };
+
+  // Students matching the recipient search (by first name, full name, or email).
+  const giftMatches = (() => {
+    const q = giftForm.query.trim().toLowerCase();
+    if (!q) return [];
+    return students
+      .filter(s => {
+        const full = `${s.firstName || ''} ${s.lastName || ''}`.trim().toLowerCase();
+        return (s.firstName || '').toLowerCase().startsWith(q)
+          || full.includes(q)
+          || (s.email || '').toLowerCase().includes(q);
+      })
+      .slice(0, 8);
+  })();
 
   const openSettings = async () => {
     setShowSettings(true);
@@ -592,6 +600,109 @@ export default function AdminMemberships() {
           </div>
         )}
       </AdminPage>
+
+      {/* ── Gift Membership Modal ──────────────────────────────────────────────── */}
+      {gifting && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div style={{ backgroundColor: '#FFFFFF', padding: '32px', width: '480px', maxWidth: '90vw', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <div style={{ fontSize: '16px', fontWeight: 700 }}>Gift Membership</div>
+              <button onClick={() => setGifting(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '18px', color: MUTED }}>✕</button>
+            </div>
+            <p style={{ fontSize: '12px', color: MUTED, margin: '0 0 20px', lineHeight: 1.5 }}>
+              Transfer <strong>{gifting.currentName || 'this'}</strong>&rsquo;s {gifting.membership.type} to another
+              student and email them the gift. The term still starts on the recipient&rsquo;s first visit.
+            </p>
+
+            {/* Recipient — searchable student picker */}
+            <div style={{ marginBottom: '14px', position: 'relative' }}>
+              <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '5px' }}>Recipient *</label>
+              {giftForm.recipient ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', border: `1px solid ${TC}`, backgroundColor: TC_LIGHT }}>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: INK }}>
+                    {giftForm.recipient.firstName} {giftForm.recipient.lastName}
+                    <span style={{ color: MUTED, fontWeight: 400 }}> · {giftForm.recipient.email}</span>
+                  </span>
+                  <button
+                    onClick={() => { setGiftForm(f => ({ ...f, recipient: null, query: '' })); setGiftDropdown(true); }}
+                    style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '11px', color: TC, fontWeight: 700 }}
+                  >
+                    Change
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={giftForm.query}
+                    onChange={e => { setGiftForm(f => ({ ...f, query: e.target.value })); setGiftDropdown(true); }}
+                    onFocus={() => setGiftDropdown(true)}
+                    placeholder="Type a first name…"
+                    style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'Atak, sans-serif', boxSizing: 'border-box', outline: 'none' }}
+                  />
+                  {giftDropdown && giftForm.query.trim() && (
+                    <div style={{ position: 'absolute', left: 0, right: 0, top: '100%', zIndex: 10, backgroundColor: '#FFF', border: `1px solid ${RULE}`, borderTop: 'none', maxHeight: '220px', overflowY: 'auto', boxShadow: '0 6px 16px rgba(0,0,0,0.08)' }}>
+                      {giftMatches.length === 0 ? (
+                        <div style={{ padding: '12px', fontSize: '12px', color: MUTED }}>No matching students. They must have an account first.</div>
+                      ) : giftMatches.map(s => (
+                        <div
+                          key={s.dbId}
+                          onClick={() => { setGiftForm(f => ({ ...f, recipient: s, query: '' })); setGiftDropdown(false); }}
+                          style={{ padding: '9px 12px', cursor: 'pointer', borderBottom: `1px solid ${RULE}`, fontSize: '13px' }}
+                          onMouseEnter={e => e.currentTarget.style.backgroundColor = ALT}
+                          onMouseLeave={e => e.currentTarget.style.backgroundColor = '#FFF'}
+                        >
+                          <span style={{ fontWeight: 600, color: INK }}>{s.firstName} {s.lastName}</span>
+                          <span style={{ color: MUTED, marginLeft: '6px', fontSize: '12px' }}>{s.email}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Giver name */}
+            <div style={{ marginBottom: '14px' }}>
+              <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '5px' }}>From (Giver)</label>
+              <input
+                type="text"
+                value={giftForm.giverName}
+                onChange={e => setGiftForm(f => ({ ...f, giverName: e.target.value }))}
+                placeholder="e.g. Fadilah"
+                style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'Atak, sans-serif', boxSizing: 'border-box', outline: 'none' }}
+              />
+            </div>
+
+            {/* Message */}
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, display: 'block', marginBottom: '5px' }}>Message from the Giver</label>
+              <textarea
+                value={giftForm.giverMessage}
+                onChange={e => setGiftForm(f => ({ ...f, giverMessage: e.target.value }))}
+                placeholder="A personal note — appears as a card in the email…"
+                rows={5}
+                style={{ width: '100%', padding: '10px 12px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'Atak, sans-serif', boxSizing: 'border-box', outline: 'none', resize: 'vertical', lineHeight: 1.5 }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button type="button" onClick={() => setGifting(null)} style={{ padding: '12px 18px', border: `1px solid ${RULE}`, backgroundColor: 'transparent', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', fontFamily: 'Atak, sans-serif' }}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitGift}
+                disabled={giftSaving || !giftForm.recipient}
+                style={{ padding: '12px 22px', border: 'none', backgroundColor: giftSaving || !giftForm.recipient ? '#CCC' : TC, color: '#FFF', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', cursor: giftSaving || !giftForm.recipient ? 'default' : 'pointer', fontFamily: 'Atak, sans-serif' }}
+              >
+                {giftSaving ? 'Gifting…' : 'Gift & Send Email'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Create Membership Modal ────────────────────────────────────────────── */}
       {showCreateModal && (

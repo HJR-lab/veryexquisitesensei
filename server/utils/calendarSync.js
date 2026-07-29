@@ -371,6 +371,155 @@ async function deleteStudioAccess(bookingId) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Membership term markers
+// ---------------------------------------------------------------------------
+// Each active membership shows up on the studio calendar as TWO all-day events:
+// a START marker on start_date and an END/expiry marker on end_date. This gives
+// the admin an at-a-glance view of when terms begin and when they lapse (for
+// renewals) without cluttering every day in between.
+
+// Add N days to a YYYY-MM-DD string and return YYYY-MM-DD. Used to build the
+// exclusive end.date for an all-day Google Calendar event (a single all-day
+// event on date D has start.date=D, end.date=D+1). UTC math so a bare date
+// never shifts a day due to the server's timezone.
+function addDaysStr(dateStr, days) {
+  const [y, m, d] = String(dateStr).split('T')[0].split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().split('T')[0];
+}
+
+// Build an all-day event payload for a membership marker on a single date.
+function buildMembershipMarker(dateStr, summary, description, colorId) {
+  const date = String(dateStr).split('T')[0];
+  return {
+    summary,
+    description,
+    location: 'VES Pottery Studio',
+    start: { date },
+    end: { date: addDaysStr(date, 1) },
+    colorId,
+    transparency: 'transparent', // shows as "free", not a busy block
+    reminders: { useDefault: false, overrides: [] }
+  };
+}
+
+// Create/update the two all-day term markers for a membership. Only active
+// memberships with both dates get markers; pending/cancelled/expired ones have
+// their markers removed so the calendar reflects the current entitlement.
+async function syncMembership(membershipId) {
+  if (!isEnabled()) return { status: 'skipped', membershipId, reason: 'calendar_disabled' };
+  try {
+    const { data: m } = await supabaseDb.supabase
+      .from('memberships')
+      .select('*, customer:customers!memberships_customer_id_fkey(first_name, last_name, email)')
+      .eq('id', membershipId)
+      .single();
+    if (!m) return { status: 'skipped', membershipId, reason: 'not_found' };
+
+    // Only active terms with both dates belong on the calendar. Anything else
+    // (pending with no dates yet, cancelled, expired-and-deleted) gets cleaned up.
+    const eligible = m.status === 'active' && m.start_date && m.end_date;
+    if (!eligible) {
+      await deleteMembershipEvents(membershipId);
+      return { status: 'skipped', membershipId, reason: `not_eligible:${m.status}` };
+    }
+
+    const name = ((m.customer?.first_name || '') + ' ' + (m.customer?.last_name || '')).trim() || 'Member';
+    const type = m.membership_type || 'Membership';
+    const startStr = String(m.start_date).split('T')[0];
+    const endStr = String(m.end_date).split('T')[0];
+
+    let desc = 'VES Membership\n\n';
+    desc += 'Member: ' + name + '\n';
+    if (m.customer?.email) desc += 'Email: ' + m.customer.email + '\n';
+    desc += 'Type: ' + type + '\n';
+    desc += 'Term: ' + startStr + ' → ' + endStr + '\n';
+    if (m.gifted_by_customer_id) desc += 'Gifted membership\n';
+
+    const markers = [
+      { dateStr: startStr, idCol: 'google_calendar_start_event_id',
+        summary: '🎟 ' + name + ' — ' + type + ' (starts)', colorId: '10' /* Basil green */ },
+      { dateStr: endStr, idCol: 'google_calendar_end_event_id',
+        summary: '⏳ ' + name + ' — ' + type + ' (ends)', colorId: '11' /* Tomato red */ },
+    ];
+
+    for (const mk of markers) {
+      const payload = buildMembershipMarker(mk.dateStr, mk.summary, desc, mk.colorId);
+      const existingId = m[mk.idCol];
+      if (existingId) {
+        try {
+          await cal.events.update({ calendarId: CALENDAR_ID, eventId: existingId, resource: payload });
+          continue;
+        } catch (err) {
+          // Event was deleted upstream (404/410) — fall through and re-create.
+          if (![404, 410].includes(err.code)) throw err;
+        }
+      }
+      const res = await cal.events.insert({ calendarId: CALENDAR_ID, resource: payload });
+      await supabaseDb.supabase
+        .from('memberships')
+        .update({ [mk.idCol]: res.data.id })
+        .eq('id', membershipId);
+    }
+    return { status: 'ok', membershipId };
+  } catch (err) {
+    console.error('[CalendarSync] syncMembership error:', err.message);
+    return { status: 'failed', membershipId, error: err.message };
+  }
+}
+
+// Remove both term markers (on cancel, delete, or when a membership becomes
+// ineligible). Clears the stored ids so a later re-activation re-creates fresh.
+async function deleteMembershipEvents(membershipId) {
+  if (!isEnabled()) return;
+  try {
+    const { data: m } = await supabaseDb.supabase
+      .from('memberships')
+      .select('google_calendar_start_event_id, google_calendar_end_event_id')
+      .eq('id', membershipId)
+      .single();
+    if (!m) return;
+    for (const col of ['google_calendar_start_event_id', 'google_calendar_end_event_id']) {
+      if (!m[col]) continue;
+      try {
+        await cal.events.delete({ calendarId: CALENDAR_ID, eventId: m[col] });
+      } catch (err) {
+        if (![404, 410].includes(err.code)) throw err;
+      }
+      await supabaseDb.supabase
+        .from('memberships')
+        .update({ [col]: null })
+        .eq('id', membershipId);
+    }
+  } catch (err) {
+    console.error('[CalendarSync] deleteMembershipEvents error:', err.message);
+  }
+}
+
+// Nightly self-heal: re-sync every active membership so term markers stay in
+// place even if a fire-and-forget syncMembership() call failed. Idempotent
+// (updates existing events in place).
+async function resyncMemberships() {
+  if (!isEnabled()) return { synced: 0, skipped: true };
+  const { data: memberships, error } = await supabaseDb.supabase
+    .from('memberships')
+    .select('id')
+    .eq('status', 'active');
+  if (error) {
+    console.error('[CalendarSync] resyncMemberships query failed:', error.message);
+    return { synced: 0, error: error.message };
+  }
+  let synced = 0;
+  for (const m of (memberships || [])) {
+    await syncMembership(m.id);
+    synced++;
+  }
+  console.log(`[CalendarSync] resyncMemberships re-synced ${synced} active memberships`);
+  return { synced };
+}
+
 // Re-sync every upcoming class_instance's calendar event so descriptions stay
 // current. Necessary because an event's roster/progress string is derived from
 // state that changes WITHOUT touching that class_instance directly:
@@ -412,5 +561,8 @@ module.exports = {
   syncStudioAccess,
   deleteStudioAccess,
   buildClassDescription,
-  resyncUpcoming
+  resyncUpcoming,
+  syncMembership,
+  deleteMembershipEvents,
+  resyncMemberships
 };

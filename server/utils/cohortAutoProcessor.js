@@ -591,6 +591,7 @@ function startAutomaticProcessing() {
     processReadyCohorts().catch(console.error);
     autoMarkPastBookingsAsAttended()
       .then(() => calendarSync.resyncUpcoming())
+      .then(() => calendarSync.resyncMemberships())
       .catch(console.error);
     checkPieceReminders().catch(console.error);
     autoRecycleExpiredBatches().catch(console.error);
@@ -612,6 +613,7 @@ function startAutomaticProcessing() {
       // strings (which count attended bookings) reflect the new attendance.
       autoMarkPastBookingsAsAttended()
         .then(() => calendarSync.resyncUpcoming())
+        .then(() => calendarSync.resyncMemberships())
         .catch(console.error);
       checkCourseEmailReminders().catch(console.error);
       checkUnconfirmedCourses().catch(console.error);

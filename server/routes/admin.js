@@ -5708,6 +5708,10 @@ app.post('/api/admin/memberships/:id/gift', authenticateToken, requireAdmin, asy
   if (purchaserId) await supabaseDb.updateSingleCustomerType(purchaserId);
   await supabaseDb.updateSingleCustomerType(recipient.id);
 
+  // The term markers now belong to the recipient — refresh so their name shows
+  // on the studio calendar (fire-and-forget).
+  require('../utils/calendarSync').syncMembership(membership.id).catch(() => {});
+
   // Email the recipient the membership gift email.
   let emailResult = { skipped: true };
   if (doSend) {
@@ -6294,6 +6298,11 @@ app.post('/api/admin/memberships', authenticateToken, requireAdmin, asyncHandler
   // Update customer_type after membership creation
   await supabaseDb.updateSingleCustomerType(parseInt(customerId));
 
+  // Push term markers to the studio Google Calendar (fire-and-forget).
+  if (membership?.id) {
+    require('../utils/calendarSync').syncMembership(membership.id).catch(() => {});
+  }
+
   res.json({ success: true, membership });
 }));
 
@@ -6314,6 +6323,10 @@ app.put('/api/admin/memberships/:id', authenticateToken, requireAdmin, asyncHand
   if (membership.customer_id) {
     await supabaseDb.updateSingleCustomerType(membership.customer_id);
   }
+
+  // Refresh calendar term markers — dates/type/status may have changed
+  // (syncMembership removes the markers if it's no longer active).
+  require('../utils/calendarSync').syncMembership(parseInt(id)).catch(() => {});
 
   res.json({ success: true, membership });
 }));
@@ -6358,6 +6371,10 @@ app.post('/api/admin/memberships/:id/activate', authenticateToken, requireAdmin,
     await supabaseDb.updateSingleCustomerType(existing.customer_id);
   }
 
+  // Now that the term has real dates, drop the START/END markers on the
+  // studio Google Calendar (fire-and-forget).
+  require('../utils/calendarSync').syncMembership(parseInt(id)).catch(() => {});
+
   res.json({ success: true, membership });
 }));
 
@@ -6370,6 +6387,8 @@ app.delete('/api/admin/memberships/:id', authenticateToken, requireAdmin, asyncH
     .select('customer_id')
     .eq('id', parseInt(id))
     .single();
+  // Remove the calendar term markers before the row (and its event ids) is gone.
+  await require('../utils/calendarSync').deleteMembershipEvents(parseInt(id));
   await supabaseDb.deleteMembership(parseInt(id));
   // Update customer_type after deletion
   if (memToDelete?.customer_id) {

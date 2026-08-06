@@ -1,3 +1,8 @@
+// OBSOLETE (06/08/26): assertions snapshot Ivy Tan's March data (course 2 of 3,
+// 1 remaining); she has since completed course 3, so those now fail correctly.
+// This script also inlines its own copy of the OLD lifetime-count enrichment —
+// see scripts/verify-package-position-fix.js for the current shared-helper check.
+//
 // READ-ONLY verification of the package-between-courses enrichment fix.
 // Replicates GET /api/admin/students/:id/enrollment POST-FIX flow exactly.
 // Mutates NOTHING. Run from server/: node scripts/verify-package-between-courses-fix.js

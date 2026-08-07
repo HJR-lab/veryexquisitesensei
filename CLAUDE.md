@@ -86,7 +86,7 @@ Core tables: `customers`, `course_enrollments`, `class_instances`, `bookings`, `
 - Backend uses CommonJS (`require`/`module.exports`), frontend uses ES modules
 - API routes follow `/api/{domain}/{action}` pattern (e.g., `/api/admin/students`, `/api/classes/book`)
 - Supabase error code `PGRST116` means "no rows found" and is handled as a non-error throughout
-- The `server/` directory contains many one-off debug/fix scripts (e.g., `debug-*.js`, `fix-*.js`) — these are ad-hoc utilities, not part of the application
+- `server/scripts/` holds one-off debug/fix/verify utilities (e.g., `diagnose-*.js`, `verify-*.js`) — ad-hoc tools, not part of the application. `server/` itself contains only `index.js`
 
 ## graphify
 

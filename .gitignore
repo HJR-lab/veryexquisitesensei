@@ -43,3 +43,12 @@ tmp/
 temp/
 *.tmp
 .vercel
+
+# Supabase CLI local state (contains connection strings, project refs)
+supabase/.temp/
+supabase/.branches/
+
+# graphify knowledge graph — generated artifacts, rebuilt by the post-commit
+# hook. ~20MB incl. a 2000-file Obsidian vault and dated graph backups.
+# Regenerate with `graphify update .` rather than tracking it.
+graphify-out/

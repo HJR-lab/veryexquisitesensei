@@ -10,13 +10,13 @@ VES Pottery Gallery App — a full-stack studio management system for a pottery 
 
 ### Frontend (`frontend/`)
 ```bash
-npm run dev      # Vite dev server on http://localhost:5173 (proxies /api to :3000)
+npm run dev      # Vite dev server on http://localhost:5173 (proxies /api to :3001)
 npm run build    # Build to frontend/dist/
 ```
 
 ### Backend (`server/`)
 ```bash
-npm run dev      # nodemon on http://localhost:3000
+npm run dev      # nodemon on http://localhost:3001 (PORT in server/.env; code default is 3000)
 npm start        # Production start
 ```
 
@@ -47,7 +47,7 @@ Each has its own `package.json`. Not a monorepo — no shared workspace config.
 - **Auth**: JWT tokens (7-day expiry). `authenticateToken` middleware checks `Authorization` header first, then cookie. Admin is identified by email `info@ves.sg`.
 - **Shopify**: GraphQL client for customer data sync. Webhook handlers for order/customer events.
 - **Image uploads**: Multer → Supabase Storage bucket.
-- **AI Chat**: OpenAI integration at `/api/ai/chat`.
+- **OpenAI**: used for piece image matching (`server/routes/pieces.js`) and Gmail inbox triage (`server/utils/inboxProcessor.js`). There is no general chat endpoint.
 
 **Key utility modules** in `server/utils/`:
 - `supabaseDb.js` — Database adapter (CRUD for customers, enrollments, classes, bookings)
@@ -62,10 +62,10 @@ Each has its own `package.json`. Not a monorepo — no shared workspace config.
 
 - **Routing**: React Router v6 in `App.jsx` with `PrivateRoute` and `AdminRoute` wrappers
 - **Auth**: `useAuth` hook (`frontend/src/hooks/useAuth.jsx`) — provides user context, handles JWT storage
-- **API calls**: Axios with automatic JWT injection via interceptor (`frontend/src/api/axios.js`)
+- **API calls**: Axios with automatic JWT injection via interceptor (`frontend/src/utils/api.js`). Always import this shared client (`import api from '../utils/api'`) — importing `axios` directly skips the `Authorization` and `X-Impersonate-Id` headers and every authenticated request 401s.
 - **Styling**: Tailwind CSS 3 with custom pottery studio theme
 - **Pages**: `src/pages/` for main pages, `src/test-pages/` for admin test variants
-- **Components**: `src/components/` — Navigation, ClassCalendar, PotteryCard, AIChat, ImageManager, etc.
+- **Components**: `src/components/` — Navigation, ClassCalendarGrid, PotteryCard, AdminLayout, etc.
 
 ### Database Tables (Supabase PostgreSQL)
 Core tables: `customers`, `course_enrollments`, `class_instances`, `bookings`, `pottery_pieces`, `memberships`, `reschedule_fees`, `verification_codes`
@@ -86,7 +86,7 @@ Core tables: `customers`, `course_enrollments`, `class_instances`, `bookings`, `
 - Backend uses CommonJS (`require`/`module.exports`), frontend uses ES modules
 - API routes follow `/api/{domain}/{action}` pattern (e.g., `/api/admin/students`, `/api/classes/book`)
 - Supabase error code `PGRST116` means "no rows found" and is handled as a non-error throughout
-- The `server/` directory contains many one-off debug/fix scripts (e.g., `debug-*.js`, `fix-*.js`) — these are ad-hoc utilities, not part of the application
+- `server/scripts/` holds one-off debug/fix/verify utilities (e.g., `diagnose-*.js`, `verify-*.js`) — ad-hoc tools, not part of the application. `server/` itself contains only `index.js`
 
 ## graphify
 

@@ -4,7 +4,7 @@ import { useAuth } from '../hooks/useAuth';
 import Navigation from '../components/Navigation';
 import Footer from '../components/Footer';
 import AdminPage from '../components/AdminPage';
-import axios from 'axios';
+import api from '../utils/api';
 
 export default function AdminPausedStudents() {
   const navigate = useNavigate();
@@ -20,7 +20,7 @@ export default function AdminPausedStudents() {
   const loadPausedStudents = async () => {
     try {
       setLoading(true);
-      const { data } = await axios.get('/api/admin/students/paused/list');
+      const { data } = await api.get('/admin/students/paused/list');
       setPausedStudents(data.students || []);
     } catch (error) {
       console.error('Failed to load paused students:', error);
@@ -34,7 +34,7 @@ export default function AdminPausedStudents() {
 
     try {
       setResumingId(studentId);
-      await axios.post(`/api/admin/students/${studentId}/resume`);
+      await api.post(`/admin/students/${studentId}/resume`);
       // Reload the list
       await loadPausedStudents();
     } catch (error) {

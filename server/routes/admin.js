@@ -1,6 +1,7 @@
 const supabaseDb = require('../utils/supabaseDb');
 const { generateICS, generateMultipleICS } = require('../utils/calendarGenerator');
 const courseConfig = require('../utils/courseConfig');
+const { getPackageProgress } = require('../utils/packageProgress');
 
 // In-memory cache for admin stats summary (30s TTL)
 let adminStatsSummaryCache = null;
@@ -327,6 +328,7 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
       course_identifier, schedule_pattern, class_time, status,
       number_of_weeks, class_credits_allocated, class_credits_used, class_credits_remaining,
       course_start_date, course_end_date, created_at, package_total_courses,
+      package_courses_remaining,
       customers!course_enrollments_student_id_fkey (
         id, email, first_name, last_name, customer_type,
         course_purchase_count, classes_allocated, created_at,
@@ -341,6 +343,10 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
     const sids = [...new Set(completedPkgAll.map(e => e.student_id))];
     // Count consumed package courses (active + completed) per student in one
     // grouped query — avoids an N+1 across the candidate list.
+    // Legacy fallback only — rows written before package_courses_remaining
+    // existed. It counts every package the student has ever held, so it
+    // overcounts once a student buys a SECOND package; the per-row column is
+    // preferred below because it restarts at each new purchase.
     const { data: pkgRows } = await supabaseDb.supabase
       .from('course_enrollments')
       .select('student_id, status, package_total_courses')
@@ -362,7 +368,9 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
       const student = enr.customers;
       if (!student) continue;
       if (emailSet.has(student.email)) continue; // already listed (has active/paused/upcoming)
-      const remaining = (enr.package_total_courses || 0) - (usedByStudent[sid] || 0);
+      const remaining = enr.package_courses_remaining != null
+        ? enr.package_courses_remaining
+        : (enr.package_total_courses || 0) - (usedByStudent[sid] || 0);
       if (remaining <= 0) continue; // package fully consumed — genuinely done
       students.push({
         name: `${student.first_name || ''} ${student.last_name || ''}`.trim() || 'Unknown',
@@ -1742,24 +1750,16 @@ app.get('/api/admin/students/:id/enrollment', authenticateToken, requireAdmin, a
   // multi-course package enrollments. Applied to BOTH active enrollments and
   // completed-history entries, so a package student *between courses* (every
   // course so far completed, none currently active) still shows accurate
-  // "Course X of N", "X completed", and "Y more courses remaining". No writes.
+  // "Course X of N", "X completed", and "Y more courses remaining". Position is
+  // scoped to THIS package, so a repeat purchase restarts at course 1. No writes.
   const enrichPackageProgress = async (enrollment) => {
-    if (!enrollment.package_total_courses || enrollment.package_total_courses <= 1) {
-      return enrollment;
-    }
-    const { data: pkgEnrollments } = await supabaseDb.supabase
-      .from('course_enrollments')
-      .select('id, status')
-      .eq('student_id', studentId)
-      .ilike('course_title', '%3 Course Package%');
-
-    const completedInPackage = (pkgEnrollments || []).filter(e => e.status === 'completed').length;
-    const activeInPackage = (pkgEnrollments || []).filter(e => e.status === 'active').length;
+    const progress = await getPackageProgress(supabaseDb.supabase, studentId, enrollment);
+    if (!progress) return enrollment;
     return {
       ...enrollment,
-      package_courses_completed: completedInPackage,
-      package_current_course: completedInPackage + activeInPackage,
-      package_courses_remaining: enrollment.package_total_courses - completedInPackage - activeInPackage,
+      package_courses_completed: progress.completed,
+      package_current_course: progress.current,
+      package_courses_remaining: progress.remaining,
     };
   };
 
@@ -1941,16 +1941,9 @@ app.get('/api/admin/students/:studentId/next-package-course', authenticateToken,
     return res.json({ available: false });
   }
 
-  // Count package progress
-  const { data: allPackageEnrollments } = await supabaseDb.supabase
-    .from('course_enrollments')
-    .select('id, status')
-    .eq('student_id', studentId)
-    .ilike('course_title', '%3 Course Package%');
-
-  const completedCount = (allPackageEnrollments || []).filter(e => e.status === 'completed').length;
-  const activeCount = (allPackageEnrollments || []).filter(e => e.status === 'active').length;
-  const remaining = enrollment.package_total_courses - completedCount - activeCount;
+  // Count package progress (scoped to this package, not the student's lifetime)
+  const progress = await getPackageProgress(supabaseDb.supabase, studentId, enrollment);
+  const remaining = progress ? progress.remaining : 0;
 
   if (remaining <= 0) {
     return res.json({ available: false, reason: 'no_remaining' });
@@ -2054,16 +2047,10 @@ app.post('/api/admin/students/:studentId/continue-package', authenticateToken, r
     return res.status(400).json({ error: 'Not a multi-course package enrollment' });
   }
 
-  // 2. Count how many courses this student already has in this package
-  const { data: allPackageEnrollments } = await supabaseDb.supabase
-    .from('course_enrollments')
-    .select('id, status')
-    .eq('student_id', studentId)
-    .ilike('course_title', '%3 Course Package%');
-
-  const completedCount = (allPackageEnrollments || []).filter(e => e.status === 'completed').length;
-  const activeCount = (allPackageEnrollments || []).filter(e => e.status === 'active').length;
-  const remaining = currentEnrollment.package_total_courses - completedCount - activeCount;
+  // 2. Position inside THIS package (a repeat purchase restarts at course 1)
+  const progress = await getPackageProgress(supabaseDb.supabase, studentId, currentEnrollment);
+  const remaining = progress ? progress.remaining : 0;
+  const currentCourseNumber = progress ? progress.current : 0;
 
   if (remaining <= 0) {
     return res.status(400).json({ error: 'No remaining courses in this package' });
@@ -2134,7 +2121,7 @@ app.post('/api/admin/students/:studentId/continue-package', authenticateToken, r
   const newEnrollment = await createCourseEnrollment({
     studentId: studentId,
     shopifyOrderId: currentEnrollment.shopify_order_id,
-    shopifyLineItemId: `${currentEnrollment.shopify_line_item_id || 'PKG'}-C${completedCount + activeCount + 1}`,
+    shopifyLineItemId: `${currentEnrollment.shopify_line_item_id || 'PKG'}-C${currentCourseNumber + 1}`,
     courseTitle: currentEnrollment.course_title,
     courseVariantTitle: nextCourse.course_variant_title || currentEnrollment.course_variant_title,
     courseType: courseType,

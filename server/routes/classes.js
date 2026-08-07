@@ -1,5 +1,6 @@
 const supabaseDb = require('../utils/supabaseDb');
 const FEES = require('../config/fees');
+const { getPackageProgress } = require('../utils/packageProgress');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler }) {
 
@@ -1470,7 +1471,7 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
     // Get student's course enrollment to find cohort dates
     const { data: enrollment, error: enrollmentError } = await supabaseDb.supabase
       .from('course_enrollments')
-      .select('course_start_date, course_end_date, course_title, package_total_courses')
+      .select('course_start_date, course_end_date, course_title, status, package_total_courses, package_courses_remaining')
       .eq('id', currentBooking.course_enrollment_id)
       .single();
 
@@ -1490,15 +1491,10 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
         let canSwapGlazingToWT = false;
 
         if (is3CoursePackage) {
-          const { data: completedPkgCourses } = await supabaseDb.supabase
-            .from('course_enrollments')
-            .select('id')
-            .eq('student_id', dbCustomerId)
-            .eq('status', 'completed')
-            .ilike('course_title', '%3 Course Package%');
-          const completedCount = completedPkgCourses?.length || 0;
-          // Courses 1 & 2 can swap glazing→WT; course 3 (2 completed) cannot
-          canSwapGlazingToWT = completedCount < 2;
+          // Position within THIS package — a repeat purchase restarts at course 1.
+          const progress = await getPackageProgress(supabaseDb.supabase, dbCustomerId, enrollment);
+          // Courses 1 & 2 can swap glazing→WT; the package's final course cannot
+          canSwapGlazingToWT = !!progress && progress.current < progress.total;
         }
 
         if (!isNewClassGlazing && !canSwapGlazingToWT) {

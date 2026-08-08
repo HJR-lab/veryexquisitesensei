@@ -142,8 +142,15 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
   const [{ data: memberships }, { data: bookingRows }] = await Promise.all([
     supabaseDb.supabase
       .from('memberships')
-      .select('id, customer_id, membership_type, status, start_date, end_date, purchase_date, customers!memberships_customer_id_fkey(email, first_name, last_name, customer_type)')
-      .in('status', ['active', 'expiring']),
+      .select('id, customer_id, membership_type, status, start_date, end_date, purchase_date, created_at, customers!memberships_customer_id_fkey(email, first_name, last_name, customer_type)')
+      // 'pending' included: a Clay Club signup is pending until an admin
+      // activates it on the member's first visit. Excluding it made brand-new
+      // signups invisible in the Users list entirely.
+      // Ordered newest-first so that when a member has several memberships
+      // (renewals), the current one wins the membershipByEmail lookup and the
+      // earlier ones stay as history.
+      .in('status', ['active', 'expiring', 'pending'])
+      .order('created_at', { ascending: false }),
     // Paginate bookings to avoid Supabase 1000-row default limit
     (async () => {
       let all = [], page = 0, hasMore = true;
@@ -180,6 +187,10 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
   (memberships || []).forEach(m => {
     const email = m.customers?.email;
     if (!email) return;
+    // Memberships arrive newest-first. A member with renewals has several
+    // rows; the first one seen is the current membership and the rest are
+    // history, so never let an older row overwrite it.
+    if (membershipByEmail[email]) return;
     const now = new Date();
     const end = m.end_date ? new Date(m.end_date) : null;
     const daysRemaining = end ? Math.ceil((end - now) / (1000 * 60 * 60 * 24)) : null;

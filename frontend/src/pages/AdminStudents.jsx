@@ -123,6 +123,7 @@ export default function AdminStudents() {
 
   // HB inline editing
   const [editingCredits,      setEditingCredits]      = useState(null);
+  const [resumingId,          setResumingId]          = useState(null);
   const [editCreditsUsed,     setEditCreditsUsed]     = useState('');
   const [editCreditsAllocated,setEditCreditsAllocated]= useState('');
 
@@ -263,6 +264,22 @@ export default function AdminStudents() {
     setEditingCredits(null);
     setEditCreditsUsed('');
     setEditCreditsAllocated('');
+  };
+
+  // Resume a paused enrollment. Lives here rather than on a separate page so
+  // paused students are actioned from the same list they already appear in.
+  const handleResumeStudent = async (student) => {
+    if (!student.studentId) { alert('Cannot resume: student id missing'); return; }
+    if (!confirm(`Resume ${student.name}?\n\nTheir paused enrolment becomes active again.`)) return;
+    try {
+      setResumingId(student.studentId);
+      await api.post(`/admin/students/${student.studentId}/resume`);
+      await loadStats();
+    } catch (error) {
+      alert(`Failed to resume: ${error.response?.data?.error || error.message}`);
+    } finally {
+      setResumingId(null);
+    }
   };
 
   const saveInlineCredits = async (student) => {
@@ -811,7 +828,13 @@ export default function AdminStudents() {
                         {student._hbTotal != null && (
                           <AllocBar label="HB" used={student.classesAttended || 0} total={student._hbTotal} color={isHB && hbAllUsed ? '#2E7D32' : '#E65100'} />
                         )}
-                        {student._wtTotal == null && student._hbTotal == null && (
+                        {/* Paused rows carry no WT/HB allocation, so show how far
+                            through the course the pause happened instead. */}
+                        {student._statusKey === 'paused' && student.numberOfWeeks != null && (
+                          <AllocBar label="WT" used={student.weeksCompleted || 0} total={student.numberOfWeeks} color={MUTED} />
+                        )}
+                        {student._wtTotal == null && student._hbTotal == null
+                          && !(student._statusKey === 'paused' && student.numberOfWeeks != null) && (
                           <span style={{ fontSize: '10px', color: MUTED }}>—</span>
                         )}
 
@@ -839,7 +862,23 @@ export default function AdminStudents() {
                           </div>
                         )}
                       </div>
-                      <div><StatusBadge status={statusKey} /></div>
+                      <div>
+                        <StatusBadge status={statusKey} />
+                        {statusKey === 'paused' && (
+                          <button
+                            onClick={e => { e.stopPropagation(); handleResumeStudent(student); }}
+                            disabled={resumingId === student.studentId}
+                            style={{
+                              display: 'block', marginTop: '4px', padding: '2px 6px',
+                              backgroundColor: 'transparent', color: '#2E7D32', border: '1px solid #A5D6A7',
+                              fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                              cursor: resumingId === student.id ? 'default' : 'pointer', opacity: resumingId === student.id ? 0.5 : 1,
+                            }}
+                          >
+                            {resumingId === student.id ? '…' : 'Resume'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
 

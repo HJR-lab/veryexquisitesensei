@@ -142,7 +142,7 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
   const [{ data: memberships }, { data: bookingRows }] = await Promise.all([
     supabaseDb.supabase
       .from('memberships')
-      .select('id, customer_id, membership_type, status, start_date, end_date, customers!memberships_customer_id_fkey(email, first_name, last_name, customer_type)')
+      .select('id, customer_id, membership_type, status, start_date, end_date, purchase_date, customers!memberships_customer_id_fkey(email, first_name, last_name, customer_type)')
       .in('status', ['active', 'expiring']),
     // Paginate bookings to avoid Supabase 1000-row default limit
     (async () => {
@@ -306,10 +306,14 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
         email,
         courseType: null, courseTitle: null, variantTitle: null, courseIdentifier: null,
         enrollmentStatus: 'member', enrollmentId: null,
-        enrollmentCreatedAt: m.start_date,
+        // A pending Clay Club membership has no start_date — the term only
+        // begins on the member's first visit. Falling back to purchase_date
+        // keeps them sorted by when they actually signed up; without it they
+        // sort as epoch 0 and land at the very bottom of the Users list.
+        enrollmentCreatedAt: m.start_date || m.purchase_date,
         isHB: false, isWT: false,
         membership: membershipByEmail[email],
-        latestEnrollmentDate: m.start_date,
+        latestEnrollmentDate: m.start_date || m.purchase_date,
         customerType: m.customers.customer_type
       });
     }

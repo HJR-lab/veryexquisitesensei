@@ -26,7 +26,6 @@ const AdminMemberships = lazy(() => import('./pages/AdminMemberships'));
 const AdminGallery = lazy(() => import('./pages/AdminGallery'));
 const AdminReference = lazy(() => import('./pages/AdminReference'));
 const AdminClasses = lazy(() => import('./pages/AdminClasses'));
-const AdminPausedStudents = lazy(() => import('./pages/AdminPausedStudents'));
 const AdminStudioPolicy = lazy(() => import('./pages/AdminStudioPolicy'));
 const AdminEvents = lazy(() => import('./pages/AdminEvents'));
 const AdminInstructors = lazy(() => import('./pages/AdminInstructors'));
@@ -215,7 +214,6 @@ function App() {
             <Route path="dashboard" element={<AdminDashboard />} />
             <Route path="utility" element={<UtilityDashboard />} />
             <Route path="students" element={<AdminStudents />} />
-            <Route path="students/paused" element={<AdminPausedStudents />} />
             <Route path="students/:email" element={<AdminStudentDetail />} />
             <Route path="memberships" element={<AdminMemberships />} />
             <Route path="gallery" element={<AdminGallery />} />

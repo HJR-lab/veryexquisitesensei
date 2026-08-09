@@ -93,7 +93,8 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
     .select(`
       id, student_id, course_type, course_title, course_variant_title,
       course_identifier, schedule_pattern, class_time, status,
-      number_of_weeks, class_credits_allocated, class_credits_used, class_credits_remaining,
+      number_of_weeks, weeks_completed, weeks_remaining,
+      class_credits_allocated, class_credits_used, class_credits_remaining,
       course_start_date, course_end_date, created_at, package_total_courses,
       customers!course_enrollments_student_id_fkey (
         id, email, first_name, last_name, customer_type,
@@ -110,7 +111,8 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
     .select(`
       id, student_id, course_type, course_title, course_variant_title,
       course_identifier, schedule_pattern, class_time, status,
-      number_of_weeks, class_credits_allocated, class_credits_used, class_credits_remaining,
+      number_of_weeks, weeks_completed, weeks_remaining,
+      class_credits_allocated, class_credits_used, class_credits_remaining,
       course_start_date, course_end_date, created_at, package_total_courses,
       customers!course_enrollments_student_id_fkey (
         id, email, first_name, last_name, customer_type,
@@ -218,6 +220,7 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
     }
 
     const entry = {
+      studentId: student.id,
       name: `${student.first_name || ''} ${student.last_name || ''}`.trim() || 'Unknown',
       email: student.email,
       courseType: enr.course_type,
@@ -232,6 +235,10 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
       schedulePattern: enr.schedule_pattern,
       classTime: enr.class_time,
       numberOfWeeks: enr.number_of_weeks,
+      // Pause progress — surfaced on paused rows in the Users list so the
+      // standalone /admin/students/paused page is no longer needed.
+      weeksCompleted: enr.weeks_completed || 0,
+      weeksRemaining: enr.weeks_remaining ?? enr.number_of_weeks,
       packageTotalCourses: enr.package_total_courses,
       creditsAllocated: isHB ? enr.class_credits_allocated : null,
       creditsUsed: isHB ? (enr._computedCredits?.attended ?? enr.class_credits_used) : null,
@@ -341,7 +348,8 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
     .select(`
       id, student_id, course_type, course_title, course_variant_title,
       course_identifier, schedule_pattern, class_time, status,
-      number_of_weeks, class_credits_allocated, class_credits_used, class_credits_remaining,
+      number_of_weeks, weeks_completed, weeks_remaining,
+      class_credits_allocated, class_credits_used, class_credits_remaining,
       course_start_date, course_end_date, created_at, package_total_courses,
       package_courses_remaining,
       customers!course_enrollments_student_id_fkey (
@@ -1527,57 +1535,6 @@ app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandl
       },
       message: 'Student statistics calculated successfully'
     });
-
-}));
-
-// Get paused students
-app.get('/api/admin/students/paused/list', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
-  // Get all paused enrollments
-  const { data: pausedEnrollments, error } = await supabaseDb.supabase
-    .from('course_enrollments')
-    .select(`
-      id,
-      student_id,
-      course_title,
-      course_type,
-      course_identifier,
-      number_of_weeks,
-      weeks_completed,
-      weeks_remaining,
-      course_start_date,
-      updated_at,
-      customers (
-        id,
-        first_name,
-        last_name,
-        email
-      )
-    `)
-    .eq('status', 'paused')
-    .order('updated_at', { ascending: false });
-
-  if (error) throw error;
-
-  // Format the response
-  const pausedStudents = pausedEnrollments.map(enrollment => ({
-    enrollmentId: enrollment.id,
-    studentId: enrollment.student_id,
-    name: `${enrollment.customers.first_name || ''} ${enrollment.customers.last_name || ''}`.trim(),
-    email: enrollment.customers.email,
-    courseTitle: enrollment.course_title,
-    courseType: enrollment.course_type,
-    courseIdentifier: enrollment.course_identifier,
-    totalWeeks: enrollment.number_of_weeks,
-    weeksCompleted: enrollment.weeks_completed || 0,
-    weeksRemaining: enrollment.weeks_remaining || enrollment.number_of_weeks,
-    pausedDate: enrollment.updated_at,
-    courseStartDate: enrollment.course_start_date
-  }));
-
-  res.json({
-    count: pausedStudents.length,
-    students: pausedStudents
-  });
 
 }));
 

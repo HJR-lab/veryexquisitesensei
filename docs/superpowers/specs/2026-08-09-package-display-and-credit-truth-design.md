@@ -61,7 +61,23 @@ Ryan Ling is the worked example:
 - Package 1 (5231): bought 10, attended 9 — the 6-week block plus 3 flex. Closed, nothing owed.
 - Package 2 (5355): bought 10, allocated **12**, attended 7, **5 owed**
 
-The 12 is larger than the 10 he purchased because it absorbs both carry-over from package 1 and a no-show that was returned to him on appeal. The exact composition was not reconstructed from the data — 12 and 5 owed are Justin's figures, confirmed 09/08/26, and the record was corrected to match. What matters for design is that a package's allocation can legitimately exceed the product it was sold as.
+The 12 exceeds the 10 he purchased because it absorbs carry-over from package 1 plus manual adjustments. A package's allocation can therefore legitimately exceed the product it was sold as.
+
+### A2. Manual adjustments and the ledger drift apart — worked example
+
+Ryan's balance could not be explained from the database alone. It was reconstructed from the `info@ves.sg` email thread on 09/08/26, which revealed three interventions over four months and two distinct defects:
+
+| date | request | what was done | what the ledger held |
+|---|---|---|---|
+| 22/04 | injury, missing 28 Apr | *"you have 4 flex credits"* | carry-over confirmed |
+| 26/06 | reschedule, class already passed | *"we have credited back your class"* | booking already `cancelled`, which **already returns** the credit — so it was returned twice |
+| 04/08 | attended a class absent from the portal, **asked to be charged** | charged in the counter | **no booking existed at all** — recorded attendance understated reality by one |
+
+The allocation had then been inflated to absorb both. Nothing carried an audit trail; the only record was Gmail.
+
+Resolved by recording the 4 Aug class as a real booking (30031, class instance 14383) rather than hand-setting a number. Computed and stored now agree at 4 remaining for the first time on that record.
+
+This is the strongest argument in this document for a single source of truth. Every failure came from the counter and the ledger being edited independently — a credit returned twice because the ledger had already handled it, an attended class charged in the counter but missing from the ledger, and an allocation inflated to paper over both.
 
 Any display treating one row as one package misrepresents this. The design above still shows one row per enrollment, which is acceptable because the allocation on the live row already absorbs the carry-over — but the assumption must be stated, because it is not obvious from the schema.
 

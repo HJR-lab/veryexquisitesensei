@@ -585,6 +585,8 @@ export default function AdminStudents() {
       .filter(s => {
         if (uiFilter === 'all' || isOnMemberTab) return true;
         if (uiFilter === 'members') return s._type === 'member' || s._type === 'student-member';
+        // Replaces the old standalone /admin/students/paused page.
+        if (uiFilter === 'paused') return s._statusKey === 'paused';
         if (uiFilter === 'wt-all') return getPackageKey(s).startsWith('pkg-wt');
         if (uiFilter === 'hb-all') return getPackageKey(s).startsWith('pkg-hb');
         return getPackageKey(s) === uiFilter;
@@ -607,6 +609,7 @@ export default function AdminStudents() {
     { key: 'pkg-hb4',   label: '  HB 4 Weeks' },
     { key: 'pkg-hb8',   label: '  HB 8 Weeks' },
     { key: 'members',   label: 'Memberships' },
+    { key: 'paused',    label: 'Paused' },
   ];
 
   const studentSortOptions = [

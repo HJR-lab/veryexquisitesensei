@@ -797,6 +797,12 @@ export default function AdminStudentDetail() {
     // Never mark as completed if HB enrollment still has credits remaining
     const isHB = enrollment && (enrollment.course_type || '').toLowerCase().includes('handbuilding');
     if (isHB && enrollment?.class_credits_remaining > 0) return false;
+    // Same for any other course the student still holds unused credits against — converting
+    // a WT student's last weeks to credits leaves only past bookings behind, which would
+    // otherwise hide the entire course. Mirrors isActiveEnrollmentEnded() on the server.
+    const groupEnrollmentId = group[0]?.course_enrollment_id;
+    if (enrollment?.id && groupEnrollmentId === enrollment.id
+        && (enrollment.class_credits_remaining || 0) > 0) return false;
     return group.every(b => {
       const d = new Date(b.class_date); d.setHours(0,0,0,0);
       return (b.status === 'attended' || b.status === 'completed') && d < today;

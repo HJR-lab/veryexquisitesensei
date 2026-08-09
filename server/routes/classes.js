@@ -520,18 +520,33 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   let enrollmentCredits = 0;
   let creditEnrollment = null;
   if (remainingCredits <= 0) {
-    const { data: activeEnrollments } = await supabaseDb.supabase
+    // 'completed' is included deliberately: a 10-class package keeps its flex
+    // classes after the 6-week cohort ends, and the student must still be able
+    // to book them. Gating on 'active' alone locked them out of classes they own.
+    const { data: candidates } = await supabaseDb.supabase
       .from('course_enrollments')
       .select('id, course_type, class_credits_remaining, class_credits_used, number_of_weeks')
       .eq('student_id', dbCustomerId)
-      .eq('status', 'active')
-      .gt('class_credits_remaining', 0);
+      .in('status', ['active', 'completed']);
 
-    if (activeEnrollments && activeEnrollments.length > 0) {
+    // Eligibility comes from the bookings ledger, not the stored counter, which
+    // drifts. The one exception is an explicit stored zero — that means an admin
+    // closed the block, and it wins over the ledger (same convention as
+    // admin.js). Historic enrollments carrying no bookings stay closed that way.
+    const withCredits = [];
+    for (const e of candidates || []) {
+      if (e.class_credits_remaining === 0) continue;
+      const credits = await supabaseDb.getEnrollmentCredits(e.id);
+      if (credits.remaining > 0) {
+        withCredits.push({ ...e, computedRemaining: credits.remaining, computedCommitted: credits.committed });
+      }
+    }
+
+    if (withCredits.length > 0) {
       // Prefer 10-class package, then any enrollment with credits
-      creditEnrollment = activeEnrollments.find(e => e.number_of_weeks >= 10 || (e.course_type || '').includes('10 Classes'))
-        || activeEnrollments[0];
-      enrollmentCredits = creditEnrollment.class_credits_remaining;
+      creditEnrollment = withCredits.find(e => e.number_of_weeks >= 10 || (e.course_type || '').includes('10 Classes'))
+        || withCredits[0];
+      enrollmentCredits = creditEnrollment.computedRemaining;
     }
   }
 
@@ -746,8 +761,11 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
     await supabaseDb.supabase
       .from('course_enrollments')
       .update({
-        class_credits_used: (creditEnrollment.class_credits_used || 0) + 1,
-        class_credits_remaining: creditEnrollment.class_credits_remaining - 1,
+        // Write back from the computed figures, not the old stored ones — the
+        // booking just created is counted by the ledger, so this keeps the
+        // counter converging on the truth instead of carrying drift forward.
+        class_credits_used: creditEnrollment.computedCommitted + 1,
+        class_credits_remaining: creditEnrollment.computedRemaining - 1,
         updated_at: new Date().toISOString()
       })
       .eq('id', creditEnrollment.id);

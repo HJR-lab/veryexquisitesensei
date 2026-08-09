@@ -685,6 +685,25 @@ async function getExpiredWaitlistOffers() {
 
 
 /**
+ * Total allocation to persist when a booking is turned back into a credit.
+ *
+ * class_credits_allocated is only populated for HB blocks and 10-class packages. On a plain
+ * WT enrollment it is null and the real total lives in number_of_weeks — and every reader
+ * (getEnrollmentCredits, anomalyProbe, Dashboard, AdminStudentDetail) resolves it as
+ * `class_credits_allocated || number_of_weeks`. So writing a bare 1 here would clobber the
+ * course length and make the student's whole course read as a single class.
+ *
+ * Converting a booking is entitlement-neutral: the total can only ever hold or grow.
+ *
+ * @param {{allocated:number, numberOfWeeks:number, committedBefore:number}} input
+ *   committedBefore — attended + booked bookings, counted before the conversion.
+ * @returns {number} allocation to store (always >= 1, so `allocated > 0` still means "credits live")
+ */
+function resolveCreditAllocation({ allocated = 0, numberOfWeeks = 0, committedBefore = 0 }) {
+  return Math.max(allocated || 0, numberOfWeeks || 0, committedBefore || 0, 1);
+}
+
+/**
  * Compute enrollment credits from actual bookings (source of truth).
  * Never trust class_credits_used / class_credits_remaining columns — they go stale.
  *
@@ -738,6 +757,7 @@ async function getEnrollmentCredits(enrollmentId) {
 
 module.exports = {
   getEnrollmentCredits,
+  resolveCreditAllocation,
   getAvailableClasses,
   getClassInstanceById,
   updateClassEnrollment,

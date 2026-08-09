@@ -4203,6 +4203,14 @@ app.post('/api/admin/bookings/:bookingId/convert-to-credit', authenticateToken, 
     return res.status(400).json({ error: 'Enrollment not found' });
   }
 
+  // Count what the enrollment is committed to BEFORE the conversion — this is the floor for
+  // the total allocation, so turning a booking into a credit can never shrink the course.
+  const { count: committedBefore } = await supabase
+    .from('bookings')
+    .select('id', { count: 'exact', head: true })
+    .eq('course_enrollment_id', enrollment.id)
+    .in('status', ['attended', 'completed', 'booked']);
+
   // Cancel the booking
   await supabase
     .from('bookings')
@@ -4213,12 +4221,15 @@ app.post('/api/admin/bookings/:bookingId/convert-to-credit', authenticateToken, 
   await supabaseDb.updateClassEnrollment(booking.class_instance_id, -1);
 
   // Add credit back to enrollment
-  const allocated = enrollment.class_credits_allocated || 0;
-  const newAllocated = allocated > 0 ? allocated : 1; // ensure at least 1 if converting for the first time
+  const newAllocated = supabaseDb.resolveCreditAllocation({
+    allocated: enrollment.class_credits_allocated,
+    numberOfWeeks: enrollment.number_of_weeks,
+    committedBefore: committedBefore || 0
+  });
   await supabase
     .from('course_enrollments')
     .update({
-      class_credits_allocated: Math.max(newAllocated, allocated),
+      class_credits_allocated: newAllocated,
       class_credits_used: Math.max(0, (enrollment.class_credits_used || 0) - 1),
       class_credits_remaining: (enrollment.class_credits_remaining || 0) + 1,
       updated_at: new Date().toISOString()

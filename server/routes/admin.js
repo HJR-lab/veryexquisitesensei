@@ -1793,9 +1793,10 @@ app.get('/api/admin/students/:id/enrollment', authenticateToken, requireAdmin, a
     const isUpcoming = enrollment.course_start_date && enrollment.course_start_date > today;
     enrollment = { ...enrollment, display_status: isUpcoming ? 'upcoming' : enrollment.status };
 
-    // Compute credits from bookings for HB and 10-class enrollments
-    const isHBOrCredit = (enrollment.course_type || '').toLowerCase().includes('handbuilding') || (enrollment.number_of_weeks || 0) >= 10;
-    if (isHBOrCredit && enrollment.class_credits_allocated > 0) {
+    // Compute credits from bookings for any enrollment that tracks them — HB blocks,
+    // 10-class packages, and WT courses whose weeks were converted to credits (the
+    // columns go stale, and the UI hides a course it believes has nothing left).
+    if (enrollment.class_credits_allocated > 0) {
       const credits = await supabaseDb.getEnrollmentCredits(enrollment.id);
       enrollment = {
         ...enrollment,

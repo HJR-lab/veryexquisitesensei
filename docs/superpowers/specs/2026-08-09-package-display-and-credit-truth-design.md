@@ -1,7 +1,8 @@
 # Package Display & Credit Source of Truth
 
 **Date:** 09/08/26
-**Status:** Design approved, not implemented
+**Status:** All five sequencing steps built. Steps 1–4 shipped (PRs #65, #66);
+step 5, the un-forfeit action, is in PR #67.
 **Kanban:** t_e3a1f710 (display), t_6e9d9f42 (un-forfeit action)
 
 ## Problem
@@ -116,6 +117,8 @@ Order is load-bearing.
 3. **Switch booking eligibility to computed credits**, honouring an explicit admin zero as an override — the pattern already used at `admin.js:133`.
 4. **Apply the display change** described above.
 5. **Build the admin un-forfeit action** (t_6e9d9f42). Today the only way to return a no-show is to inflate someone's allocation, which is exactly how Ryan's record ended up with 12 and 11 disagreeing.
+
+   Built as `POST /api/admin/bookings/:bookingId/unforfeit`, separate from `convert-to-credit` precisely so it never writes `class_credits_allocated`. It does write the stored `class_credits_used` / `class_credits_remaining`, because steps 1–3 left an explicit stored zero as an admin override that is read *before* the ledger — a returned credit would otherwise be visible and unbookable. Every reversal writes who, when and why to `booking_credit_adjustments`, which answers A2 above.
 
 Steps 1 and 2 before step 3, or students gain classes they are not owed. Step 5 after step 1, or a returned credit is granted twice.
 

@@ -710,6 +710,17 @@ function resolveCreditAllocation({ allocated = 0, numberOfWeeks = 0, committedBe
  * @param {number} enrollmentId
  * @returns {{ allocated, attended, booked, committed, remaining }}
  */
+// Booking statuses that consume a class credit.
+//   attended / completed — taken
+//   booked               — committed, not yet taken
+//   forfeited / absent   — no-show; the class is burnt. An admin may return it on
+//                          appeal, but that is an explicit action, never automatic.
+// Deliberately excluded: 'cancelled' returns the credit, and 'rescheduled' is neutral
+// because a replacement booking exists and is counted in its own right.
+const CREDIT_CONSUMING_STATUSES = ['attended', 'completed', 'booked', 'forfeited', 'absent'];
+const TAKEN_STATUSES = ['attended', 'completed'];
+const BURNT_STATUSES = ['forfeited', 'absent'];
+
 async function getEnrollmentCredits(enrollmentId) {
   const { data: enr } = await supabase
     .from('course_enrollments')
@@ -717,7 +728,7 @@ async function getEnrollmentCredits(enrollmentId) {
     .eq('id', enrollmentId)
     .single();
 
-  if (!enr) return { allocated: 0, attended: 0, booked: 0, committed: 0, remaining: 0 };
+  if (!enr) return { allocated: 0, attended: 0, booked: 0, forfeited: 0, committed: 0, remaining: 0 };
 
   const isHB = (enr.course_type || '').toLowerCase().includes('handbuilding');
   const is10Class = (enr.number_of_weeks || 0) >= 10;
@@ -732,13 +743,14 @@ async function getEnrollmentCredits(enrollmentId) {
       .from('bookings')
       .select('id, status')
       .eq('course_enrollment_id', enrollmentId)
-      .in('status', ['attended', 'completed', 'booked']);
+      .in('status', CREDIT_CONSUMING_STATUSES);
 
-    const attended = (allBookings || []).filter(b => b.status === 'attended' || b.status === 'completed').length;
+    const attended = (allBookings || []).filter(b => TAKEN_STATUSES.includes(b.status)).length;
     const booked = (allBookings || []).filter(b => b.status === 'booked').length;
-    const committed = attended + booked;
+    const forfeited = (allBookings || []).filter(b => BURNT_STATUSES.includes(b.status)).length;
+    const committed = attended + booked + forfeited;
     const remaining = Math.max(0, totalAlloc - committed);
-    return { allocated: totalAlloc, attended, booked, committed, remaining };
+    return { allocated: totalAlloc, attended, booked, forfeited, committed, remaining };
   }
 
   // HB and standard enrollments: count all bookings
@@ -746,13 +758,14 @@ async function getEnrollmentCredits(enrollmentId) {
     .from('bookings')
     .select('id, status')
     .eq('course_enrollment_id', enrollmentId)
-    .in('status', ['attended', 'completed', 'booked']);
+    .in('status', CREDIT_CONSUMING_STATUSES);
 
-  const attended = (bookings || []).filter(b => b.status === 'attended' || b.status === 'completed').length;
+  const attended = (bookings || []).filter(b => TAKEN_STATUSES.includes(b.status)).length;
   const booked = (bookings || []).filter(b => b.status === 'booked').length;
-  const committed = attended + booked;
+  const forfeited = (bookings || []).filter(b => BURNT_STATUSES.includes(b.status)).length;
+  const committed = attended + booked + forfeited;
   const remaining = Math.max(0, allocated - committed);
-  return { allocated, attended, booked, committed, remaining };
+  return { allocated, attended, booked, forfeited, committed, remaining };
 }
 
 module.exports = {

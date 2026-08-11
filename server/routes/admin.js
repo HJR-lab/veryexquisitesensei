@@ -3185,6 +3185,10 @@ app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, requireAdm
   const formattedBookings = bookings.map(booking => ({
     id: booking.id,
     status: STATUS_DISPLAY[booking.status] || booking.status,
+    // The un-forfeit action has to key on the real status, not the normalised
+    // display one — 'missed' covers both forfeited and absent, and neither the
+    // filter nor the badge should start distinguishing them.
+    raw_status: booking.status,
     attended: booking.attended,
     class_instance_id: booking.class_instance_id,  // Include for double-booking prevention
     course_enrollment_id: booking.course_enrollment_id,
@@ -4244,6 +4248,134 @@ app.post('/api/admin/bookings/:bookingId/convert-to-credit', authenticateToken, 
     message: 'Booking converted to class credit',
     creditsRemaining: (enrollment.class_credits_remaining || 0) + 1
   });
+}));
+
+// Return a forfeited (no-show) class credit on appeal.
+//
+// Policy, confirmed by Justin 09/08/26: a no-show burns the class, but an admin
+// may return it if the student writes in with a proper explanation.
+//
+// Deliberately NOT folded into convert-to-credit above. That endpoint writes
+// class_credits_allocated (a destructive override — a small value there clobbers
+// the number_of_weeks fallback and shrinks the whole course) and decrements the
+// class instance's enrolment count. Both are wrong here: the class is in the
+// past, the seat was genuinely occupied, and un-forfeiting only ever REMOVES a
+// consuming booking, so the allocation floor can never be breached.
+app.post('/api/admin/bookings/:bookingId/unforfeit', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { bookingId } = req.params;
+  const { reason } = req.body || {};
+  const { supabase } = supabaseDb;
+
+  const trimmedReason = (reason || '').trim();
+  if (!trimmedReason) {
+    return res.status(400).json({ error: 'A reason is required to return a forfeited credit' });
+  }
+  if (trimmedReason.length > 500) {
+    return res.status(400).json({ error: 'Reason must be 500 characters or fewer' });
+  }
+
+  const { data: booking, error: bookingErr } = await supabase
+    .from('bookings')
+    .select('id, student_id, class_instance_id, status, course_enrollment_id')
+    .eq('id', bookingId)
+    .single();
+
+  if (bookingErr || !booking) {
+    return res.status(404).json({ error: 'Booking not found' });
+  }
+  if (!['forfeited', 'absent'].includes(booking.status)) {
+    return res.status(400).json({ error: `Only a forfeited or absent booking can be un-forfeited (this one is ${booking.status})` });
+  }
+
+  // 'cancelled' is the existing convention for "this booking returns its credit"
+  // — see CREDIT_CONSUMING_STATUSES in bookingDb.js, which excludes it. No new
+  // status is invented. attended is cleared because the reversal withdraws the
+  // no-show finding; the class was never attended either way.
+  const { error: updateErr } = await supabase
+    .from('bookings')
+    .update({
+      status: 'cancelled',
+      attended: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', bookingId);
+
+  if (updateErr) {
+    console.error('Error un-forfeiting booking:', updateErr);
+    return res.status(500).json({ error: 'Failed to un-forfeit booking' });
+  }
+
+  // The counter of record for the student's no-shows.
+  await supabaseDb.decrementClassesForfeited(booking.student_id);
+
+  // Lift the stored counters too. The bookings ledger is the source of truth, but
+  // BOTH booking eligibility (classes.js) and the admin Users list (admin.js:133)
+  // treat an explicit stored zero as "an admin closed this block" and skip the
+  // enrollment before the ledger is ever consulted. Without this the returned
+  // credit would be visible and unbookable. class_credits_allocated is left
+  // alone on purpose — inflating it is exactly what tangled Ryan Ling's record.
+  let credits = null;
+  if (booking.course_enrollment_id) {
+    const { data: enrollment } = await supabase
+      .from('course_enrollments')
+      .select('id, class_credits_used, class_credits_remaining')
+      .eq('id', booking.course_enrollment_id)
+      .single();
+
+    if (enrollment) {
+      await supabase
+        .from('course_enrollments')
+        .update({
+          class_credits_used: Math.max(0, (enrollment.class_credits_used || 0) - 1),
+          class_credits_remaining: (enrollment.class_credits_remaining || 0) + 1,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', enrollment.id);
+    }
+
+    credits = await supabaseDb.getEnrollmentCredits(booking.course_enrollment_id);
+  }
+
+  // Audit trail. A hand-moved class credit is never silent — the 09/08/26 review
+  // found three such adjustments whose only record was a Gmail thread.
+  const { error: auditErr } = await supabase
+    .from('booking_credit_adjustments')
+    .insert({
+      booking_id: booking.id,
+      student_id: booking.student_id,
+      course_enrollment_id: booking.course_enrollment_id,
+      action: 'unforfeit',
+      previous_status: booking.status,
+      new_status: 'cancelled',
+      reason: trimmedReason,
+      admin_id: req.user.dbCustomerId || null,
+      admin_email: req.user.email || null,
+    });
+
+  if (auditErr) console.error('Error writing credit adjustment audit row:', auditErr);
+
+  console.log(`↩️  Un-forfeited booking ${booking.id} for student ${booking.student_id} — ${trimmedReason}`);
+
+  res.json({
+    success: true,
+    message: 'Credit returned. The booking is now cancelled and the class is available again.',
+    creditsRemaining: credits ? credits.remaining : null,
+  });
+}));
+
+// Credit adjustments made by hand on this student's bookings (audit trail).
+app.get('/api/admin/students/:studentId/credit-adjustments', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { studentId } = req.params;
+
+  const { data, error } = await supabaseDb.supabase
+    .from('booking_credit_adjustments')
+    .select('id, booking_id, course_enrollment_id, action, previous_status, new_status, reason, admin_email, created_at')
+    .eq('student_id', parseInt(studentId))
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  if (error) throw error;
+  res.json({ adjustments: data || [] });
 }));
 
 // Toggle booking type between regular and makeup

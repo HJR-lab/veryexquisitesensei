@@ -36,6 +36,13 @@ export default function StudentBookingsTab({
   deletingBookingId,
   handleDeleteBooking,
   handleConvertToCredit,
+  unforfeitConfirmId = null,
+  setUnforfeitConfirmId,
+  unforfeitReason = '',
+  setUnforfeitReason,
+  unforfeiting = false,
+  handleUnforfeit,
+  creditAdjustments = [],
   isHBEnrollment = false,
   hbCreditsAllocated = 0,
   waitlistEntries = [],
@@ -154,12 +161,51 @@ export default function StudentBookingsTab({
                         style={{ padding: '4px 10px', border: `1px solid ${TC}`, background: 'none', cursor: 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: TC }}
                       >Convert</button>
                     )}
+                    {/* A no-show burns the class. This gives it back when the
+                        student appeals — keyed on the raw status because the API
+                        shows both forfeited and absent as 'missed'. */}
+                    {handleUnforfeit && ['forfeited', 'absent'].includes(booking.raw_status) && (
+                      <button
+                        onClick={() => { setUnforfeitConfirmId(booking.id); setUnforfeitReason(''); }}
+                        style={{ padding: '4px 10px', border: `1px solid ${TC}`, background: 'none', cursor: 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: TC }}
+                      >Return credit</button>
+                    )}
                     <button
                       onClick={() => setDeleteConfirmId(booking.id)}
                       style={{ padding: '4px 10px', border: '1px solid #F0C0C0', background: 'none', cursor: 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: '#C03030' }}
                     >Delete</button>
                   </div>
                 </div>
+
+                {/* Inline return-credit confirm. The reason is mandatory — the
+                    reversal is written to the credit adjustment audit trail. */}
+                {unforfeitConfirmId === booking.id && (
+                  <div style={{ padding: '12px 16px', backgroundColor: TC_LIGHT, borderTop: `1px solid ${TC}` }}>
+                    <div style={{ fontSize: '12px', color: TC_DARK, marginBottom: '8px' }}>
+                      Return this missed class as a credit? The booking becomes cancelled and the credit goes back to the student.
+                    </div>
+                    <input
+                      type="text"
+                      value={unforfeitReason}
+                      onChange={e => setUnforfeitReason(e.target.value)}
+                      maxLength={500}
+                      placeholder="Reason (required) — e.g. medical certificate provided, wrote in 12 Aug"
+                      style={{ width: '100%', padding: '8px 10px', border: `1px solid ${TC}`, fontSize: '12px', boxSizing: 'border-box', fontFamily: 'Atak, sans-serif', marginBottom: '8px' }}
+                    />
+                    <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                      <button
+                        onClick={() => { setUnforfeitConfirmId(null); setUnforfeitReason(''); }}
+                        disabled={unforfeiting}
+                        style={{ padding: '5px 12px', border: `1px solid ${RULE}`, background: 'none', cursor: 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: MUTED }}
+                      >Cancel</button>
+                      <button
+                        onClick={() => handleUnforfeit(booking.id)}
+                        disabled={unforfeiting || !unforfeitReason.trim()}
+                        style={{ padding: '5px 12px', border: 'none', backgroundColor: TC, cursor: (unforfeiting || !unforfeitReason.trim()) ? 'not-allowed' : 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', color: '#FFF', opacity: (unforfeiting || !unforfeitReason.trim()) ? 0.5 : 1 }}
+                      >{unforfeiting ? 'Returning…' : 'Confirm Return'}</button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Inline delete confirm */}
                 {deleteConfirmId === booking.id && (
@@ -250,6 +296,35 @@ export default function StudentBookingsTab({
           )}
         </div>
       </div>
+
+      {/* Credit adjustments made by hand. An un-forfeited booking becomes
+          'cancelled' and drops out of the table above, so without this the
+          reversal would leave no trace on screen — which is how three of
+          Ryan Ling's adjustments ended up recorded only in Gmail. */}
+      {creditAdjustments.length > 0 && (
+        <div style={{ borderTop: `1px solid ${RULE}` }}>
+          <div style={{ padding: '10px 16px', backgroundColor: ALT }}>
+            <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED }}>
+              Credit adjustments
+            </span>
+          </div>
+          {creditAdjustments.map(adj => (
+            <div key={adj.id} style={{ padding: '10px 16px', borderTop: `1px solid ${RULE}`, fontSize: '12px' }}>
+              <div style={{ color: INK }}>
+                <span style={{ fontWeight: 700 }}>
+                  {adj.action === 'unforfeit' ? 'Credit returned' : adj.action}
+                </span>
+                {' — '}{adj.reason}
+              </div>
+              <div style={{ fontSize: '11px', color: MUTED, marginTop: '2px' }}>
+                {new Date(adj.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                {adj.admin_email ? ` · ${adj.admin_email}` : ''}
+                {` · booking #${adj.booking_id} ${adj.previous_status} → ${adj.new_status}`}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

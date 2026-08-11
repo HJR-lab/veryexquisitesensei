@@ -165,6 +165,12 @@ export default function AdminStudentDetail() {
   const [statusFilter, setStatusFilter]         = useState('all');
   const [deleteConfirmId, setDeleteConfirmId]   = useState(null);
   const [deletingBookingId, setDeletingBookingId] = useState(null);
+  // Returning a forfeited class credit on appeal. The reason is mandatory —
+  // this is a money-adjacent reversal and is never recorded silently.
+  const [unforfeitConfirmId, setUnforfeitConfirmId] = useState(null);
+  const [unforfeitReason, setUnforfeitReason]       = useState('');
+  const [unforfeiting, setUnforfeiting]             = useState(false);
+  const [creditAdjustments, setCreditAdjustments]   = useState([]);
 
   // ── Reschedule / Makeup modal ────────────────────────────────────────────
   const [showMakeupModal, setShowMakeupModal]               = useState(false);
@@ -352,6 +358,7 @@ export default function AdminStudentDetail() {
         // Check for 10-class package flex credits across all enrollments
         api.get(`/admin/students/${studentData.id}/flex-credits`).then(r => setFlexCredits(r.data)).catch(() => {});
         api.get(`/admin/students/${studentData.id}/notes`).then(r => setInstructorNotes(r.data.notes || [])).catch(() => {});
+        api.get(`/admin/students/${studentData.id}/credit-adjustments`).then(r => setCreditAdjustments(r.data.adjustments || [])).catch(() => {});
       }
 
       const results = await Promise.all(parallelCalls);
@@ -606,6 +613,27 @@ export default function AdminStudentDetail() {
       alert(error.response?.data?.error || 'Failed to convert to credit');
     } finally {
       setDeletingBookingId(null);
+    }
+  };
+
+  // Return a forfeited (no-show) class credit on appeal. The booking becomes
+  // 'cancelled' — the existing convention for a booking that gives its credit
+  // back — so the row leaves this list and reappears as an unbooked credit.
+  const handleUnforfeit = async (bookingId) => {
+    const reason = unforfeitReason.trim();
+    if (!reason) return;
+    try {
+      setUnforfeiting(true);
+      const { data } = await api.post(`/admin/bookings/${bookingId}/unforfeit`, { reason });
+      setUnforfeitConfirmId(null);
+      setUnforfeitReason('');
+      alert(data.message || 'Credit returned');
+      await loadStudentData();
+    } catch (error) {
+      console.error('Failed to return forfeited credit:', error);
+      alert(error.response?.data?.error || 'Failed to return credit');
+    } finally {
+      setUnforfeiting(false);
     }
   };
 
@@ -1342,6 +1370,13 @@ export default function AdminStudentDetail() {
                 deletingBookingId={deletingBookingId}
                 handleDeleteBooking={handleDeleteBooking}
                 handleConvertToCredit={handleConvertToCredit}
+                unforfeitConfirmId={unforfeitConfirmId}
+                setUnforfeitConfirmId={setUnforfeitConfirmId}
+                unforfeitReason={unforfeitReason}
+                setUnforfeitReason={setUnforfeitReason}
+                unforfeiting={unforfeiting}
+                handleUnforfeit={handleUnforfeit}
+                creditAdjustments={creditAdjustments}
                 isHBEnrollment={isHBEnrollment}
                 hbCreditsAllocated={hbCreditsAllocated}
                 waitlistEntries={studentWaitlist}

@@ -4227,7 +4227,9 @@ app.post('/api/admin/bookings/:bookingId/convert-to-credit', authenticateToken, 
   // Decrement class enrollment count
   await supabaseDb.updateClassEnrollment(booking.class_instance_id, -1);
 
-  // Add credit back to enrollment
+  // Allocation is the one figure the ledger cannot derive, so it is still set
+  // explicitly — and only ever upward, so converting a booking to a credit can
+  // never shrink the course.
   const newAllocated = supabaseDb.resolveCreditAllocation({
     allocated: enrollment.class_credits_allocated,
     numberOfWeeks: enrollment.number_of_weeks,
@@ -4237,18 +4239,20 @@ app.post('/api/admin/bookings/:bookingId/convert-to-credit', authenticateToken, 
     .from('course_enrollments')
     .update({
       class_credits_allocated: newAllocated,
-      class_credits_used: Math.max(0, (enrollment.class_credits_used || 0) - 1),
-      class_credits_remaining: (enrollment.class_credits_remaining || 0) + 1,
       updated_at: new Date().toISOString()
     })
     .eq('id', enrollment.id);
+
+  // Used/remaining follow from the ledger — the booking is 'cancelled' above,
+  // which returns its credit.
+  const credits = await supabaseDb.syncStoredCredits(enrollment.id);
 
   console.log(`🔄 Converted booking ${bookingId} to class credit for enrollment ${enrollment.id}`);
 
   res.json({
     success: true,
     message: 'Booking converted to class credit',
-    creditsRemaining: (enrollment.class_credits_remaining || 0) + 1
+    creditsRemaining: credits ? credits.remaining : null
   });
 }));
 
@@ -4328,20 +4332,21 @@ app.post('/api/admin/bookings/:bookingId/unforfeit', authenticateToken, requireA
       .eq('id', booking.course_enrollment_id)
       .single();
 
-    if (enrollment) {
-      const update = {
-        class_credits_used: Math.max(0, (enrollment.class_credits_used || 0) - 1),
-        class_credits_remaining: (enrollment.class_credits_remaining || 0) + 1,
-        updated_at: new Date().toISOString(),
-      };
-      if (enrollment.credits_closed_at) {
-        update.credits_closed_at = null;
-        update.credits_closed_reason = `Re-opened ${new Date().toISOString().split('T')[0]} by ${req.user.email || 'admin'}: a forfeited class was returned on appeal (booking ${booking.id}). Previously: ${enrollment.credits_closed_reason || 'no reason recorded'}`;
-      }
-      await supabase.from('course_enrollments').update(update).eq('id', enrollment.id);
+    // Re-open first: syncStoredCredits writes 0 for a closed block, so lifting
+    // the closure has to happen before the cache is recomputed or the returned
+    // credit would be zeroed straight back out.
+    if (enrollment && enrollment.credits_closed_at) {
+      await supabase
+        .from('course_enrollments')
+        .update({
+          credits_closed_at: null,
+          credits_closed_reason: `Re-opened ${new Date().toISOString().split('T')[0]} by ${req.user.email || 'admin'}: a forfeited class was returned on appeal (booking ${booking.id}). Previously: ${enrollment.credits_closed_reason || 'no reason recorded'}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', enrollment.id);
     }
 
-    credits = await supabaseDb.getEnrollmentCredits(booking.course_enrollment_id);
+    credits = await supabaseDb.syncStoredCredits(booking.course_enrollment_id);
   }
 
   // Audit trail. A hand-moved class credit is never silent — the 09/08/26 review
@@ -4587,19 +4592,13 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
   if (enrollmentId) {
     const { data: enr } = await supabaseDb.supabase
       .from('course_enrollments')
-      .select('course_type, class_credits_allocated, class_credits_used, class_credits_remaining')
+      .select('course_type, class_credits_allocated')
       .eq('id', enrollmentId)
       .single();
 
+    // The booking exists now, so the cache is derived rather than adjusted.
     if (enr && (enr.class_credits_allocated || 0) > 0) {
-      await supabaseDb.supabase
-        .from('course_enrollments')
-        .update({
-          class_credits_used: (enr.class_credits_used || 0) + 1,
-          class_credits_remaining: Math.max(0, (enr.class_credits_remaining || 0) - 1),
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', enrollmentId);
+      await supabaseDb.syncStoredCredits(enrollmentId);
     }
   }
 
@@ -7745,15 +7744,14 @@ app.post('/api/admin/vouchers/:id/convert-to-enrollment', authenticateToken, req
 
   if (bookErr) throw bookErr;
 
-  // Update credits after booking
+  // Update credits after booking — derived from the rows just inserted rather
+  // than assumed from classInstances.length, so a partial insert can't leave
+  // the counter claiming more was booked than actually was.
+  await supabaseDb.syncStoredCredits(enrollment.id);
+
   await supabase
     .from('course_enrollments')
-    .update({
-      class_credits_used: classInstances.length,
-      class_credits_remaining: 0,
-      bookings_created_at: now,
-      updated_at: now
-    })
+    .update({ bookings_created_at: now, updated_at: now })
     .eq('id', enrollment.id);
 
   // 6. Check cohort threshold and activate draft classes if met

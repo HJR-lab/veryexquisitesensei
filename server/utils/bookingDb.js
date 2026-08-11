@@ -768,8 +768,76 @@ async function getEnrollmentCredits(enrollmentId) {
   return { allocated, attended, booked, forfeited, committed, remaining };
 }
 
+/**
+ * Recompute an enrollment's stored credit cache from the bookings ledger.
+ *
+ * THE ONLY SANCTIONED WRITER of class_credits_used / class_credits_remaining
+ * after an enrollment exists. Call it once, after the booking rows have been
+ * written. Every credit-affecting route used to do its own arithmetic — +1
+ * here, -1 there, computedCommitted + 1 somewhere else — and the 09/08/26
+ * credit review found that every failure came from the counter and the ledger
+ * being edited independently.
+ *
+ * WHAT `used` MEANS — settled here, deliberately, because it previously meant
+ * two different things (admin.js wrote attended-only, classes.js wrote
+ * committed). It is COMMITTED: attended + booked + forfeited. That is the only
+ * definition under which the identity holds:
+ *
+ *     allocated = used + remaining
+ *
+ * which is what makes `remaining` mean anything. Callers that specifically
+ * want attendance should read getEnrollmentCredits().attended, not this column.
+ *
+ * NOT WRITTEN, on purpose:
+ *   - class_credits_allocated. It is an override: for a standard WT enrollment
+ *     the real total lives in number_of_weeks and getEnrollmentCredits reports
+ *     allocated 0, so writing that back would clobber the fallback and shrink
+ *     the course. See project_credits_allocated_override.
+ *   - `used` on a closed block. That counter is history; the block is shut and
+ *     rewriting it would destroy the record of what was consumed.
+ *
+ * @param {number} enrollmentId
+ * @returns {object|null} the computed credits, or null if the enrollment is gone
+ */
+async function syncStoredCredits(enrollmentId) {
+  if (!enrollmentId) return null;
+
+  const { data: enr } = await supabase
+    .from('course_enrollments')
+    .select('id, credits_closed_at')
+    .eq('id', enrollmentId)
+    .single();
+
+  if (!enr) return null;
+
+  const credits = await getEnrollmentCredits(enrollmentId);
+
+  // A closed block advertises nothing, whatever the ledger computes from its
+  // historical bookings — the gates read credits_closed_at, but ~40 display
+  // paths still read this number.
+  const update = {
+    class_credits_remaining: enr.credits_closed_at ? 0 : credits.remaining,
+    updated_at: new Date().toISOString(),
+  };
+  if (!enr.credits_closed_at) update.class_credits_used = credits.committed;
+
+  const { error } = await supabase
+    .from('course_enrollments')
+    .update(update)
+    .eq('id', enrollmentId);
+
+  if (error) {
+    // Never fail the caller's booking over a cache write — the ledger is the
+    // truth and verify-credit-columns.js will catch a stale cache.
+    console.error(`[credits] failed to sync stored cache for enrollment ${enrollmentId}:`, error.message);
+  }
+
+  return credits;
+}
+
 module.exports = {
   getEnrollmentCredits,
+  syncStoredCredits,
   resolveCreditAllocation,
   getAvailableClasses,
   getClassInstanceById,

@@ -418,26 +418,25 @@ app.post('/api/admin/backfill-hb-credits', authenticateToken, requireAdmin, asyn
     // Determine credits based on number_of_weeks
     const credits = enrollment.number_of_weeks || 4;
 
-    // Count attended/completed bookings as used credits
-    const { count: bookingCount } = await supabaseDb.supabase
-      .from('bookings')
-      .select('*', { count: 'exact', head: true })
-      .eq('course_enrollment_id', enrollment.id)
-      .in('status', ['booked', 'attended', 'completed']);
-
-    const used = bookingCount || 0;
-    const remaining = Math.max(credits - used, 0);
-
+    // Allocation is the one figure the ledger cannot derive, so it is set here;
+    // used/remaining are then recomputed from the bookings by syncStoredCredits.
+    //
+    // This used to count ['booked','attended','completed'] itself, which quietly
+    // contradicted the ledger by omitting forfeited and absent — running the
+    // backfill would have handed every no-show its class back, undoing the
+    // policy that a no-show burns it.
     const { error: updateError } = await supabaseDb.supabase
       .from('course_enrollments')
       .update({
         class_credits_allocated: credits,
-        class_credits_used: used,
-        class_credits_remaining: remaining,
         glazing_class_used: false,
         updated_at: new Date().toISOString()
       })
       .eq('id', enrollment.id);
+
+    const synced = await supabaseDb.syncStoredCredits(enrollment.id);
+    const used = synced ? synced.committed : 0;
+    const remaining = synced ? synced.remaining : 0;
 
     if (updateError) {
       console.error(`⚠️  Failed to update enrollment ${enrollment.id}:`, updateError);
@@ -502,6 +501,12 @@ app.post('/api/admin/hb-enrollments/:enrollmentId/set-credits', authenticateToke
     return res.status(400).json({ error: `used (${usedNum}) cannot exceed allocated (${allocatedNum})` });
   }
 
+  // DELIBERATE OVERRIDE, and the last remaining way for the stored counter to
+  // diverge from the bookings ledger. It stays because the admin Users list
+  // drives four workflows off it, including "mark this block fully used".
+  // scripts/verify-credit-columns.js will report any enrollment left disagreeing
+  // with the ledger after it is used. Longer term the "fully used" case is what
+  // credits_closed_at is for — see kanban t_0ff993e9.
   const remaining = Math.max(allocatedNum - usedNum, 0);
 
   const { data: updated, error } = await supabaseDb.supabase

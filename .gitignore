@@ -29,10 +29,21 @@ build/
 *.swp
 *.swo
 *~
+# Personal VS Code workspace files (per-developer paths and folder layout)
+*.code-workspace
 
 # Agent/tooling scratch
 .claude/worktrees/
 .superpowers/
+# Codex (Duex) local config
+.codex/
+# Playwright MCP console/network dumps from browser-driven testing
+.playwright-mcp/
+
+# Stray asset dropped at the repo root. Brand assets live with the frontend,
+# not here — ignored rather than committed so it does not become the canonical
+# copy by accident.
+/VES-LOGO black.png
 
 # OS
 .DS_Store

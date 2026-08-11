@@ -525,17 +525,21 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
     // to book them. Gating on 'active' alone locked them out of classes they own.
     const { data: candidates } = await supabaseDb.supabase
       .from('course_enrollments')
-      .select('id, course_type, class_credits_remaining, class_credits_used, number_of_weeks')
+      .select('id, course_type, class_credits_remaining, class_credits_used, number_of_weeks, credits_closed_at')
       .eq('student_id', dbCustomerId)
       .in('status', ['active', 'completed']);
 
-    // Eligibility comes from the bookings ledger, not the stored counter, which
-    // drifts. The one exception is an explicit stored zero — that means an admin
-    // closed the block, and it wins over the ledger (same convention as
-    // admin.js). Historic enrollments carrying no bookings stay closed that way.
+    // Eligibility comes from the bookings ledger. The one exception is a block
+    // an admin has deliberately closed, which wins over the ledger.
+    //
+    // That closure used to be inferred from class_credits_remaining === 0, which
+    // conflated "an admin closed this" with "the number happens to be zero" —
+    // and silently trapped any enrollment whose stored columns were never
+    // populated (Geraldine Lai, enr 5347: ledger said 3, stored said 0 because
+    // nothing had ever written it). Closure is now its own fact.
     const withCredits = [];
     for (const e of candidates || []) {
-      if (e.class_credits_remaining === 0) continue;
+      if (e.credits_closed_at) continue;
       const credits = await supabaseDb.getEnrollmentCredits(e.id);
       if (credits.remaining > 0) {
         withCredits.push({ ...e, computedRemaining: credits.remaining, computedCommitted: credits.committed });

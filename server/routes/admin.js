@@ -113,6 +113,7 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
       course_identifier, schedule_pattern, class_time, status,
       number_of_weeks, weeks_completed, weeks_remaining,
       class_credits_allocated, class_credits_used, class_credits_remaining,
+      credits_closed_at,
       course_start_date, course_end_date, created_at, package_total_courses,
       customers!course_enrollments_student_id_fkey (
         id, email, first_name, last_name, customer_type,
@@ -125,12 +126,13 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
     .order('created_at', { ascending: false });
 
   // Filter completed HB enrollments that still have remaining credits (computed from bookings).
-  // An admin who has explicitly zeroed the credit column (class_credits_remaining === 0) has
-  // marked the block done/forfeited — honour that even when the computed value disagrees
-  // (e.g. no-shows with 0 bookings would otherwise compute a full "remaining").
+  // A block an admin has deliberately closed is honoured even when the computed
+  // value disagrees — e.g. legacy rows with no bookings at all would otherwise
+  // compute a full "remaining" from nothing. Closure is an explicit fact
+  // (credits_closed_at), not an inference from the stored number being zero.
   const completedHB = [];
   for (const enr of (completedHBAll || [])) {
-    if (enr.class_credits_remaining === 0) continue;
+    if (enr.credits_closed_at) continue;
     const credits = await supabaseDb.getEnrollmentCredits(enr.id);
     if (credits.remaining > 0) completedHB.push(enr);
   }
@@ -4308,29 +4310,35 @@ app.post('/api/admin/bookings/:bookingId/unforfeit', authenticateToken, requireA
   // The counter of record for the student's no-shows.
   await supabaseDb.decrementClassesForfeited(booking.student_id);
 
-  // Lift the stored counters too. The bookings ledger is the source of truth, but
-  // BOTH booking eligibility (classes.js) and the admin Users list (admin.js:133)
-  // treat an explicit stored zero as "an admin closed this block" and skip the
-  // enrollment before the ledger is ever consulted. Without this the returned
-  // credit would be visible and unbookable. class_credits_allocated is left
-  // alone on purpose — inflating it is exactly what tangled Ryan Ling's record.
+  // Bring the stored cache along with the ledger. The ledger is authoritative
+  // for the number, but the stored columns are read directly in plenty of
+  // display paths, so leaving them behind would show the student a stale total.
+  // class_credits_allocated is left alone on purpose — inflating it is exactly
+  // what tangled Ryan Ling's record.
+  //
+  // A closed block is also re-opened. Returning a credit to a block still
+  // marked closed would be a no-op: the eligibility gate skips closed
+  // enrollments before consulting the ledger, so the credit would be visible
+  // and unbookable — the very failure this action exists to fix.
   let credits = null;
   if (booking.course_enrollment_id) {
     const { data: enrollment } = await supabase
       .from('course_enrollments')
-      .select('id, class_credits_used, class_credits_remaining')
+      .select('id, class_credits_used, class_credits_remaining, credits_closed_at, credits_closed_reason')
       .eq('id', booking.course_enrollment_id)
       .single();
 
     if (enrollment) {
-      await supabase
-        .from('course_enrollments')
-        .update({
-          class_credits_used: Math.max(0, (enrollment.class_credits_used || 0) - 1),
-          class_credits_remaining: (enrollment.class_credits_remaining || 0) + 1,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', enrollment.id);
+      const update = {
+        class_credits_used: Math.max(0, (enrollment.class_credits_used || 0) - 1),
+        class_credits_remaining: (enrollment.class_credits_remaining || 0) + 1,
+        updated_at: new Date().toISOString(),
+      };
+      if (enrollment.credits_closed_at) {
+        update.credits_closed_at = null;
+        update.credits_closed_reason = `Re-opened ${new Date().toISOString().split('T')[0]} by ${req.user.email || 'admin'}: a forfeited class was returned on appeal (booking ${booking.id}). Previously: ${enrollment.credits_closed_reason || 'no reason recorded'}`;
+      }
+      await supabase.from('course_enrollments').update(update).eq('id', enrollment.id);
     }
 
     credits = await supabaseDb.getEnrollmentCredits(booking.course_enrollment_id);

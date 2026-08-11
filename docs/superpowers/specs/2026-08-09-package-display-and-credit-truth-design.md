@@ -131,4 +131,8 @@ Steps 1 and 2 before step 3, or students gain classes they are not owed. Step 5 
 ## Open questions
 
 - Should a package student with unbooked classes and no upcoming cohort surface as an action item rather than sitting quietly as ACTIVE? Nicole's follow-on cohort was cancelled, leaving her owed 2 classes with nothing booked and no one prompted. Deferred; the display fix does not depend on it.
-- Once step 1 lands, should the stored credit columns be reduced to a display cache or stopped entirely? Leaving them half-written is the status quo that produced this class of bug.
+- ~~Once step 1 lands, should the stored credit columns be reduced to a display cache or stopped entirely?~~ **Answered 11/08/26 (kanban t_2e2ca8cb).** Neither, quite. The columns were never the real problem — `class_credits_remaining === 0` was, because it meant both *"an admin closed this block"* and *"the number happens to be zero"*, and two gates read it that way before ever consulting the ledger.
+
+  Closure is now its own fact (`credits_closed_at` + `credits_closed_reason`), the ledger is authoritative for the number, and the stored columns demote to a cache that must agree with it. 19 blocks that were closed only by the accident of a zero are now closed by decision, each with a reason. 17 rows were reconciled to the ledger; Justin's call was that the ledger wins even where that reduces a live balance.
+
+  The conflation had already trapped someone: Geraldine Lai's active package (enr 5347) was owed 3 classes by the ledger while its stored columns read zero because nothing had ever written them. She was one exhausted legacy counter away from being told she had no credits. `scripts/verify-credit-columns.js` now guards that invariant, and `scripts/verify-credit-closure-gate.js` proves closure no longer depends on the number by writing a non-zero balance onto a closed block and confirming it stays closed.

@@ -44,8 +44,18 @@ const CLOSURES = [
     ids: [5231, 4667],
   },
   {
+    // All four cancelled enrollments that still carry a balance, treated the
+    // same way. The first pass caught only 5384 because it was the only one
+    // whose stored value disagreed with the ledger — the other three agreed at
+    // 4/4 and were skipped, leaving identical situations recorded differently.
+    //
+    // Closing them is behaviour-neutral today: the eligibility gate filters on
+    // status active/completed, so a cancelled row is already unbookable. It
+    // matters because that filter has been widened before — 'completed' was
+    // added deliberately so package students could reach their flex classes —
+    // and the next widening would silently hand these 12 credits out.
     reason: 'Enrollment cancelled — no entitlement remains regardless of what the ledger computes from its historical bookings.',
-    ids: [5384],
+    ids: [5384, 4733, 5088, 5082],
   },
 ];
 
@@ -72,7 +82,11 @@ const CLOSURES = [
     const credits = await getEnrollmentCredits(e.id);
 
     if (closureById.has(e.id)) {
-      toClose.push({ id: e.id, reason: closureById.get(e.id), ledgerRemaining: credits.remaining });
+      // Idempotent: an already-closed block is left exactly as it is, so
+      // re-running never rewrites a closure timestamp that is already history.
+      if (!e.credits_closed_at) {
+        toClose.push({ id: e.id, reason: closureById.get(e.id), ledgerRemaining: credits.remaining });
+      }
       continue;
     }
 
@@ -111,9 +125,18 @@ const CLOSURES = [
 
   const now = new Date().toISOString();
   for (const c of toClose) {
+    // Zero the advertised balance as part of closing. The gates read the flag,
+    // but roughly forty display paths still read the stored number, and a
+    // closed block showing "4 credits" on a student's dashboard is a support
+    // ticket waiting to happen.
     const { error } = await supabase
       .from('course_enrollments')
-      .update({ credits_closed_at: now, credits_closed_reason: c.reason })
+      .update({
+        credits_closed_at: now,
+        credits_closed_reason: c.reason,
+        class_credits_remaining: 0,
+        updated_at: now,
+      })
       .eq('id', c.id);
     if (error) { console.error(`  FAILED to close ${c.id}:`, error.message); process.exit(1); }
   }

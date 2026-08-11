@@ -437,6 +437,49 @@ export default function AdminStudents() {
     }
   };
 
+  // A 10-class package is a 6-week cohort plus flex classes that may be taken later,
+  // in another cohort or as HB. Once the block ends the cohort variant
+  // ("FRIDAYS • 6 Mar–17 Apr") no longer describes what the student holds, so lead
+  // with the package. The cohort code still renders beneath for calendar and roster
+  // lookup. The count comes from the real allocation rather than the product title —
+  // an allocation can legitimately exceed the product sold, via carry-over or an
+  // admin adjustment, and the label must never contradict the bar beside it.
+  const packageLabel = (s) => {
+    const allocated = s.numberOfWeeks || 0;
+    if (allocated < 10) return null; // package family only; HB variants already state their length
+    const noExpiry = /NO EXPIRY/i.test(s.courseTitle || '');
+    return `${allocated} Classes${noExpiry ? ' · NO EXPIRY' : ''}`;
+  };
+
+  // Variant titles come from Shopify and are not consistently formatted: three
+  // different dash characters, "Jun"/"June", "Sept"/"Sep", stray spaces around the
+  // dash, and a few that glue the time onto the date range with no bullet. On a
+  // package row the cohort is supporting detail, so reduce every shape to one:
+  //   FRIDAYS • 6 Mar – 17 Apr
+  // Times and "NO CLASS" notes are dropped — they describe a cohort that has ended.
+  const CV_DASH = '[\\u2010-\\u2015\\-]'; // hyphen through horizontal bar, per the order-sync fix
+  const CV_MONTHS = {
+    JANUARY: 'Jan', JAN: 'Jan', FEBRUARY: 'Feb', FEB: 'Feb', MARCH: 'Mar', MAR: 'Mar',
+    APRIL: 'Apr', APR: 'Apr', MAY: 'May', JUNE: 'Jun', JUN: 'Jun', JULY: 'Jul', JUL: 'Jul',
+    AUGUST: 'Aug', AUG: 'Aug', SEPTEMBER: 'Sep', SEPT: 'Sep', SEP: 'Sep', OCTOBER: 'Oct',
+    OCT: 'Oct', NOVEMBER: 'Nov', NOV: 'Nov', DECEMBER: 'Dec', DEC: 'Dec',
+  };
+  const cohortDayAndDates = (variantTitle) => {
+    if (!variantTitle) return null;
+    const parts = variantTitle.split('•').map(p => p.trim()).filter(Boolean);
+    if (!parts.length) return null;
+    const day = parts[0].toUpperCase();
+    let dates = (parts[1] || '')
+      .replace(/\s*\d{1,2}[:.]\d{2}\s*(am|pm).*$/i, '')  // time glued on with no bullet
+      .replace(/\s*NO\s*CLASS.*$/i, '')                   // trailing exception note
+      .trim();
+    if (!dates) return day;
+    dates = dates
+      .replace(new RegExp(`\\s*${CV_DASH}\\s*`, 'g'), ' – ')
+      .replace(/\b([A-Za-z]{3,9})\b/g, m => CV_MONTHS[m.toUpperCase()] || m);
+    return `${day} • ${dates}`;
+  };
+
   // ─── Unified list: students + members together ──────────────────────────────
   const buildUnifiedList = () => {
     const wtActive = getSortedActiveStudents().map(s => {
@@ -450,7 +493,8 @@ export default function AdminStudents() {
         _hbUsed: null, _hbTotal: null,
         _purchaseCount: s.coursePurchaseCount || 1,
         _enrollmentId: s.enrollmentId,
-        _variantTitle: s.variantTitle || s.courseIdentifier || '',
+        _variantTitle: packageLabel(s) || s.variantTitle || s.courseIdentifier || '',
+        _cohortLine: packageLabel(s) ? cohortDayAndDates(s.variantTitle) : null,
         _lastClassDate: null,
         _recentDate: s.latestEnrollmentDate || s.enrollmentCreatedAt || s.coursePurchaseDate || null,
         _membership: membership || null,
@@ -489,7 +533,8 @@ export default function AdminStudents() {
         _hbUsed: null, _hbTotal: null,
         _purchaseCount: s.coursePurchaseCount || 1,
         _enrollmentId: s.enrollmentId,
-        _variantTitle: s.variantTitle || s.courseIdentifier || '',
+        _variantTitle: packageLabel(s) || s.variantTitle || s.courseIdentifier || '',
+        _cohortLine: packageLabel(s) ? cohortDayAndDates(s.variantTitle) : null,
         _lastClassDate: null,
         _recentDate: s.latestEnrollmentDate || s.enrollmentCreatedAt || s.coursePurchaseDate || null,
         _membership: membership || null,
@@ -822,6 +867,13 @@ export default function AdminStudents() {
                         )}
                         {student.courseIdentifier && (
                           <span style={{ fontFamily: 'monospace', fontSize: '9px', color: MUTED, display: 'block' }}>{student.courseIdentifier}</span>
+                        )}
+                        {/* Package rows lead with the package, so the cohort the block ran
+                            in would otherwise be lost. Keep it on the grey line. */}
+                        {student._cohortLine && (
+                          <span style={{ fontSize: '9px', color: MUTED, display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '170px' }}>
+                            {student._cohortLine}
+                          </span>
                         )}
                       </div>
                       <div>

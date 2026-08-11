@@ -146,6 +146,12 @@ export default function AdminStudents() {
   const [loadingMore, setLoadingMore] = useState(false);
   const SERVER_PAGE_SIZE = 'all';
 
+  // Students owed classes with nothing booked ahead of them. Surfaced as a
+  // filter on this list rather than a page of its own, the same way the paused
+  // view was folded in — they are the same students, seen from another angle.
+  const [owedEnrollmentIds, setOwedEnrollmentIds] = useState(new Set());
+  const [owedSummary, setOwedSummary] = useState({ students: 0, classes: 0 });
+
   useEffect(() => {
     // Phase 1: instant summary counts
     api.get('/admin/students/stats/summary').then(({ data }) => {
@@ -153,6 +159,11 @@ export default function AdminStudents() {
     }).catch(() => {});
     // Phase 2: fast student list (2 queries instead of 10)
     loadStudentList(1);
+    // Phase 3: who is owed classes but has nothing coming
+    api.get('/admin/students/idle-credits').then(({ data }) => {
+      setOwedEnrollmentIds(new Set((data.students || []).map(s => s.enrollmentId)));
+      setOwedSummary({ students: data.totalStudents || 0, classes: data.totalClassesOwed || 0 });
+    }).catch(() => {});
   }, []);
 
   // ─── Data loading (fast endpoint) ──────────────────────────────────────────
@@ -317,15 +328,32 @@ export default function AdminStudents() {
     }
   };
 
+  // Closes the credit block rather than forcing used = allocated. Same outcome
+  // on screen; the difference is that the reason survives and the counter stops
+  // contradicting the bookings ledger.
   const markSelectedDone = async () => {
     const selected = hbStudentsList.filter(s => selectedHB.has(s.enrollmentId) && s.creditsRemaining > 0);
     if (selected.length === 0) { alert('No selected students with remaining credits'); return; }
-    if (!confirm(`Mark ${selected.length} student(s) as fully completed?\n\n${selected.map(s => `${s.name}`).join('\n')}`)) return;
+
+    const totalWrittenOff = selected.reduce((sum, s) => sum + (s.creditsRemaining || 0), 0);
+    const reason = prompt(
+      `Close the credit block for ${selected.length} student(s)?\n\n` +
+      `${selected.map(s => `${s.name} — ${s.creditsRemaining} left`).join('\n')}\n\n` +
+      `${totalWrittenOff} class(es) will be written off.\n\nReason (required):`,
+      'Block finished — remaining classes written off'
+    );
+    if (!reason || !reason.trim()) return;
+
     try {
       setBulkProcessing(true);
-      await Promise.all(selected.map(s =>
-        api.post(`/admin/hb-enrollments/${s.enrollmentId}/set-credits`, { allocated: s.creditsAllocated, used: s.creditsAllocated })
+      const results = await Promise.allSettled(selected.map(s =>
+        api.post(`/admin/enrollments/${s.enrollmentId}/close-credits`, { reason: reason.trim() })
       ));
+      const failed = results.filter(r => r.status === 'rejected');
+      if (failed.length) {
+        alert(`${results.length - failed.length} closed, ${failed.length} failed:\n` +
+          failed.map(f => f.reason?.response?.data?.error || f.reason?.message).join('\n'));
+      }
       setSelectedHB(new Set());
       await loadStats();
     } catch (error) {
@@ -632,6 +660,9 @@ export default function AdminStudents() {
         if (uiFilter === 'members') return s._type === 'member' || s._type === 'student-member';
         // Replaces the old standalone /admin/students/paused page.
         if (uiFilter === 'paused') return s._statusKey === 'paused';
+        // Owed classes with nothing booked ahead — Nicole Wong's case, where a
+        // cancelled follow-on cohort left classes owed and nobody prompted.
+        if (uiFilter === 'owed') return owedEnrollmentIds.has(s.enrollmentId);
         if (uiFilter === 'wt-all') return getPackageKey(s).startsWith('pkg-wt');
         if (uiFilter === 'hb-all') return getPackageKey(s).startsWith('pkg-hb');
         return getPackageKey(s) === uiFilter;
@@ -655,6 +686,7 @@ export default function AdminStudents() {
     { key: 'pkg-hb8',   label: '  HB 8 Weeks' },
     { key: 'members',   label: 'Memberships' },
     { key: 'paused',    label: 'Paused' },
+    { key: 'owed',      label: owedSummary.students ? `Owed classes (${owedSummary.students})` : 'Owed classes' },
   ];
 
   const studentSortOptions = [

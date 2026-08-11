@@ -27,6 +27,82 @@ app.get('/api/admin/students/search', authenticateToken, requireAdmin, asyncHand
   res.json({ students: data || [] });
 }));
 
+// Students owed classes with nothing booked — the quiet failure mode.
+//
+// Nicole Wong is the case that prompted this: owed 2 classes, her follow-on
+// cohort was cancelled, and nobody was ever prompted to rebook her. Her record
+// looked healthy because it was: ACTIVE, credits intact, simply forgotten.
+// Nothing here is automated and nothing reaches the student.
+app.get('/api/admin/students/idle-credits', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { supabase } = supabaseDb;
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  let enrollments = [], page = 0, more = true;
+  while (more) {
+    const { data } = await supabase
+      .from('course_enrollments')
+      .select(`
+        id, student_id, course_title, course_identifier, course_type, status,
+        number_of_weeks, class_credits_allocated, class_credits_remaining,
+        credits_closed_at, course_end_date,
+        customers!course_enrollments_student_id_fkey (id, email, first_name, last_name, last_login_at)
+      `)
+      .in('status', ['active', 'paused', 'upcoming', 'completed'])
+      .range(page * 1000, (page + 1) * 1000 - 1);
+    enrollments = enrollments.concat(data || []);
+    more = (data || []).length === 1000;
+    page++;
+  }
+
+  const rows = [];
+  for (const enr of enrollments) {
+    if (enr.credits_closed_at) continue;
+
+    const credits = await supabaseDb.getEnrollmentCredits(enr.id);
+    if (credits.remaining <= 0) continue;
+
+    // "Nothing booked" means nothing AHEAD of them. Past bookings are history;
+    // what matters is whether anything is coming.
+    const { data: upcoming } = await supabase
+      .from('bookings')
+      .select('id, class_instances!bookings_class_instance_id_fkey(class_date)')
+      .eq('course_enrollment_id', enr.id)
+      .eq('status', 'booked');
+
+    const futureCount = (upcoming || []).filter(b => {
+      const d = b.class_instances?.class_date?.split(/[T ]/)[0];
+      return d && d >= todayStr;
+    }).length;
+
+    if (futureCount > 0) continue;
+
+    const c = enr.customers || {};
+    rows.push({
+      enrollmentId: enr.id,
+      studentId: enr.student_id,
+      name: `${c.first_name || ''} ${c.last_name || ''}`.trim() || c.email,
+      email: c.email,
+      lastLoginAt: c.last_login_at,
+      courseTitle: enr.course_title,
+      courseIdentifier: enr.course_identifier,
+      status: enr.status,
+      remaining: credits.remaining,
+      attended: credits.attended,
+      allocated: credits.allocated,
+      courseEndDate: enr.course_end_date,
+    });
+  }
+
+  // Most owed first — the biggest obligations are the ones worth chasing.
+  rows.sort((a, b) => b.remaining - a.remaining);
+
+  res.json({
+    students: rows,
+    totalStudents: rows.length,
+    totalClassesOwed: rows.reduce((s, r) => s + r.remaining, 0),
+  });
+}));
+
 // Get student statistics summary (lightweight, count-only, cached 30s)
 app.get('/api/admin/students/stats/summary', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   // Return cached result if fresh
@@ -1802,7 +1878,13 @@ app.get('/api/admin/students/:id/enrollment', authenticateToken, requireAdmin, a
       const credits = await supabaseDb.getEnrollmentCredits(enrollment.id);
       enrollment = {
         ...enrollment,
-        class_credits_used: credits.attended,
+        // creditsAttended is what the admin screens actually want to show —
+        // classes the student turned up for. It is NOT class_credits_used,
+        // which means committed (attended + booked + forfeited) so that
+        // allocated = used + remaining holds. Overloading one name with both
+        // meanings is what this split avoids.
+        creditsAttended: credits.attended,
+        class_credits_used: credits.committed,
         class_credits_remaining: credits.remaining,
       };
     }
@@ -4373,6 +4455,61 @@ app.post('/api/admin/bookings/:bookingId/unforfeit', authenticateToken, requireA
     success: true,
     message: 'Credit returned. The booking is now cancelled and the class is available again.',
     creditsRemaining: credits ? credits.remaining : null,
+  });
+}));
+
+// Close an enrollment's credit block — "this student is done, stop offering the
+// remaining classes".
+//
+// Replaces the old way of expressing that, which was to force
+// class_credits_used = class_credits_allocated through set-credits. That worked
+// only because a stored zero used to mean "closed", it recorded no reason, and
+// it left the counter permanently disagreeing with the bookings ledger. Closure
+// is a fact now, so it gets stored as one.
+app.post('/api/admin/enrollments/:enrollmentId/close-credits', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { enrollmentId } = req.params;
+  const { reason } = req.body || {};
+  const { supabase } = supabaseDb;
+
+  const trimmedReason = (reason || '').trim();
+  if (!trimmedReason) {
+    return res.status(400).json({ error: 'A reason is required to close a credit block' });
+  }
+  if (trimmedReason.length > 500) {
+    return res.status(400).json({ error: 'Reason must be 500 characters or fewer' });
+  }
+
+  const { data: enrollment, error: fetchErr } = await supabase
+    .from('course_enrollments')
+    .select('id, student_id, credits_closed_at')
+    .eq('id', enrollmentId)
+    .single();
+
+  if (fetchErr || !enrollment) {
+    return res.status(404).json({ error: 'Enrollment not found' });
+  }
+  if (enrollment.credits_closed_at) {
+    return res.status(400).json({ error: 'This credit block is already closed' });
+  }
+
+  const credits = await supabaseDb.getEnrollmentCredits(enrollment.id);
+
+  await supabase
+    .from('course_enrollments')
+    .update({
+      credits_closed_at: new Date().toISOString(),
+      credits_closed_reason: `${trimmedReason} — closed by ${req.user.email || 'admin'}, ${credits.remaining} class(es) written off`,
+      class_credits_remaining: 0,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', enrollment.id);
+
+  console.log(`🔒 Closed credit block for enrollment ${enrollment.id} (${credits.remaining} written off) — ${trimmedReason}`);
+
+  res.json({
+    success: true,
+    message: `Credit block closed. ${credits.remaining} class(es) written off.`,
+    writtenOff: credits.remaining,
   });
 }));
 

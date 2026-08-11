@@ -848,7 +848,9 @@ export default function AdminStudentDetail() {
 
   const isHBEnrollment = enrollment && (enrollment.course_type || '').toLowerCase().includes('handbuilding');
   const hbCreditsAllocated = enrollment?.class_credits_allocated || enrollment?.number_of_weeks || 0;
-  const hbCreditsUsed = enrollment?.class_credits_used || 0;
+  // Attendance, not commitment — class_credits_used counts booked and forfeited
+  // classes too, which would overstate what an HB student has actually taken.
+  const hbCreditsUsed = enrollment?.creditsAttended ?? enrollment?.class_credits_used ?? 0;
   const hbCreditsRemaining = enrollment?.class_credits_remaining || 0;
 
   const totalBooked    = activeBookings.length;
@@ -1156,7 +1158,7 @@ export default function AdminStudentDetail() {
                       const enrIsHB = (enr.course_type || '').toLowerCase().includes('handbuilding');
                       const enrBookings = bookings.filter(b => b.course_enrollment_id === enr.id);
                       const enrHbCreditsAllocated = enr.class_credits_allocated || enr.number_of_weeks || 0;
-                      const enrHbCreditsUsed = enr.class_credits_used || 0;
+                      const enrHbCreditsUsed = enr.creditsAttended ?? enr.class_credits_used ?? 0;
                       const enrHbCreditsRemaining = enr.class_credits_remaining || 0;
                       const enrBookedCount = enrIsHB ? enrHbCreditsUsed : enrBookings.length;
                       const enrAttendedCount = enrBookings.filter(b => {

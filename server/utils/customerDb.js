@@ -274,6 +274,32 @@ async function incrementClassesForfeited(customerId) {
 }
 
 /**
+ * Give back one forfeited class on appeal.
+ *
+ * Floors at 0 on purpose: this counter predates the bookings ledger and already
+ * runs ahead of it on live data (29 forfeited bookings against a counter total
+ * several times that), so it must never be driven negative by a reversal of a
+ * forfeit it never counted.
+ */
+async function decrementClassesForfeited(customerId) {
+  const { data: customer } = await supabase
+    .from('customers')
+    .select('classes_forfeited')
+    .eq('id', customerId)
+    .single();
+
+  const { data, error } = await supabase
+    .from('customers')
+    .update({ classes_forfeited: Math.max(0, (customer?.classes_forfeited || 0) - 1) })
+    .eq('id', customerId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
  * Get customer by ID
  */
 async function getCustomerById(customerId) {
@@ -408,6 +434,7 @@ module.exports = {
   getAllCustomers,
   getCustomerById,
   incrementClassesForfeited,
+  decrementClassesForfeited,
   syncCustomerTypeFromMemberships,
   updateSingleCustomerType,
 };

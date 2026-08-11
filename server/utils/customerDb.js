@@ -80,7 +80,7 @@ async function createDuplicatePaxCustomer({ baseEmail, paxEmail, firstName, last
       customer_type: 'student',
       first_name: firstName || '',
       last_name: lastName || '',
-      classes_allocated: 0, // column DEFAULT is 6; start extra-pax at 0 so additive allocation is correct
+      classes_allocated: 0, // extra pax start at 0 so additive allocation is correct (the column default is now 0 too)
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     })
@@ -107,7 +107,13 @@ async function createCustomer(customerData) {
       first_name: customerData.firstName,
       last_name: customerData.lastName,
       customer_type: customerData.customerType || 'student',
-      classes_allocated: customerData.classesAllocated || 6,
+      // 0, not 6. This used to default to six bookable classes for every
+      // customer record ever created — including staff — and booking
+      // eligibility reads this counter BEFORE the enrollment ledger, so it was
+      // a real entitlement rather than a placeholder. 994 accounts were holding
+      // one they never bought (audit 11/08/26). Allocation now comes from an
+      // actual purchase, via courseEnrollmentManager.
+      classes_allocated: customerData.classesAllocated || 0,
       classes_used: customerData.classesUsed || 0,
       classes_forfeited: customerData.classesForfeited || 0,
       course_purchase_date: customerData.coursePurchaseDate || null,

@@ -760,19 +760,9 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   // Update class enrollment count
   await supabaseDb.updateClassEnrollment(parseInt(classInstanceId), 1);
 
-  // Deduct enrollment credit if using enrollment credits
+  // The booking above is now in the ledger, so the cache just needs to catch up.
   if (useEnrollmentCredits) {
-    await supabaseDb.supabase
-      .from('course_enrollments')
-      .update({
-        // Write back from the computed figures, not the old stored ones — the
-        // booking just created is counted by the ledger, so this keeps the
-        // counter converging on the truth instead of carrying drift forward.
-        class_credits_used: creditEnrollment.computedCommitted + 1,
-        class_credits_remaining: creditEnrollment.computedRemaining - 1,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', creditEnrollment.id);
+    await supabaseDb.syncStoredCredits(creditEnrollment.id);
   }
 
   const creditsLeft = useEnrollmentCredits ? enrollmentCredits - 1 : remainingCredits - 1;
@@ -1048,19 +1038,12 @@ app.post('/api/classes/book-hb-schedule', authenticateToken, asyncHandler(async 
     bookings.push(booking);
   }
 
-  // Decrement credits on booking
-  const creditsUsed = bookings.length;
-  const { data: currentEnrollment } = await supabaseDb.supabase
-    .from('course_enrollments')
-    .select('class_credits_used, class_credits_remaining')
-    .eq('id', enrollmentId)
-    .single();
+  // The bookings above are in the ledger; the cache follows from it.
+  await supabaseDb.syncStoredCredits(enrollmentId);
 
   await supabaseDb.supabase
     .from('course_enrollments')
     .update({
-      class_credits_used: (currentEnrollment?.class_credits_used || 0) + creditsUsed,
-      class_credits_remaining: Math.max(0, (currentEnrollment?.class_credits_remaining || 0) - creditsUsed),
       bookings_created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     })
@@ -1172,22 +1155,17 @@ app.post('/api/classes/cancel', authenticateToken, asyncHandler(async (req, res)
   if (booking.course_enrollment_id) {
     const { data: enr } = await supabaseDb.supabase
       .from('course_enrollments')
-      .select('id, course_type, number_of_weeks, class_credits_used, class_credits_remaining')
+      .select('id, course_type, number_of_weeks')
       .eq('id', booking.course_enrollment_id)
       .single();
 
     const isHB = enr && (enr.course_type || '').toLowerCase().includes('handbuilding');
     const is10Class = enr && (enr.number_of_weeks >= 10 || (enr.course_type || '').includes('10 Classes'));
 
+    // The booking is already 'cancelled' above, which the ledger reads as
+    // returning its credit, so the cache only has to catch up.
     if (enr && (isHB || is10Class)) {
-      await supabaseDb.supabase
-        .from('course_enrollments')
-        .update({
-          class_credits_used: Math.max(0, (enr.class_credits_used || 0) - 1),
-          class_credits_remaining: (enr.class_credits_remaining || 0) + 1,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', enr.id);
+      await supabaseDb.syncStoredCredits(enr.id);
     }
   }
 

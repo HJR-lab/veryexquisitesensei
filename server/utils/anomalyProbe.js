@@ -134,6 +134,55 @@ async function checkStaleUnassigned10Class() {
 }
 
 /**
+ * Upcoming bookings that consume no credit because they carry no enrollment
+ * link. getEnrollmentCredits counts by course_enrollment_id, so an unlinked
+ * booking takes a seat and is charged to nobody — a free class.
+ *
+ * This is the check that would have caught Nicole Wong in April and Sanjana
+ * Vijay in August. Both were invisible to every other invariant here, because
+ * the stored counters and the computed ledger agreed with each other — they
+ * were blind to the same booking.
+ *
+ * Only upcoming bookings are flagged. A past unlinked booking is history and
+ * relinking it retroactively rewrites a balance the student has lived with, so
+ * those are a per-student decision, never an alert.
+ */
+async function checkUnlinkedUpcomingBookings() {
+  const todayStr = new Date().toISOString().split('T')[0];
+  const CONSUMING = ['booked', 'attended', 'completed', 'forfeited', 'absent'];
+
+  let bookings = [], page = 0, more = true;
+  while (more) {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('id, student_id, status, course_enrollment_id, class_instances!bookings_class_instance_id_fkey(class_date, class_type), customers!bookings_student_id_fkey(id, first_name, last_name, email)')
+      .is('course_enrollment_id', null)
+      .in('status', CONSUMING)
+      .range(page * 1000, (page + 1) * 1000 - 1);
+    if (error) {
+      console.error('[AnomalyProbe] unlinked-booking query error:', error);
+      return [];
+    }
+    bookings = bookings.concat(data || []);
+    more = (data || []).length === 1000;
+    page++;
+  }
+
+  return bookings
+    .filter(b => (b.class_instances?.class_date || '').split(/[T ]/)[0] >= todayStr)
+    .map(b => ({
+      type: 'unlinked_upcoming_booking',
+      severity: 'high',
+      student_id: b.student_id,
+      student_name: formatStudentName(b.customers),
+      enrollment_id: null,
+      details: `Booking ${b.id} on ${(b.class_instances?.class_date || '').slice(0, 10)} ` +
+        `(${b.class_instances?.class_type || 'unknown class'}) has no enrollment link, so it consumes no credit. ` +
+        `Repair with: node scripts/relink-unlinked-bookings.js --booking=${b.id} --apply`,
+    }));
+}
+
+/**
  * Run all invariant checks and return aggregated findings.
  * Failures within a single check do not abort the whole probe.
  */
@@ -141,6 +190,7 @@ async function runAnomalyProbe() {
   const results = await Promise.allSettled([
     checkOverAllocated(),
     checkStaleUnassigned10Class(),
+    checkUnlinkedUpcomingBookings(),
   ]);
 
   const findings = [];
@@ -159,4 +209,4 @@ async function runAnomalyProbe() {
   return findings;
 }
 
-module.exports = { runAnomalyProbe, checkOverAllocated, checkStaleUnassigned10Class };
+module.exports = { runAnomalyProbe, checkOverAllocated, checkStaleUnassigned10Class, checkUnlinkedUpcomingBookings };

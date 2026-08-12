@@ -11,6 +11,8 @@ A 10-class package student whose cohort has ended reads as a stale record in the
 
 Nicole Wong shows `FRIDAYS • 6 Mar–17 Apr` with an **ACTIVE** badge, four months after that cohort finished. Nothing is broken — she is owed 2 classes and the enrollment is deliberately kept active so those classes are not erased — but the row describes the wrong thing. It reports the cohort, which is over, rather than the entitlement, which is open.
 
+> **Correction, 12/08/26.** She was not owed 2. She had attended all 10 — but two of them (15 and 22 May) were booked without an enrollment link, so the ledger could not see them and reported 2 remaining. This document's premise was read off the same defective data it was written to fix. Her record now reads 10 attended, 0 remaining. The display problem below is unaffected: the row still described the cohort rather than the entitlement, which is what needed fixing. See `project_booking_enrollment_link` and kanban t_2de3a10c.
+
 The underlying cause is that one enrollment row carries one cohort's dates while a 10-class package is two things stacked: a 6-week WT block, then 4 flex classes that may be taken later, in a different cohort, or as Handbuilding. `status` and `schedule` are being asked to describe both at once.
 
 ## Decisions
@@ -130,7 +132,7 @@ Steps 1 and 2 before step 3, or students gain classes they are not owed. Step 5 
 
 ## Open questions
 
-- Should a package student with unbooked classes and no upcoming cohort surface as an action item rather than sitting quietly as ACTIVE? Nicole's follow-on cohort was cancelled, leaving her owed 2 classes with nothing booked and no one prompted. Deferred; the display fix does not depend on it.
+- ~~Should a package student with unbooked classes and no upcoming cohort surface as an action item rather than sitting quietly as ACTIVE?~~ **Built 11/08/26** as the "Owed classes" filter on the admin Users list (`GET /api/admin/students/idle-credits`). Nicole was the motivating example, though she turned out not to be owed anything — see the correction at the top.
 - ~~Once step 1 lands, should the stored credit columns be reduced to a display cache or stopped entirely?~~ **Answered 11/08/26 (kanban t_2e2ca8cb).** Neither, quite. The columns were never the real problem — `class_credits_remaining === 0` was, because it meant both *"an admin closed this block"* and *"the number happens to be zero"*, and two gates read it that way before ever consulting the ledger.
 
   Closure is now its own fact (`credits_closed_at` + `credits_closed_reason`), the ledger is authoritative for the number, and the stored columns demote to a cache that must agree with it. 19 blocks that were closed only by the accident of a zero are now closed by decision, each with a reason. 17 rows were reconciled to the ledger; Justin's call was that the ledger wins even where that reduces a live balance.

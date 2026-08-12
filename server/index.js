@@ -163,6 +163,18 @@ const asyncHandler = (fn) => (req, res, next) => {
   });
 };
 
+// Railway terminates TLS at its edge, so every request arrives from the same
+// proxy address with the real client in X-Forwarded-For. Without this, req.ip is
+// the proxy for everyone and the limits below apply to the WHOLE STUDIO at once
+// — /api/classes/book was effectively 20 bookings per minute shared by every
+// student, which a cohort-opening rush would trip.
+//
+// 1, not true: trusting exactly one hop means Railway's edge is believed and
+// nothing further. `true` would trust any X-Forwarded-For a client sends,
+// letting anyone mint a fresh identity per request and evade the limiter
+// completely.
+app.set('trust proxy', 1);
+
 // Rate limiting
 // Note: login itself happens via Supabase Auth (not this server), so /api/auth/*
 // here is just status/profile/impersonation — hit on every page load by /me.

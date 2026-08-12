@@ -4640,23 +4640,6 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
     return res.status(400).json({ error: 'Student ID and class instance ID are required' });
   }
 
-  // If no enrollment ID provided, try to find an active enrollment with flex
-  // credits (covers both HB credit-based enrollments and 10-class WT packages
-  // that have had their flex credits allocated after the base course).
-  let enrollmentId = courseEnrollmentId || null;
-  if (!enrollmentId) {
-    const { data: activeEnrollment } = await supabaseDb.supabase
-      .from('course_enrollments')
-      .select('id, course_type, class_credits_remaining')
-      .eq('student_id', studentId)
-      .eq('status', 'active')
-      .gt('class_credits_remaining', 0)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (activeEnrollment) enrollmentId = activeEnrollment.id;
-  }
-
   // Get class instance details
   const { data: classInstance, error: classError } = await supabaseDb.supabase
     .from('class_instances')
@@ -4666,6 +4649,16 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
 
   if (classError || !classInstance) {
     return res.status(404).json({ error: 'Class instance not found' });
+  }
+
+  // Charge the booking to an enrollment. Resolved centrally so this agrees with
+  // the student-facing path — an unlinked booking is invisible to the ledger and
+  // silently consumes no credit. The old lookup here keyed on the stored
+  // class_credits_remaining column, which drifts, and could not recognise the
+  // student's own cohort.
+  let enrollmentId = courseEnrollmentId || null;
+  if (!enrollmentId) {
+    enrollmentId = await supabaseDb.resolveBookingEnrollment(studentId, classInstance);
   }
 
   // Check if class is full

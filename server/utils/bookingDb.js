@@ -835,9 +835,69 @@ async function syncStoredCredits(enrollmentId) {
   return credits;
 }
 
+/**
+ * Which enrollment should a booking be charged to?
+ *
+ * getEnrollmentCredits counts by course_enrollment_id, so a booking with no
+ * link consumes nothing: the class is booked, the seat is taken, and the credit
+ * is never spent. Getting this wrong hands out free classes, so both booking
+ * paths (student-facing and admin) resolve it the same way here.
+ *
+ * Order matters:
+ *   1. The student's own cohort, matched on the course identifier. Someone
+ *      booking week 6 of WT1107PM_DL6 who holds an enrollment in
+ *      WT1107PM_DL6 is not making up a class — that IS their class, and no
+ *      other candidate should win.
+ *   2. Otherwise a genuine makeup: charge whichever open enrollment still has
+ *      credits, preferring a 10-class package, whose flex classes exist to be
+ *      spent exactly this way.
+ *
+ * Returns null when there is no credit-bearing enrollment. That is legitimate —
+ * a cross-course makeup covered by the legacy per-customer allocation has
+ * nothing to link to — so callers must not invent a link.
+ *
+ * Regression origin: this used to look only for a 10-class package, so a
+ * 6-week WT student whose legacy counter still read positive got a null link
+ * and a free class (Sanjana Vijay, booking 29649, 09/08/26).
+ */
+async function resolveBookingEnrollment(studentId, classInstance) {
+  if (!studentId) return null;
+
+  const { data: candidates } = await supabase
+    .from('course_enrollments')
+    .select('id, course_identifier, course_type, number_of_weeks, status, credits_closed_at, created_at')
+    .eq('student_id', studentId)
+    .in('status', ['active', 'paused', 'upcoming', 'completed'])
+    .order('created_at', { ascending: false });
+
+  const open = (candidates || []).filter(e => !e.credits_closed_at);
+  if (!open.length) return null;
+
+  // "WT1107PM_DL6.6" -> "WT1107PM_DL6"
+  const baseOf = (identifier) => (identifier || '').split('.')[0];
+  const classBase = baseOf(classInstance?.class_type);
+
+  if (classBase) {
+    const ownCohort = open.find(e => e.course_identifier && baseOf(e.course_identifier) === classBase);
+    if (ownCohort) return ownCohort.id;
+  }
+
+  const withCredits = [];
+  for (const e of open) {
+    const credits = await getEnrollmentCredits(e.id);
+    if (credits.remaining > 0) withCredits.push(e);
+  }
+  if (!withCredits.length) return null;
+
+  const pkg = withCredits.find(e =>
+    (e.number_of_weeks || 0) >= 10 || (e.course_type || '').includes('10 Classes'));
+  return (pkg || withCredits[0]).id;
+}
+
 module.exports = {
   getEnrollmentCredits,
   syncStoredCredits,
+  resolveBookingEnrollment,
   resolveCreditAllocation,
   getAvailableClasses,
   getClassInstanceById,

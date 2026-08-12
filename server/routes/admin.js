@@ -3553,6 +3553,26 @@ app.get('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asyn
     }
   });
 
+  // Live capacity overrides, so a roster reading 11/10 arrives at the calendar
+  // already explained instead of looking like a counting bug.
+  const overridesByClass = {};
+  const { data: liveOverrides } = await supabaseDb.supabase
+    .from('capacity_overrides')
+    .select('id, class_instance_id, student_id, reason, created_by, created_at, consumed_at, customers!capacity_overrides_student_id_fkey(first_name, last_name)')
+    .is('revoked_at', null);
+  (liveOverrides || []).forEach(o => {
+    if (!overridesByClass[o.class_instance_id]) overridesByClass[o.class_instance_id] = [];
+    overridesByClass[o.class_instance_id].push({
+      id: o.id,
+      studentId: o.student_id,
+      studentName: o.customers ? `${o.customers.first_name || ''} ${o.customers.last_name || ''}`.trim() : null,
+      reason: o.reason,
+      grantedBy: o.created_by,
+      grantedAt: o.created_at,
+      used: !!o.consumed_at,
+    });
+  });
+
   // Add booking counts to classes and calculate UNIQUE students per course
   // Only count students whose enrollment matches this course's identifier (excludes makeups from other courses)
   courses.forEach(course => {
@@ -3560,6 +3580,7 @@ app.get('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asyn
     const uniqueStudents = new Set();
     course.classes.forEach(cls => {
       cls.bookingCount = bookingCountsByClass[cls.id] || 0;
+      cls.capacityOverrides = overridesByClass[cls.id] || [];
       bookingCounts
         .filter(b => b.class_instance_id === cls.id)
         .filter(b => b.booking_type !== 'makeup' && !b.is_makeup_class)
@@ -3929,22 +3950,6 @@ app.post('/api/admin/classes/:classId/add-student', authenticateToken, requireAd
     return res.status(400).json({ error: 'Student is already enrolled in this class' });
   }
 
-  // Check if class is full
-  const { count: currentEnrollment, error: countError } = await supabaseDb.supabase
-    .from('bookings')
-    .select('id', { count: 'exact', head: true })
-    .eq('class_instance_id', classId)
-    .eq('status', 'booked');
-
-  if (countError) {
-    console.error('Error counting enrollments:', countError);
-    return res.status(500).json({ error: 'Failed to check class capacity' });
-  }
-
-  if (currentEnrollment >= classInstance.max_capacity) {
-    return res.status(400).json({ error: 'Class is full' });
-  }
-
   // Get class details to find the course and all its weeks
   const { data: thisClass } = await supabaseDb.supabase
     .from('class_instances')
@@ -3952,12 +3957,16 @@ app.post('/api/admin/classes/:classId/add-student', authenticateToken, requireAd
     .eq('id', classId)
     .single();
 
-  // Studio-wide 10-wheel cap across all cohorts sharing this timeslot.
-  if (thisClass?.class_date && thisClass?.start_time) {
-    const { count: wheels } = await supabaseDb.getSlotWheelUsage(thisClass.class_date, thisClass.start_time);
-    if (wheels >= supabaseDb.STUDIO_WHEELS) {
-      return res.status(400).json({ error: `Studio is full — all ${supabaseDb.STUDIO_WHEELS} wheels are booked for this timeslot` });
-    }
+  // Both gates: the instance's own cap, and the studio-wide wheel count across
+  // every cohort sharing this timeslot. An admin-granted capacity override for
+  // this exact student is the only way past either.
+  const seat = await supabaseDb.checkSeatAvailability(thisClass || classInstance, parseInt(studentId), { checkWheels: true });
+  if (!seat.allowed) {
+    return res.status(400).json({
+      error: seat.reason === 'STUDIO_FULL'
+        ? `Studio is full — all ${supabaseDb.STUDIO_WHEELS} wheels are booked for this timeslot`
+        : 'Class is full'
+    });
   }
 
   // Extract base course identifier (e.g. "WT2802AM_DL6" from "WT2802AM_DL6.2")
@@ -4071,6 +4080,13 @@ app.post('/api/admin/classes/:classId/add-student', authenticateToken, requireAd
       .is('course_enrollment_id', null);
   }
 
+  // Spend the grant if the seat in the requested class only existed because of one.
+  if (seat.override) {
+    const seatedBooking = newBookings.find(b => b.class_instance_id === parseInt(classId));
+    await supabaseDb.consumeCapacityOverride(seat.override.id, seatedBooking?.id);
+    console.log(`⚠️  Capacity override ${seat.override.id} used: student ${studentId} added over cap to class ${classId} — ${seat.override.reason}`);
+  }
+
   console.log(`✅ Added student ${studentId} to ${baseCourseId}: ${newBookings.length} new bookings, ${alreadyBookedIds.size} existing`);
 
   // Sync all affected class instances to Google Calendar
@@ -4081,6 +4097,87 @@ app.post('/api/admin/classes/:classId/add-student', authenticateToken, requireAd
   } catch (e) { /* ignore */ }
 
   res.json({ message: `Student added to all ${newBookings.length + alreadyBookedIds.size} weeks of ${baseCourseId}`, bookings: newBookings });
+}));
+
+// ── Capacity overrides ───────────────────────────────────────────────────────
+// A grant lets ONE named student take ONE seat beyond both the class cap and
+// the studio wheel cap, in ONE class instance. Deliberately not a raised limit:
+// nobody else can claim the seat, it does not carry to next week's instance, and
+// the reason survives in the table so a roster reading 11/10 stays explained.
+
+// Grant an override
+app.post('/api/admin/classes/:classId/capacity-override', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { classId } = req.params;
+  const { studentId, reason } = req.body;
+
+  if (!studentId) return res.status(400).json({ error: 'studentId is required' });
+  if (!reason || !String(reason).trim()) {
+    return res.status(400).json({ error: 'A reason is required — an unexplained override is the thing this table exists to prevent' });
+  }
+
+  const { data: classInstance } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('id, class_type, class_date, start_time, max_capacity')
+    .eq('id', classId)
+    .single();
+  if (!classInstance) return res.status(404).json({ error: 'Class not found' });
+
+  const { data: student } = await supabaseDb.supabase
+    .from('customers')
+    .select('id, first_name, last_name')
+    .eq('id', studentId)
+    .single();
+  if (!student) return res.status(404).json({ error: 'Student not found' });
+
+  const { data, error } = await supabaseDb.supabase
+    .from('capacity_overrides')
+    .insert({
+      class_instance_id: parseInt(classId),
+      student_id: parseInt(studentId),
+      reason: String(reason).trim(),
+      created_by: req.user.email || 'admin',
+      created_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'This student already has a live override for this class' });
+    }
+    throw error;
+  }
+
+  console.log(`⚠️  Capacity override ${data.id} granted by ${req.user.email}: ${student.first_name} ${student.last_name} may exceed cap in ${classInstance.class_type} (${classInstance.class_date}) — ${data.reason}`);
+  res.json({ message: 'Override granted', override: data });
+}));
+
+// List overrides on a class
+app.get('/api/admin/classes/:classId/capacity-overrides', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const overrides = await supabaseDb.getInstanceCapacityOverrides(parseInt(req.params.classId));
+  res.json({ overrides });
+}));
+
+// Withdraw an unused override. Consumed ones stay — they are the audit trail.
+app.delete('/api/admin/capacity-overrides/:id', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { data: existing } = await supabaseDb.supabase
+    .from('capacity_overrides')
+    .select('id, consumed_at')
+    .eq('id', req.params.id)
+    .single();
+
+  if (!existing) return res.status(404).json({ error: 'Override not found' });
+  if (existing.consumed_at) {
+    return res.status(400).json({ error: 'This override has already been used — remove the booking instead' });
+  }
+
+  const { error } = await supabaseDb.supabase
+    .from('capacity_overrides')
+    .update({ revoked_at: new Date().toISOString(), revoked_by: req.user.email || 'admin' })
+    .eq('id', req.params.id);
+  if (error) throw error;
+
+  res.json({ message: 'Override withdrawn' });
 }));
 
 // Remove student from class (cancel booking)
@@ -4661,9 +4758,17 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
     enrollmentId = await supabaseDb.resolveBookingEnrollment(studentId, classInstance);
   }
 
-  // Check if class is full
-  if (classInstance.current_capacity >= classInstance.max_capacity) {
-    return res.status(400).json({ error: 'Class is full' });
+  // Check if class is full. This previously read classInstance.current_capacity,
+  // a column that does not exist — so the gate never fired and this path could
+  // seat an 11th student silently. Now it counts booked rows like every other
+  // path, and an admin-granted capacity override is the only way past.
+  const seat = await supabaseDb.checkSeatAvailability(classInstance, parseInt(studentId), { checkWheels: true });
+  if (!seat.allowed) {
+    return res.status(400).json({
+      error: seat.reason === 'STUDIO_FULL'
+        ? `Studio is full — all ${supabaseDb.STUDIO_WHEELS} wheels are booked for this timeslot`
+        : 'Class is full'
+    });
   }
 
   // Check for existing cancelled booking — reactivate instead of creating duplicate
@@ -4715,6 +4820,12 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
 
   // Update class enrollment count
   await supabaseDb.updateClassEnrollment(parseInt(classInstanceId), 1);
+
+  // Spend the grant if this seat only existed because of one.
+  if (seat.override) {
+    await supabaseDb.consumeCapacityOverride(seat.override.id, booking?.id);
+    console.log(`⚠️  Capacity override ${seat.override.id} used: student ${studentId} booked over cap into class ${classInstanceId} — ${seat.override.reason}`);
+  }
 
   // Decrement flex credits if the enrollment is tracking them. This covers
   // both HB credit enrollments and 10-class WT packages (both set
@@ -5463,27 +5574,16 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
     return res.status(404).json({ error: 'Target class not found' });
   }
 
-  const { count: targetBookedCount, error: targetCountErr } = await supabaseDb.supabase
-    .from('bookings')
-    .select('id', { count: 'exact', head: true })
-    .eq('class_instance_id', parseInt(newClassInstanceId))
-    .eq('status', 'booked');
-
-  if (targetCountErr) {
-    console.error('Error counting target class bookings:', targetCountErr);
-    return res.status(500).json({ error: 'Failed to check class capacity' });
-  }
-
-  if (targetBookedCount >= (targetClass.max_capacity || 10)) {
-    return res.status(400).json({ error: 'This class is full. Cannot reschedule to a class at max capacity.' });
-  }
-
-  // Studio-wide 10-wheel cap across all cohorts sharing this timeslot.
-  if (targetClass.class_date && targetClass.start_time) {
-    const { count: wheels } = await supabaseDb.getSlotWheelUsage(targetClass.class_date, targetClass.start_time);
-    if (wheels >= supabaseDb.STUDIO_WHEELS) {
-      return res.status(400).json({ error: `Studio is full — all ${supabaseDb.STUDIO_WHEELS} wheels are booked for this timeslot.` });
-    }
+  // Both gates: the instance's own cap, and the studio-wide wheel count across
+  // every cohort sharing this timeslot. An admin-granted capacity override for
+  // this exact student is the only way past either.
+  const seat = await supabaseDb.checkSeatAvailability(targetClass, originalBooking.student_id, { checkWheels: true });
+  if (!seat.allowed) {
+    return res.status(400).json({
+      error: seat.reason === 'STUDIO_FULL'
+        ? `Studio is full — all ${supabaseDb.STUDIO_WHEELS} wheels are booked for this timeslot.`
+        : 'This class is full. Cannot reschedule to a class at max capacity.'
+    });
   }
 
   // If the student already has a cancelled/rescheduled booking at the target
@@ -5547,6 +5647,12 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
 
   // Increment new class enrollment
   await supabaseDb.updateClassEnrollment(parseInt(newClassInstanceId), 1);
+
+  // Spend the grant if this seat only existed because of one.
+  if (seat.override) {
+    await supabaseDb.consumeCapacityOverride(seat.override.id, newBooking?.id);
+    console.log(`⚠️  Capacity override ${seat.override.id} used: student ${originalBooking.student_id} rescheduled over cap into class ${newClassInstanceId} — ${seat.override.reason}`);
+  }
 
   // If there's a fee, create a fee record
   if (fee && fee > 0) {

@@ -1777,6 +1777,13 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
     await supabaseDb.updateClassEnrollment(parseInt(newClassId), 1);
   }
 
+  // Spend the grant if this seat only existed because of one. Done once here
+  // rather than in each branch above, so every reschedule shape is covered.
+  if (rsSeat.override) {
+    await supabaseDb.consumeCapacityOverride(rsSeat.override.id, newBooking?.id);
+    console.log(`⚠️  Capacity override ${rsSeat.override.id} used: student ${dbCustomerId} rescheduled over cap into class ${newClassId} — ${rsSeat.override.reason}`);
+  }
+
   // Waitlist auto-offer disabled — feature removed for now
 
   // Send reschedule confirmation email

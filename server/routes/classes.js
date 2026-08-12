@@ -700,18 +700,17 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   let bookingError;
 
   const useEnrollmentCredits = remainingCredits <= 0 && creditEnrollment;
-  // Always link to 10-class enrollment for credit tracking, even when global credits remain
+  // Link the booking to the enrollment it is spending from. A booking with no
+  // enrollment link is INVISIBLE to getEnrollmentCredits, which counts by
+  // course_enrollment_id — the class gets booked, the seat is taken, and the
+  // credit is never spent.
+  //
+  // This fallback used to look only for a 10-class package, so a 6-week WT
+  // student whose legacy classes_allocated counter still read positive got a
+  // null link and a free class (Sanjana Vijay, booking 29649, 09/08/26).
   let enrollmentId = useEnrollmentCredits ? creditEnrollment.id : null;
   if (!enrollmentId) {
-    const { data: tenClassEnr } = await supabaseDb.supabase
-      .from('course_enrollments')
-      .select('id')
-      .eq('student_id', dbCustomerId)
-      .eq('status', 'active')
-      .eq('number_of_weeks', 10)
-      .limit(1)
-      .single();
-    if (tenClassEnr) enrollmentId = tenClassEnr.id;
+    enrollmentId = await supabaseDb.resolveBookingEnrollment(dbCustomerId, classInstance);
   }
 
   if (cancelledBooking) {

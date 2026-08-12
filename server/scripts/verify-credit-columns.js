@@ -13,7 +13,7 @@
  */
 require('dotenv').config();
 
-const { supabase, getEnrollmentCredits } = require('../utils/supabaseDb');
+const { supabase, getEnrollmentCredits, resolveBookingEnrollment } = require('../utils/supabaseDb');
 
 let failures = 0;
 function fail(msg) { failures++; console.log(`❌ ${msg}`); }
@@ -84,6 +84,42 @@ function pass(msg) { console.log(`✅ ${msg}`); }
   else {
     fail(`${closedButOpenLooking.length} closed block(s) still show a stored balance`);
     closedButOpenLooking.forEach(c => console.log(`      enr ${c.id}: stored ${c.stored}`));
+  }
+
+  // A booking with no course_enrollment_id is invisible to getEnrollmentCredits,
+  // which counts by that column — the seat is taken but no credit is spent. The
+  // checks above cannot see this: they compare stored against computed, and both
+  // agree, because both are blind to the same booking.
+  //
+  // Only UPCOMING bookings fail the run. A past unlinked booking is history — the
+  // student attended, the class is gone, and relinking it would rewrite a
+  // balance retroactively. An upcoming one is a live free class.
+  const todayStr = new Date().toISOString().split('T')[0];
+  let bookings = [], bp = 0, bmore = true;
+  while (bmore) {
+    const { data } = await supabase
+      .from('bookings')
+      .select('id, student_id, status, course_enrollment_id, class_instances!bookings_class_instance_id_fkey(class_date, class_type)')
+      .range(bp * 1000, (bp + 1) * 1000 - 1);
+    bookings = bookings.concat(data || []);
+    bmore = (data || []).length === 1000;
+    bp++;
+  }
+
+  const CONSUMING = ['booked', 'attended', 'completed', 'forfeited', 'absent'];
+  const unlinked = bookings.filter(b => !b.course_enrollment_id && CONSUMING.includes(b.status));
+  const unlinkedUpcoming = unlinked.filter(b =>
+    (b.class_instances?.class_date || '').split(/[T ]/)[0] >= todayStr);
+
+  if (unlinkedUpcoming.length === 0) {
+    pass(`no upcoming booking is unlinked from an enrollment (${unlinked.length} historical, not counted)`);
+  } else {
+    fail(`${unlinkedUpcoming.length} upcoming booking(s) consume no credit — not linked to any enrollment`);
+    for (const b of unlinkedUpcoming) {
+      const suggested = await resolveBookingEnrollment(b.student_id, b.class_instances);
+      console.log(`      booking ${b.id} (student ${b.student_id}, ${b.class_instances?.class_date?.slice(0, 10)} ${b.class_instances?.class_type || ''})` +
+        `${suggested ? ` -> should be enrollment ${suggested}` : ' -> no candidate enrollment'}`);
+    }
   }
 
   console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`);

@@ -308,39 +308,140 @@ async function getSlotWheelUsage(classDate, startTime) {
 }
 
 /**
+ * Find a live, unused capacity grant for this exact student in this exact class.
+ *
+ * A grant is bound to one student and one instance on purpose: it lets an admin
+ * seat a named person over the cap without opening the seat to whoever refreshes
+ * the booking page next.
+ */
+async function findCapacityOverride(classInstanceId, studentId) {
+  if (!classInstanceId || !studentId) return null;
+
+  const { data, error } = await supabase
+    .from('capacity_overrides')
+    .select('*')
+    .eq('class_instance_id', classInstanceId)
+    .eq('student_id', studentId)
+    .is('revoked_at', null)
+    .is('consumed_at', null)
+    .maybeSingle();
+
+  if (error && error.code !== 'PGRST116') {
+    // A missing table (feature not migrated yet) must not break booking.
+    console.error('capacity_overrides lookup failed:', error.message);
+    return null;
+  }
+  return data || null;
+}
+
+/**
+ * Mark a grant as spent. If the student later moves away from the class the
+ * grant stays spent — a fresh one has to be granted rather than the extra seat
+ * quietly staying open.
+ */
+async function consumeCapacityOverride(overrideId, bookingId) {
+  if (!overrideId) return;
+  const { error } = await supabase
+    .from('capacity_overrides')
+    .update({ consumed_booking_id: bookingId || null, consumed_at: new Date().toISOString() })
+    .eq('id', overrideId)
+    .is('consumed_at', null);
+  if (error) console.error('Failed to consume capacity override:', error.message);
+}
+
+/**
+ * Consumed grants for a class instance — what makes a roster reading 11/10
+ * legible instead of looking like a counting bug.
+ */
+async function getInstanceCapacityOverrides(classInstanceId) {
+  const { data, error } = await supabase
+    .from('capacity_overrides')
+    .select('*, customers!capacity_overrides_student_id_fkey(id, first_name, last_name)')
+    .eq('class_instance_id', classInstanceId)
+    .is('revoked_at', null)
+    .order('created_at');
+  if (error) {
+    console.error('capacity_overrides list failed:', error.message);
+    return [];
+  }
+  return data || [];
+}
+
+/**
+ * The single seat gate. Counts actual booked rows (never the cached
+ * current_enrollment, which drifts) against the instance cap, and — where the
+ * caller already enforced it — against the studio-wide wheel cap.
+ *
+ * Only if a gate would reject does it look for a grant, so the common path
+ * costs one extra query only when the class is genuinely full.
+ *
+ * @param {object} classInstance  needs id, max_capacity, and (for wheels) class_date + start_time
+ * @param {number} studentId      whose seat this is
+ * @param {object} opts           { checkWheels } — pass true only where the caller already checked wheels
+ * @returns {{allowed: boolean, reason: string|null, counts: object, override: object|null}}
+ */
+async function checkSeatAvailability(classInstance, studentId, opts = {}) {
+  const { checkWheels = false } = opts;
+  const cap = classInstance.max_capacity || 10;
+
+  const { count: bookedCount } = await supabase
+    .from('bookings')
+    .select('id', { count: 'exact', head: true })
+    .eq('class_instance_id', classInstance.id)
+    .eq('status', 'booked');
+
+  const booked = bookedCount || 0;
+  let wheels = null;
+  if (checkWheels && classInstance.class_date && classInstance.start_time) {
+    ({ count: wheels } = await getSlotWheelUsage(classInstance.class_date, classInstance.start_time));
+  }
+
+  const counts = { booked, cap, wheels, studioWheels: STUDIO_WHEELS };
+  const classFull  = booked >= cap;
+  const studioFull = wheels !== null && wheels >= STUDIO_WHEELS;
+
+  if (!classFull && !studioFull) {
+    return { allowed: true, reason: null, counts, override: null };
+  }
+
+  const override = await findCapacityOverride(classInstance.id, studentId);
+  if (override) {
+    return { allowed: true, reason: null, counts, override };
+  }
+
+  return { allowed: false, reason: classFull ? 'CLASS_FULL' : 'STUDIO_FULL', counts, override: null };
+}
+
+/**
  * Create booking
  */
 async function createBooking(bookingData) {
-  // Hard cap: never exceed max_capacity (default 10) for any class
-  if (bookingData.classInstanceId) {
-    const { count } = await supabase
-      .from('bookings')
-      .select('id', { count: 'exact', head: true })
-      .eq('class_instance_id', bookingData.classInstanceId)
-      .eq('status', 'booked');
+  // Hard cap: never exceed max_capacity (default 10) for any class, and never
+  // exceed the studio-wide wheel count. An admin-granted capacity_overrides row
+  // for this exact student is the only way past either.
+  let grantedOverride = null;
 
+  if (bookingData.classInstanceId) {
     const { data: cls } = await supabase
       .from('class_instances')
-      .select('max_capacity, class_date, start_time')
+      .select('id, max_capacity, class_date, start_time')
       .eq('id', bookingData.classInstanceId)
       .single();
 
-    const cap = cls?.max_capacity || 10;
-    if (count >= cap) {
-      const err = new Error(`Class is full (${count}/${cap})`);
+    const seat = await checkSeatAvailability(
+      { ...(cls || {}), id: bookingData.classInstanceId },
+      bookingData.studentId,
+      { checkWheels: true }
+    );
+
+    if (!seat.allowed) {
+      const err = seat.reason === 'STUDIO_FULL'
+        ? new Error(`Studio is full — all ${STUDIO_WHEELS} wheels are booked for this timeslot (${seat.counts.wheels}/${STUDIO_WHEELS})`)
+        : new Error(`Class is full (${seat.counts.booked}/${seat.counts.cap})`);
       err.code = 'CLASS_FULL';
       throw err;
     }
-
-    // Studio-wide 10-wheel cap across all cohorts sharing this timeslot.
-    if (cls?.class_date && cls?.start_time) {
-      const { count: wheels } = await getSlotWheelUsage(cls.class_date, cls.start_time);
-      if (wheels >= STUDIO_WHEELS) {
-        const err = new Error(`Studio is full — all ${STUDIO_WHEELS} wheels are booked for this timeslot (${wheels}/${STUDIO_WHEELS})`);
-        err.code = 'CLASS_FULL';
-        throw err;
-      }
-    }
+    grantedOverride = seat.override;
   }
 
   const insertData = {
@@ -377,6 +478,12 @@ async function createBooking(bookingData) {
     .single();
 
   if (error) throw error;
+
+  if (grantedOverride) {
+    await consumeCapacityOverride(grantedOverride.id, data.id);
+    console.log(`⚠️  Capacity override ${grantedOverride.id} used: student ${bookingData.studentId} seated over cap in class ${bookingData.classInstanceId} — ${grantedOverride.reason}`);
+  }
+
   return data;
 }
 
@@ -920,6 +1027,10 @@ module.exports = {
   createBooking,
   getSlotWheelUsage,
   STUDIO_WHEELS,
+  checkSeatAvailability,
+  findCapacityOverride,
+  consumeCapacityOverride,
+  getInstanceCapacityOverrides,
   updateBooking,
   findBooking,
   getMakeupBookingCount,

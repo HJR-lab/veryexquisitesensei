@@ -7,10 +7,18 @@
  * the newer enrollment unassigned (course_identifier=null). Nothing in the
  * system flagged the contradiction.
  *
- * Checks (start small, expand later):
+ * Checks:
  *  1. Over-allocated enrollment — committed bookings exceed allocated credits.
  *  2. Stale unassigned 10-class — number_of_weeks=10, status=active,
  *     course_identifier IS NULL, created >7 days ago, no bookings linked.
+ *  3. Unlinked upcoming booking — no course_enrollment_id, so it takes a seat
+ *     and spends no credit (Nicole Wong Apr '26, Sanjana Vijay Aug '26).
+ *  4. Recent purchase with no enrollment — someone paid and is in no cohort.
+ *
+ * Each check earns its place by having already missed something in production.
+ * Both 3 and 4 exist because the other invariants could not see the failure:
+ * stored counters and the computed ledger agreed with each other while being
+ * blind to the same booking.
  *
  * Returns: Array<{type, severity, student_id, student_name, enrollment_id, details}>
  */
@@ -18,6 +26,8 @@
 const { supabase } = require('./supabaseDb');
 
 const STALE_DAYS = 7;
+// A purchase older than this is history, not an unserved customer.
+const RECENT_PURCHASE_DAYS = 30;
 
 function computeAllocated(enr) {
   const isHB = (enr.course_type || '').toLowerCase().includes('handbuilding');
@@ -183,6 +193,58 @@ async function checkUnlinkedUpcomingBookings() {
 }
 
 /**
+ * Someone bought recently and has no enrollment to show for it.
+ *
+ * The enrollment is what gets a student into a cohort and onto a roster, so a
+ * purchase without one means a paying customer is waiting and nothing in the
+ * system knows. Known ways it has happened: dead Shopify webhooks, the em-dash
+ * variant-title parser break (c6e72b2), and line-item quantity > 1 creating one
+ * enrollment instead of two.
+ *
+ * Recent purchases only. An audit on 12/08/26 found 361 customers with a
+ * purchase count and no enrollment, every one of them dated 2025 — Shopify
+ * records imported at launch, before enrollments were created going forward.
+ * Not one 2026 purchase was missing an enrollment, so the whole backlog is
+ * archaeology and flagging it would be permanent noise. What matters is
+ * catching the next one.
+ */
+async function checkRecentPurchaseWithoutEnrollment() {
+  const cutoff = new Date(Date.now() - RECENT_PURCHASE_DAYS * 86400000).toISOString().split('T')[0];
+
+  const { data: customers, error } = await supabase
+    .from('customers')
+    .select('id, first_name, last_name, email, course_purchase_count, course_purchase_date')
+    .gt('course_purchase_count', 0)
+    .gte('course_purchase_date', cutoff);
+
+  if (error) {
+    console.error('[AnomalyProbe] recent-purchase query error:', error);
+    return [];
+  }
+  if (!customers || !customers.length) return [];
+
+  const { data: enrollments } = await supabase
+    .from('course_enrollments')
+    .select('student_id')
+    .in('student_id', customers.map(c => c.id));
+
+  const hasEnrollment = new Set((enrollments || []).map(e => e.student_id));
+
+  return customers
+    .filter(c => !hasEnrollment.has(c.id))
+    .map(c => ({
+      type: 'recent_purchase_without_enrollment',
+      severity: 'high',
+      student_id: c.id,
+      student_name: formatStudentName(c),
+      enrollment_id: null,
+      details: `Purchased on ${(c.course_purchase_date || '').slice(0, 10)} ` +
+        `(${c.course_purchase_count} course${c.course_purchase_count === 1 ? '' : 's'}) but has no enrollment row. ` +
+        `They are not in any cohort and will not appear on a roster — check the Shopify order synced correctly.`,
+    }));
+}
+
+/**
  * Run all invariant checks and return aggregated findings.
  * Failures within a single check do not abort the whole probe.
  */
@@ -191,6 +253,7 @@ async function runAnomalyProbe() {
     checkOverAllocated(),
     checkStaleUnassigned10Class(),
     checkUnlinkedUpcomingBookings(),
+    checkRecentPurchaseWithoutEnrollment(),
   ]);
 
   const findings = [];
@@ -209,4 +272,4 @@ async function runAnomalyProbe() {
   return findings;
 }
 
-module.exports = { runAnomalyProbe, checkOverAllocated, checkStaleUnassigned10Class, checkUnlinkedUpcomingBookings };
+module.exports = { runAnomalyProbe, checkOverAllocated, checkStaleUnassigned10Class, checkUnlinkedUpcomingBookings, checkRecentPurchaseWithoutEnrollment };

@@ -337,19 +337,10 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
     return res.status(404).json({ error: 'Class not found' });
   }
 
-  // Count actual bookings instead of relying on cached current_enrollment
-  const { count: actualCount, error: countErr } = await supabaseDb.supabase
-    .from('bookings')
-    .select('id', { count: 'exact', head: true })
-    .eq('class_instance_id', parseInt(classInstanceId))
-    .eq('status', 'booked');
-
-  if (countErr) {
-    console.error('Error counting bookings:', countErr);
-    return res.status(500).json({ error: 'Failed to check class capacity' });
-  }
-
-  if (actualCount >= (classInstance.max_capacity || 10)) {
+  // Counts actual booked rows, not the cached current_enrollment. An
+  // admin-granted capacity override for this exact student is the only way past.
+  const seat = await supabaseDb.checkSeatAvailability(classInstance, dbCustomerId);
+  if (!seat.allowed) {
     return res.status(400).json({ error: 'Class is full. Please join the waitlist.' });
   }
 
@@ -530,19 +521,10 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
     return res.status(404).json({ error: 'Class not found' });
   }
 
-  // Count actual bookings instead of relying on cached current_enrollment
-  const { count: actualMakeupCount, error: makeupCountErr } = await supabaseDb.supabase
-    .from('bookings')
-    .select('id', { count: 'exact', head: true })
-    .eq('class_instance_id', parseInt(classInstanceId))
-    .eq('status', 'booked');
-
-  if (makeupCountErr) {
-    console.error('Error counting bookings:', makeupCountErr);
-    return res.status(500).json({ error: 'Failed to check class capacity' });
-  }
-
-  if (actualMakeupCount >= (classInstance.max_capacity || 10)) {
+  // Counts actual booked rows, not the cached current_enrollment. An
+  // admin-granted capacity override for this exact student is the only way past.
+  const makeupSeat = await supabaseDb.checkSeatAvailability(classInstance, dbCustomerId);
+  if (!makeupSeat.allowed) {
     return res.status(400).json({ error: 'Class is full. No makeup spots available.' });
   }
 
@@ -1530,27 +1512,17 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
     }
   }
 
-  // Check if new class has availability (total capacity is 10)
-  // Count actual bookings instead of relying on cached current_enrollment
-  const { count: actualBookingCount, error: countErr } = await supabaseDb.supabase
-    .from('bookings')
-    .select('id', { count: 'exact', head: true })
-    .eq('class_instance_id', parseInt(newClassId))
-    .eq('status', 'booked');
-
-  if (countErr) {
-    console.error('Error counting bookings:', countErr);
-    return res.status(500).json({ error: 'Failed to check class capacity' });
-  }
-
-  if (actualBookingCount >= (newClass.max_capacity || 10)) {
-    return res.status(400).json({ error: 'This class is completely full' });
-  }
-
-  // Studio-wide 10-wheel cap: total booked across all cohorts sharing this timeslot.
-  const { count: rsWheels } = await supabaseDb.getSlotWheelUsage(newClass.class_date, newClass.start_time);
-  if (rsWheels >= supabaseDb.STUDIO_WHEELS) {
-    return res.status(400).json({ error: `Studio is full — all ${supabaseDb.STUDIO_WHEELS} wheels are booked for this timeslot` });
+  // Both gates: the instance's own cap, and the studio-wide wheel count across
+  // every cohort sharing this timeslot. Counts actual booked rows rather than the
+  // cached current_enrollment. An admin-granted capacity override for this exact
+  // student is the only way past either.
+  const rsSeat = await supabaseDb.checkSeatAvailability(newClass, dbCustomerId, { checkWheels: true });
+  if (!rsSeat.allowed) {
+    return res.status(400).json({
+      error: rsSeat.reason === 'STUDIO_FULL'
+        ? `Studio is full — all ${supabaseDb.STUDIO_WHEELS} wheels are booked for this timeslot`
+        : 'This class is completely full'
+    });
   }
 
   // Check if student already has any booking row for the target class

@@ -407,49 +407,11 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
     }
   }
 
-  // Try to find a matching enrollment for this student + class type
-  let enrollmentId = null;
-  if (classInstance.class_type) {
-    const baseId = classInstance.class_type.replace(/\.\d+$/, '');
-    const { data: enr } = await supabaseDb.supabase
-      .from('course_enrollments')
-      .select('id')
-      .eq('student_id', dbCustomerId)
-      .eq('status', 'active')
-      .or(`course_identifier.eq.${baseId},course_identifier.like.${baseId}%`)
-      .limit(1)
-      .single();
-    if (enr) enrollmentId = enr.id;
-
-    // Fallback: if no match by course_identifier (e.g. HB student booking a different day),
-    // match by course type prefix (HB/WT). Students are in ONE course — the class day doesn't matter.
-    if (!enrollmentId) {
-      const prefix = baseId.substring(0, 2); // "HB" or "WT"
-      const { data: fallbackEnr } = await supabaseDb.supabase
-        .from('course_enrollments')
-        .select('id')
-        .eq('student_id', dbCustomerId)
-        .eq('status', 'active')
-        .like('course_identifier', `${prefix}%`)
-        .limit(1)
-        .single();
-      if (fallbackEnr) enrollmentId = fallbackEnr.id;
-    }
-
-    // Fallback: 10-class package students can book any class type (WT or HB) as flex credits.
-    // Their enrollment course_identifier is WT-based, so HB bookings won't match by prefix.
-    if (!enrollmentId) {
-      const { data: tenClassEnr } = await supabaseDb.supabase
-        .from('course_enrollments')
-        .select('id')
-        .eq('student_id', dbCustomerId)
-        .eq('status', 'active')
-        .eq('number_of_weeks', 10)
-        .limit(1)
-        .single();
-      if (tenClassEnr) enrollmentId = tenClassEnr.id;
-    }
-  }
+  // Charge the booking to an enrollment. Resolved centrally so all three
+  // booking paths agree — this one previously ran its own chain of three
+  // lookups, every one filtered to status 'active', which silently skipped a
+  // completed 10-class package still holding flex credits.
+  const enrollmentId = await supabaseDb.resolveBookingEnrollment(dbCustomerId, classInstance);
 
   const booking = await supabaseDb.createBooking({
     studentId: dbCustomerId,

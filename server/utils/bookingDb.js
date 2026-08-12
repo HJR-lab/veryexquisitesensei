@@ -887,11 +887,24 @@ async function resolveBookingEnrollment(studentId, classInstance) {
     const credits = await getEnrollmentCredits(e.id);
     if (credits.remaining > 0) withCredits.push(e);
   }
-  if (!withCredits.length) return null;
 
-  const pkg = withCredits.find(e =>
-    (e.number_of_weeks || 0) >= 10 || (e.course_type || '').includes('10 Classes'));
-  return (pkg || withCredits[0]).id;
+  if (withCredits.length) {
+    const pkg = withCredits.find(e =>
+      (e.number_of_weeks || 0) >= 10 || (e.course_type || '').includes('10 Classes'));
+    return (pkg || withCredits[0]).id;
+  }
+
+  // Nothing has credits left, but the student clearly belongs to a course of
+  // this type. Attribute it anyway: an over-committed enrollment is visible and
+  // countable (remaining floors at 0), whereas an unlinked booking is invisible
+  // and free. Attributing to a plausible enrollment always beats orphaning.
+  const prefix = (classBase || '').substring(0, 2);   // "WT" or "HB"
+  if (prefix) {
+    const sameType = open.find(e => (e.course_identifier || '').startsWith(prefix));
+    if (sameType) return sameType.id;
+  }
+
+  return null;
 }
 
 module.exports = {

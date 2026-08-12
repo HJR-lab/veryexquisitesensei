@@ -10,18 +10,26 @@
  *   node scripts/relink-unlinked-bookings.js          # dry run
  *   node scripts/relink-unlinked-bookings.js --apply
  *
- * UPCOMING ONLY, deliberately. A past unlinked booking is history: the student
- * attended, the class is gone, and relinking it would retroactively rewrite a
- * balance they have been living with. Nicole Wong is the worked example — two
- * of her attended makeups are unlinked, and linking them would silently take
- * the 2 classes the 09/08 design review established she is owed. Those need a
- * per-student decision, not a sweep.
+ * The sweep is UPCOMING ONLY, deliberately. A past unlinked booking is history:
+ * the student attended, the class is gone, and relinking it retroactively
+ * rewrites a balance they have been living with. That is a per-student
+ * decision, so past bookings are only ever repaired one at a time:
+ *
+ *   node scripts/relink-unlinked-bookings.js --booking=29013 --apply
+ *
+ * Nicole Wong (bookings 29013, 29014) was the first such case: she had attended
+ * all 10 classes of her package, but two were unlinked, so the system still
+ * offered her 2. Justin confirmed 12/08/26 that she had completed all 10.
  */
 require('dotenv').config();
 
 const { supabase, resolveBookingEnrollment, syncStoredCredits } = require('../utils/supabaseDb');
 
 const APPLY = process.argv.includes('--apply');
+const ONLY_BOOKING = (() => {
+  const arg = process.argv.find(a => a.startsWith('--booking='));
+  return arg ? parseInt(arg.split('=')[1], 10) : null;
+})();
 const CONSUMING = ['booked', 'attended', 'completed', 'forfeited', 'absent'];
 
 (async () => {
@@ -43,12 +51,24 @@ const CONSUMING = ['booked', 'attended', 'completed', 'forfeited', 'absent'];
     (b.class_instances?.class_date || '').split(/[T ]/)[0] >= todayStr);
 
   console.log(`${APPLY ? 'APPLYING' : 'DRY RUN'}\n`);
-  console.log(`  unlinked credit-consuming bookings : ${unlinked.length}`);
-  console.log(`  ...upcoming (in scope)             : ${upcoming.length}`);
-  console.log(`  ...past (left alone, see header)   : ${unlinked.length - upcoming.length}\n`);
+
+  let inScope;
+  if (ONLY_BOOKING) {
+    inScope = unlinked.filter(b => b.id === ONLY_BOOKING);
+    if (!inScope.length) {
+      console.log(`  booking ${ONLY_BOOKING} is not an unlinked credit-consuming booking — nothing to do.`);
+      process.exit(0);
+    }
+    console.log(`  targeting booking ${ONLY_BOOKING} only (deliberate per-student correction)\n`);
+  } else {
+    inScope = upcoming;
+    console.log(`  unlinked credit-consuming bookings : ${unlinked.length}`);
+    console.log(`  ...upcoming (in scope)             : ${upcoming.length}`);
+    console.log(`  ...past (needs --booking=ID)       : ${unlinked.length - upcoming.length}\n`);
+  }
 
   const plan = [];
-  for (const b of upcoming) {
+  for (const b of inScope) {
     const enrollmentId = await resolveBookingEnrollment(b.student_id, b.class_instances);
     const { data: cu } = await supabase
       .from('customers').select('first_name, last_name').eq('id', b.student_id).single();

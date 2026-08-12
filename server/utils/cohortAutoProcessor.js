@@ -3,7 +3,7 @@
  * Runs daily to check for cohorts that meet the threshold and create classes automatically
  */
 
-const { supabase } = require('./supabaseDb');
+const { supabase, resolveBookingEnrollment, syncStoredCredits } = require('./supabaseDb');
 const { createClassesAndBookings, MINIMUM_STUDENTS_THRESHOLD } = require('./courseEnrollmentManager');
 const courseConfig = require('./courseConfig');
 const inboxProcessor = require('./inboxProcessor');
@@ -597,6 +597,7 @@ function startAutomaticProcessing() {
     autoRecycleExpiredBatches().catch(console.error);
     cleanupExpiredWaitlist().catch(console.error);
     processCampaigns().catch(console.error);
+    autoRelinkUnlinkedBookings().catch(console.error);
   }, 5000);
 
   // Run daily at 2 AM
@@ -621,6 +622,9 @@ function startAutomaticProcessing() {
       checkPieceReminders().catch(console.error);
       autoRecycleExpiredBatches().catch(console.error);
       cleanupExpiredWaitlist().catch(console.error);
+      // Runs before the 2:15 anomaly probe, so the probe only reports what
+      // could not be repaired automatically.
+      autoRelinkUnlinkedBookings().catch(console.error);
     }
 
     // Run anomaly probe at 2:15 AM — after the 2:00 AM batch so any
@@ -649,6 +653,82 @@ function startAutomaticProcessing() {
   setInterval(runDailyCheck, 60 * 1000);
 
   console.log('[Auto-Processor] ✅ Automatic daily processing scheduled (runs at 2:00 AM)');
+}
+
+/**
+ * Repair upcoming bookings that carry no enrollment link.
+ *
+ * A booking with course_enrollment_id = null is invisible to
+ * getEnrollmentCredits, which counts by that column — the seat is taken and no
+ * credit is spent. Two students reached production that way (Nicole Wong,
+ * April; Sanjana Vijay, August) through three different booking paths before
+ * the shared resolver landed.
+ *
+ * The code paths are fixed. This runs nightly anyway, because the cost of
+ * being wrong is asymmetric: relinking a booking that was already correct is a
+ * no-op, while missing one gives away a class and quietly misstates a
+ * student's balance for months.
+ *
+ * UPCOMING ONLY. A past unlinked booking is history — relinking it rewrites a
+ * balance the student has lived with, which is a decision for a person, not a
+ * cron job.
+ */
+async function autoRelinkUnlinkedBookings() {
+  console.log('[Auto-Processor] Checking for bookings with no enrollment link...');
+
+  try {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const CONSUMING = ['booked', 'attended', 'completed', 'forfeited', 'absent'];
+
+    const { data: unlinked, error } = await supabase
+      .from('bookings')
+      .select('id, student_id, status, class_instances!bookings_class_instance_id_fkey(class_date, class_type)')
+      .is('course_enrollment_id', null)
+      .in('status', CONSUMING);
+
+    if (error) {
+      console.error('[Auto-Processor] Error fetching unlinked bookings:', error);
+      return { success: false, error: error.message };
+    }
+
+    const upcoming = (unlinked || []).filter(b =>
+      (b.class_instances?.class_date || '').split(/[T ]/)[0] >= todayStr);
+
+    if (upcoming.length === 0) {
+      console.log('[Auto-Processor] ✅ No unlinked upcoming bookings');
+      return { success: true, relinked: 0 };
+    }
+
+    let relinked = 0;
+    for (const b of upcoming) {
+      const enrollmentId = await resolveBookingEnrollment(b.student_id, b.class_instances);
+      if (!enrollmentId) {
+        // Legitimate: a cross-course makeup covered by the legacy per-customer
+        // allocation has no enrollment to charge. Reported by the anomaly probe
+        // rather than forced.
+        console.log(`[Auto-Processor] booking ${b.id} (student ${b.student_id}) has no candidate enrollment — left for review`);
+        continue;
+      }
+      const { error: updErr } = await supabase
+        .from('bookings')
+        .update({ course_enrollment_id: enrollmentId, updated_at: new Date().toISOString() })
+        .eq('id', b.id);
+      if (updErr) {
+        console.error(`[Auto-Processor] Failed to relink booking ${b.id}:`, updErr.message);
+        continue;
+      }
+      await syncStoredCredits(enrollmentId);
+      console.log(`[Auto-Processor] 🔗 Relinked booking ${b.id} -> enrollment ${enrollmentId} (was consuming no credit)`);
+      relinked++;
+    }
+
+    console.log(`[Auto-Processor] ✅ Relinked ${relinked} of ${upcoming.length} unlinked upcoming booking(s)`);
+    return { success: true, relinked };
+
+  } catch (error) {
+    console.error('[Auto-Processor] Error in autoRelinkUnlinkedBookings:', error);
+    return { success: false, error: error.message };
+  }
 }
 
 /**
@@ -856,6 +936,7 @@ async function runAnomalyProbeAndAlert() {
 module.exports = {
   processReadyCohorts,
   autoMarkPastBookingsAsAttended,
+  autoRelinkUnlinkedBookings,
   checkCourseEmailReminders,
   checkUnconfirmedCourses,
   checkWeeklyUnconfirmedRecheck,

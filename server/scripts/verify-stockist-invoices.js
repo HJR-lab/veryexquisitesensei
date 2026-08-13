@@ -2,7 +2,12 @@
 require('dotenv').config({ path: '/Users/justinlong/Documents/U____U/ves/code/pottery-gallery-app/server/.env' });
 const { createClient } = require('@supabase/supabase-js');
 
-const BASE = 'http://localhost:3001';
+// Defaults to the local server. Point it at the deployed API to prove the code
+// actually running in production carries a fix, not just the working copy:
+//   STOCKIST_API=https://ves-pottery-api-production.up.railway.app node scripts/verify-stockist-invoices.js
+// Both targets share one Supabase project, so this writes to the real ledger
+// either way — the suite creates throwaway invoices and deletes them again.
+const BASE = process.env.STOCKIST_API || 'http://localhost:3001';
 const ADMIN_EMAIL = 'info@ves.sg';
 
 let pass = 0, fail = 0;

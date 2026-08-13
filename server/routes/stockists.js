@@ -276,8 +276,12 @@ app.post('/api/admin/stockists/:id/invoices', authenticateToken, requireAdmin, a
     invoice_number: invoiceNumber,
     issue_date: issueDate,
     status,
+    // Both dates fall back to the issue date when an already-settled invoice is
+    // backfilled. paid_at used to be left null here while sent_at was derived,
+    // so an invoice created as paid recorded no payment date but one moved to
+    // paid later did — same end state, different record.
     sent_at: req.body.sent_at || (status === 'sent' || status === 'paid' ? new Date(issueDate).toISOString() : null),
-    paid_at: req.body.paid_at || null,
+    paid_at: req.body.paid_at || (status === 'paid' ? new Date(issueDate).toISOString() : null),
     pdf_url: (req.body.pdf_url || '').trim() || null,
     notes: (req.body.notes || '').trim() || null,
   }).select().single();
@@ -320,6 +324,13 @@ app.put('/api/admin/stockists/invoices/:invoiceId', authenticateToken, requireAd
     if (status === 'paid') {
       if (!invoice.sent_at) patch.sent_at = new Date().toISOString();
       if (!invoice.paid_at) patch.paid_at = new Date().toISOString();
+    }
+    // Moving OFF paid must clear the payment date, or an invoice corrected back
+    // to outstanding still reads as settled on a date it was not. The outstanding
+    // total is derived from status, so the row would look right in the list while
+    // carrying a paid_at that contradicts it.
+    if (status !== 'paid' && invoice.paid_at && !('paid_at' in req.body)) {
+      patch.paid_at = null;
     }
   }
   if ('issue_date' in req.body && /^\d{4}-\d{2}-\d{2}$/.test(req.body.issue_date)) {

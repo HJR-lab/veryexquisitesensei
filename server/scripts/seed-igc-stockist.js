@@ -75,7 +75,7 @@ const INVOICES = [
     invoice_number: 'VI03IGC0826',
     issue_date: '2026-08-13',
     status: 'draft',
-    notes: "Feb-May'26 catch-up. Jun'26 and Jul'26 statements have not arrived — confirm with IGC that none are coming (or chase them) before sending. The number and date are rebuilt when this is marked sent.",
+    notes: "Feb-May'26 consolidated into one invoice. Jun'26 and Jul'26 statements still to come — Jul expected shortly as at 13/08/26. Add them as further lines to this draft before sending. The number and date are rebuilt when this is marked sent.",
     lines: [
       { period_from: '2026-02-01', period_to: '2026-02-28', gross_sgd: 540, amount_sgd: 247.7064 },
       { period_from: '2026-03-01', period_to: '2026-03-31', gross_sgd: 1325, amount_sgd: 607.7982 },

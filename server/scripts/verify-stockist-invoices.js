@@ -102,11 +102,14 @@ async function main() {
   check('present', !!sks);
   check('margin rate null, not assumed 50%', sks && sks.margin_rate === null, `got ${sks?.margin_rate}`);
   check('billed 1360.80', sks && Number(sks.billed_total) === 1360.8, `got ${sks?.billed_total}`);
-  check('nothing outstanding', sks && Number(sks.outstanding_total) === 0, `got ${sks?.outstanding_total}`);
+  // VI01SKS0126 is sent but unpaid, so Stacked Store's whole ledger is outstanding.
+  check('all 1360.80 outstanding', sks && Number(sks.outstanding_total) === 1360.8, `got ${sks?.outstanding_total}`);
 
   const sksDetail = await call('GET', `/api/admin/stockists/${sks.id}`);
   const sksInvoice = sksDetail.json.invoices[0];
   check('VI01SKS0126', sksInvoice?.invoice_number === 'VI01SKS0126', sksInvoice?.invoice_number);
+  check('outstanding, not paid', sksInvoice?.status === 'sent', sksInvoice?.status);
+  check('no payment date', !sksInvoice?.paid_at, sksInvoice?.paid_at);
   check('line carries no period', sksInvoice?.lines[0].label === '', `got "${sksInvoice?.lines[0].label}"`);
 
   const sksHtml = await call('GET', `/api/admin/stockists/invoices/${sksInvoice.id}/html`);
@@ -123,6 +126,22 @@ async function main() {
   const sksBody = sksHtml.text.replace(/data:image\/png;base64,[A-Za-z0-9+/=]+/g, '[logo]');
   check('no IGC details leaked', !sksBody.includes('IGC'),
     sksBody.split('\n').filter(l => l.includes('IGC')).join(' | '));
+
+  console.log('\n== correcting a paid invoice back to outstanding ==');
+  // VI01SKS0126 was recorded as paid when it was actually outstanding. Clearing
+  // the status without clearing paid_at would leave the row reading as settled
+  // on a date it was not, while the outstanding total (derived from status) said
+  // otherwise — right in the list, wrong in the record.
+  const corr = await call('POST', `/api/admin/stockists/${sks.id}/invoices`, {
+    issue_date: '2026-11-01', status: 'paid', lines: [{ amount_sgd: 5 }],
+  });
+  check('starts paid with a payment date', !!corr.json?.invoice?.paid_at);
+  const backToSent = await call('PUT', `/api/admin/stockists/invoices/${corr.json.invoice.id}`, { status: 'sent' });
+  check('payment date cleared on the way back to sent', !backToSent.json?.invoice?.paid_at,
+    backToSent.json?.invoice?.paid_at);
+  check('sent date kept', !!backToSent.json?.invoice?.sent_at);
+  await call('PUT', `/api/admin/stockists/invoices/${corr.json.invoice.id}`, { status: 'draft' });
+  await call('DELETE', `/api/admin/stockists/invoices/${corr.json.invoice.id}`);
 
   console.log('\n== period labels are escaped, not injected ==');
   // period_label is free text an admin types and it lands in the invoice HTML.

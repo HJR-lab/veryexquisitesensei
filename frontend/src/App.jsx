@@ -51,6 +51,8 @@ const AdminReschedules = lazy(() => import('./pages/AdminReschedules'));
 const AdminCohorts = lazy(() => import('./pages/AdminCohorts'));
 const AdminFees = lazy(() => import('./pages/AdminFees'));
 const AdminVouchers = lazy(() => import('./pages/AdminVouchers'));
+const AdminStockists = lazy(() => import('./pages/AdminStockists'));
+const AdminStockistDetail = lazy(() => import('./pages/AdminStockistDetail'));
 
 const Policies = lazy(() => import('./pages/Policies'));
 const EventRSVP = lazy(() => import('./pages/EventRSVP'));
@@ -235,6 +237,8 @@ function App() {
             <Route path="cohorts" element={<AdminCohorts />} />
             <Route path="fees" element={<AdminFees />} />
             <Route path="vouchers" element={<AdminVouchers />} />
+            <Route path="stockists" element={<AdminStockists />} />
+            <Route path="stockists/:id" element={<AdminStockistDetail />} />
 
           </Route>
 

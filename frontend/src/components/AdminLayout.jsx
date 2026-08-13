@@ -16,6 +16,7 @@ const getActiveNav = (pathname) => {
   if (pathname.includes('/admin/instructors')) return 'instructors';
   if (pathname.includes('/admin/events')) return 'events';
   if (pathname.includes('/admin/reference')) return 'reference';
+  if (pathname.includes('/admin/stockists')) return 'stockists';
   if (pathname.includes('/admin/policy')) return 'policy';
   return 'dashboard';
 };

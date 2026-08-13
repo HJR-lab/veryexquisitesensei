@@ -163,6 +163,7 @@ export default function AdminNav({ active, onSyncComplete }) {
                   { label: 'Fire', href: '/admin/pieces' },
                   { label: 'Inventory', href: '/admin/reference' },
                   { label: 'Instructors', href: '/admin/instructors' },
+                  { label: 'Stockists', href: '/admin/stockists' },
                   { type: 'header', label: 'Analytics' },
                   { label: 'Stats', href: '/admin/platform-stats' },
                 ].map((item, i) => (

@@ -1,5 +1,23 @@
+const multer = require('multer');
 const supabaseDb = require('../utils/supabaseDb');
 const inv = require('../utils/stockistInvoice');
+
+// The stockist's sales report for a billed period. Private bucket — these are
+// commercial documents, so the app signs a short-lived URL per request rather
+// than handing out a permanent public link.
+const STATEMENT_BUCKET = 'stockist-statements';
+const STATEMENT_URL_TTL_SECONDS = 300;
+
+const statementUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    // Stockists send .xlsx. Accepting anything would turn an invoice ledger
+    // into an arbitrary file host.
+    const ok = /\.(xlsx|xls|csv|pdf)$/i.test(file.originalname || '');
+    cb(ok ? null : new Error('Sales reports must be .xlsx, .xls, .csv or .pdf'), ok);
+  },
+});
 
 // Consignment stockists and the invoices VES raises against them.
 //
@@ -197,7 +215,14 @@ app.get('/api/admin/stockists/:id', authenticateToken, requireAdmin, asyncHandle
       return {
         ...i,
         stockist_invoice_lines: undefined,
-        lines: lines.map((l) => ({ ...l, label: lineLabel(l) })),
+        lines: lines.map((l) => ({
+          ...l,
+          label: lineLabel(l),
+          // The path is internal; the client only needs to know a report exists
+          // and what it is called, then asks for a signed URL when clicked.
+          statement_path: undefined,
+          has_statement: Boolean(l.statement_path),
+        })),
         total_sgd: invoiceTotal(lines),
       };
     }),
@@ -404,6 +429,92 @@ app.delete('/api/admin/stockists/invoices/:invoiceId', authenticateToken, requir
 
   const { error } = await db().from('stockist_invoices').delete().eq('id', invoice.id);
   if (error) throw error;
+  res.json({ success: true });
+}));
+
+// ============================================
+// SALES REPORTS
+// ============================================
+
+async function loadLine(lineId) {
+  const { data, error } = await db()
+    .from('stockist_invoice_lines')
+    .select('*, stockist_invoices(id, invoice_number, stockist_id, stockists(name, invoice_code))')
+    .eq('id', lineId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+// Attach the stockist's sales report to a billed period. Allowed on any status:
+// filing the report behind an invoice that was already sent is record-keeping,
+// not a change to what was billed.
+app.post(
+  '/api/admin/stockists/lines/:lineId/statement',
+  authenticateToken,
+  requireAdmin,
+  statementUpload.single('file'),
+  asyncHandler(async (req, res) => {
+    const line = await loadLine(req.params.lineId);
+    if (!line) return res.status(404).json({ error: 'Invoice period not found.' });
+    if (!req.file) return res.status(400).json({ error: 'No file received.' });
+
+    const stockist = line.stockist_invoices?.stockists || {};
+    const code = (stockist.invoice_code || 'UNK').toUpperCase();
+    // Keyed by line id, so re-uploading replaces rather than accumulating
+    // near-identical files, and two periods can share a filename safely.
+    const safeName = (req.file.originalname || 'statement').replace(/[^\w.'-]+/g, '_');
+    const path = `${code}/${line.id}-${safeName}`;
+
+    const { error: uploadError } = await db()
+      .storage.from(STATEMENT_BUCKET)
+      .upload(path, req.file.buffer, {
+        contentType: req.file.mimetype || 'application/octet-stream',
+        upsert: true,
+      });
+    if (uploadError) throw uploadError;
+
+    const { error } = await db()
+      .from('stockist_invoice_lines')
+      .update({ statement_path: path, statement_filename: req.file.originalname })
+      .eq('id', line.id);
+    if (error) throw error;
+
+    res.json({ success: true, statement_filename: req.file.originalname });
+  })
+);
+
+// A short-lived signed URL for the report. The bucket is private, so this is
+// the only way to reach the file, and the link dies rather than leaking.
+app.get('/api/admin/stockists/lines/:lineId/statement', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const line = await loadLine(req.params.lineId);
+  if (!line) return res.status(404).json({ error: 'Invoice period not found.' });
+  if (!line.statement_path) return res.status(404).json({ error: 'No sales report filed for this period.' });
+
+  const { data, error } = await db()
+    .storage.from(STATEMENT_BUCKET)
+    .createSignedUrl(line.statement_path, STATEMENT_URL_TTL_SECONDS, {
+      download: line.statement_filename || true,
+    });
+  if (error) throw error;
+
+  res.json({ url: data.signedUrl, filename: line.statement_filename });
+}));
+
+app.delete('/api/admin/stockists/lines/:lineId/statement', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const line = await loadLine(req.params.lineId);
+  if (!line) return res.status(404).json({ error: 'Invoice period not found.' });
+  if (!line.statement_path) return res.json({ success: true });
+
+  const { error: removeError } = await db().storage.from(STATEMENT_BUCKET).remove([line.statement_path]);
+  if (removeError) throw removeError;
+
+  const { error } = await db()
+    .from('stockist_invoice_lines')
+    .update({ statement_path: null, statement_filename: null })
+    .eq('id', line.id);
+  if (error) throw error;
+
   res.json({ success: true });
 }));
 

@@ -132,6 +132,65 @@ async function main() {
   check('no IGC details leaked', !sksBody.includes('IGC'),
     sksBody.split('\n').filter(l => l.includes('IGC')).join(' | '));
 
+  console.log('\n== sales reports ==');
+  const allLines = (detail.json.invoices || []).flatMap(i => i.lines.map(l => ({ ...l, invoice: i.invoice_number })));
+  check('every IGC period has a report', allLines.every(l => l.has_statement),
+    allLines.filter(l => !l.has_statement).map(l => `${l.invoice} ${l.label}`).join(', '));
+  check('8 reports across 4 invoices', allLines.length === 8, `got ${allLines.length}`);
+  check('filename kept as the stockist sent it',
+    allLines.some(l => l.statement_filename === "VES Sales_Apr'26.xlsx"),
+    allLines.map(l => l.statement_filename).join(', '));
+  // The path is an internal storage key; the client has no business seeing it.
+  check('storage path not exposed to the client', allLines.every(l => l.statement_path === undefined));
+
+  const aprLine = allLines.find(l => l.statement_filename === "VES Sales_Apr'26.xlsx");
+  const signed = await call('GET', `/api/admin/stockists/lines/${aprLine.id}/statement`);
+  check('signed URL issued', signed.status === 200 && /^https:\/\//.test(signed.json?.url || ''), signed.text?.slice(0, 120));
+  // Proves the bucket is genuinely private: the same object without the
+  // signature must be refused.
+  const bare = (signed.json.url || '').split('?')[0];
+  const unsigned = await fetch(bare);
+  check('bucket is private — unsigned fetch refused', unsigned.status >= 400, `got ${unsigned.status}`);
+  const download = await fetch(signed.json.url);
+  check('signed URL downloads the file', download.status === 200, `got ${download.status}`);
+  const bytes = Buffer.from(await download.arrayBuffer());
+  // xlsx is a zip; "PK" is the signature. Confirms the real spreadsheet came
+  // back rather than an error page with a 200.
+  check('and it is the real spreadsheet', bytes.length > 5000 && bytes.subarray(0, 2).toString() === 'PK',
+    `${bytes.length} bytes, starts ${bytes.subarray(0, 2).toString('hex')}`);
+
+  const sksLineId = sksInvoice.lines[0].id;
+  const missing = await call('GET', `/api/admin/stockists/lines/${sksLineId}/statement`);
+  check('period with no report 404s rather than erroring', missing.status === 404, `got ${missing.status}`);
+
+  // Attach / fetch / remove through the API, which is the path the admin UI
+  // uses — the backfill wrote to storage directly and never exercised it.
+  const upload = async (name, body) => {
+    const form = new FormData();
+    form.append('file', new Blob([body]), name);
+    const res = await fetch(`${BASE}/api/admin/stockists/lines/${sksLineId}/statement`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form,
+    });
+    return { status: res.status, text: await res.text() };
+  };
+
+  check('a .txt is rejected', (await upload('notes.txt', 'nope')).status >= 400);
+  const attached = await upload('Round Trip.xlsx', 'PKround-trip-test');
+  check('an .xlsx is accepted', attached.status === 200, attached.text.slice(0, 140));
+
+  const withReport = await call('GET', `/api/admin/stockists/${sks.id}`);
+  check('shows as attached', withReport.json.invoices[0].lines[0].has_statement === true);
+  check('filename recorded', withReport.json.invoices[0].lines[0].statement_filename === 'Round Trip.xlsx',
+    withReport.json.invoices[0].lines[0].statement_filename);
+
+  const rt = await call('GET', `/api/admin/stockists/lines/${sksLineId}/statement`);
+  const rtBody = await (await fetch(rt.json.url)).text();
+  check('downloads the bytes that were uploaded', rtBody === 'PKround-trip-test', rtBody.slice(0, 40));
+
+  check('removed', (await call('DELETE', `/api/admin/stockists/lines/${sksLineId}/statement`)).status === 200);
+  const cleared = await call('GET', `/api/admin/stockists/${sks.id}`);
+  check('back to no report', cleared.json.invoices[0].lines[0].has_statement === false);
+
   console.log('\n== correcting a paid invoice back to outstanding ==');
   // VI01SKS0126 was recorded as paid when it was actually outstanding. Clearing
   // the status without clearing paid_at would leave the row reading as settled

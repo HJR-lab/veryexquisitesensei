@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import AdminPage from '../components/AdminPage';
@@ -29,6 +29,8 @@ export default function AdminStockistDetail() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [drafting, setDrafting] = useState(false);
+  const [uploadLine, setUploadLine] = useState(null);
+  const fileInput = useRef(null);
   const [draft, setDraft] = useState({ issue_date: today(), lines: [blankLine()] });
 
   const load = useCallback(async () => {
@@ -75,6 +77,53 @@ export default function AdminStockistDetail() {
       await load();
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to delete invoice');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // The sales report behind a billed period. The bucket is private, so the app
+  // asks for a short-lived signed URL at click time rather than holding a link.
+  const openStatement = async (line) => {
+    try {
+      const { data } = await api.get(`/admin/stockists/lines/${line.id}/statement`);
+      window.open(data.url, '_blank');
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to open the sales report');
+    }
+  };
+
+  const pickStatement = (line) => {
+    setUploadLine(line);
+    fileInput.current.value = ''; // so re-picking the same file still fires onChange
+    fileInput.current.click();
+  };
+
+  const uploadStatement = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file || !uploadLine) return;
+    try {
+      setBusy(true);
+      const form = new FormData();
+      form.append('file', file);
+      await api.post(`/admin/stockists/lines/${uploadLine.id}/statement`, form);
+      await load();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to attach the sales report');
+    } finally {
+      setUploadLine(null);
+      setBusy(false);
+    }
+  };
+
+  const removeStatement = async (line) => {
+    if (!confirm('Remove the sales report from this period?')) return;
+    try {
+      setBusy(true);
+      await api.delete(`/admin/stockists/lines/${line.id}/statement`);
+      await load();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to remove the sales report');
     } finally {
       setBusy(false);
     }
@@ -227,6 +276,15 @@ export default function AdminStockistDetail() {
         </div>
       )}
 
+      {/* One hidden input serves every period; pickStatement records which. */}
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".xlsx,.xls,.csv,.pdf"
+        onChange={uploadStatement}
+        style={{ display: 'none' }}
+      />
+
       <div style={{ border: `1px solid ${RULE}`, backgroundColor: '#FFF' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr 110px 90px 210px', backgroundColor: ALT, padding: '8px 16px' }}>
           {[['Invoice', 'left'], ['Periods', 'left'], ['Issued', 'left'], ['Total', 'right'], ['', 'right']].map(([h, align], i) => (
@@ -261,11 +319,42 @@ export default function AdminStockistDetail() {
 
               <div style={{ fontSize: '11px', color: INK }}>
                 {invoice.lines.map(l => (
-                  <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', maxWidth: '260px', color: MUTED }}>
-                    <span style={l.label ? undefined : { fontStyle: 'italic' }}>
+                  <div key={l.id} style={{ display: 'flex', alignItems: 'baseline', gap: '10px', maxWidth: '360px', color: MUTED }}>
+                    <span style={{ flex: 1, ...(l.label ? {} : { fontStyle: 'italic' }) }}>
                       {l.label || 'No period'}
                     </span>
-                    <span>{money(l.amount_sgd)}</span>
+                    <span style={{ width: '70px', textAlign: 'right' }}>{money(l.amount_sgd)}</span>
+                    {/* The statement each figure came from. Without it, checking
+                        an amount meant going back to the mailbox it arrived in. */}
+                    <span style={{ width: '80px', textAlign: 'right' }}>
+                      {l.has_statement ? (
+                        <>
+                          <button
+                            onClick={() => openStatement(l)}
+                            title={l.statement_filename || 'Sales report'}
+                            style={{ fontSize: '10px', fontWeight: 700, padding: 0, background: 'none', border: 'none', color: TC_DARK, cursor: 'pointer', textDecoration: 'underline' }}
+                          >
+                            Report
+                          </button>
+                          <button
+                            onClick={() => removeStatement(l)}
+                            disabled={busy}
+                            title="Remove this sales report"
+                            style={{ fontSize: '11px', marginLeft: '6px', padding: 0, background: 'none', border: 'none', color: MUTED, cursor: 'pointer' }}
+                          >
+                            ×
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => pickStatement(l)}
+                          disabled={busy}
+                          style={{ fontSize: '10px', padding: 0, background: 'none', border: 'none', color: MUTED, cursor: 'pointer', textDecoration: 'underline' }}
+                        >
+                          Attach
+                        </button>
+                      )}
+                    </span>
                   </div>
                 ))}
                 {invoice.notes && (

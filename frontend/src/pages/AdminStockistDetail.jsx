@@ -141,7 +141,7 @@ export default function AdminStockistDetail() {
     <AdminPage
       title={stockist.name}
       subtitle={`${stockist.margin_rate == null
-        ? 'margin rate not recorded'
+        ? 'no commission rate'
         : `${Math.round(Number(stockist.margin_rate) * 100)}% of the GST-exclusive amount`} · ${money(billed)} billed · ${money(outstanding)} outstanding`}
       actions={
         <div style={{ display: 'flex', gap: '8px' }}>

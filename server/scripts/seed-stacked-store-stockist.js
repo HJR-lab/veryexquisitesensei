@@ -9,9 +9,9 @@
  *
  * Two fields are deliberately left null rather than guessed:
  *
- *   margin_rate  — not on the invoice and not recorded anywhere. IGC's 50% is
- *                  IGC's; assuming it here would display an unconfirmed rate
- *                  as if it were the agreed term.
+ *   margin_rate  — there is no commission rate. Confirmed by Justin 13/08/26:
+ *                  Stacked Store is not a margin-share arrangement the way IGC
+ *                  is, so the field is genuinely empty rather than unknown.
  *
  *   the period   — VI01SKS0126 bills no period at all. Its line reads
  *                  "Consignment - Ves Products / For payment of goods", where
@@ -19,7 +19,7 @@
  *                  Inventing "Dec'25" from the 12 Jan issue date would put a
  *                  period on a re-rendered invoice that the sent one never had.
  *
- * Both are editable in the app once known.
+ * The period stays editable in the app if it is ever pinned down.
  */
 
 require('dotenv').config();
@@ -37,14 +37,15 @@ const STOCKIST = {
   bill_to_address_line2: 'Singapore 159919',
   invoice_line_description: 'Consignment - Ves Products',
   invoice_line_detail: 'For payment of goods',
-  notes: 'Margin rate not confirmed — VI01SKS0126 does not state one and no agreement is on file. Its invoices bill no specific period.',
+  notes: 'No commission rate — this is not a margin-share arrangement, unlike IGC. Its invoices bill no specific period.',
 };
 
 const INVOICES = [
   {
+    // Outstanding, not settled — confirmed by Justin 13/08/26.
     invoice_number: 'VI01SKS0126',
     issue_date: '2026-01-12',
-    status: 'paid',
+    status: 'sent',
     lines: [
       // No dates and no label: prints "For payment of goods" with no period,
       // matching the sent document.

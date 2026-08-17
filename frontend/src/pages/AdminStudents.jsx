@@ -46,7 +46,13 @@ function StatusBadge({ status }) {
     active:    { label: 'Active',    bg: '#E8F5E9', color: '#2E7D32' },
     upcoming:  { label: 'Upcoming',  bg: TC_LIGHT,  color: TC_DARK },
     paused:    { label: 'Paused',    bg: '#FFF8E1', color: '#F57F17' },
-    completed: { label: 'Done',      bg: ALT,       color: MUTED },
+    // Past students split by what the studio can actually prove. 'completed'
+    // is the honest default — true of every alumnus — and 'collected' is only
+    // claimed for the few whose batches are all terminal. A student with no
+    // batch record stays 'completed'; the pipeline started partway through the
+    // studio's history, so a blank record is unknown, not clear.
+    completed: { label: 'Course finished', bg: ALT, color: MUTED },
+    collected: { label: 'Works collected', bg: '#E8F5E9', color: '#2E7D32' },
     hb:        { label: 'HB',        bg: '#FFF3E0', color: '#E65100' },
     member:    { label: 'Member',    bg: MEMBER_BG, color: MEMBER_COLOR },
     pending:   { label: 'Pending',   bg: '#EEF2FF', color: '#3730A3' },
@@ -67,6 +73,54 @@ function StatusBadge({ status }) {
     }}>
       {cfg.label}
     </span>
+  );
+}
+
+// ─── Uncollected work ─────────────────────────────────────────────────────────
+// Wording matches the pipeline page (AdminPiecePipeline STATUS_LABELS) so a
+// batch reads the same wherever you meet it.
+const PIECE_LABELS = {
+  logged:       'Logged / Drying',
+  bisque_fired: 'Bisque Fired',
+  glaze_fired:  'Glaze Fired',
+  ready:        'Ready for Collection',
+  collecting:   'Collection Scheduled',
+  delivering:   'Delivery Scheduled',
+  in_cabinet:   'In Cabinet',
+};
+// Finished and waiting on the student — these are the ones worth a nudge.
+const PIECE_WAITING = ['ready', 'collecting', 'delivering', 'in_cabinet'];
+
+function PieceStatus({ pieces }) {
+  if (!pieces) return null;
+
+  // No batch record at all is UNKNOWN, not collected. The piece pipeline only
+  // started partway through the studio's history, so most older students have
+  // no row — a tick here would be a false all-clear on work that may still be
+  // on a shelf. Render nothing and let the blank speak for itself.
+  if (!pieces.hasRecord) return null;
+
+  if (pieces.outstandingBatches === 0) {
+    return (
+      <div style={{ fontSize: '10px', color: '#2E7D32', marginTop: '2px' }}>
+        &#10003; Work collected
+      </div>
+    );
+  }
+
+  const waiting = PIECE_WAITING.includes(pieces.furthestStatus);
+  const label = PIECE_LABELS[pieces.furthestStatus] || 'In the studio';
+  const days = pieces.readyAt
+    ? Math.floor((Date.now() - new Date(pieces.readyAt)) / 86400000)
+    : null;
+
+  return (
+    <div style={{ fontSize: '10px', color: waiting ? '#B3261E' : '#9E6200', marginTop: '2px', fontWeight: 600 }}>
+      {pieces.outstandingPieces} {pieces.outstandingPieces === 1 ? 'piece' : 'pieces'} — {label}
+      {waiting && days != null && days > 0 && (
+        <span style={{ fontWeight: 400 }}> · waiting {days}d</span>
+      )}
+    </div>
   );
 }
 
@@ -108,6 +162,10 @@ export default function AdminStudents() {
   const [returningStudentsList,  setReturningStudentsList]  = useState([]);
   const [upcomingEnrollmentsList,setUpcomingEnrollmentsList]= useState([]);
   const [hbStudentsList,         setHbStudentsList]         = useState([]);
+  // Students whose every enrollment is finished. Kept out of the default view
+  // but still in the app, so they can be found, chased for uncollected work,
+  // and included in a mailout.
+  const [pastStudentsList,       setPastStudentsList]       = useState([]);
 
   // Members data
   const [membersList,        setMembersList]        = useState([]);
@@ -176,8 +234,12 @@ export default function AdminStudents() {
 
       const students = data.students || [];
       // Split into categories for existing UI
-      const wt = students.filter(s => s.isWT && s.enrollmentStatus !== 'paused' && s.enrollmentStatus !== 'completed');
-      const hb = students.filter(s => s.isHB);
+      // Past students are keyed off the server's isPastStudent flag, not off
+      // status: a finished HB that still has credits also carries status
+      // 'completed' but belongs in the HB list, where its credit workflow lives.
+      const past = students.filter(s => s.isPastStudent);
+      const wt = students.filter(s => s.isWT && !s.isPastStudent && s.enrollmentStatus !== 'paused' && s.enrollmentStatus !== 'completed');
+      const hb = students.filter(s => s.isHB && !s.isPastStudent);
       const paused = students.filter(s => s.enrollmentStatus === 'paused');
       const members = students.filter(s => s.enrollmentStatus === 'member');
 
@@ -186,11 +248,13 @@ export default function AdminStudents() {
         setHbStudentsList(prev => [...prev, ...hb]);
         setPausedStudentsList(prev => [...prev, ...paused]);
         setMembersList(prev => [...prev, ...members]);
+        setPastStudentsList(prev => [...prev, ...past]);
       } else {
         setActiveStudentsList(wt);
         setHbStudentsList(hb);
         setPausedStudentsList(paused);
         setMembersList(members);
+        setPastStudentsList(past);
       }
       setMembershipByEmail(prev => ({ ...(append ? prev : {}), ...(data.membershipByEmail || {}) }));
       setPagination(data.pagination || { page: 1, total: 0, totalPages: 1 });
@@ -215,10 +279,11 @@ export default function AdminStudents() {
         params: { limit: 'all' }
       });
       const students = data.students || [];
-      setActiveStudentsList(students.filter(s => s.isWT && s.enrollmentStatus !== 'paused' && s.enrollmentStatus !== 'completed'));
-      setHbStudentsList(students.filter(s => s.isHB));
+      setActiveStudentsList(students.filter(s => s.isWT && !s.isPastStudent && s.enrollmentStatus !== 'paused' && s.enrollmentStatus !== 'completed'));
+      setHbStudentsList(students.filter(s => s.isHB && !s.isPastStudent));
       setPausedStudentsList(students.filter(s => s.enrollmentStatus === 'paused'));
       setMembersList(students.filter(s => s.enrollmentStatus === 'member'));
+      setPastStudentsList(students.filter(s => s.isPastStudent));
       setMembershipByEmail(data.membershipByEmail || {});
       setPagination(data.pagination || { page: 1, total: 0, totalPages: 1 });
     } catch (error) {
@@ -589,7 +654,29 @@ export default function AdminStudents() {
       };
     });
 
-    return [...wtActive, ...hbAll, ...paused, ...membersOnly];
+    const pastStudents = pastStudentsList.map(s => {
+      const membership = membershipByEmail[s.email];
+      return {
+        ...s,
+        _type: membership ? 'student-member' : 'past',
+        _cardType: 'student',
+        _wtUsed: s.classesAttended || 0,
+        _wtTotal: s.isWT ? (s.classesAllocated || 6) : null,
+        _hbUsed: s.isHB ? (s.creditsUsed || 0) : null,
+        _hbTotal: s.isHB ? (s.creditsAllocated || 0) : null,
+        _purchaseCount: s.coursePurchaseCount || 1,
+        _enrollmentId: s.enrollmentId,
+        _variantTitle: packageLabel(s) || s.variantTitle || s.courseIdentifier || '',
+        _cohortLine: packageLabel(s) ? cohortDayAndDates(s.variantTitle) : null,
+        _lastClassDate: s.lastClassDate || null,
+        _recentDate: s.lastClassDate || s.courseEndDate || s.latestEnrollmentDate || s.enrollmentCreatedAt || null,
+        _membership: membership || null,
+        _statusKey: 'completed',
+        _packageTotalCourses: s.packageTotalCourses || null,
+      };
+    });
+
+    return [...wtActive, ...hbAll, ...paused, ...membersOnly, ...pastStudents];
   };
 
   const tabFilter = (student) => {
@@ -629,11 +716,16 @@ export default function AdminStudents() {
   };
 
   const allUsers  = buildUnifiedList();
+  // Headline counts describe who is currently in the studio. Past students are
+  // excluded so "Students" keeps meaning what it always did — folding 189
+  // alumni in would turn ~109 into ~298 and make the number useless at a
+  // glance. Their own filter carries their count.
+  const currentUsers = allUsers.filter(s => s._statusKey !== 'completed');
   const tabCounts = {
-    all:              allUsers.length,
-    students:         allUsers.filter(s => s._cardType !== 'member').length,
-    members:          allUsers.filter(s => s._type === 'member' || s._type === 'student-member').length,
-    'student-member': allUsers.filter(s => s._type === 'student-member').length,
+    all:              currentUsers.length,
+    students:         currentUsers.filter(s => s._cardType !== 'member').length,
+    members:          currentUsers.filter(s => s._type === 'member' || s._type === 'student-member').length,
+    'student-member': currentUsers.filter(s => s._type === 'student-member').length,
   };
 
   // Package type filter helper
@@ -656,6 +748,15 @@ export default function AdminStudents() {
     allUsers
       .filter(tabFilter)
       .filter(s => {
+        // Past students stay out of every current-student view — 189 of them
+        // would bury the ~109 people actually in the studio. A search overrides
+        // this: typing a name should find anyone, whichever filter is selected.
+        const isPast = s._statusKey === 'completed';
+        if (uiFilter === 'past')             return isPast;
+        if (uiFilter === 'past-uncollected') return isPast && (s.pieces?.outstandingBatches || 0) > 0;
+        if (uiFilter === 'past-credit')      return isPast && (s.creditBalance || 0) > 0;
+        if (uiFilter === 'past-collected')   return isPast && s.pieces?.hasRecord && s.pieces.outstandingBatches === 0;
+        if (isPast) return searchLower.length > 0;
         if (uiFilter === 'all' || isOnMemberTab) return true;
         if (uiFilter === 'members') return s._type === 'member' || s._type === 'student-member';
         // Replaces the old standalone /admin/students/paused page.
@@ -673,6 +774,36 @@ export default function AdminStudents() {
       )
   );
 
+  // Past students who still have work in the studio — the actionable subset,
+  // and the reason keeping alumni in the app matters. Counted over the whole
+  // past list, not the visible rows, so the number is stable as filters change.
+  const pastUncollected = pastStudentsList.reduce((acc, s) => {
+    if ((s.pieces?.outstandingBatches || 0) > 0) {
+      acc.students += 1;
+      acc.pieces += s.pieces.outstandingPieces || 0;
+    }
+    return acc;
+  }, { students: 0, pieces: 0 });
+
+  // Past students still holding VES $ credit — money they've paid that the
+  // studio hasn't delivered against. Disjoint from the uncollected-work group
+  // today, so it's a genuinely separate list to work through.
+  const pastCredit = pastStudentsList.reduce((acc, s) => {
+    if ((s.creditBalance || 0) > 0) {
+      acc.students += 1;
+      acc.amount += s.creditBalance;
+    }
+    return acc;
+  }, { students: 0, amount: 0 });
+
+  // Alumni the pipeline can positively confirm are clear — every batch of
+  // theirs reached collected/shipped/recycled. Deliberately not "everyone
+  // without outstanding work": 166 past students have no batch record at all,
+  // and unknown is not the same as collected.
+  const pastCollected = pastStudentsList.filter(
+    s => s.pieces?.hasRecord && s.pieces.outstandingBatches === 0
+  ).length;
+
   // Sort options based on current tab
   const studentFilterOptions = [
     { key: 'all',        label: 'All' },
@@ -687,6 +818,16 @@ export default function AdminStudents() {
     { key: 'members',   label: 'Memberships' },
     { key: 'paused',    label: 'Paused' },
     { key: 'owed',      label: owedSummary.students ? `Owed classes (${owedSummary.students})` : 'Owed classes' },
+    { key: 'past',      label: pastStudentsList.length ? `Past students (${pastStudentsList.length})` : 'Past students' },
+    { key: 'past-uncollected', label: pastUncollected.students
+        ? `  Uncollected work (${pastUncollected.students})`
+        : '  Uncollected work' },
+    { key: 'past-collected', label: pastCollected
+        ? `  Works collected (${pastCollected})`
+        : '  Works collected' },
+    { key: 'past-credit', label: pastCredit.students
+        ? `  Has credit (${pastCredit.students})`
+        : '  Has credit' },
   ];
 
   const studentSortOptions = [
@@ -844,6 +985,15 @@ export default function AdminStudents() {
             // Determine status key for badge
             let statusKey = student._statusKey;
             if (isMember && membership) statusKey = membership.membershipStatus || 'member';
+            // Upgrade a past student's badge only where the pipeline can prove
+            // every batch left the studio. _statusKey itself stays 'completed'
+            // so the past-student filters and the last-class line keep working
+            // off a single marker.
+            if (student._statusKey === 'completed'
+                && student.pieces?.hasRecord
+                && student.pieces.outstandingBatches === 0) {
+              statusKey = 'collected';
+            }
 
             return (
               <div
@@ -882,6 +1032,32 @@ export default function AdminStudents() {
                       ? `Last login: ${new Date(student.lastLoginAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}${student.loginCount > 0 ? ` (${student.loginCount})` : ''}`
                       : 'Never logged in'}
                   </div>
+                  {/* Both sit on every row type, not just alumni — a current
+                      student or a member can just as easily have work waiting
+                      or credit unspent. */}
+                  <PieceStatus pieces={student.pieces} />
+                  {student.creditBalance > 0 && (
+                    <div style={{ fontSize: '10px', color: TC_DARK, marginTop: '2px', fontWeight: 700 }}>
+                      ${student.creditBalance} credit
+                    </div>
+                  )}
+                  {/* The date they were last in the studio, derived from
+                      bookings — not the planned course end, which is null for
+                      credit-based HB rows and occasionally sits in the future
+                      on an enrollment whose course never ran. */}
+                  {student._statusKey === 'completed' && student._lastClassDate && (
+                    <div style={{ fontSize: '10px', color: MUTED, marginTop: '2px' }}>
+                      Last class {new Date(student._lastClassDate + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })}
+                    </div>
+                  )}
+                  {/* Enrolled, paid, and never booked into anything. Rarer and
+                      more serious than a missing date — it means the studio owes
+                      them classes nobody has scheduled. */}
+                  {student._statusKey === 'completed' && !student._lastClassDate && (
+                    <div style={{ fontSize: '10px', color: '#B3261E', marginTop: '2px', fontWeight: 600 }}>
+                      Never booked into a class
+                    </div>
+                  )}
                 </div>
 
                 {/* Course + Progress + Status — stacked sub-rows */}

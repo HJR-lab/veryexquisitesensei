@@ -222,7 +222,7 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
   const [{ data: memberships }, { data: bookingRows }] = await Promise.all([
     supabaseDb.supabase
       .from('memberships')
-      .select('id, customer_id, membership_type, status, start_date, end_date, purchase_date, created_at, customers!memberships_customer_id_fkey(email, first_name, last_name, customer_type)')
+      .select('id, customer_id, membership_type, status, start_date, end_date, purchase_date, created_at, customers!memberships_customer_id_fkey(id, email, first_name, last_name, customer_type)')
       // 'pending' included: a Clay Club signup is pending until an admin
       // activates it on the member's first visit. Excluding it made brand-new
       // signups invisible in the Users list entirely.
@@ -252,11 +252,22 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
   // Build attended count per enrollment (attended/completed + past booked)
   const todayStr = new Date().toISOString().split('T')[0];
   const attendedByEnrollment = {};
+  // Date of the last class this enrollment actually sat. Derived from bookings
+  // rather than read from course_end_date, because that column is null for 27%
+  // of handbuilding rows by design — HB is credit-based drop-in and has no
+  // fixed course end. What happened is a better answer than what was planned,
+  // and it costs nothing: these rows are already in memory.
+  const lastClassByEnrollment = {};
   (bookingRows || []).forEach(b => {
     if (!b.course_enrollment_id) return;
-    const isPast = b.class_instances?.class_date?.split(/[T ]/)[0] < todayStr;
+    const classDate = b.class_instances?.class_date?.split(/[T ]/)[0];
+    const isPast = classDate < todayStr;
     if (b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && isPast)) {
       attendedByEnrollment[b.course_enrollment_id] = (attendedByEnrollment[b.course_enrollment_id] || 0) + 1;
+    }
+    if (classDate && isPast) {
+      const prev = lastClassByEnrollment[b.course_enrollment_id];
+      if (!prev || classDate > prev) lastClassByEnrollment[b.course_enrollment_id] = classDate;
     }
   });
 
@@ -398,6 +409,10 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
     const alreadyListed = emailSet.has(email);
     if (!alreadyListed) {
       students.push({
+        // Carried so per-customer data keyed on customer id (VES credit
+        // balance) resolves for members too. Navigation is by email, so this
+        // changes nothing about where the row links.
+        studentId: m.customers.id,
         name: `${m.customers.first_name || ''} ${m.customers.last_name || ''}`.trim(),
         email,
         courseType: null, courseTitle: null, variantTitle: null, courseIdentifier: null,
@@ -509,9 +524,190 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
     }
   }
 
+  // Past students: every enrollment they have is finished.
+  //
+  // They fall out of all three queries above, which is why they disappeared
+  // from the Users list entirely once a course ended — and with them, any way
+  // to see who still has work sitting in the studio. Added last so the blocks
+  // above keep first claim on a student: anyone already listed (active,
+  // upcoming, member, continuation-pending, or a finished HB with credits
+  // left) is skipped here rather than listed twice.
+  const { data: pastAll } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select(`
+      id, student_id, course_type, course_title, course_variant_title,
+      course_identifier, schedule_pattern, class_time, status,
+      number_of_weeks, class_credits_allocated, class_credits_used,
+      class_credits_remaining, credits_closed_at,
+      course_start_date, course_end_date, created_at, package_total_courses,
+      customers!course_enrollments_student_id_fkey (
+        id, email, first_name, last_name, customer_type,
+        course_purchase_count, created_at, last_login_at, login_count
+      )
+    `)
+    .eq('status', 'completed')
+    // Nulls last: 18 rows have no end date, so a dated course wins as the
+    // student's latest rather than losing to a row that simply has no date.
+    .order('course_end_date', { ascending: false, nullsFirst: false });
+
+  // Rebuilt from the assembled list rather than reusing `emailSet`, which the
+  // members-only block above pushes rows without adding to. Reading the list
+  // itself is self-correcting, and lowercasing catches the same person carrying
+  // a different capitalisation on a second customer record. Without this, a
+  // Clay Club member whose course has ended appears twice — once as a member,
+  // once as an alumnus. They are a current member, so the member row wins; the
+  // uncollected-work figures still reach them, since those attach by email to
+  // every row regardless of type.
+  const listedEmails = new Set(students.map(x => (x.email || '').toLowerCase()));
+
+  const seenPast = new Set();
+  for (const enr of (pastAll || [])) {
+    const student = enr.customers;
+    if (!student || !student.email) continue;
+    const emailKey = student.email.toLowerCase();
+    if (listedEmails.has(emailKey)) continue;  // already listed above
+    if (seenPast.has(emailKey)) continue;      // keep only their latest course
+    seenPast.add(emailKey);
+    const isHB = (enr.course_type || '').toLowerCase().includes('handbuilding');
+    students.push({
+      studentId: student.id,
+      name: `${student.first_name || ''} ${student.last_name || ''}`.trim() || 'Unknown',
+      email: student.email,
+      courseType: enr.course_type,
+      courseTitle: enr.course_title,
+      variantTitle: enr.course_variant_title || null,
+      courseIdentifier: enr.course_identifier,
+      enrollmentStatus: 'completed',
+      // Set only here. The frontend keys the Past students filter off this
+      // rather than off status, so a finished HB that still has credits stays
+      // in the HB list where its credit workflow lives.
+      isPastStudent: true,
+      enrollmentId: enr.id,
+      enrollmentCreatedAt: enr.created_at,
+      // Last class they actually sat, preferred over the planned end date:
+      // it's never in the future, it's present for HB rows that carry no
+      // course_end_date, and it's the thing you'd want to know before
+      // getting in touch. Null when they never had a class at all — which is
+      // itself worth seeing, since it means they enrolled and were never booked.
+      lastClassDate: lastClassByEnrollment[enr.id]
+        || (enr.course_end_date && enr.course_end_date <= todayStr ? enr.course_end_date : null),
+      courseEndDate: enr.course_end_date,
+      schedulePattern: enr.schedule_pattern,
+      classTime: enr.class_time,
+      numberOfWeeks: enr.number_of_weeks,
+      packageTotalCourses: enr.package_total_courses,
+      creditsAllocated: isHB ? enr.class_credits_allocated : null,
+      creditsUsed: isHB ? enr.class_credits_used : null,
+      creditsRemaining: null,
+      classesAllocated: isHB ? null : (enr.number_of_weeks || 6),
+      classesAttended: attendedByEnrollment[enr.id] || 0,
+      coursePurchaseCount: student.course_purchase_count || 1,
+      customerType: student.customer_type,
+      isHB,
+      isWT: !isHB,
+      membership: membershipByEmail[student.email] || null,
+      lastLoginAt: student.last_login_at || null,
+      loginCount: student.login_count || 0,
+      latestEnrollmentDate: enr.created_at,
+    });
+    listedEmails.add(emailKey);
+    emailSet.add(student.email);
+  }
+
+  // Uncollected work — attached to every row, not just alumni.
+  //
+  // Three states, and the third is the one that matters: a student with no
+  // batch record at all is UNKNOWN, not clear. The piece pipeline only started
+  // partway through the studio's history, so most older students have no row.
+  // Rendering those as "collected" would be a false all-clear on work that may
+  // still be sitting on a shelf.
+  const PIECE_DONE = ['collected', 'shipped', 'recycled'];
+  // Furthest-along wins when a student has several open batches — the one
+  // closest to the door is what you'd chase them about.
+  const PIECE_PROGRESS = ['logged', 'bisque_fired', 'glaze_fired', 'ready', 'collecting', 'delivering', 'in_cabinet'];
+
+  const { data: batchRows } = await supabaseDb.supabase
+    .from('piece_batches')
+    .select('customer_id, status, piece_count, ready_at, customers!piece_batches_customer_id_fkey(email)');
+
+  // Keyed by email because not every row in `students` carries a studentId
+  // (members-only and continuation-pending rows don't), but all of them have
+  // an email.
+  const piecesByEmail = {};
+  (batchRows || []).forEach(b => {
+    const email = (b.customers?.email || '').toLowerCase();
+    if (!email) return;
+    const rec = piecesByEmail[email] || (piecesByEmail[email] = {
+      hasRecord: false, outstandingBatches: 0, outstandingPieces: 0,
+      furthestStatus: null, readyAt: null
+    });
+    rec.hasRecord = true;
+    if (PIECE_DONE.includes(b.status)) return;
+    rec.outstandingBatches += 1;
+    rec.outstandingPieces += (b.piece_count || 0);
+    if (PIECE_PROGRESS.indexOf(b.status) > PIECE_PROGRESS.indexOf(rec.furthestStatus)) {
+      rec.furthestStatus = b.status;
+    }
+    // Oldest ready date — how long the earliest finished batch has been waiting.
+    if (b.ready_at && (!rec.readyAt || b.ready_at < rec.readyAt)) rec.readyAt = b.ready_at;
+  });
+
+  const NO_PIECES = {
+    hasRecord: false, outstandingBatches: 0, outstandingPieces: 0,
+    furthestStatus: null, readyAt: null
+  };
+  // VES $ credit balance.
+  //
+  // Deliberately mirrors getCreditBalance() in utils/creditManager.js rather
+  // than reimplementing it: non-expired 'earn' minus all 'spend'. An earn row
+  // only counts while expires_at is still ahead of now — matching the helper's
+  // .gt('expires_at', now), which also means a null expiry does NOT count.
+  // Nothing has expired yet (the first batch expires 31 Dec 2026), so the two
+  // readings agree today; keeping them identical is what stops this column
+  // drifting from the student's own Credits tab once they start lapsing.
+  //
+  // Fetched in one pass and grouped in memory — the per-customer helper costs
+  // two queries each, which would be ~600 round trips across this list.
+  const creditNow = new Date().toISOString();
+  let creditTx = [], creditPage = 0, moreCredits = true;
+  while (moreCredits) {
+    const { data } = await supabaseDb.supabase
+      .from('credit_transactions')
+      .select('customer_id, type, amount, expires_at')
+      .range(creditPage * 1000, (creditPage + 1) * 1000 - 1);
+    creditTx = creditTx.concat(data || []);
+    moreCredits = (data || []).length === 1000;
+    creditPage++;
+  }
+
+  const creditByCustomer = {};
+  creditTx.forEach(t => {
+    if (!t.customer_id) return;
+    if (t.type === 'earn') {
+      if (!t.expires_at || t.expires_at <= creditNow) return;  // expired or no expiry — not spendable
+      creditByCustomer[t.customer_id] = (creditByCustomer[t.customer_id] || 0) + Number(t.amount || 0);
+    } else if (t.type === 'spend') {
+      creditByCustomer[t.customer_id] = (creditByCustomer[t.customer_id] || 0) - Number(t.amount || 0);
+    }
+  });
+
+  students = students.map(s => ({
+    ...s,
+    pieces: piecesByEmail[(s.email || '').toLowerCase()] || NO_PIECES,
+    // Keyed on customer id, which is what credit_transactions references.
+    // Member-only rows carry no studentId, so they simply report 0.
+    creditBalance: s.studentId ? (creditByCustomer[s.studentId] || 0) : 0,
+  }));
+
   // Apply filter
   if (filter !== 'all') {
     students = students.filter(s => {
+      if (filter === 'past') return !!s.isPastStudent;
+      if (filter === 'past-uncollected') return !!s.isPastStudent && s.pieces.outstandingBatches > 0;
+      if (filter === 'past-credit') return !!s.isPastStudent && s.creditBalance > 0;
+      // Every other filter describes a current student, so alumni stay out of
+      // them — asking for "All WT" should not start returning finished courses.
+      if (s.isPastStudent) return false;
       if (filter === 'wt-all') return s.isWT;
       if (filter === 'hb-all') return s.isHB;
       if (filter === 'members') return !!s.membership;

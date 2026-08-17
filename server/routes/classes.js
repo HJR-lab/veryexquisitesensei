@@ -825,8 +825,8 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
         }
 
         const daysBefore = (glazingDate - targetDate) / (1000 * 60 * 60 * 24);
-        if (daysBefore > 0 && daysBefore < 5) {
-          return res.status(400).json({ error: 'Classes must be at least 5 days before your glazing class.' });
+        if (daysBefore > 0 && daysBefore < GLAZING_DRYING_GAP_DAYS) {
+          return res.status(400).json({ error: `Classes must be at least ${GLAZING_DRYING_GAP_DAYS} days before your glazing class, so the work can dry and be bisque fired in time.` });
         }
       }
     }
@@ -1537,34 +1537,23 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
   const isNewClassGlazing = isGlazingClass(newClass);
 
   // For 10-class package: check if this is their 10th class (final class must be glazing)
-  if (has10ClassPackage) {
-    // Count current bookings for this student
-    const { data: allBookings, error: bookingsError } = await supabaseDb.supabase
-      .from('bookings')
-      .select('id')
-      .eq('student_id', dbCustomerId)
-      .eq('status', 'booked');
-
-    if (bookingsError) {
-      console.error('Error fetching bookings:', bookingsError);
-      return res.status(500).json({ error: 'Failed to fetch bookings' });
-    }
-
-    // After rescheduling, they'll still have the same number of bookings (cancelling one, adding one)
-    // So if they currently have 9+ bookings, this must be for their 10th class slot
-    const totalBookings = allBookings.length;
-
-    if (totalBookings >= 9) {
-      // This is their 10th class - must be glazing. An HB session marked as a
-      // glazing class now satisfies this, which is the point of the marker: before
-      // it, isNewClassGlazing could only ever be true for a WT cohort's final
-      // week, so a package student had nothing to put in this slot.
-      if (!isNewClassGlazing) {
-        return res.status(400).json({
-          error: 'Your 10th and final class must be a glazing class — either a Week 6 wheelthrowing glazing or a handbuilding class marked as glazing. Please select one of those.'
-        });
-      }
-    }
+  // A reschedule moves one booking, so the only way it can cost a package student
+  // their glazing is by moving the GLAZING booking onto a non-glazing class. That
+  // is the whole rule.
+  //
+  // It used to count every 'booked' row the student had and, at 9 or more, demand
+  // the TARGET be glazing regardless of what was being moved — so a student with a
+  // full package rescheduling week 3 to another ordinary class was refused and told
+  // to pick a glazing class. The count was also across all bookings, so a second
+  // course's bookings could push them over the line on their own.
+  //
+  // The forward direction is covered where it belongs: /api/classes/book refuses a
+  // non-glazing class for the final slot, so a package student cannot arrive here
+  // with a non-glazing 10th class to begin with.
+  if (has10ClassPackage && isOldClassGlazing && !isNewClassGlazing) {
+    return res.status(400).json({
+      error: 'That booking is your glazing class, so it can only move to another glazing class — either a Week 6 wheelthrowing glazing or a handbuilding class marked as glazing.'
+    });
   }
 
   // Block rescheduling to a date after glazing or within 5 days of glazing
@@ -1598,8 +1587,8 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
           return res.status(400).json({ error: 'Cannot reschedule to a date after your glazing class. Glazing is your final class.' });
         }
         const daysBefore = (glazingDate - targetDate) / (1000 * 60 * 60 * 24);
-        if (daysBefore > 0 && daysBefore < 5) {
-          return res.status(400).json({ error: 'Classes must be at least 5 days before your glazing class.' });
+        if (daysBefore > 0 && daysBefore < GLAZING_DRYING_GAP_DAYS) {
+          return res.status(400).json({ error: `Classes must be at least ${GLAZING_DRYING_GAP_DAYS} days before your glazing class, so the work can dry and be bisque fired in time.` });
         }
       }
     }

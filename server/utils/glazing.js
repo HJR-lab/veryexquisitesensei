@@ -40,10 +40,12 @@ const GLAZING_SUBCAP = 4;
 // glazed (~3 days) — so anything thrown or built inside this window cannot be
 // glaze fired in time, and the student would glaze nothing at their final class.
 //
-// Distinct from the 5-day gap enforced for ordinary cohort students in
-// routes/classes.js: their classes fall a week apart by construction, so that
-// check only ever catches makeups. Package students book flex classes on any
-// date, which is what makes this gap reachable for them.
+// Applies to everyone. This replaced a 5-day gap that only covered cohort
+// students: the kiln schedule does not depend on what someone bought, so a
+// cohort makeup booked 5 days out was just as unfireable as a package student's
+// flex class. Package students previously had no gap rule at all — they are
+// exempt from the after-glazing block (they legitimately book after their 6.6
+// cohort glazing) and the gap check sat inside that same exemption.
 const GLAZING_DRYING_GAP_DAYS = 6;
 
 /**

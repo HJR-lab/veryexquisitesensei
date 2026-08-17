@@ -1203,23 +1203,48 @@ function verifyShopifyWebhook(req, res, next) {
   next();
 }
 
-// Shopify webhook for order creation
-app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }), verifyShopifyWebhook, async (req, res) => {
+/**
+ * Shopify signs the raw body, so express.raw() hands us a Buffer — never a
+ * string. Parse it before anything reads a field off it: a Buffer answers
+ * `undefined` to every property, so a skipped parse is indistinguishable from
+ * an order with no customer, and the webhook 200s while doing nothing.
+ * Returns null when the payload can't be parsed.
+ */
+function parseWebhookBody(req) {
   try {
-    const shopDomain = req.headers['x-shopify-shop-domain'];
+    if (Buffer.isBuffer(req.body)) return JSON.parse(req.body.toString('utf8'));
+    if (typeof req.body === 'string') return JSON.parse(req.body);
+    return req.body || null;
+  } catch (err) {
+    console.error('[Webhook] Could not parse body:', err.message);
+    return null;
+  }
+}
 
-    console.log('📦 Received order webhook from Shopify');
-    console.log('Shop:', shopDomain);
+// Shopify webhook for order creation.
+// Acknowledge inside Shopify's 5s window, then process: enrollment creation,
+// emails and calendar sync together take far longer than that.
+app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }), verifyShopifyWebhook, (req, res) => {
+  console.log('📦 Received order webhook from Shopify');
+  console.log('Shop:', req.headers['x-shopify-shop-domain']);
 
-    // Parse the order data
-    const orderData = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+  const orderData = parseWebhookBody(req);
+  res.status(200).json({ received: true });
 
+  if (!orderData) return;
+  processOrderWebhook(orderData).catch(err =>
+    console.error('[Webhook] Unhandled failure processing order webhook:', err)
+  );
+});
+
+async function processOrderWebhook(orderData) {
+  try {
     // Extract customer information
     const customer = orderData.customer;
 
     if (!customer || !customer.email) {
       console.log('⚠️ Order has no customer email, skipping');
-      return res.status(200).json({ received: true });
+      return;
     }
 
     console.log(`👤 Processing customer: ${customer.email}`);
@@ -1520,29 +1545,34 @@ app.post('/api/shopify/webhook/orders', express.raw({ type: 'application/json' }
       }
     }
 
-    // Respond to Shopify immediately (required within 5 seconds)
-    res.status(200).json({ received: true });
+    console.log(`✅ Order webhook processed: ${orderData.name || orderData.id}`);
 
   } catch (error) {
+    // Shopify has already been acked, so nothing retries this — the manual
+    // order sync is the backstop. Log loudly enough to notice.
     console.error('Error processing Shopify order webhook:', error);
-    // Still respond with 200 to prevent Shopify from retrying
-    res.status(200).json({ received: true });
   }
-});
+}
 
 // Shopify webhook for customer creation
-app.post('/api/shopify/webhook/customers', express.raw({ type: 'application/json' }), verifyShopifyWebhook, async (req, res) => {
+app.post('/api/shopify/webhook/customers', express.raw({ type: 'application/json' }), verifyShopifyWebhook, (req, res) => {
+  console.log('👤 Received customer webhook from Shopify');
+  console.log('Shop:', req.headers['x-shopify-shop-domain']);
+
+  const customerData = parseWebhookBody(req);
+  res.status(200).json({ received: true });
+
+  if (!customerData) return;
+  processCustomerWebhook(customerData).catch(err =>
+    console.error('[Webhook] Unhandled failure processing customer webhook:', err)
+  );
+});
+
+async function processCustomerWebhook(customerData) {
   try {
-    const shopDomain = req.headers['x-shopify-shop-domain'];
-
-    console.log('👤 Received customer webhook from Shopify');
-    console.log('Shop:', shopDomain);
-
-    const customerData = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-
-    if (!customerData || !customerData.email) {
+    if (!customerData.email) {
       console.log('⚠️ Customer has no email, skipping');
-      return res.status(200).json({ received: true });
+      return;
     }
 
     console.log(`👤 Processing new customer: ${customerData.email}`);
@@ -1558,13 +1588,10 @@ app.post('/api/shopify/webhook/customers', express.raw({ type: 'application/json
 
     console.log(`✅ Customer ${customerData.email} synced successfully`);
 
-    res.status(200).json({ received: true });
-
   } catch (error) {
     console.error('Error processing Shopify customer webhook:', error);
-    res.status(200).json({ received: true });
   }
-});
+}
 
 // ============================================
 // VOUCHER BACKFILL FROM SHOPIFY

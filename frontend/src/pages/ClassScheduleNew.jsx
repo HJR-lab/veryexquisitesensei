@@ -337,7 +337,14 @@ export default function ClassScheduleNew() {
     const instructor= booking.class?.instructor|| booking.classInstance?.instructor|| booking.instructor;
     const classTitle = booking.class?.classTitle || booking.classInstance?.classTitle || booking.class_title;
     const classDescription = booking.class?.classDescription || booking.classInstance?.classDescription || booking.class_description;
-    const isGlazingClass = classType?.includes('6.6');
+    // Either explicitly marked as glazing (the only way an HB session can be one)
+    // or a WT cohort's final week. Matched on <total>.<week> being equal rather
+    // than includes('6.6'), which silently missed 7-week intermediate glazing (7.7).
+    const markedGlazing = booking.class?.isGlazing ?? booking.classInstance?.isGlazing ?? booking.is_glazing;
+    const isGlazingClass = markedGlazing === true || (() => {
+      const m = String(classType || '').match(/(\d+)\.(\d+)$/);
+      return !!m && m[1] === m[2];
+    })();
     const weekLabel = (() => { const m = classType?.match(/\.(\d+)$/); return m ? `Wk ${m[1]}` : ''; })();
     return { classDate, date, classType, classTitle, classDescription, courseIdentifier, startTime, endTime, instructor, isGlazingClass, weekLabel };
   };

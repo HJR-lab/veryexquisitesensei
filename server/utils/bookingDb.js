@@ -8,6 +8,7 @@
  */
 
 const { supabase } = require('./supabaseClient');
+const { glazingSubCap } = require('./glazing');
 
 /**
  * Get available classes (all classes including past ones for course viewing)
@@ -381,7 +382,7 @@ async function getInstanceCapacityOverrides(classInstanceId) {
  * @returns {{allowed: boolean, reason: string|null, counts: object, override: object|null}}
  */
 async function checkSeatAvailability(classInstance, studentId, opts = {}) {
-  const { checkWheels = false } = opts;
+  const { checkWheels = false, asGlazing = false } = opts;
   const cap = classInstance.max_capacity || 10;
 
   const { count: bookedCount } = await supabase
@@ -396,11 +397,29 @@ async function checkSeatAvailability(classInstance, studentId, opts = {}) {
     ({ count: wheels } = await getSlotWheelUsage(classInstance.class_date, classInstance.start_time));
   }
 
-  const counts = { booked, cap, wheels, studioWheels: STUDIO_WHEELS };
-  const classFull  = booked >= cap;
-  const studioFull = wheels !== null && wheels >= STUDIO_WHEELS;
+  // Third gate, for a class marked as glazing: the class keeps its own capacity
+  // (HB is 8) but only a slice of those seats may be glazing students, so the
+  // session still serves ordinary handbuilding bookings. Counted only when this
+  // booking would itself consume a glazing seat — a regular booker is bound by
+  // max_capacity alone, exactly as before.
+  const subCap = glazingSubCap(classInstance);
+  let glazingBooked = null;
+  if (asGlazing && subCap !== null) {
+    const { count } = await supabase
+      .from('bookings')
+      .select('id', { count: 'exact', head: true })
+      .eq('class_instance_id', classInstance.id)
+      .eq('status', 'booked')
+      .eq('counts_as_glazing', true);
+    glazingBooked = count || 0;
+  }
 
-  if (!classFull && !studioFull) {
+  const counts = { booked, cap, wheels, studioWheels: STUDIO_WHEELS, glazingBooked, glazingCap: subCap };
+  const classFull   = booked >= cap;
+  const studioFull  = wheels !== null && wheels >= STUDIO_WHEELS;
+  const glazingFull = glazingBooked !== null && glazingBooked >= subCap;
+
+  if (!classFull && !studioFull && !glazingFull) {
     return { allowed: true, reason: null, counts, override: null };
   }
 
@@ -409,7 +428,8 @@ async function checkSeatAvailability(classInstance, studentId, opts = {}) {
     return { allowed: true, reason: null, counts, override };
   }
 
-  return { allowed: false, reason: classFull ? 'CLASS_FULL' : 'STUDIO_FULL', counts, override: null };
+  const reason = classFull ? 'CLASS_FULL' : studioFull ? 'STUDIO_FULL' : 'GLAZING_FULL';
+  return { allowed: false, reason, counts, override: null };
 }
 
 /**
@@ -424,21 +444,26 @@ async function createBooking(bookingData) {
   if (bookingData.classInstanceId) {
     const { data: cls } = await supabase
       .from('class_instances')
-      .select('id, max_capacity, class_date, start_time')
+      .select('id, max_capacity, class_date, start_time, class_type, is_glazing, glazing_capacity')
       .eq('id', bookingData.classInstanceId)
       .single();
 
     const seat = await checkSeatAvailability(
       { ...(cls || {}), id: bookingData.classInstanceId },
       bookingData.studentId,
-      { checkWheels: true }
+      { checkWheels: true, asGlazing: bookingData.countsAsGlazing === true }
     );
 
     if (!seat.allowed) {
-      const err = seat.reason === 'STUDIO_FULL'
-        ? new Error(`Studio is full — all ${STUDIO_WHEELS} wheels are booked for this timeslot (${seat.counts.wheels}/${STUDIO_WHEELS})`)
-        : new Error(`Class is full (${seat.counts.booked}/${seat.counts.cap})`);
-      err.code = 'CLASS_FULL';
+      let err;
+      if (seat.reason === 'STUDIO_FULL') {
+        err = new Error(`Studio is full — all ${STUDIO_WHEELS} wheels are booked for this timeslot (${seat.counts.wheels}/${STUDIO_WHEELS})`);
+      } else if (seat.reason === 'GLAZING_FULL') {
+        err = new Error(`This class already has its ${seat.counts.glazingCap} glazing places taken (${seat.counts.glazingBooked}/${seat.counts.glazingCap}). The class itself still has room for regular bookings.`);
+      } else {
+        err = new Error(`Class is full (${seat.counts.booked}/${seat.counts.cap})`);
+      }
+      err.code = seat.reason === 'GLAZING_FULL' ? 'GLAZING_FULL' : 'CLASS_FULL';
       throw err;
     }
     grantedOverride = seat.override;
@@ -453,6 +478,13 @@ async function createBooking(bookingData) {
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   };
+
+  // Marks this booking as the one that consumed the student's glazing class.
+  // Distinct from is_glazing_reschedule, which records that a reschedule was
+  // waived because it moved a glazing class.
+  if (bookingData.countsAsGlazing !== undefined) {
+    insertData.counts_as_glazing = bookingData.countsAsGlazing === true;
+  }
 
   // Add optional reschedule fields if provided
   if (bookingData.isGlazingReschedule !== undefined) {

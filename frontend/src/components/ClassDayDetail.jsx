@@ -31,6 +31,7 @@ export default function ClassDayDetail({
   handleOpenEditClassModal,
   handleDeleteClass,
   handleOpenPostponeModal,
+  handleToggleGlazing,
   renderDayDetailMemberTable,
 }) {
   return (
@@ -90,6 +91,20 @@ export default function ClassDayDetail({
                       >
                         Edit
                       </button>
+                      {/* HB only: marking a handbuilding session as glazing is what
+                          lets a 10-class package student book it as their glazing.
+                          A WT cohort's final week is already glazing by structure. */}
+                      {!isWT && handleToggleGlazing && (
+                        <button
+                          onClick={() => handleToggleGlazing(classInstance)}
+                          title={classInstance.is_glazing
+                            ? `Glazing class · up to ${classInstance.glazing_capacity ?? 4} of ${cap} places for glazing students`
+                            : 'Mark as a glazing class so 10-class students can book it as their glazing'}
+                          style={{ fontSize: '9px', padding: '3px 8px', border: `1px solid ${classInstance.is_glazing ? '#D4A800' : RULE}`, backgroundColor: classInstance.is_glazing ? '#D4A800' : '#FFF', color: classInstance.is_glazing ? '#FFF' : MUTED, cursor: 'pointer', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}
+                        >
+                          Glazing
+                        </button>
+                      )}
                       {isWT && handleOpenPostponeModal && (
                         <button
                           onClick={() => handleOpenPostponeModal(classInstance)}

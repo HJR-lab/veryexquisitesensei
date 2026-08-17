@@ -798,6 +798,21 @@ export default function AdminClasses() {
     }
   };
 
+  // Mark an HB class as glazing so 10-class package students can book it as their
+  // glazing. Instructors can do this for their own classes from /my-classes; this
+  // is the same toggle for any class, for when one was missed.
+  const handleToggleGlazing = async (classInstance) => {
+    const turningOn = !classInstance.is_glazing;
+    if (!turningOn && !confirm('Unmark this as a glazing class? 10-class students will no longer be able to book it as their glazing.')) return;
+    try {
+      await api.put(`/admin/classes/${classInstance.id}/glazing`, { isGlazing: turningOn });
+      await loadCourses();
+    } catch (error) {
+      console.error('Failed to update glazing marker:', error);
+      alert(error.response?.data?.error || 'Failed to update the glazing marker. Please try again.');
+    }
+  };
+
   const handleMoveSelectedStudents = async (fromCourseId) => {
     if (!moveTarget || selectedStudents.size === 0) return;
     const names = allMembersForExpanded.filter(s => selectedStudents.has(s.studentId)).map(s => shortName(s.name));
@@ -1506,6 +1521,7 @@ export default function AdminClasses() {
                 handleOpenEditClassModal={handleOpenEditClassModal}
                 handleDeleteClass={handleDeleteClass}
                 handleOpenPostponeModal={handleOpenPostponeModal}
+                handleToggleGlazing={handleToggleGlazing}
                 renderDayDetailMemberTable={renderDayDetailMemberTable}
               />
             )}

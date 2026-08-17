@@ -62,6 +62,7 @@ export default function InstructorDashboard() {
   const [studentNoteInput, setStudentNoteInput] = useState({}); // bookingId -> string
 
   // Cancel modal state
+  const [glazingBusy, setGlazingBusy] = useState({}); // classId -> true while saving
   const [cancelTarget, setCancelTarget] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
@@ -142,6 +143,30 @@ export default function InstructorDashboard() {
         const notesRes = await instructorAPI.getClassNotes(classId);
         setClassNotes(prev => ({ ...prev, [classId]: notesRes.notes || [] }));
       } catch (e) { console.error(e); }
+    }
+  };
+
+  const toggleGlazing = async (cls) => {
+    const turningOn = !cls.is_glazing;
+    if (!turningOn && !confirm('Unmark this as a glazing class? 10-class students will no longer be able to book it as their glazing.')) return;
+
+    setGlazingBusy(prev => ({ ...prev, [cls.id]: true }));
+    try {
+      await instructorAPI.setClassGlazing(cls.id, turningOn);
+      // Refetch rather than patch local state: the dashboard's class list is the
+      // source of truth for the badge, and a stale flag here would misreport
+      // whether students can book their glazing on it.
+      const result = await instructorAPI.getDashboard();
+      setData(result);
+    } catch (error) {
+      console.error('Error setting glazing flag:', error);
+      alert(error.response?.data?.error || 'Failed to update the glazing marker');
+    } finally {
+      setGlazingBusy(prev => {
+        const next = { ...prev };
+        delete next[cls.id];
+        return next;
+      });
     }
   };
 
@@ -429,6 +454,30 @@ export default function InstructorDashboard() {
                               </div>
 
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                                {/* Marking an HB class as glazing is the only way a
+                                    10-class package student can spend their glazing
+                                    on it — glazing is otherwise a WT cohort's final
+                                    week, and HB carries no week numbering. */}
+                                {isFuture && !isCancelled && cls.class_type?.startsWith('HB') && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); toggleGlazing(cls); }}
+                                    disabled={glazingBusy[cls.id]}
+                                    title={cls.is_glazing
+                                      ? `Glazing class · up to ${cls.glazing_capacity ?? 4} of ${cls.max_capacity ?? 8} places for glazing students`
+                                      : 'Mark this as a glazing class so 10-class students can book it as their glazing'}
+                                    style={{
+                                      padding: '6px 10px',
+                                      border: `1px solid ${cls.is_glazing ? '#D4A800' : RULE}`,
+                                      backgroundColor: cls.is_glazing ? '#D4A800' : '#FFFFFF',
+                                      color: cls.is_glazing ? '#FFFFFF' : MUTED,
+                                      cursor: glazingBusy[cls.id] ? 'default' : 'pointer',
+                                      opacity: glazingBusy[cls.id] ? 0.6 : 1,
+                                      fontSize: '9px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
+                                    }}
+                                  >
+                                    {glazingBusy[cls.id] ? '…' : 'Glazing'}
+                                  </button>
+                                )}
                                 {isFuture && !isCancelled && cls.class_type?.startsWith('HB') && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); setCancelTarget(cls); setCancelReason(''); }}

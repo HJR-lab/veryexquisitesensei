@@ -2,6 +2,7 @@ const supabaseDb = require('../utils/supabaseDb');
 const { generateICS, generateMultipleICS } = require('../utils/calendarGenerator');
 const courseConfig = require('../utils/courseConfig');
 const { getPackageProgress } = require('../utils/packageProgress');
+const { setClassGlazing } = require('../utils/glazing');
 
 // In-memory cache for admin stats summary (30s TTL)
 let adminStatsSummaryCache = null;
@@ -3650,7 +3651,7 @@ app.get('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asyn
   const todayStr = new Date().toISOString().split('T')[0];
   const { data: allClassInstances, error: classesError } = await supabaseDb.supabase
     .from('class_instances')
-    .select('id, class_type, class_date, start_time, end_time, instructor, room, max_capacity, current_enrollment, class_title, class_description, status, cancellation_reason')
+    .select('id, class_type, class_date, start_time, end_time, instructor, room, max_capacity, current_enrollment, class_title, class_description, status, cancellation_reason, is_glazing, glazing_capacity')
     .gte('class_date', '2026-01-01')
     .order('class_date', { ascending: true });
 
@@ -4856,6 +4857,20 @@ app.patch('/api/admin/bookings/:bookingId/makeup', authenticateToken, requireAdm
     message: `Booking marked as ${newBookingType}`,
     bookingType: newBookingType
   });
+}));
+
+// Mark (or unmark) any class as a glazing class. Same rules as the instructor's
+// own toggle (see utils/glazing.js) — this one just isn't scoped to one
+// instructor's classes, so it can fix a session Lynette forgot to mark.
+app.put('/api/admin/classes/:classId/glazing', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { classId } = req.params;
+  const { isGlazing, glazingCapacity } = req.body;
+
+  const result = await setClassGlazing(classId, { isGlazing, glazingCapacity });
+  if (result.error) return res.status(result.status).json({ error: result.error });
+
+  console.log(`[glazing] ${req.user.email} ${isGlazing ? 'marked' : 'unmarked'} class ${classId} (${result.class.class_type} on ${result.class.class_date})`);
+  res.json({ success: true, class: result.class });
 }));
 
 // Set booking type (enrolled/makeup) explicitly, with optional original course identifier

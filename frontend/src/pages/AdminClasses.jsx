@@ -6,6 +6,7 @@ import ClassCalendarGrid from '../components/ClassCalendarGrid';
 import ClassDayDetail from '../components/ClassDayDetail';
 import { AddSingleClassModal, CreateCourseModal, EditClassModal, RescheduleModal, AddStudentModal } from '../components/ClassModals';
 import AdminPage from '../components/AdminPage';
+import { isFinalWeekClassType } from '../utils/glazing';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const TC       = '#C4622D';
@@ -262,7 +263,7 @@ export default function AdminClasses() {
   // ── Default display title (matches student-facing logic) ───────────────────────
   const getDefaultClassTitle = (classType) => {
     if (!classType) return 'Class';
-    if (classType.includes('6.6') || classType.includes('7.7')) return 'Glazing';
+    if (isFinalWeekClassType(classType)) return 'Glazing';
     const cat = getClassCategory(classType);
     if (cat === 'wheelthrowing-beginner') {
       const match = classType.match(/_\w+(\d)\./);

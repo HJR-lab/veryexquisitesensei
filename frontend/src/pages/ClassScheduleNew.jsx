@@ -4,6 +4,8 @@ import { useAuth } from '../hooks/useAuth';
 import api, { classesAPI } from '../utils/api';
 import ImpersonationBanner from '../components/ImpersonationBanner';
 import { STUDIO_POLICIES } from '../utils/courseDetails';
+// Aliased: a local `isGlazingClass` const is derived per booking below.
+import { isGlazingClass as isGlazing, isFinalWeekClassType } from '../utils/glazing';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const TC       = '#C4622D';
@@ -338,13 +340,8 @@ export default function ClassScheduleNew() {
     const classTitle = booking.class?.classTitle || booking.classInstance?.classTitle || booking.class_title;
     const classDescription = booking.class?.classDescription || booking.classInstance?.classDescription || booking.class_description;
     // Either explicitly marked as glazing (the only way an HB session can be one)
-    // or a WT cohort's final week. Matched on <total>.<week> being equal rather
-    // than includes('6.6'), which silently missed 7-week intermediate glazing (7.7).
-    const markedGlazing = booking.class?.isGlazing ?? booking.classInstance?.isGlazing ?? booking.is_glazing;
-    const isGlazingClass = markedGlazing === true || (() => {
-      const m = String(classType || '').match(/(\d+)\.(\d+)$/);
-      return !!m && m[1] === m[2];
-    })();
+    // or a WT cohort's final week — see utils/glazing.
+    const isGlazingClass = isGlazing(booking) || isGlazing(classType);
     const weekLabel = (() => { const m = classType?.match(/\.(\d+)$/); return m ? `Wk ${m[1]}` : ''; })();
     return { classDate, date, classType, classTitle, classDescription, courseIdentifier, startTime, endTime, instructor, isGlazingClass, weekLabel };
   };
@@ -562,7 +559,7 @@ export default function ClassScheduleNew() {
     if (bookingId && bookingId === hbLastBookingId) return 'Glazing';
     if (classTitle) return classTitle;
     if (!classType) return 'Class';
-    if (classType.includes('6.6') || classType.includes('7.7')) return 'Glazing';
+    if (isFinalWeekClassType(classType)) return 'Glazing';
     const cat = getClassCategory(classType);
     if (cat === 'wheelthrowing') {
       // 7-week courses (e.g. WT1104AM_DL7.1) are intermediate
@@ -594,9 +591,10 @@ export default function ClassScheduleNew() {
       if (b.status !== 'booked' && b.status !== 'attended') return false;
       const classDate = new Date(b.class?.classDate || b.classInstance?.classDate || b.class_date);
       if (classDate < today) return false; // skip past glazing classes
-      const ct = b.class?.classType || b.classInstance?.classType || b.class_type || '';
-      const weekMatch = ct.match(/\.(\d+)$/);
-      return weekMatch && (weekMatch[1] === '6' || weekMatch[1] === '7');
+      // Was week === '6' || week === '7', which read week 6 of a SEVEN-week course
+      // (WT1104AM_DL7.6) as glazing. Shared derivation, and it also sees a marked
+      // HB class — which is what a package student's final class actually is.
+      return isGlazing(b);
     });
     if (!glazingBooking) return null;
     const d = new Date(glazingBooking.class?.classDate || glazingBooking.classInstance?.classDate || glazingBooking.class_date);

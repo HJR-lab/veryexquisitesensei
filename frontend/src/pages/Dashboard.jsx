@@ -11,6 +11,7 @@ import {
   ClassRow, getClassLabel,
 } from '../components/SharedUI';
 import WheelPicker from '../components/WheelPicker';
+import { isGlazingClass, isFinalWeekClassType } from '../utils/glazing';
 
 // ─── Membership badge ────────────────────────────────────────────────────────
 const BADGE_TIERS = {
@@ -52,7 +53,7 @@ const STUDENT_TABS = [
 // Student Dashboard uses "Beginners/Ext" variant
 function getShortCourseLabel(classType) {
   if (!classType) return '';
-  if (classType.includes('6.6') || classType.includes('7.7')) return 'Glazing';
+  if (isFinalWeekClassType(classType)) return 'Glazing';
   if (classType.startsWith('WT')) {
     const match = classType.match(/_\w+(\d)\./);
     if (match && match[1] === '7') return 'Wheelthrowing Intermediate 7 Weeks';
@@ -797,7 +798,7 @@ export default function Dashboard() {
                 {upcoming.map((booking, i) => {
                   const ci = booking.class_instances || {};
                   const ct = ci.class_type || booking.class_type || '';
-                  const isWTGlazing = ct.includes('6.6') || ct.includes('7.7');
+                  const isWTGlazing = isGlazingClass(ci) || isGlazingClass(ct);
                   const isGlazing = isWTGlazing || booking._isHBGlazing;
                   return (
                     <ClassRow
@@ -834,7 +835,7 @@ export default function Dashboard() {
                   {past.map((booking, i) => {
                     const ci = booking.class_instances || {};
                     const ct = ci.class_type || booking.class_type || '';
-                    const isWTGlazing = ct.includes('6.6') || ct.includes('7.7');
+                    const isWTGlazing = isGlazingClass(ci) || isGlazingClass(ct);
                     const isGlazing = isWTGlazing || booking._isHBGlazing;
                     return (
                       <ClassRow

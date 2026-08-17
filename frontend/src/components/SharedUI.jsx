@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import ImpersonationBanner from './ImpersonationBanner';
+import { isFinalWeekClassType } from '../utils/glazing';
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
 export const TC       = '#C4622D';
@@ -142,9 +143,12 @@ export function formatTime(timeStr) {
   return `${display}:${min}${ampm}`;
 }
 
+// Takes a class-type string for backwards compatibility. A class MARKED as glazing
+// cannot be recognised from its code alone, so callers holding the whole class
+// object should use isGlazingClass(cls) from utils/glazing instead.
 export function getClassLabel(classType) {
   if (!classType) return '';
-  if (classType.includes('6.6') || classType.includes('7.7')) return 'Glazing';
+  if (isFinalWeekClassType(classType)) return 'Glazing';
   if (classType.startsWith('WT')) return 'Wheelthrowing';
   if (classType.startsWith('HB')) return 'Handbuilding';
   return classType;

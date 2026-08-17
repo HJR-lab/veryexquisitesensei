@@ -14,6 +14,9 @@
  *  3. Unlinked upcoming booking — no course_enrollment_id, so it takes a seat
  *     and spends no credit (Nicole Wong Apr '26, Sanjana Vijay Aug '26).
  *  4. Recent purchase with no enrollment — someone paid and is in no cohort.
+ *  5. Duplicate spot enrollment — one purchased spot held twice by the same
+ *     student, which is what a spot filed under a non-standard dedupe key
+ *     looks like after the next sync (Denise Lai, Nigel Lim, Apr '26).
  *
  * Each check earns its place by having already missed something in production.
  * Both 3 and 4 exist because the other invariants could not see the failure:
@@ -28,6 +31,8 @@ const { supabase } = require('./supabaseDb');
 const STALE_DAYS = 7;
 // A purchase older than this is history, not an unserved customer.
 const RECENT_PURCHASE_DAYS = 30;
+// Same reasoning for duplicated spots: catch the next one, not the backlog.
+const DUPLICATE_SPOT_DAYS = 60;
 
 function computeAllocated(enr) {
   const isHB = (enr.course_type || '').toLowerCase().includes('handbuilding');
@@ -245,6 +250,108 @@ async function checkRecentPurchaseWithoutEnrollment() {
 }
 
 /**
+ * A purchased spot enrolled twice for the same student.
+ *
+ * The sync dedupes a spot by (shopify_order_id, shopify_line_item_id), where
+ * extra pax carry a per-unit suffix: `1527...` for spot 1, `1527...-2` for
+ * spot 2. A spot filed under any other key is invisible to that dedupe, so the
+ * next sync enrolls it again. It happened on 23/04/26: two +1s added by hand in
+ * April were keyed 'MANUAL-DUP', and a deep re-sync duplicated both (Denise
+ * Lai, Nigel Lim — phantoms removed 17/08/26).
+ *
+ * One line item legitimately producing several enrollments is NOT this. A
+ * 3 Course Package spawns one enrollment per course, keyed '-C2' and '-C2-C3',
+ * each with its own cohort and its own bookings — the first draft of this check
+ * flagged three of them and found only one real problem. So a sibling only
+ * counts as a duplicate when it is either the quiet phantom shape (no
+ * course_identifier and no bookings, which is what a re-created spot looks
+ * like) or sits in the same cohort as another row in the group.
+ *
+ * Grouping is (student_id, shopify_order_id) and deliberately NOT the line item
+ * id: the whole failure mode is two rows for one spot carrying keys that do not
+ * resemble each other ('MANUAL-DUP' vs '15271763345566-2'), so grouping by any
+ * form of that key is blind to exactly the case worth catching.
+ *
+ * Recent enrollments only, for the reason check 4 gives: older tangles are
+ * archaeology and flagging them forever is noise. What matters is the next one.
+ */
+function findDuplicateSpots(enrollments, bookingCount) {
+  const groups = new Map();
+  for (const e of enrollments) {
+    const key = `${e.student_id}|${e.shopify_order_id}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(e);
+  }
+
+  const findings = [];
+  for (const rows of groups.values()) {
+    if (rows.length < 2) continue;
+
+    const cohorts = new Map();
+    for (const e of rows) {
+      if (!e.course_identifier) continue;
+      cohorts.set(e.course_identifier, (cohorts.get(e.course_identifier) || 0) + 1);
+    }
+
+    for (const e of rows) {
+      const bookings = bookingCount.get(e.id) || 0;
+      const isPhantom = !e.course_identifier && bookings === 0;
+      const sharesCohort = Boolean(e.course_identifier) && cohorts.get(e.course_identifier) > 1;
+      if (!isPhantom && !sharesCohort) continue;
+
+      const siblings = rows.filter(r => r.id !== e.id).map(r => `#${r.id} '${r.shopify_line_item_id}'`).join(', ');
+      findings.push({
+        type: 'duplicate_spot_enrollment',
+        severity: 'medium',
+        student_id: e.student_id,
+        student_name: formatStudentName(e.customers),
+        enrollment_id: e.id,
+        details: isPhantom
+          ? `Enrollment #${e.id} (key '${e.shopify_line_item_id}') on order ${e.shopify_order_id} has no cohort and ` +
+            `no bookings, alongside ${siblings} on the same order. This is what a spot re-created by the sync ` +
+            `looks like — the original was filed under a key the (shopify_order_id, shopify_line_item_id) dedupe ` +
+            `cannot see. Cancel this one and re-key the original to match what the sync generates.`
+          : `Enrollment #${e.id} (key '${e.shopify_line_item_id}') puts this student in cohort ${e.course_identifier} ` +
+            `twice on order ${e.shopify_order_id}, alongside ${siblings}. Two enrollments in one cohort take two ` +
+            `seats — keep the one carrying the bookings and cancel the other.`,
+      });
+    }
+  }
+
+  return findings;
+}
+
+async function checkDuplicateSpotEnrollments() {
+  const cutoff = new Date(Date.now() - DUPLICATE_SPOT_DAYS * 86400000).toISOString();
+
+  const { data: enrollments, error } = await supabase
+    .from('course_enrollments')
+    .select('id, student_id, shopify_order_id, shopify_line_item_id, course_identifier, status, created_at, customers:student_id (first_name, last_name, email)')
+    .not('shopify_order_id', 'is', null)
+    .neq('shopify_order_id', 'MANUAL')
+    .neq('status', 'cancelled')
+    .gte('created_at', cutoff);
+
+  if (error) {
+    console.error('[AnomalyProbe] duplicate-spot query error:', error);
+    return [];
+  }
+  if (!enrollments || !enrollments.length) return [];
+
+  // Booking counts, so an empty enrollment can be told from a real course.
+  const { data: bookings } = await supabase
+    .from('bookings')
+    .select('course_enrollment_id')
+    .in('course_enrollment_id', enrollments.map(e => e.id));
+  const bookingCount = new Map();
+  for (const b of bookings || []) {
+    bookingCount.set(b.course_enrollment_id, (bookingCount.get(b.course_enrollment_id) || 0) + 1);
+  }
+
+  return findDuplicateSpots(enrollments, bookingCount);
+}
+
+/**
  * Run all invariant checks and return aggregated findings.
  * Failures within a single check do not abort the whole probe.
  */
@@ -254,6 +361,7 @@ async function runAnomalyProbe() {
     checkStaleUnassigned10Class(),
     checkUnlinkedUpcomingBookings(),
     checkRecentPurchaseWithoutEnrollment(),
+    checkDuplicateSpotEnrollments(),
   ]);
 
   const findings = [];
@@ -272,4 +380,4 @@ async function runAnomalyProbe() {
   return findings;
 }
 
-module.exports = { runAnomalyProbe, checkOverAllocated, checkStaleUnassigned10Class, checkUnlinkedUpcomingBookings, checkRecentPurchaseWithoutEnrollment };
+module.exports = { runAnomalyProbe, checkOverAllocated, checkStaleUnassigned10Class, checkUnlinkedUpcomingBookings, checkRecentPurchaseWithoutEnrollment, checkDuplicateSpotEnrollments, findDuplicateSpots };

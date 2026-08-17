@@ -68,6 +68,8 @@ export default function AdminEmails() {
   const [draft,          setDraft]          = useState(null);
   const [draftLoading,   setDraftLoading]   = useState(false);
   const [sending,        setSending]        = useState(false);
+  const [preview,        setPreview]        = useState(null);  // { groups: [{templateType, recipientCount, subject, html}], active }
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   // Voucher tab — admin-composed gift voucher email (handbuilding / wheelthrowing / membership)
   const [voucher, setVoucher] = useState({
@@ -215,24 +217,42 @@ export default function AdminEmails() {
     setDraft(prev => ({ ...prev, [field]: value }));
   };
 
+  // Field payload shared by preview and send, so the preview is built from
+  // exactly what a send would post.
+  const draftPayload = (recipientEmails) => ({
+    templateType:      draft.templateType,
+    dayOfWeek:         draft.dayOfWeek,
+    startDate:         draft.startDate,
+    endDate:           draft.endDate,
+    timeSlot:          draft.timeSlot,
+    holidayExclusions: draft.holidayExclusions,
+    specialNotes:      draft.specialNotes,
+    collectionStart:   draft.collectionStart,
+    collectionEnd:     draft.collectionEnd,
+    disposalDate:      draft.disposalDate,
+    recipientEmails,
+  });
+
+  const handlePreview = async () => {
+    if (!draft) return;
+    setPreviewLoading(true);
+    try {
+      const recipientEmails = draft.students.filter(s => s.selected).map(s => s.email);
+      const { data } = await api.post(`/admin/course-emails/${composeCourse}/preview`, draftPayload(recipientEmails));
+      setPreview({ groups: data.groups || [], active: 0 });
+    } catch (err) {
+      showStatus('error', err.response?.data?.error || 'Failed to build preview');
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
   const handleSend = async () => {
     if (!draft) return;
     setSending(true);
     try {
       const recipientEmails = draft.students.filter(s => s.selected).map(s => s.email);
-      const { data: sendResult } = await api.post(`/admin/course-emails/${composeCourse}/send`, {
-        templateType:      draft.templateType,
-        dayOfWeek:         draft.dayOfWeek,
-        startDate:         draft.startDate,
-        endDate:           draft.endDate,
-        timeSlot:          draft.timeSlot,
-        holidayExclusions: draft.holidayExclusions,
-        specialNotes:      draft.specialNotes,
-        collectionStart:   draft.collectionStart,
-        collectionEnd:     draft.collectionEnd,
-        disposalDate:      draft.disposalDate,
-        recipientEmails,
-      });
+      const { data: sendResult } = await api.post(`/admin/course-emails/${composeCourse}/send`, draftPayload(recipientEmails));
       const breakdown = (sendResult?.sends || [])
         .map(s => `${s.count}× ${TEMPLATE_BADGES[s.templateType]?.label || s.templateType}`)
         .join(', ');
@@ -932,24 +952,40 @@ export default function AdminEmails() {
                       </div>
                     </div>
 
-                    {/* Send button */}
+                    {/* Preview + Send */}
                     {(() => {
                       const selectedCount = draft.students.filter(s => s.selected).length;
                       return (
-                        <button
-                          onClick={handleSend}
-                          disabled={sending || selectedCount === 0}
-                          style={{
-                            width: '100%', padding: '13px',
-                            backgroundColor: selectedCount > 0 ? TC : '#CCC',
-                            color: '#FFF', border: 'none',
-                            fontSize: '13px', fontWeight: 700, letterSpacing: '0.04em',
-                            cursor: selectedCount > 0 && !sending ? 'pointer' : 'default',
-                            opacity: sending ? 0.7 : 1,
-                          }}
-                        >
-                          {sending ? 'Sending…' : `Send to ${selectedCount} student${selectedCount !== 1 ? 's' : ''}`}
-                        </button>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            onClick={handlePreview}
+                            disabled={previewLoading}
+                            style={{
+                              flex: '0 0 34%', padding: '13px',
+                              backgroundColor: '#FFF', color: TC,
+                              border: `1px solid ${TC}`,
+                              fontSize: '13px', fontWeight: 700, letterSpacing: '0.04em',
+                              cursor: previewLoading ? 'default' : 'pointer',
+                              opacity: previewLoading ? 0.7 : 1,
+                            }}
+                          >
+                            {previewLoading ? 'Building…' : 'Preview'}
+                          </button>
+                          <button
+                            onClick={handleSend}
+                            disabled={sending || selectedCount === 0}
+                            style={{
+                              flex: 1, padding: '13px',
+                              backgroundColor: selectedCount > 0 ? TC : '#CCC',
+                              color: '#FFF', border: 'none',
+                              fontSize: '13px', fontWeight: 700, letterSpacing: '0.04em',
+                              cursor: selectedCount > 0 && !sending ? 'pointer' : 'default',
+                              opacity: sending ? 0.7 : 1,
+                            }}
+                          >
+                            {sending ? 'Sending…' : `Send to ${selectedCount} student${selectedCount !== 1 ? 's' : ''}`}
+                          </button>
+                        </div>
                       );
                     })()}
                   </>
@@ -1088,6 +1124,81 @@ export default function AdminEmails() {
             )}
           </>
         )}
+
+      {/* ───────────────────── COURSE EMAIL PREVIEW ──────────────────────── */}
+      {preview?.groups?.length > 0 && (() => {
+        const group = preview.groups[preview.active] || preview.groups[0];
+        return (
+          <div
+            onClick={() => setPreview(null)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 100,
+              backgroundColor: 'rgba(40,40,40,0.55)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px',
+            }}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{
+                backgroundColor: '#FFF', width: '100%', maxWidth: '720px',
+                maxHeight: '100%', display: 'flex', flexDirection: 'column',
+              }}
+            >
+              <div style={{ padding: '14px 18px', borderBottom: `1px solid ${RULE}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: INK }}>
+                  Preview
+                </span>
+                <span style={{ fontSize: '11px', color: MUTED }}>
+                  Rendered from the template file — this is what sends.
+                </span>
+                <button
+                  onClick={() => setPreview(null)}
+                  style={{ marginLeft: 'auto', border: 'none', background: 'none', fontSize: '18px', lineHeight: 1, color: MUTED, cursor: 'pointer' }}
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* One tab per template variant the cohort splits into */}
+              {preview.groups.length > 1 && (
+                <div style={{ display: 'flex', gap: '6px', padding: '10px 18px 0' }}>
+                  {preview.groups.map((g, i) => (
+                    <button
+                      key={g.templateType}
+                      onClick={() => setPreview(p => ({ ...p, active: i }))}
+                      style={{
+                        padding: '6px 12px', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em',
+                        border: `1px solid ${i === preview.active ? TC : RULE}`,
+                        backgroundColor: i === preview.active ? TC : '#FFF',
+                        color: i === preview.active ? '#FFF' : MUTED,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {TEMPLATE_BADGES[g.templateType]?.label || g.templateType} · {g.recipientCount}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ padding: '12px 18px', borderBottom: `1px solid ${RULE}` }}>
+                <div style={{ fontSize: '11px', color: MUTED, marginBottom: '3px' }}>Subject</div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: INK }}>{group.subject}</div>
+                {group.recipientCount > 0 && (
+                  <div style={{ fontSize: '11px', color: MUTED, marginTop: '6px' }}>
+                    Goes to {group.recipientCount} selected student{group.recipientCount !== 1 ? 's' : ''}: {group.recipientEmails.join(', ')}
+                  </div>
+                )}
+              </div>
+
+              <iframe
+                title="Email preview"
+                srcDoc={group.html}
+                style={{ flex: 1, minHeight: '420px', width: '100%', border: 'none', backgroundColor: '#FFF' }}
+              />
+            </div>
+          </div>
+        );
+      })()}
     </AdminPage>
   );
 }

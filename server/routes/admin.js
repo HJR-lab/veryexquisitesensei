@@ -7323,26 +7323,44 @@ app.get('/api/admin/course-emails/:courseId/draft', authenticateToken, requireAd
   });
 }));
 
-// 3. Send course detail email
-app.post('/api/admin/course-emails/:courseId/send', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
-  const { courseId } = req.params;
-  const {
-    templateType,
-    dayOfWeek,
-    startDate,
-    endDate,
-    timeSlot,
-    holidayExclusions,
-    specialNotes,
-    collectionStart,
-    collectionEnd,
-    disposalDate,
-    recipientEmails,
-  } = req.body;
+// Template types live as files in email-templates/courses/. The name arrives from
+// the client and is used to build a require() path, so it is matched against the
+// directory listing rather than interpolated straight in.
+const COURSE_TEMPLATE_DIR = require('path').join(__dirname, '../email-templates/courses');
+function listCourseTemplateTypes() {
+  return require('fs').readdirSync(COURSE_TEMPLATE_DIR)
+    .filter(f => f.endsWith('.js'))
+    .map(f => f.slice(0, -3));
+}
 
-  if (!templateType || !recipientEmails || recipientEmails.length === 0) {
-    return res.status(400).json({ error: 'templateType and recipientEmails are required' });
-  }
+// Outside production the module cache is dropped first, so editing a template
+// file and reloading the admin preview shows the new copy without a restart.
+function loadCourseTemplate(type) {
+  if (!listCourseTemplateTypes().includes(type)) return null;
+  const resolved = require.resolve(`../email-templates/courses/${type}`);
+  if (process.env.NODE_ENV !== 'production') delete require.cache[resolved];
+  return require(resolved);
+}
+
+function buildCourseEmailFields(body) {
+  return {
+    dayOfWeek: body.dayOfWeek,
+    startDate: body.startDate,
+    endDate: body.endDate,
+    timeSlot: body.timeSlot,
+    holidayExclusions: body.holidayExclusions || '',
+    collectionStart: body.collectionStart,
+    collectionEnd: body.collectionEnd,
+    disposalDate: body.disposalDate,
+    specialNotes: body.specialNotes || '',
+  };
+}
+
+// Segment recipients and render each group's email. Shared by the preview and
+// send endpoints so a preview can never show a different email from the one that
+// actually goes out. Returns { groups } or { error } for an unknown template.
+async function buildCourseEmailGroups(courseId, body) {
+  const { templateType, recipientEmails } = body;
 
   // Segment recipients by THEIR OWN enrollment, re-derived from the DB — never
   // trust client-posted segmentation. Package students (10-Class, 3x6-week)
@@ -7367,36 +7385,74 @@ app.post('/api/admin/course-emails/:courseId/send', authenticateToken, requireAd
     fallbackType = 'wt-6week';
   }
 
-  const groups = new Map(); // templateType -> [emails]
+  const byType = new Map(); // templateType -> [emails]
   for (const email of recipientEmails) {
     const type = templateByEmail.get(String(email).toLowerCase()) || fallbackType;
-    if (!groups.has(type)) groups.set(type, []);
-    groups.get(type).push(email);
+    if (!byType.has(type)) byType.set(type, []);
+    byType.get(type).push(email);
   }
 
-  const templateFields = {
-    dayOfWeek,
-    startDate,
-    endDate,
-    timeSlot,
-    holidayExclusions: holidayExclusions || '',
-    collectionStart,
-    collectionEnd,
-    disposalDate,
-    specialNotes: specialNotes || '',
-  };
+  const templateFields = buildCourseEmailFields(body);
+
+  const groups = [];
+  for (const [type, emails] of byType) {
+    const template = loadCourseTemplate(type);
+    if (!template) return { error: `Unknown template type: ${type}` };
+    const { subject, html } = template.generate(templateFields);
+    groups.push({ templateType: type, emails, subject, html });
+  }
+  return { groups };
+}
+
+// 3a. Preview the course detail email(s) — renders the real template files, so
+// what the admin reads here is byte-for-byte what send would deliver.
+app.post('/api/admin/course-emails/:courseId/preview', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { courseId } = req.params;
+  const { templateType, recipientEmails } = req.body;
+
+  if (!templateType) {
+    return res.status(400).json({ error: 'templateType is required' });
+  }
+
+  // No recipients means the admin is checking copy, not a cohort. Render the
+  // requested template as-is: the anti-blanket coercion guards sends, and
+  // nothing is being sent here, so it would only hide the package templates.
+  if (!recipientEmails || recipientEmails.length === 0) {
+    const template = loadCourseTemplate(templateType);
+    if (!template) return res.status(400).json({ error: `Unknown template type: ${templateType}` });
+    const { subject, html } = template.generate(buildCourseEmailFields(req.body));
+    return res.json({ groups: [{ templateType, recipientCount: 0, recipientEmails: [], subject, html }] });
+  }
+
+  const { groups, error } = await buildCourseEmailGroups(courseId, req.body);
+  if (error) return res.status(400).json({ error });
+
+  res.json({
+    groups: groups.map(g => ({
+      templateType: g.templateType,
+      recipientCount: g.emails.length,
+      recipientEmails: g.emails,
+      subject: g.subject,
+      html: g.html,
+    })),
+  });
+}));
+
+// 3. Send course detail email
+app.post('/api/admin/course-emails/:courseId/send', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { courseId } = req.params;
+  const { templateType, recipientEmails } = req.body;
+
+  if (!templateType || !recipientEmails || recipientEmails.length === 0) {
+    return res.status(400).json({ error: 'templateType and recipientEmails are required' });
+  }
+
+  const { groups, error } = await buildCourseEmailGroups(courseId, req.body);
+  if (error) return res.status(400).json({ error });
 
   const sends = [];
   const failures = [];
-  for (const [type, emails] of groups) {
-    let template;
-    try {
-      template = require(`../email-templates/courses/${type}`);
-    } catch (err) {
-      return res.status(400).json({ error: `Unknown template type: ${type}` });
-    }
-
-    const { subject, html } = template.generate(templateFields);
+  for (const { templateType: type, emails, subject, html } of groups) {
     const result = await sendAndLogEmail({
       emailType: 'course_details',
       courseIdentifier: courseId,

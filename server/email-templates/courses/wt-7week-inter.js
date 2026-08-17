@@ -23,7 +23,7 @@ function generate({ dayOfWeek, startDate, endDate, timeSlot, holidayExclusions, 
 
   const body = `
     <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">
-      Great news – your <strong>7-Week Intermediate Wheelthrowing</strong> is confirmed!
+      Great news! Your <strong>7 Wks Intermediate Wheelthrowing</strong> is confirmed!
     </p>
 
     ${specialNotesBlock}

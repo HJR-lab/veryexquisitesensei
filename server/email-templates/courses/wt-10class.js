@@ -1,10 +1,11 @@
 const { wrapEmailTemplate } = require('../base');
 
 /**
- * Generate course detail email for 10-Class Wheelthrowing package
+ * Generate course detail email for the 10 Class Package
+ * (6 structured weeks of Wheelthrowing + 4 optional weeks of Wheelthrowing or Handbuilding)
  */
 function generate({ dayOfWeek, startDate, endDate, timeSlot, holidayExclusions, specialNotes }) {
-  const subject = `VES Course: Wheelthrowing 10-Class NO EXPIRY — ${dayOfWeek}s, ${startDate} - ${endDate} (${timeSlot})`;
+  const subject = `VES Course: 10 Class Package NO EXPIRY — ${dayOfWeek}s, ${startDate} - ${endDate} (${timeSlot})`;
 
   const holidayLine = holidayExclusions
     ? `<p style="margin: 0 0 2px; font-size: 14px; color: #282828;"><strong>Holiday exclusions:</strong> ${holidayExclusions}</p>`
@@ -23,7 +24,7 @@ function generate({ dayOfWeek, startDate, endDate, timeSlot, holidayExclusions, 
 
   const body = `
     <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">
-      Great news – your <strong>10-Class Wheelthrowing</strong> is confirmed!
+      Great news! Your <strong>6 Wks Beginner/Ext Wheelthrowing</strong> is confirmed! Your flexible <strong>10 Class Package</strong> includes an additional 4 Class Credits for either Wheelthrowing or Handbuilding
     </p>
 
     ${specialNotesBlock}
@@ -33,9 +34,15 @@ function generate({ dayOfWeek, startDate, endDate, timeSlot, holidayExclusions, 
       <tr>
         <td style="padding: 16px 20px;">
           <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #9E4A1E; text-transform: uppercase; letter-spacing: 0.05em;">Your Schedule</p>
-          <p style="margin: 0 0 2px; font-size: 15px; color: #282828;">${dayOfWeek}s, ${startDate} – ${endDate}</p>
-          <p style="margin: 0 0 2px; font-size: 15px; color: #282828;">${timeSlot}</p>
-          <p style="margin: 0 0 2px; font-size: 14px; color: #282828;">6 structured weeks + 4 flexible classes (WT or HB)</p>
+          <p style="margin: 0 0 10px; font-size: 14px; line-height: 1.6; color: #282828;">
+            <strong>Weeks 1–6 &middot; Wheelthrowing</strong><br />
+            ${dayOfWeek}s, ${startDate} – ${endDate}, ${timeSlot}<br />
+            <span style="color: #9E4A1E;">Already in your schedule.</span>
+          </p>
+          <p style="margin: 0 0 2px; font-size: 14px; line-height: 1.6; color: #282828;">
+            <strong>4 Class Credits &middot; Wheelthrowing or Handbuilding</strong><br />
+            Book any of your 4 remaining classes through the portal, under Classes. Note that they aren&rsquo;t reserved until you do.
+          </p>
           ${holidayLine}
         </td>
       </tr>

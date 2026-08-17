@@ -920,11 +920,24 @@ export default function ClassScheduleNew() {
           {(() => {
             const activeEnrollments = [...(dashboardData?.enrollments?.active || []), ...(dashboardData?.enrollments?.upcoming || [])];
             const regularCourse = activeEnrollments.find(e => e.number_of_weeks && e.number_of_weeks !== 10 && !(e.course_type || '').toLowerCase().includes('handbuilding'));
-            if (!regularCourse) return null;
-            const totalClasses = regularCourse.number_of_weeks || 6;
-            const activeBookings = (regularCourse.bookings || []).filter(b => b.status === 'booked' || b.status === 'attended' || b.status === 'completed' || b.status === 'rescheduled' || b.status === 'absent' || b.status === 'forfeited').length;
+            const countBooked = (e) => (e?.bookings || []).filter(b => b.status === 'booked' || b.status === 'attended' || b.status === 'completed' || b.status === 'rescheduled' || b.status === 'absent' || b.status === 'forfeited').length;
             const waitlisted = myWaitlistEntries.filter(w => !w.claimed && w.class).length;
-            const unbooked = totalClasses - activeBookings - waitlisted;
+
+            let unbooked = 0;
+            if (regularCourse) {
+              unbooked += (regularCourse.number_of_weeks || 6) - countBooked(regularCourse);
+            }
+            // A 10-class package carries number_of_weeks = 10 (a 6-week cohort plus
+            // 4 flex classes), which the regularCourse lookup above deliberately
+            // skips. Counted separately here, otherwise package students — the ones
+            // whose flex classes are theirs to book — never saw this banner at all.
+            // Only once the cohort has actually formed: tenClassEnrollment includes
+            // pending enrollments, and a pending student has no bookings yet, so
+            // they would be told 10 classes are unbooked with nothing to book.
+            if (is10ClassPackage && countBooked(tenClassEnrollment) > 0) {
+              unbooked += (tenClassEnrollment.number_of_weeks || 10) - countBooked(tenClassEnrollment);
+            }
+            unbooked -= waitlisted;
             if (unbooked <= 0) return null;
             return (
               <div style={{ backgroundColor: '#FFF0F0', border: '1px solid #F0C0C0', padding: '12px 16px', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

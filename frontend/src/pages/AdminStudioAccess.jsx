@@ -39,6 +39,19 @@ function StatusPill({ status }) {
   );
 }
 
+const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0];   // week reads Mon-first
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// Mirrors resolveHoursForDate() in server/utils/studioAccessHours.js —
+// a date override always beats the weekly baseline.
+function resolveHours(settings, dateStr) {
+  if (!settings) return null;
+  const win = Object.prototype.hasOwnProperty.call(settings.overrides || {}, dateStr)
+    ? settings.overrides[dateStr]
+    : settings.weekly?.[String(new Date(dateStr + 'T12:00:00').getDay())] ?? null;
+  return win && !win.closed ? win : null;   // a closed window carries only a note
+}
+
 function fmt24to12(t) {
   if (!t) return '—';
   const h = parseInt(t.split(':')[0], 10);
@@ -74,8 +87,21 @@ export default function AdminStudioAccess() {
   const [sortBy, setSortBy] = useState('date'); // 'date' | 'name' | 'name_desc'
   const [showCancelled, setShowCancelled] = useState(false);
 
+  // Hours editor
+  const [hoursSettings, setHoursSettings] = useState(null);
+  const [bookingTimes, setBookingTimes] = useState({});
+  const [showHours, setShowHours] = useState(false);
+  const [savingHours, setSavingHours] = useState(false);
+  const [hoursError, setHoursError] = useState('');
+  const [ovDate, setOvDate] = useState(todayStr);
+  const [ovClosed, setOvClosed] = useState(false);
+  const [ovOpen, setOvOpen] = useState('11:00');
+  const [ovClose, setOvClose] = useState('18:00');
+  const [ovNote, setOvNote] = useState('');
+
   useEffect(() => {
     fetchBookings();
+    fetchHours();
     // Auto-refresh every 30 seconds to pick up student changes
     const interval = setInterval(fetchBookings, 30000);
     return () => clearInterval(interval);
@@ -92,6 +118,103 @@ export default function AdminStudioAccess() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Keep the create-form start time inside whatever window that date actually has.
+  useEffect(() => {
+    const win = resolveHours(hoursSettings, newDate);
+    if (!win) { setNewStartTime(''); return; }
+    if (newStartTime < win.open || newStartTime >= win.close) setNewStartTime(win.open);
+  }, [newDate, hoursSettings]);
+
+  const fetchHours = async () => {
+    try {
+      const { data } = await api.get('/admin/studio-access/hours');
+      setHoursSettings(data.settings);
+      setBookingTimes(data.bookingTimes || {});
+    } catch (err) {
+      console.error('Failed to fetch hours:', err);
+    }
+  };
+
+  // Bookings that would fall outside a proposed window, so the admin finds out
+  // before saving rather than from a confused student turning up to a shut door.
+  const bookingsAtRisk = (dateStr, win) => {
+    const times = bookingTimes[dateStr] || [];
+    if (times.length === 0) return 0;
+    if (!win || win.closed) return times.length;   // closing the date entirely
+    return times.filter(t => t < win.open || t >= win.close).length;
+  };
+
+  const saveHours = async (next) => {
+    try {
+      setSavingHours(true);
+      setHoursError('');
+      const { data } = await api.put('/admin/studio-access/hours', {
+        weekly: next.weekly,
+        overrides: next.overrides,
+      });
+      setHoursSettings(data.settings);
+    } catch (err) {
+      setHoursError(err.response?.data?.error || 'Failed to save hours');
+    } finally {
+      setSavingHours(false);
+    }
+  };
+
+  // A weekly change reaches every matching date, so check them all before saving.
+  const saveWeekly = () => {
+    const stranded = Object.keys(bookingTimes)
+      .filter(date => date >= todayStr)
+      .map(date => ({ date, n: bookingsAtRisk(date, resolveHours(hoursSettings, date)) }))
+      .filter(x => x.n > 0);
+
+    if (stranded.length > 0) {
+      const total = stranded.reduce((sum, x) => sum + x.n, 0);
+      const msg = `${total} existing booking${total === 1 ? '' : 's'} across ${stranded.length} date${stranded.length === 1 ? '' : 's'} (${stranded.map(x => x.date).join(', ')}) would fall outside the new hours. They will not be cancelled automatically. Save anyway?`;
+      if (!window.confirm(msg)) return;
+    }
+    saveHours(hoursSettings);
+  };
+
+  const setWeekday = (dow, window) => {
+    const next = {
+      ...hoursSettings,
+      weekly: { ...hoursSettings.weekly, [String(dow)]: window },
+    };
+    setHoursSettings(next);
+  };
+
+  const addOverride = () => {
+    const note = ovNote.trim() ? { note: ovNote.trim() } : {};
+    const win = ovClosed
+      ? (ovNote.trim() ? { closed: true, ...note } : null)
+      : { open: ovOpen, close: ovClose, ...note };
+    if (win && !win.closed && win.close <= win.open) {
+      setHoursError('Close time must be after open time');
+      return;
+    }
+    const atRisk = bookingsAtRisk(ovDate, win);
+    if (atRisk > 0) {
+      const action = win && !win.closed ? 'Narrow' : 'Close';
+      const msg = `${ovDate} already has ${atRisk} booking${atRisk === 1 ? '' : 's'}. They will not be cancelled automatically. ${action} this date anyway?`;
+      if (!window.confirm(msg)) return;
+    }
+    const next = {
+      ...hoursSettings,
+      overrides: { ...hoursSettings.overrides, [ovDate]: win },
+    };
+    setHoursSettings(next);
+    saveHours(next);
+    setOvNote('');
+  };
+
+  const removeOverride = (date) => {
+    const overrides = { ...hoursSettings.overrides };
+    delete overrides[date];
+    const next = { ...hoursSettings, overrides };
+    setHoursSettings(next);
+    saveHours(next);
   };
 
   const handleConfirm = async (id) => {
@@ -210,9 +333,14 @@ export default function AdminStudioAccess() {
       <AdminPage
         title="Studio Access"
         actions={
-          <button onClick={() => setShowCreateForm(!showCreateForm)} style={btnStyle(TC, '#FFF')}>
-            + Create Booking
-          </button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={() => setShowHours(!showHours)} style={btnStyle('#EEE', INK)}>
+              {showHours ? 'Close Hours' : 'Hours'}
+            </button>
+            <button onClick={() => setShowCreateForm(!showCreateForm)} style={btnStyle(TC, '#FFF')}>
+              + Create Booking
+            </button>
+          </div>
         }
       >
 
@@ -221,14 +349,14 @@ export default function AdminStudioAccess() {
           {strip.map(d => {
             const key = fmtKey(d);
             const isSelected = key === selectedDateStr;
-            const isSat = d.getDay() === 6;
+            const isClosed = hoursSettings ? !resolveHours(hoursSettings, key) : false;
             const count = bookingDates[key] || 0;
             return (
-              <div key={key} onClick={() => !isSat && setSelectedDate(d)} style={{
-                minWidth: '48px', padding: '8px 4px', textAlign: 'center', cursor: isSat ? 'default' : 'pointer',
+              <div key={key} onClick={() => !isClosed && setSelectedDate(d)} style={{
+                minWidth: '48px', padding: '8px 4px', textAlign: 'center', cursor: isClosed ? 'default' : 'pointer',
                 backgroundColor: isSelected ? TC : count > 0 ? TC_LIGHT : '#FFF',
                 border: `1px solid ${isSelected ? TC : count > 0 ? TC : RULE}`,
-                opacity: isSat ? 0.3 : 1, flexShrink: 0,
+                opacity: isClosed ? 0.3 : 1, flexShrink: 0,
               }}>
                 <div style={{ fontSize: '9px', fontWeight: 700, color: isSelected ? '#FFF' : MUTED, textTransform: 'uppercase' }}>
                   {DAY_LABELS[d.getDay()]}
@@ -248,6 +376,135 @@ export default function AdminStudioAccess() {
             );
           })}
         </div>
+
+        {/* Hours editor */}
+        {showHours && hoursSettings && (
+          <div style={{ backgroundColor: '#FFFFFF', border: `1px solid ${RULE}`, padding: '20px', marginBottom: '24px' }}>
+            <div style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: TC, marginBottom: '4px' }}>
+              Bookable Hours
+            </div>
+            <div style={{ fontSize: '11px', color: MUTED, marginBottom: '16px', lineHeight: 1.5 }}>
+              When enrolled students can book paid studio access. Separate from the studio's operating
+              hours for members, which are set under Memberships.
+            </div>
+
+            {hoursError && (
+              <div style={{ padding: '8px 10px', backgroundColor: '#FFEBEE', color: '#C62828', fontSize: '11px', marginBottom: '12px' }}>
+                {hoursError}
+              </div>
+            )}
+
+            {/* Weekly baseline */}
+            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED, marginBottom: '8px' }}>
+              Every week
+            </div>
+            <div style={{ border: `1px solid ${RULE}`, marginBottom: '20px' }}>
+              {WEEKDAY_ORDER.map((dow, i) => {
+                const raw = hoursSettings.weekly[String(dow)];
+                const win = raw && !raw.closed ? raw : null;
+                return (
+                  <div key={dow} style={{
+                    display: 'grid', gridTemplateColumns: '100px 1fr 1fr 90px', gap: '8px', alignItems: 'center',
+                    padding: '8px 10px', borderBottom: i < 6 ? `1px solid ${RULE}` : 'none',
+                    backgroundColor: win ? '#FFF' : '#FAFAFA',
+                  }}>
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: win ? INK : MUTED }}>{WEEKDAY_NAMES[dow]}</span>
+                    <input
+                      type="time" step="1800" disabled={!win}
+                      value={win ? win.open : ''}
+                      onChange={(e) => setWeekday(dow, { ...win, open: e.target.value })}
+                      style={{ ...inputStyle, opacity: win ? 1 : 0.4 }}
+                    />
+                    <input
+                      type="time" step="1800" disabled={!win}
+                      value={win ? win.close : ''}
+                      onChange={(e) => setWeekday(dow, { ...win, close: e.target.value })}
+                      style={{ ...inputStyle, opacity: win ? 1 : 0.4 }}
+                    />
+                    <label style={{ fontSize: '11px', color: MUTED, display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={!win}
+                        onChange={(e) => setWeekday(dow, e.target.checked ? null : { open: '11:00', close: '18:00' })}
+                      />
+                      Closed
+                    </label>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginBottom: '24px' }}>
+              <button onClick={fetchHours} disabled={savingHours} style={btnStyle('#EEE', INK)}>Revert</button>
+              <button onClick={saveWeekly} disabled={savingHours} style={{ ...btnStyle(TC, '#FFF'), opacity: savingHours ? 0.5 : 1 }}>
+                {savingHours ? 'Saving...' : 'Save Weekly Hours'}
+              </button>
+            </div>
+
+            {/* Date overrides */}
+            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED, marginBottom: '8px' }}>
+              One-off dates
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1.4fr 80px 90px', gap: '8px', alignItems: 'end', marginBottom: '12px' }}>
+              <div>
+                <label style={labelStyle}>Date</label>
+                <input type="date" value={ovDate} min={todayStr} onChange={(e) => setOvDate(e.target.value)} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Open</label>
+                <input type="time" step="1800" disabled={ovClosed} value={ovOpen} onChange={(e) => setOvOpen(e.target.value)} style={{ ...inputStyle, opacity: ovClosed ? 0.4 : 1 }} />
+              </div>
+              <div>
+                <label style={labelStyle}>Close</label>
+                <input type="time" step="1800" disabled={ovClosed} value={ovClose} onChange={(e) => setOvClose(e.target.value)} style={{ ...inputStyle, opacity: ovClosed ? 0.4 : 1 }} />
+              </div>
+              <div>
+                <label style={labelStyle}>Note (shown to students)</label>
+                <input type="text" value={ovNote} onChange={(e) => setOvNote(e.target.value)} placeholder="e.g. Public holiday" style={inputStyle} />
+              </div>
+              <label style={{ fontSize: '11px', color: MUTED, display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', paddingBottom: '9px' }}>
+                <input type="checkbox" checked={ovClosed} onChange={(e) => setOvClosed(e.target.checked)} />
+                Closed
+              </label>
+              <button onClick={addOverride} disabled={savingHours} style={{ ...btnStyle(TC, '#FFF'), padding: '8px 10px', opacity: savingHours ? 0.5 : 1 }}>
+                Add
+              </button>
+            </div>
+
+            {(() => {
+              const dates = Object.keys(hoursSettings.overrides || {}).filter(d => d >= todayStr).sort();
+              if (dates.length === 0) {
+                return <div style={{ fontSize: '11px', color: MUTED, fontStyle: 'italic' }}>No upcoming one-off changes.</div>;
+              }
+              return (
+                <div style={{ border: `1px solid ${RULE}` }}>
+                  {dates.map((date, i) => {
+                    const raw = hoursSettings.overrides[date];
+                    const win = raw && !raw.closed ? raw : null;
+                    const count = (bookingTimes[date] || []).length;
+                    return (
+                      <div key={date} style={{
+                        display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 10px',
+                        borderBottom: i < dates.length - 1 ? `1px solid ${RULE}` : 'none',
+                      }}>
+                        <span style={{ fontSize: '12px', fontWeight: 600, minWidth: '92px' }}>{date}</span>
+                        <span style={{ fontSize: '12px', color: win ? INK : '#C62828', minWidth: '120px' }}>
+                          {win ? `${fmt24to12(win.open)} – ${fmt24to12(win.close)}` : 'Closed'}
+                        </span>
+                        <span style={{ fontSize: '11px', color: MUTED, flex: 1 }}>{raw?.note || ''}</span>
+                        {count > 0 && (
+                          <span style={{ fontSize: '10px', fontWeight: 700, color: TC }}>
+                            {count} booking{count === 1 ? '' : 's'}
+                          </span>
+                        )}
+                        <button onClick={() => removeOverride(date)} disabled={savingHours} style={btnStyle('#EEE', INK)}>Remove</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        )}
 
         {/* Create form */}
         {showCreateForm && (
@@ -297,9 +554,15 @@ export default function AdminStudioAccess() {
               <div>
                 <label style={labelStyle}>Start Time</label>
                 <select value={newStartTime} onChange={(e) => setNewStartTime(e.target.value)} style={inputStyle}>
-                  {Array.from({ length: 10 }, (_, i) => i + 10).map(h => (
-                    <option key={h} value={`${String(h).padStart(2, '0')}:00`}>{fmt24to12(`${h}:00`)}</option>
-                  ))}
+                  {(() => {
+                    const win = resolveHours(hoursSettings, newDate);
+                    if (!win) return <option value="">Closed this date</option>;
+                    const from = parseInt(win.open.split(':')[0], 10);
+                    const to = parseInt(win.close.split(':')[0], 10);
+                    return Array.from({ length: Math.max(0, to - from) }, (_, i) => from + i).map(h => (
+                      <option key={h} value={`${String(h).padStart(2, '0')}:00`}>{fmt24to12(`${h}:00`)}</option>
+                    ));
+                  })()}
                 </select>
               </div>
               <div>
@@ -313,7 +576,7 @@ export default function AdminStudioAccess() {
             </div>
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
               <button onClick={() => setShowCreateForm(false)} style={btnStyle('#EEE', INK)}>Cancel</button>
-              <button onClick={handleCreate} disabled={!selectedStudent || creating} style={{ ...btnStyle(TC, '#FFF'), opacity: !selectedStudent || creating ? 0.5 : 1 }}>
+              <button onClick={handleCreate} disabled={!selectedStudent || !newStartTime || creating} style={{ ...btnStyle(TC, '#FFF'), opacity: !selectedStudent || !newStartTime || creating ? 0.5 : 1 }}>
                 {creating ? 'Creating...' : 'Create Booking'}
               </button>
             </div>

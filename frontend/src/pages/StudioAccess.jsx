@@ -66,6 +66,7 @@ export default function StudioAccess() {
   const [usePass, setUsePass] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [hours, setHours] = useState(null);
   const stripRef = useRef(null);
 
   // Check if user has active membership
@@ -82,6 +83,7 @@ export default function StudioAccess() {
   // ── Effects ────────────────────────────────────────────────────────────────
   useEffect(() => {
     fetchMyBookings();
+    fetchHours();
   }, []);
 
   useEffect(() => {
@@ -95,6 +97,15 @@ export default function StudioAccess() {
       setMyBookings(data);
     } catch (err) {
       console.error('Failed to fetch bookings:', err);
+    }
+  };
+
+  const fetchHours = async () => {
+    try {
+      const { data } = await api.get('/studio-access/hours');
+      setHours(data);
+    } catch (err) {
+      console.error('Failed to fetch hours:', err);
     }
   };
 
@@ -125,6 +136,14 @@ export default function StudioAccess() {
       slots.push(String(h).padStart(2, '0') + ':00');
     }
     return slots;
+  };
+
+  // Is this date bookable at all? Date override wins over the weekly baseline.
+  const isClosedDate = (d) => {
+    if (!hours) return false;
+    const override = (hours.upcoming || []).find(o => o.date === fmtKey(d));
+    if (override) return override.closed;
+    return !!hours.weekly?.[String(d.getDay())]?.closed;   // server flattens this
   };
 
   // ── Computed ───────────────────────────────────────────────────────────────
@@ -246,9 +265,16 @@ export default function StudioAccess() {
             <p style={{ fontSize: '12px', color: INK, margin: 0, lineHeight: 1.5 }}>
               Members have unlimited studio access — no booking required. Just drop in during open hours!
             </p>
-            <div style={{ marginTop: '12px', fontSize: '11px', color: MUTED }}>
-              Mon–Thu 11am – 6pm &nbsp;·&nbsp; Fri & Sun 12pm – 7pm &nbsp;·&nbsp; Sat Closed
-            </div>
+            {hours?.operatingHours?.length > 0 && (
+              <div style={{ marginTop: '12px', fontSize: '11px', color: MUTED, lineHeight: 1.7 }}>
+                {hours.operatingHours.map(entry => (
+                  <div key={entry.day} style={{ display: 'flex', justifyContent: 'space-between', maxWidth: '260px' }}>
+                    <span>{entry.day}</span>
+                    <span>{entry.hours}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -346,19 +372,19 @@ export default function StudioAccess() {
               {strip.map(d => {
                 const key = fmtKey(d);
                 const sel = fmtKey(selectedDate) === key;
-                const isSat = d.getDay() === 6;
+                const isClosed = isClosedDate(d);
                 const hasBooking = bookingDates.has(key);
                 return (
                   <button
                     key={key}
-                    disabled={isSat}
+                    disabled={isClosed}
                     onClick={() => setSelectedDate(d)}
                     style={{
                       flexShrink: 0, width: '48px', padding: '8px 0',
                       border: sel ? `2px solid ${TC}` : `1px solid ${RULE}`,
-                      backgroundColor: sel ? TC_LIGHT : isSat ? '#F5F5F5' : '#FFFFFF',
-                      cursor: isSat ? 'not-allowed' : 'pointer',
-                      opacity: isSat ? 0.4 : 1,
+                      backgroundColor: sel ? TC_LIGHT : isClosed ? '#F5F5F5' : '#FFFFFF',
+                      cursor: isClosed ? 'not-allowed' : 'pointer',
+                      opacity: isClosed ? 0.4 : 1,
                       display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
                       position: 'relative',
                     }}
@@ -390,7 +416,9 @@ export default function StudioAccess() {
                   <div style={{ padding: '24px', backgroundColor: ALT, textAlign: 'center' }}>
                     <span className="material-symbols-outlined" style={{ fontSize: '32px', color: MUTED, display: 'block', marginBottom: '8px' }}>event_busy</span>
                     <div style={{ fontSize: '13px', fontWeight: 600 }}>Studio Closed</div>
-                    <div style={{ fontSize: '11px', color: MUTED, marginTop: '4px' }}>The studio is closed on Saturdays</div>
+                    <div style={{ fontSize: '11px', color: MUTED, marginTop: '4px' }}>
+                      {availability.reason || 'Studio access is not available on this date'}
+                    </div>
                   </div>
                 ) : (
                   <>
@@ -401,6 +429,9 @@ export default function StudioAccess() {
                         <div style={{ fontSize: '11px', color: MUTED, marginTop: '2px' }}>
                           {DAY_LABELS[selectedDate.getDay()]}, {selectedDate.getDate()} {MONTH_LABELS[selectedDate.getMonth()]}
                         </div>
+                        {availability.note && (
+                          <div style={{ fontSize: '11px', color: TC, marginTop: '2px' }}>{availability.note}</div>
+                        )}
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <div style={{

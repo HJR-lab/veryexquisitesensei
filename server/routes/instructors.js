@@ -2,6 +2,7 @@ const supabaseDb = require('../utils/supabaseDb');
 const { getStudioAccessPasses } = require('../utils/studioAccess');
 const { uploadImageToSupabase, deleteImageFromSupabase } = require('../utils/imageUpload');
 const { readMembershipSettings, writeMembershipSettings } = require('../utils/membershipSettings');
+const { readStudioAccessHours, writeStudioAccessHours, resolveHoursForDate, weeklySummary, isOpen, DAY_NAMES } = require('../utils/studioAccessHours');
 const { setClassGlazing } = require('../utils/glazing');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, upload }) {
@@ -1195,15 +1196,7 @@ app.put('/api/admin/customers/:id/role', authenticateToken, requireAdmin, asyncH
 // STUDIO ACCESS BOOKING SYSTEM
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const STUDIO_HOURS = {
-  0: { open: '12:00', close: '19:00', label: '12pm – 7pm' },   // Sunday
-  1: { open: '11:00', close: '18:00', label: '11am – 6pm' },   // Monday
-  2: { open: '11:00', close: '18:00', label: '11am – 6pm' },   // Tuesday
-  3: { open: '11:00', close: '18:00', label: '11am – 6pm' },   // Wednesday
-  4: { open: '11:00', close: '18:00', label: '11am – 6pm' },   // Thursday
-  5: { open: '12:00', close: '19:00', label: '12pm – 7pm' },   // Friday
-  6: null,                                                       // Saturday — CLOSED
-};
+// Bookable hours live in admin_settings — see utils/studioAccessHours.js
 const STUDIO_ACCESS_RATE = 20; // $20/hr
 const STUDIO_ACCESS_MIN_HOURS = 2;
 const STUDIO_ACCESS_MAX_PER_DATE = 10;
@@ -1237,17 +1230,102 @@ async function getStudioAccessCountForDate(dateStr) {
   return data ? data.length : 0;
 }
 
+// ── Hours: shared read for students (weekly baseline + upcoming exceptions) ──
+app.get('/api/studio-access/hours', authenticateToken, asyncHandler(async (req, res) => {
+  const settings = await readStudioAccessHours();
+  const today = new Date().toISOString().split('T')[0];
+
+  // Only the overrides the 60-day booking strip can actually reach.
+  const upcoming = Object.keys(settings.overrides)
+    .filter(date => date >= today)
+    .sort()
+    .map(date => ({ date, ...resolveHoursForDate(date, settings) }));
+
+  // Members ignore the bookable window entirely — they walk in during the
+  // studio's operating hours, which live in membership settings.
+  const { studioHours } = await readMembershipSettings();
+
+  res.json({
+    summary: weeklySummary(settings),
+    weekly: Object.fromEntries(
+      Object.entries(settings.weekly).map(([d, w]) => [
+        d,
+        isOpen(w) ? { ...w, closed: false } : { closed: true, note: w?.note || null },
+      ])
+    ),
+    upcoming,
+    operatingHours: studioHours,
+  });
+}));
+
+// ── Admin: read hours (+ booking counts so the UI can warn before closing) ───
+app.get('/api/admin/studio-access/hours', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const settings = await readStudioAccessHours();
+  const today = new Date().toISOString().split('T')[0];
+
+  const { data: rows } = await supabaseDb.supabase
+    .from('studio_access_bookings')
+    .select('booking_date, start_time')
+    .gte('booking_date', today)
+    .neq('status', 'cancelled');
+
+  // Start times, not just counts — lets the UI say exactly which bookings a
+  // proposed change would strand instead of guessing from wider/narrower.
+  const bookingTimes = {};
+  (rows || []).forEach(r => {
+    (bookingTimes[r.booking_date] = bookingTimes[r.booking_date] || []).push(r.start_time);
+  });
+
+  res.json({ settings, bookingTimes, dayNames: DAY_NAMES });
+}));
+
+// ── Admin: write hours ──────────────────────────────────────────────────────
+app.put('/api/admin/studio-access/hours', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { weekly, overrides } = req.body || {};
+
+  if (!weekly || typeof weekly !== 'object') {
+    return res.status(400).json({ error: 'weekly must be an object keyed 0-6 (Sun-Sat)' });
+  }
+  for (let d = 0; d < 7; d++) {
+    if (!Object.prototype.hasOwnProperty.call(weekly, String(d))) {
+      return res.status(400).json({ error: `weekly is missing day ${d}` });
+    }
+    const w = weekly[String(d)];
+    if (w !== null && !w.closed && (!w.open || !w.close || w.close <= w.open)) {
+      return res.status(400).json({ error: `${DAY_NAMES[d]}: close time must be after open time` });
+    }
+  }
+  if (overrides && typeof overrides !== 'object') {
+    return res.status(400).json({ error: 'overrides must be an object keyed by YYYY-MM-DD' });
+  }
+  for (const [date, w] of Object.entries(overrides || {})) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: `override key "${date}" is not a YYYY-MM-DD date` });
+    }
+    if (w !== null && !w.closed && (!w.open || !w.close || w.close <= w.open)) {
+      return res.status(400).json({ error: `${date}: close time must be after open time` });
+    }
+  }
+
+  await writeStudioAccessHours({ weekly, overrides: overrides || {} });
+  res.json({ success: true, settings: await readStudioAccessHours() });
+}));
+
 // ── Student: Check availability ─────────────────────────────────────────────
 app.get('/api/studio-access/availability', authenticateToken, asyncHandler(async (req, res) => {
   const { date } = req.query;
   if (!date) return res.status(400).json({ error: 'Date is required' });
 
-  const d = new Date(date + 'T12:00:00');
-  const dayOfWeek = d.getDay();
-  const hours = STUDIO_HOURS[dayOfWeek];
+  const settings = await readStudioAccessHours();
+  const hours = resolveHoursForDate(date, settings);
 
-  if (!hours) {
-    return res.json({ available: false, closed: true, reason: 'Studio is closed on Saturdays' });
+  if (hours.closed) {
+    return res.json({
+      available: false,
+      closed: true,
+      reason: hours.note || 'Studio access is not available on this date',
+      isOverride: hours.isOverride,
+    });
   }
 
   const bookedCount = await getStudioAccessCountForDate(date);
@@ -1263,6 +1341,8 @@ app.get('/api/studio-access/availability', authenticateToken, asyncHandler(async
     openTime: hours.open,
     closeTime: hours.close,
     hoursLabel: hours.label,
+    note: hours.note,
+    isOverride: hours.isOverride,
     bookedCount,
     spotsLeft,
     maxCapacity: STUDIO_ACCESS_MAX_PER_DATE,
@@ -1331,17 +1411,16 @@ app.post('/api/studio-access/book', authenticateToken, asyncHandler(async (req, 
     isPassBooking = true;
   }
 
-  // Validate date is not Saturday
-  const d = new Date(date + 'T12:00:00');
-  const dayOfWeek = d.getDay();
-  const hoursConfig = STUDIO_HOURS[dayOfWeek];
-  if (!hoursConfig) {
-    return res.status(400).json({ error: 'Studio is closed on Saturdays' });
+  // Validate the studio is open for booked access on this date
+  const hoursSettings = await readStudioAccessHours();
+  const hoursConfig = resolveHoursForDate(date, hoursSettings);
+  if (hoursConfig.closed) {
+    return res.status(400).json({ error: hoursConfig.note || 'Studio access is not available on this date' });
   }
 
   // Validate start time is within open hours
   if (startTime < hoursConfig.open || startTime >= hoursConfig.close) {
-    return res.status(400).json({ error: `Studio hours are ${hoursConfig.label}` });
+    return res.status(400).json({ error: `Studio access hours are ${hoursConfig.label}` });
   }
 
   // Check capacity

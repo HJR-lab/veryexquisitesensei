@@ -3324,39 +3324,22 @@ app.get('/api/admin/students/:emailOrId/bookings', authenticateToken, requireAdm
     .in('status', ['booked', 'completed', 'attended', 'forfeited', 'absent'])
     .order('class_instances(class_date)', { ascending: false });
 
-  // Filter bookings: keep those from active/paused enrollments, or without enrollment link
-  // Only exclude bookings explicitly tied to completed/cancelled enrollments
-  const enrollmentHasFutureBookings = {};
-  const todayStr = new Date().toISOString().split('T')[0];
-  (allBookings || []).forEach(b => {
-    if (b.course_enrollment_id) {
-      const classDate = b.class_instances?.class_date?.split(/[T ]/)[0];
-      if (classDate && classDate >= todayStr) {
-        enrollmentHasFutureBookings[b.course_enrollment_id] = true;
-      }
-    }
-  });
-
-  const bookings = (allBookings || []).filter(booking => {
-    // Always exclude bookings whose class date is more than 6 months in the past
-    const classDate = booking.class_instances?.class_date?.split(/[T ]/)[0];
-    if (classDate && classDate < new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0]) return false;
-
-    // Keep bookings with no enrollment link (standalone/legacy)
-    if (!booking.course_enrollment) return true;
-
-    // Keep bookings from active, paused, or upcoming enrollments
-    if (['active', 'paused', 'upcoming'].includes(booking.course_enrollment.status)) return true;
-
-    // For completed enrollments: only keep if they have future bookings
-    if (booking.course_enrollment.status === 'completed' && enrollmentHasFutureBookings[booking.course_enrollment_id]) return true;
-
-    // For cancelled enrollments: keep if there are still future bookings
-    if (enrollmentHasFutureBookings[booking.course_enrollment_id]) return true;
-
-    // Exclude completed/cancelled enrollment bookings with all dates past
-    return false;
-  });
+  // Return the student's full booking history. This endpoint used to drop every
+  // booking of a completed/cancelled enrollment that had no future date, plus
+  // anything older than 180 days, so that the page "only shows current course".
+  //
+  // That filtering was both redundant and actively harmful. Redundant because
+  // AdminStudentDetail already separates current from finished courses itself
+  // (activeBookings / isCompletedCourse) behind a "show completed" toggle.
+  // Harmful because the same page derives creditsUsedCount from this response —
+  // so a finished course came back empty, the page concluded the student had
+  // used none of their allocation, and rendered the entire allocation as
+  // phantom UNBOOKED rows with Book buttons. Ashima Narain attended 3 of 6 and
+  // forfeited 3, and the page offered 6 more classes on a course that ended in
+  // July; the same fault hit 149 students and hid 1,286 real bookings.
+  //
+  // Deciding what to SHOW belongs to the client. This endpoint reports the facts.
+  const bookings = allBookings || [];
 
   if (error) throw error;
 

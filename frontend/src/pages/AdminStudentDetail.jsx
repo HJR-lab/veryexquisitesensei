@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
@@ -838,6 +838,20 @@ export default function AdminStudentDetail() {
   };
   const [showCompletedCourses, setShowCompletedCourses] = useState(false);
   const activeBookings = bookings.filter(b => !isCompletedCourse(courseGroups[getGroupKey(b)] || []));
+
+  // A student whose courses have all finished has no active bookings, so the
+  // default view would render an empty Bookings tab and read as "no history" —
+  // which is exactly how the phantom-unbooked bug looked. Open on the full
+  // history instead when there is nothing current to show. Auto-applied once,
+  // so the admin can still toggle it back off.
+  const autoRevealedHistory = useRef(false);
+  useEffect(() => {
+    if (autoRevealedHistory.current) return;
+    if (bookings.length > 0 && activeBookings.length === 0) {
+      autoRevealedHistory.current = true;
+      setShowCompletedCourses(true);
+    }
+  }, [bookings.length, activeBookings.length]);
   const completedCourseCount = Object.values(courseGroups).filter(g => isCompletedCourse(g)).length;
 
   const attendedCount = activeBookings.filter(b => {

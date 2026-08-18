@@ -1925,7 +1925,9 @@ app.get('/api/admin/students/:email', authenticateToken, requireAdmin, asyncHand
     return res.status(404).json({ error: 'Student not found' });
   }
 
-  // Calculate classes_allocated from active enrollments only (not lifetime cumulative)
+  // See getStudentAllocation: the stored column is a lifetime running total and
+  // is not trusted. This was the second of three places recomputing it by hand.
+  const allocation = await supabaseDb.getStudentAllocation(student.id);
   const { data: activeEnrollments } = await supabaseDb.supabase
     .from('course_enrollments')
     .select('id, number_of_weeks')
@@ -1935,8 +1937,7 @@ app.get('/api/admin/students/:email', authenticateToken, requireAdmin, asyncHand
   if (activeEnrollments && activeEnrollments.length > 0) {
     const enrollmentIds = activeEnrollments.map(e => e.id);
 
-    // Sum allocation from active enrollments only
-    student.classes_allocated = activeEnrollments.reduce((sum, e) => sum + (e.number_of_weeks || 0), 0);
+    student.classes_allocated = allocation.allocated;
 
     // Get attended bookings from active enrollments only
     const { data: attendedBookings } = await supabaseDb.supabase
@@ -3538,7 +3539,10 @@ app.put('/api/admin/students/:email', authenticateToken, requireAdmin, asyncHand
   if (newEmail !== undefined)            updateData.email = newEmail;
   if (customer_type !== undefined)       updateData.customer_type = customer_type;
   if (course_purchase_count !== undefined) updateData.course_purchase_count = course_purchase_count;
-  if (classes_allocated !== undefined)   updateData.classes_allocated = classes_allocated;
+  // classes_allocated is intentionally NOT writable. It is derived from the
+  // student's enrollments (getStudentAllocation); the stored column was additive
+  // per purchase, never decremented, and used to grant classes nobody bought.
+  // Accepting a write here would let a stale client resurrect it silently.
   if (phone !== undefined)               updateData.phone = phone;
   if (wheel_preference !== undefined)    updateData.wheel_preference = wheel_preference;
 

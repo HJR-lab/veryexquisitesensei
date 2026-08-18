@@ -425,7 +425,7 @@ export default function AdminStudentDetail() {
         email:                 editForm.email.trim(),
         customer_type:         editForm.customerType,
         course_purchase_count: parseInt(editForm.coursePurchaseCount),
-        classes_allocated:     parseInt(editForm.classesAllocated),
+        // classes_allocated deliberately not sent: it is derived, not stored.
       });
       // Update community role separately
       if (student?.id) {

@@ -908,6 +908,59 @@ async function getEnrollmentCredits(enrollmentId) {
 }
 
 /**
+ * What one enrollment entitles a student to, in classes.
+ *
+ * Mirrors how getEnrollmentCredits decides an allocation, and is separate from
+ * it on purpose: getEnrollmentCredits reports `allocated: 0` for a standard WT
+ * enrollment because WT weeks are not credit-tracked, and `remaining` depends on
+ * that. Changing it would silently move booking eligibility. This function
+ * answers the different question the admin screens ask — "how many classes does
+ * this course come with" — without touching that.
+ *
+ *   10-class packages: number_of_weeks (10). class_credits_allocated holds the
+ *   flex portion (4) and is NOT the total.
+ *   Everything else: the class_credits_allocated override if set, else weeks.
+ */
+function enrollmentEntitlement(enr) {
+  if (!enr) return 0;
+  const weeks = enr.number_of_weeks || 0;
+  if (weeks >= 10) return weeks;
+  return enr.class_credits_allocated || weeks || 0;
+}
+
+/**
+ * A student's allocation across every open enrollment.
+ *
+ * THE ONE DEFINITION, replacing three ad-hoc recomputations that had quietly
+ * grown up around customers.classes_allocated — auth.js and admin.js each
+ * summed number_of_weeks over active enrollments in-memory before responding,
+ * and a third site preferred enrollment totals "because the column can be
+ * lifetime/legacy and causes inflated values (e.g. 18)". Each was subtly
+ * different, and none honoured class_credits_allocated overrides or closures.
+ *
+ * The column itself is not read. It was written additively on every purchase
+ * and never decremented, so it is a lifetime running total, meaningless for
+ * anyone who bought twice (one student reached 34).
+ */
+async function getStudentAllocation(customerId) {
+  const { data: enrollments } = await supabase
+    .from('course_enrollments')
+    .select('id, course_type, number_of_weeks, class_credits_allocated, credits_closed_at, status')
+    .eq('student_id', customerId)
+    .in('status', ['active', 'completed']);
+
+  let allocated = 0, committed = 0, remaining = 0;
+  for (const e of enrollments || []) {
+    if (e.credits_closed_at) continue;
+    const credits = await getEnrollmentCredits(e.id);
+    allocated += enrollmentEntitlement(e);
+    committed += credits.committed;
+    remaining += credits.remaining;
+  }
+  return { allocated, committed, remaining };
+}
+
+/**
  * What a student may actually book, according to the bookings ledger.
  *
  * THE ONE ANSWER to "does this person have a class credit". Booking eligibility
@@ -1109,6 +1162,8 @@ async function resolveBookingEnrollment(studentId, classInstance) {
 
 module.exports = {
   getBookableCredits,
+  getStudentAllocation,
+  enrollmentEntitlement,
   getEnrollmentCredits,
   syncStoredCredits,
   resolveBookingEnrollment,

@@ -1190,7 +1190,11 @@ export default function AdminStudentDetail() {
                       const enrTotalAllocated = Math.max(enrBookedCount, enrAllocated);
                       const enrIs10Class = enr.number_of_weeks === 10;
                       const enrFlexRemaining = enr.id === enrollment?.id ? (flexCredits?.remaining || (enrIs10Class ? (enr.class_credits_remaining || 0) : 0)) : 0;
-                      const enrUnbooked = enrIsHB
+                      // Same closure gate as the placeholders above: a credit block
+                      // an admin has deliberately closed advertises nothing, or this
+                      // card would still read "1 available" for a written-off
+                      // entitlement while the Bookings tab correctly offers nothing.
+                      const enrUnbooked = enr.credits_closed_at ? 0 : enrIsHB
                         ? Math.max(0, enrHbCreditsRemaining)
                         : Math.max(0, enrAllocated - enrBookedCount) + enrFlexRemaining;
                       const isUpcoming = enr.display_status === 'upcoming';

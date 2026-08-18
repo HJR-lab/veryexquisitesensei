@@ -254,6 +254,7 @@ require('./routes/notifications')(app, deps);
 require('./routes/inbox')(app, deps);
 require('./routes/crm')(app, deps);
 require('./routes/studentDetails')(app, deps);
+require('./routes/continuation')(app, deps);
 require('./routes/stockists')(app, deps);
 
 // Manual trigger: mark all past bookings as attended

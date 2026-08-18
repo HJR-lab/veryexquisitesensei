@@ -2213,261 +2213,140 @@ app.post('/api/admin/students/:id/notes', authenticateToken, requireAdmin, async
   res.json({ note: data });
 }));
 
-// Check next available course for package continuation
-// Helper: derive schedule info from course identifier when enrollment fields are null
-// e.g., WT2802PM_DL6 → { schedulePattern: 'SATURDAY', classTime: '1:00 PM - 3:30 PM' }
-function deriveScheduleFromIdentifier(courseIdentifier) {
-  if (!courseIdentifier) return {};
-  const timeMatch = courseIdentifier.match(/(AM|PM|NT)_/);
-  if (!timeMatch) return {};
-  const timeCode = timeMatch[1];
-  const timeMap = { AM: '9:30 AM - 12:00 PM', PM: '1:00 PM - 3:30 PM', NT: '7:00 PM - 9:30 PM' };
-  const classTime = timeMap[timeCode] || null;
+// ---------------------------------------------------------------------------
+// Package continuation (3-course x 6-week packages).
+//
+// The logic lives in utils/packageContinuation.js so the admin button, the
+// "ask the student" button, and the student's own confirmation on
+// /continue/:token all place students the same way — and in particular all
+// pass the same capacity gate.
+// ---------------------------------------------------------------------------
 
-  // Derive day from the date in the identifier (DDMM format after type prefix)
-  const dateMatch = courseIdentifier.match(/^[A-Z]{2}(\d{2})(\d{2})/);
-  if (!dateMatch) return { classTime };
-  const day = parseInt(dateMatch[1]);
-  const month = parseInt(dateMatch[2]) - 1;
-  const year = new Date().getFullYear();
-  const date = new Date(year, month, day);
-  const days = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
-  return { schedulePattern: days[date.getDay()], classTime };
-}
+const REASON_STATUS = {
+  not_package: 400,
+  no_remaining: 400,
+  missing_schedule: 400,
+  no_matching_course: 404,
+  already_enrolled: 400,
+  cohort_full: 409,
+};
 
-app.get('/api/admin/students/:studentId/next-package-course', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
-  const studentId = parseInt(req.params.studentId);
-  const enrollmentId = parseInt(req.query.enrollmentId);
+const REASON_MESSAGE = {
+  not_package: 'Not a multi-course package enrollment',
+  no_remaining: 'No remaining courses in this package',
+  missing_schedule: 'Current enrollment missing schedule pattern or class time',
+  no_matching_course: 'No upcoming course found matching this schedule',
+  already_enrolled: 'Student already enrolled in this course',
+};
 
-  const { data: enrollment } = await supabaseDb.supabase
+async function loadPackageEnrollment(studentId, enrollmentId) {
+  const { data } = await supabaseDb.supabase
     .from('course_enrollments')
     .select('*')
     .eq('id', enrollmentId)
     .eq('student_id', studentId)
     .single();
+  return data;
+}
 
-  if (!enrollment || !enrollment.package_total_courses || enrollment.package_total_courses < 2) {
-    return res.json({ available: false });
-  }
+// What the admin page shows: the next cohort, its occupancy, and whether the
+// student can go into it. Occupancy is returned even when they cannot, so the
+// button can explain itself rather than silently disappearing.
+app.get('/api/admin/students/:studentId/next-package-course', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const studentId = parseInt(req.params.studentId);
+  const enrollmentId = parseInt(req.query.enrollmentId);
 
-  // Count package progress (scoped to this package, not the student's lifetime)
-  const progress = await getPackageProgress(supabaseDb.supabase, studentId, enrollment);
-  const remaining = progress ? progress.remaining : 0;
+  const enrollment = await loadPackageEnrollment(studentId, enrollmentId);
+  if (!enrollment) return res.json({ available: false });
 
-  if (remaining <= 0) {
-    return res.json({ available: false, reason: 'no_remaining' });
-  }
+  const { resolveNextCourse } = require('../utils/packageContinuation');
+  const r = await resolveNextCourse(enrollment, studentId);
 
-  // Derive schedule from identifier if missing
-  const derived = deriveScheduleFromIdentifier(enrollment.course_identifier);
-  const schedulePattern = enrollment.schedule_pattern || derived.schedulePattern;
-  const classTime = enrollment.class_time || derived.classTime;
-
-  // Derive end date from bookings if missing
-  let currentEndDate = enrollment.course_end_date;
-  if (!currentEndDate) {
-    const { data: lastBooking } = await supabaseDb.supabase
-      .from('bookings')
-      .select('class_instances!bookings_class_instance_id_fkey(class_date)')
-      .eq('course_enrollment_id', enrollment.id)
-      .order('class_instances(class_date)', { ascending: false })
-      .limit(1);
-    currentEndDate = lastBooking?.[0]?.class_instances?.class_date?.split(/[T ]/)[0] || new Date().toISOString().split('T')[0];
-  }
-
-  if (!schedulePattern || !classTime) {
-    return res.json({ available: false, reason: 'missing_schedule' });
-  }
-
-  // Backfill missing schedule data on the enrollment
-  if (!enrollment.schedule_pattern || !enrollment.class_time) {
-    await supabaseDb.supabase
-      .from('course_enrollments')
-      .update({ schedule_pattern: schedulePattern, class_time: classTime, updated_at: new Date().toISOString() })
-      .eq('id', enrollmentId);
-  }
-
-  const { data: futureCourses } = await supabaseDb.supabase
-    .from('course_enrollments')
-    .select('course_start_date, course_end_date, course_identifier, instructor, course_variant_title')
-    .eq('schedule_pattern', schedulePattern)
-    .eq('class_time', classTime)
-    .gt('course_start_date', currentEndDate)
-    .not('course_start_date', 'is', null)
-    .order('course_start_date', { ascending: true });
-
-  const seenDates = new Set();
-  const uniqueCourses = (futureCourses || []).filter(c => {
-    if (seenDates.has(c.course_start_date)) return false;
-    seenDates.add(c.course_start_date);
-    return true;
-  });
-
-  if (uniqueCourses.length === 0) {
-    return res.json({ available: false, reason: 'no_matching_course' });
-  }
-
-  // Check not already enrolled
-  const nextCourse = uniqueCourses[0];
-  const { data: existing } = await supabaseDb.supabase
-    .from('course_enrollments')
-    .select('id')
-    .eq('student_id', studentId)
-    .eq('course_start_date', nextCourse.course_start_date)
-    .eq('schedule_pattern', schedulePattern)
-    .eq('class_time', classTime)
-    .maybeSingle();
-
-  if (existing) {
-    return res.json({ available: false, reason: 'already_enrolled' });
+  if (!r.ok && !r.nextCourse) {
+    return res.json({ available: false, reason: r.reason });
   }
 
   res.json({
-    available: true,
+    available: r.ok,
+    reason: r.ok ? undefined : r.reason,
     nextCourse: {
-      startDate: nextCourse.course_start_date,
-      endDate: nextCourse.course_end_date,
-      identifier: nextCourse.course_identifier,
-      instructor: nextCourse.instructor,
-      variantTitle: nextCourse.course_variant_title,
+      startDate: r.nextCourse.course_start_date,
+      endDate: r.nextCourse.course_end_date,
+      identifier: r.nextCourse.course_identifier,
+      instructor: r.nextCourse.instructor,
+      variantTitle: r.nextCourse.course_variant_title,
     },
-    remaining,
+    seats: r.seats ? { signups: r.seats.signups, cap: r.seats.cap, severity: r.seats.severity } : undefined,
+    remaining: r.remaining,
   });
 }));
 
-// Continue package — enroll student in next course of their 3x6 package
+// Enrol the student in the next course of their package.
 app.post('/api/admin/students/:studentId/continue-package', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const studentId = parseInt(req.params.studentId);
   const { currentEnrollmentId } = req.body;
 
-  // 1. Get current enrollment and validate it's a package
-  const { data: currentEnrollment, error: enrErr } = await supabaseDb.supabase
-    .from('course_enrollments')
-    .select('*')
-    .eq('id', currentEnrollmentId)
-    .eq('student_id', studentId)
-    .single();
+  const enrollment = await loadPackageEnrollment(studentId, currentEnrollmentId);
+  if (!enrollment) return res.status(404).json({ error: 'Enrollment not found' });
 
-  if (enrErr || !currentEnrollment) {
-    return res.status(404).json({ error: 'Enrollment not found' });
+  const { enrollInNextCourse } = require('../utils/packageContinuation');
+  const result = await enrollInNextCourse(enrollment, studentId);
+
+  if (!result.ok) {
+    if (result.reason === 'cohort_full') {
+      const { signups, cap } = result.seats;
+      console.warn(`[Continuation] BLOCKED student ${studentId} into ${result.nextCourse?.course_identifier} — ${signups}/${cap} signups`);
+      return res.status(409).json({
+        error: `This cohort already has ${signups} signups (cap ${cap}). A continuing student's seat should have been withheld before it went on sale — check the listed quantity before adding anyone.`,
+        reason: 'COHORT_SIGNUP_CAP',
+        seats: { signups, cap },
+      });
+    }
+    return res.status(REASON_STATUS[result.reason] || 400).json({
+      error: REASON_MESSAGE[result.reason] || 'Could not continue package',
+      reason: result.reason,
+    });
   }
-
-  if (!currentEnrollment.package_total_courses || currentEnrollment.package_total_courses < 2) {
-    return res.status(400).json({ error: 'Not a multi-course package enrollment' });
-  }
-
-  // 2. Position inside THIS package (a repeat purchase restarts at course 1)
-  const progress = await getPackageProgress(supabaseDb.supabase, studentId, currentEnrollment);
-  const remaining = progress ? progress.remaining : 0;
-  const currentCourseNumber = progress ? progress.current : 0;
-
-  if (remaining <= 0) {
-    return res.status(400).json({ error: 'No remaining courses in this package' });
-  }
-
-  // 3. Find the next launched course matching same day/time
-  const derived = deriveScheduleFromIdentifier(currentEnrollment.course_identifier);
-  const schedulePattern = currentEnrollment.schedule_pattern || derived.schedulePattern;
-  const classTime = currentEnrollment.class_time || derived.classTime;
-  const courseType = currentEnrollment.course_type || 'Wheelthrowing Beginner';
-
-  // Derive end date from bookings if missing
-  let currentEndDate = currentEnrollment.course_end_date;
-  if (!currentEndDate) {
-    const { data: lastBooking } = await supabaseDb.supabase
-      .from('bookings')
-      .select('class_instances!bookings_class_instance_id_fkey(class_date)')
-      .eq('course_enrollment_id', currentEnrollment.id)
-      .order('class_instances(class_date)', { ascending: false })
-      .limit(1);
-    currentEndDate = lastBooking?.[0]?.class_instances?.class_date?.split(/[T ]/)[0] || new Date().toISOString().split('T')[0];
-  }
-
-  if (!schedulePattern || !classTime) {
-    return res.status(400).json({ error: 'Current enrollment missing schedule pattern or class time' });
-  }
-
-  // Find future enrollments with same pattern (these represent launched courses)
-  const { data: futureCourses } = await supabaseDb.supabase
-    .from('course_enrollments')
-    .select('course_start_date, course_end_date, course_identifier, schedule_pattern, class_time, instructor, course_title, course_variant_title')
-    .eq('schedule_pattern', schedulePattern)
-    .eq('class_time', classTime)
-    .gt('course_start_date', currentEndDate)
-    .not('course_start_date', 'is', null)
-    .order('course_start_date', { ascending: true });
-
-  // Deduplicate by course_start_date (multiple students may be enrolled)
-  const seenDates = new Set();
-  const uniqueCourses = (futureCourses || []).filter(c => {
-    if (seenDates.has(c.course_start_date)) return false;
-    seenDates.add(c.course_start_date);
-    return true;
-  });
-
-  if (uniqueCourses.length === 0) {
-    return res.status(404).json({ error: 'No upcoming course found matching this schedule' });
-  }
-
-  const nextCourse = uniqueCourses[0];
-
-  // 4. Check student isn't already enrolled in this course
-  const { data: existingEnrollment } = await supabaseDb.supabase
-    .from('course_enrollments')
-    .select('id')
-    .eq('student_id', studentId)
-    .eq('course_start_date', nextCourse.course_start_date)
-    .eq('schedule_pattern', schedulePattern)
-    .eq('class_time', classTime)
-    .maybeSingle();
-
-  if (existingEnrollment) {
-    return res.status(400).json({ error: 'Student already enrolled in this course' });
-  }
-
-  // 5. Create new enrollment for next course
-  const { createCourseEnrollment } = supabaseDb;
-  const newEnrollment = await createCourseEnrollment({
-    studentId: studentId,
-    shopifyOrderId: currentEnrollment.shopify_order_id,
-    shopifyLineItemId: `${currentEnrollment.shopify_line_item_id || 'PKG'}-C${currentCourseNumber + 1}`,
-    courseTitle: currentEnrollment.course_title,
-    courseVariantTitle: nextCourse.course_variant_title || currentEnrollment.course_variant_title,
-    courseType: courseType,
-    schedulePattern: schedulePattern,
-    numberOfWeeks: 6,
-    courseStartDate: nextCourse.course_start_date,
-    courseEndDate: nextCourse.course_end_date,
-    classTime: classTime,
-    instructor: nextCourse.instructor || currentEnrollment.instructor,
-    room: currentEnrollment.room,
-    status: 'active',
-    packageTotalCourses: currentEnrollment.package_total_courses,
-    packageTotalClasses: currentEnrollment.package_total_classes,
-    packageCoursesRemaining: remaining - 1,
-  });
-
-  // 6. Run threshold check (this will create classes/bookings if 4+ students)
-  const { checkAndProcessThreshold } = require('../utils/courseEnrollmentManager');
-  try {
-    await checkAndProcessThreshold(newEnrollment);
-    console.log(`✅ Threshold check completed for package continuation enrollment ${newEnrollment.id}`);
-  } catch (thresholdErr) {
-    console.error('⚠️ Threshold check failed (enrollment still created):', thresholdErr);
-  }
-
-  console.log(`📦 Package continuation: student ${studentId} enrolled in course ${nextCourse.course_start_date} (${remaining - 1} remaining)`);
 
   res.json({
     success: true,
-    enrollment: newEnrollment,
+    enrollment: result.enrollment,
     nextCourse: {
-      startDate: nextCourse.course_start_date,
-      endDate: nextCourse.course_end_date,
-      identifier: nextCourse.course_identifier,
+      startDate: result.nextCourse.course_start_date,
+      endDate: result.nextCourse.course_end_date,
+      identifier: result.nextCourse.course_identifier,
     },
-    packageCoursesRemaining: remaining - 1,
+    packageCoursesRemaining: result.packageCoursesRemaining,
   });
+}));
+
+// Ask the student instead of deciding for them: creates a tokenised offer and
+// emails them a confirm / pass / more-time link. Admin-initiated, so it sends
+// even while the automated continuation category is paused.
+app.post('/api/admin/students/:studentId/continuation-offer', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const studentId = parseInt(req.params.studentId);
+  const { currentEnrollmentId } = req.body;
+
+  const enrollment = await loadPackageEnrollment(studentId, currentEnrollmentId);
+  if (!enrollment) return res.status(404).json({ error: 'Enrollment not found' });
+
+  const { createContinuationOffer } = require('../utils/continuationOffer');
+  const result = await createContinuationOffer({ enrollment, studentId });
+
+  if (!result.ok) {
+    if (result.reason === 'cohort_full') {
+      return res.status(409).json({ error: 'That cohort is already full — nothing was sent.', reason: result.reason });
+    }
+    if (result.reason === 'offer_exists') {
+      return res.status(409).json({ error: 'This student already has an open offer for that course.', reason: result.reason });
+    }
+    return res.status(REASON_STATUS[result.reason] || 400).json({
+      error: REASON_MESSAGE[result.reason] || 'Could not create the offer',
+      reason: result.reason,
+    });
+  }
+
+  res.json({ success: true, offer: result.offer, emailed: result.emailed, expiresAt: result.offer.expires_at });
 }));
 
 // Pause an enrollment

@@ -8,7 +8,7 @@ const FROM_ADDRESS = 'VES Studio <info@mail.ves.sg>';
 // string to resume all. Only gates AUTOMATED sends — admin-initiated
 // (manual) emails always go through.
 const PAUSED_EMAIL_CATEGORIES = new Set(
-  (process.env.PAUSED_EMAIL_CATEGORIES ?? 'credits,waitlist,vouchers')
+  (process.env.PAUSED_EMAIL_CATEGORIES ?? 'credits,waitlist,vouchers,continuation')
     .split(',')
     .map(s => s.trim().toLowerCase())
     .filter(Boolean)

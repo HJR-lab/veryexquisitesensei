@@ -11,6 +11,7 @@ import {
   ClassRow, getClassLabel,
 } from '../components/SharedUI';
 import WheelPicker from '../components/WheelPicker';
+import ContinuationOfferCard from '../components/ContinuationOfferCard';
 import { isGlazingClass, isFinalWeekClassType } from '../utils/glazing';
 
 // ─── Membership badge ────────────────────────────────────────────────────────
@@ -396,6 +397,9 @@ export default function Dashboard() {
       <TopBar />
 
       <ScrollBody>
+
+        {/* Open continuation offer, if any. Renders nothing otherwise. */}
+        <ContinuationOfferCard />
 
         {/* ── 1. GREETING ── */}
         <div style={{ padding: '32px 0 24px', borderBottom: `1px solid ${RULE}`, marginBottom: '28px', display: 'flex', alignItems: 'flex-start', gap: '16px' }}>

@@ -9,6 +9,7 @@ const courseConfig = require('./courseConfig');
 const inboxProcessor = require('./inboxProcessor');
 const { processCampaigns } = require('./campaignCron');
 const calendarSync = require('./calendarSync');
+const { publicBaseUrl } = require('./publicUrl');
 
 /**
  * Main function to process all ready cohorts
@@ -478,7 +479,7 @@ async function checkPieceReminders() {
     const supabaseDb = require('./supabaseDb');
     const { sendAndLogEmail } = require('./emailService');
     const piecesReminderTemplate = require('../email-templates/pieces/pieces-reminder');
-    const appUrl = process.env.FRONTEND_URL || 'https://club.ves.sg';
+    const appUrl = publicBaseUrl();
 
     const batches = await supabaseDb.getReadyBatchesNeedingReminder();
     console.log(`[Auto-Processor] Found ${batches.length} piece batches needing reminders`);
@@ -538,7 +539,7 @@ async function autoRecycleExpiredBatches() {
     const supabaseDb = require('./supabaseDb');
     const { sendAndLogEmail } = require('./emailService');
     const recycledTemplate = require('../email-templates/pieces/pieces-recycled');
-    const appUrl = process.env.FRONTEND_URL || 'https://club.ves.sg';
+    const appUrl = publicBaseUrl();
 
     const expiredBatches = await supabaseDb.getExpiredPieceBatches();
     console.log(`[Auto-Processor] Found ${expiredBatches.length} expired piece batches to recycle`);
@@ -919,7 +920,7 @@ async function runAnomalyProbeAndAlert() {
   const { sendAndLogEmail } = require('./emailService');
   const { buildAnomalyDigestEmail } = require('../email-templates/anomaly-digest');
 
-  const baseUrl = process.env.APP_URL || process.env.PUBLIC_APP_URL || 'https://club.ves.sg';
+  const baseUrl = publicBaseUrl();
   const html = buildAnomalyDigestEmail({ findings, baseUrl });
   const subject = `[VES] ${findings.length} account anomal${findings.length === 1 ? 'y' : 'ies'} detected`;
 

@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { publicBaseUrl } = require('./publicUrl');
 
 /**
  * Create student-details requests for the "+dup" placeholder customers of a
@@ -46,7 +47,7 @@ async function createStudentDetailsRequests({ placeholders, purchaserEmail, purc
 
     // One link covers the whole order: the form loads every pending sibling
     // request (same order + purchaser) alongside the token's own.
-    const baseUrl = process.env.FRONTEND_URL || 'https://club.ves.sg';
+    const baseUrl = publicBaseUrl();
     const formUrl = `${baseUrl}/student-details/${rows[0].token}`;
 
     // Count ALL open spots for the email copy (fresh + still-pending existing)

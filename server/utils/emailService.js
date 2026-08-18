@@ -1,4 +1,5 @@
 const { Resend } = require('resend');
+const { rewriteLocalLinks } = require('./publicUrl');
 
 const FROM_ADDRESS = 'VES Studio <info@mail.ves.sg>';
 
@@ -44,11 +45,22 @@ async function sendEmail({ to, cc, bcc, subject, html, replyTo }) {
       return { success: false, error: 'RESEND_API_KEY not configured' };
     }
 
+    // Backstop: a dev server run against production data sends REAL mail, so a
+    // laptop-only link must never reach a customer's inbox. Catches hardcoded
+    // links and any call site that bypassed publicBaseUrl().
+    const { html: safeHtml, rewritten } = rewriteLocalLinks(html);
+    if (rewritten.length > 0) {
+      console.warn(
+        `[Email] Rewrote ${rewritten.length} local link(s) in "${subject}" before sending:\n  ` +
+        rewritten.join('\n  ')
+      );
+    }
+
     const payload = {
       from: FROM_ADDRESS,
       to: to || FROM_ADDRESS,
       subject,
-      html,
+      html: safeHtml,
     };
     if (cc && cc.length > 0) payload.cc = cc;
     if (bcc && bcc.length > 0) payload.bcc = bcc;

@@ -1,6 +1,7 @@
 const supabaseDb = require('../utils/supabaseDb');
 const { sendAndLogEmail } = require('../utils/emailService');
 const courseConfig = require('../utils/courseConfig');
+const { publicBaseUrl } = require('../utils/publicUrl');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, upload }) {
 
@@ -440,7 +441,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
       const student = batch.customers;
       const courseName = batch.course_enrollments?.course_title || batch.course_enrollments?.course_variant_title || 'your course';
       const photoUrl = batch.photo_urls && batch.photo_urls.length > 0 ? batch.photo_urls[0] : null;
-      const appUrl = process.env.FRONTEND_URL || 'https://club.ves.sg';
+      const appUrl = publicBaseUrl();
 
       // Create in-app notification
       await supabaseDb.createNotification({
@@ -505,7 +506,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
         const student = batch.customers;
         const courseName = batch.course_enrollments?.course_title || batch.course_enrollments?.course_variant_title || 'your course';
         const photoUrl = batch.photo_urls && batch.photo_urls.length > 0 ? batch.photo_urls[0] : null;
-        const appUrl = process.env.FRONTEND_URL || 'https://club.ves.sg';
+        const appUrl = publicBaseUrl();
 
         // Create in-app notification
         await supabaseDb.createNotification({
@@ -605,7 +606,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
         const student = batch.customers;
         const courseName = batch.course_enrollments?.course_title || batch.course_enrollments?.course_variant_title || 'your course';
         const photoUrl = batch.photo_urls && batch.photo_urls.length > 0 ? batch.photo_urls[0] : null;
-        const appUrl = process.env.FRONTEND_URL || 'https://club.ves.sg';
+        const appUrl = publicBaseUrl();
 
         const piecesReadyTemplate = require('../email-templates/pieces/pieces-ready');
         const { subject, html } = piecesReadyTemplate.generate({
@@ -647,7 +648,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
     if (batch.customers) {
       const student = batch.customers;
       const photoUrl = batch.photo_urls && batch.photo_urls.length > 0 ? batch.photo_urls[0] : null;
-      const appUrl = process.env.FRONTEND_URL || 'https://club.ves.sg';
+      const appUrl = publicBaseUrl();
 
       const cabinetTemplate = require('../email-templates/pieces/pieces-in-cabinet');
       const { subject, html } = cabinetTemplate.generate({

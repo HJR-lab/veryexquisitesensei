@@ -21,6 +21,20 @@ const fmtDate = (d) =>
 
 const blankLine = () => ({ period_from: '', period_to: '', period_label: '', gross_sgd: '', amount_sgd: '' });
 
+// The stockist's own record, as the edit form holds it. margin_rate is kept as
+// the raw string so an empty box stays "not confirmed" instead of becoming 0.
+const detailsOf = (s) => ({
+  name: s.name || '',
+  margin_rate: s.margin_rate == null ? '' : String(s.margin_rate),
+  contact_email: s.contact_email || '',
+  bill_to_name: s.bill_to_name || '',
+  bill_to_address_line1: s.bill_to_address_line1 || '',
+  bill_to_address_line2: s.bill_to_address_line2 || '',
+  invoice_line_description: s.invoice_line_description || '',
+  invoice_line_detail: s.invoice_line_detail || '',
+  notes: s.notes || '',
+});
+
 export default function AdminStockistDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -32,12 +46,15 @@ export default function AdminStockistDetail() {
   const [uploadLine, setUploadLine] = useState(null);
   const fileInput = useRef(null);
   const [draft, setDraft] = useState({ issue_date: today(), lines: [blankLine()] });
+  const [editing, setEditing] = useState(false);
+  const [details, setDetails] = useState(null);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
       const { data } = await api.get(`/admin/stockists/${id}`);
       setStockist(data.stockist);
+      setDetails(detailsOf(data.stockist));
       setInvoices(data.invoices || []);
     } catch (err) {
       console.error('Failed to load stockist:', err);
@@ -163,6 +180,20 @@ export default function AdminStockistDetail() {
       await load();
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to create invoice');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveDetails = async () => {
+    try {
+      setBusy(true);
+      const { data } = await api.put(`/admin/stockists/${id}`, details);
+      setStockist(data.stockist);
+      setDetails(detailsOf(data.stockist));
+      setEditing(false);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to save the stockist details');
     } finally {
       setBusy(false);
     }

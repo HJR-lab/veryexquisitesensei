@@ -166,10 +166,8 @@ async function processCoursePurchase(order, lineItem) {
     const weeksPerCourse = courseInfo.numberOfWeeks || defaultWeeks;
     // Classes from this purchase: base course weeks × packages + any extra flex classes
     const classesFromThisPurchase = (weeksPerCourse * coursesInPackage) + extraFlexClasses;
-    // ADDITIVE: add to existing allocation (each purchase adds classes to the pool)
-    const totalClassesAllocated = (student.classes_allocated || 0) + classesFromThisPurchase;
     const coursePurchaseIncrement = coursesInPackage;
-    console.log(`📊 Allocation: ${student.classes_allocated || 0} existing + ${classesFromThisPurchase} new (${weeksPerCourse}×${coursesInPackage} + ${extraFlexClasses} flex) = ${totalClassesAllocated} total`);
+    console.log(`📊 This purchase: ${classesFromThisPurchase} classes (${weeksPerCourse}×${coursesInPackage} + ${extraFlexClasses} flex) — recorded on the enrollment, not on the customer`);
 
     // Create course enrollment record
     // For flex/pool packages, store total classes as numberOfWeeks so remaining calc works
@@ -213,13 +211,18 @@ async function processCoursePurchase(order, lineItem) {
 
     console.log(`✅ Created enrollment ${enrollment.id} for ${student.email} - ${courseInfo.courseType}`);
 
+    // customers.classes_allocated is deliberately no longer written. It was
+    // additive on every purchase and never decremented, so it became a lifetime
+    // running total that overstated what students were owed — one reached 34 —
+    // and it granted classes nobody bought because booking eligibility read it
+    // first. The allocation lives on the enrollment, where it can be spent,
+    // closed and audited; getStudentAllocation reads it back.
     await updateCustomer(student.id, {
-      classes_allocated: totalClassesAllocated,
       course_purchase_count: (student.course_purchase_count || 0) + coursePurchaseIncrement
     });
 
     if (isPackage) {
-      console.log(`📦 Package: Allocated ${totalClassesAllocated} classes (${weeksPerCourse} × ${coursesInPackage} courses), course count now ${(student.course_purchase_count || 0) + coursePurchaseIncrement}`);
+      console.log(`📦 Package: ${classesFromThisPurchase} classes (${weeksPerCourse} × ${coursesInPackage} courses), course count now ${(student.course_purchase_count || 0) + coursePurchaseIncrement}`);
     }
 
     // Handbuilding courses use credit system with auto-booking into chosen day

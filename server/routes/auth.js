@@ -503,16 +503,13 @@ app.get('/api/students/me', authenticateToken, asyncHandler(async (req, res) => 
     return res.status(404).json({ error: 'Student not found' });
   }
 
-  // Calculate classes_allocated from active enrollments only (not lifetime cumulative)
-  const { data: activeEnrollments } = await supabaseDb.supabase
-    .from('course_enrollments')
-    .select('id, number_of_weeks')
-    .eq('student_id', dbCustomerId)
-    .eq('status', 'active');
-
-  if (activeEnrollments && activeEnrollments.length > 0) {
-    student.classes_allocated = activeEnrollments.reduce((sum, e) => sum + (e.number_of_weeks || 0), 0);
-  }
+  // The stored customers.classes_allocated column is not trusted: it was written
+  // additively on every purchase and never decremented, so it is a lifetime
+  // running total. getStudentAllocation is the one definition — it honours
+  // class_credits_allocated overrides and closed credit blocks, which the
+  // in-memory sum this replaces did not.
+  const allocation = await supabaseDb.getStudentAllocation(dbCustomerId);
+  student.classes_allocated = allocation.allocated;
 
   // Calculate classes used from ALL BOOKINGS (enrollment + makeup)
   // classes_used = classes that have ENDED (end time has passed)

@@ -6,6 +6,7 @@ import ClassCalendarGrid from '../components/ClassCalendarGrid';
 import ClassDayDetail from '../components/ClassDayDetail';
 import { AddSingleClassModal, CreateCourseModal, EditClassModal, RescheduleModal, AddStudentModal } from '../components/ClassModals';
 import AdminPage from '../components/AdminPage';
+import { isFinalWeekClassType } from '../utils/glazing';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const TC       = '#C4622D';
@@ -262,7 +263,7 @@ export default function AdminClasses() {
   // ── Default display title (matches student-facing logic) ───────────────────────
   const getDefaultClassTitle = (classType) => {
     if (!classType) return 'Class';
-    if (classType.includes('6.6') || classType.includes('7.7')) return 'Glazing';
+    if (isFinalWeekClassType(classType)) return 'Glazing';
     const cat = getClassCategory(classType);
     if (cat === 'wheelthrowing-beginner') {
       const match = classType.match(/_\w+(\d)\./);
@@ -795,6 +796,21 @@ export default function AdminClasses() {
     } catch (error) {
       console.error('Failed to delete class:', error);
       alert(error.response?.data?.error || 'Failed to delete class. Please try again.');
+    }
+  };
+
+  // Mark an HB class as glazing so 10-class package students can book it as their
+  // glazing. Instructors can do this for their own classes from /my-classes; this
+  // is the same toggle for any class, for when one was missed.
+  const handleToggleGlazing = async (classInstance) => {
+    const turningOn = !classInstance.is_glazing;
+    if (!turningOn && !confirm('Unmark this as a glazing class? 10-class students will no longer be able to book it as their glazing.')) return;
+    try {
+      await api.put(`/admin/classes/${classInstance.id}/glazing`, { isGlazing: turningOn });
+      await loadCourses();
+    } catch (error) {
+      console.error('Failed to update glazing marker:', error);
+      alert(error.response?.data?.error || 'Failed to update the glazing marker. Please try again.');
     }
   };
 
@@ -1506,6 +1522,7 @@ export default function AdminClasses() {
                 handleOpenEditClassModal={handleOpenEditClassModal}
                 handleDeleteClass={handleDeleteClass}
                 handleOpenPostponeModal={handleOpenPostponeModal}
+                handleToggleGlazing={handleToggleGlazing}
                 renderDayDetailMemberTable={renderDayDetailMemberTable}
               />
             )}

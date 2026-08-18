@@ -2,6 +2,7 @@ const supabaseDb = require('../utils/supabaseDb');
 const { getStudioAccessPasses } = require('../utils/studioAccess');
 const { uploadImageToSupabase, deleteImageFromSupabase } = require('../utils/imageUpload');
 const { readMembershipSettings, writeMembershipSettings } = require('../utils/membershipSettings');
+const { setClassGlazing } = require('../utils/glazing');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, upload }) {
 
@@ -416,7 +417,7 @@ app.get('/api/instructor/dashboard', authenticateToken, asyncHandler(async (req,
   calEnd.setDate(0);
   const { data: allClasses } = await supabaseDb.supabase
     .from('class_instances')
-    .select('id, class_date, class_type, start_time, end_time, status, cancellation_reason, current_enrollment')
+    .select('id, class_date, class_type, start_time, end_time, status, cancellation_reason, current_enrollment, max_capacity, is_glazing, glazing_capacity')
     .eq('instructor', instructorName)
     .gte('class_date', calStart.toISOString().split('T')[0])
     .lte('class_date', calEnd.toISOString().split('T')[0])
@@ -579,6 +580,49 @@ app.get('/api/instructor/dashboard', authenticateToken, asyncHandler(async (req,
 }));
 
 // GET /api/instructor/classes/:classId/students - Get students for a specific class
+// Mark (or unmark) one of the instructor's own classes as a glazing class.
+//
+// This is the only way an HB session becomes a glazing class: glazing is
+// otherwise derived from a WT cohort's final week, and HB drop-ins carry no week
+// numbering. Marking it lets a 10-class package student spend their glazing here,
+// while the class stays open to ordinary handbuilding bookings — see
+// utils/glazing.js for the sub-capacity that keeps both true.
+app.patch('/api/instructor/classes/:classId/glazing', authenticateToken, asyncHandler(async (req, res) => {
+  const { dbCustomerId } = req.user;
+  const { classId } = req.params;
+  const { isGlazing, glazingCapacity } = req.body;
+
+  const { data: instructor } = await supabaseDb.supabase
+    .from('customers')
+    .select('id, first_name, last_name, role')
+    .eq('id', dbCustomerId)
+    .single();
+
+  if (!instructor || instructor.role !== 'instructor') {
+    return res.status(403).json({ error: 'Instructor access required' });
+  }
+
+  // Scoped to the instructor's own classes — an instructor marking someone
+  // else's cohort would change what its students are allowed to book.
+  const instructorName = `${instructor.first_name} ${instructor.last_name}`;
+  const { data: classInstance } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('id, instructor, class_type, class_date, max_capacity')
+    .eq('id', classId)
+    .eq('instructor', instructorName)
+    .single();
+
+  if (!classInstance) {
+    return res.status(404).json({ error: 'Class not found' });
+  }
+
+  const result = await setClassGlazing(classId, { isGlazing, glazingCapacity });
+  if (result.error) return res.status(result.status).json({ error: result.error });
+
+  console.log(`[glazing] ${instructorName} ${isGlazing ? 'marked' : 'unmarked'} class ${classId} (${result.class.class_type} on ${result.class.class_date})`);
+  res.json({ success: true, class: result.class });
+}));
+
 app.get('/api/instructor/classes/:classId/students', authenticateToken, asyncHandler(async (req, res) => {
   const { dbCustomerId } = req.user;
   const { classId } = req.params;

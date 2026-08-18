@@ -111,6 +111,13 @@ export const instructorAPI = {
     const { data } = await api.post(`/instructor/classes/${classId}/reinstate`);
     return data;
   },
+  // Marking an HB class as glazing is what lets a 10-class package student spend
+  // their glazing class on it. Pass glazingCapacity to change how many of the
+  // class's places may go to glazing students (null = the default 4).
+  setClassGlazing: async (classId, isGlazing, glazingCapacity) => {
+    const { data } = await api.patch(`/instructor/classes/${classId}/glazing`, { isGlazing, glazingCapacity });
+    return data;
+  },
   getClassStudents: async (classId) => {
     const { data } = await api.get(`/instructor/classes/${classId}/students`);
     return data;

@@ -1,3 +1,5 @@
+import { isGlazingClass } from '../utils/glazing';
+
 // ─── Design tokens ───────────────────────────────────────────────────────────
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
@@ -157,7 +159,7 @@ export default function StudentRescheduleModal({
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {classes.map(c => {
-                  const isGlazing = c.classType?.includes('6.6');
+                  const isGlazing = isGlazingClass(c);
                   const spotsLeft = (c.maxCapacity || 10) - c.currentEnrollment;
                   const isConfirming = rescheduleConfirmId === c.id;
                   const isReschedulingThis = rescheduling && reschedulingClassId === c.id;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
@@ -425,7 +425,7 @@ export default function AdminStudentDetail() {
         email:                 editForm.email.trim(),
         customer_type:         editForm.customerType,
         course_purchase_count: parseInt(editForm.coursePurchaseCount),
-        classes_allocated:     parseInt(editForm.classesAllocated),
+        // classes_allocated deliberately not sent: it is derived, not stored.
       });
       // Update community role separately
       if (student?.id) {
@@ -838,6 +838,20 @@ export default function AdminStudentDetail() {
   };
   const [showCompletedCourses, setShowCompletedCourses] = useState(false);
   const activeBookings = bookings.filter(b => !isCompletedCourse(courseGroups[getGroupKey(b)] || []));
+
+  // A student whose courses have all finished has no active bookings, so the
+  // default view would render an empty Bookings tab and read as "no history" —
+  // which is exactly how the phantom-unbooked bug looked. Open on the full
+  // history instead when there is nothing current to show. Auto-applied once,
+  // so the admin can still toggle it back off.
+  const autoRevealedHistory = useRef(false);
+  useEffect(() => {
+    if (autoRevealedHistory.current) return;
+    if (bookings.length > 0 && activeBookings.length === 0) {
+      autoRevealedHistory.current = true;
+      setShowCompletedCourses(true);
+    }
+  }, [bookings.length, activeBookings.length]);
   const completedCourseCount = Object.values(courseGroups).filter(g => isCompletedCourse(g)).length;
 
   const attendedCount = activeBookings.filter(b => {
@@ -890,8 +904,14 @@ export default function AdminStudentDetail() {
   const flexRemainingCount = Math.max(0, flexCredits?.remaining
     ?? (is10ClassPkg ? (enrollment?.class_credits_remaining || 0) : 0));
 
+  // A closed credit block advertises nothing. Closure is an explicit admin act
+  // recorded as credits_closed_at (never inferred from a stored zero), and it is
+  // how an ad-hoc or written-off entitlement stops offering Book buttons for
+  // classes that will never be scheduled.
+  const creditsClosed = Boolean(enrollment?.credits_closed_at);
+
   // Placeholders for the CURRENT enrollment's own credits (never flex).
-  const unbookedCount = isHBEnrollment
+  const unbookedCount = creditsClosed ? 0 : isHBEnrollment
     ? Math.max(0, hbCreditsRemaining)
     : currentIsFlexEnrollment
       ? flexRemainingCount
@@ -899,7 +919,7 @@ export default function AdminStudentDetail() {
   // Separate flex placeholders, shown when the package is NOT the current
   // enrollment. These book into the package enrollment (flexEnrollmentId), not
   // whatever enrollment is currently displayed.
-  const flexPlaceholderCount = (!currentIsFlexEnrollment && flexEnrollmentId) ? flexRemainingCount : 0;
+  const flexPlaceholderCount = (!currentIsFlexEnrollment && flexEnrollmentId && !creditsClosed) ? flexRemainingCount : 0;
 
   const filteredBookings = [...(showCompletedCourses ? bookings : activeBookings)]
     .filter(b => statusFilter === 'all' || b.status === statusFilter)
@@ -1170,13 +1190,34 @@ export default function AdminStudentDetail() {
                       const enrTotalAllocated = Math.max(enrBookedCount, enrAllocated);
                       const enrIs10Class = enr.number_of_weeks === 10;
                       const enrFlexRemaining = enr.id === enrollment?.id ? (flexCredits?.remaining || (enrIs10Class ? (enr.class_credits_remaining || 0) : 0)) : 0;
-                      const enrUnbooked = enrIsHB
+                      // Same closure gate as the placeholders above: a credit block
+                      // an admin has deliberately closed advertises nothing, or this
+                      // card would still read "1 available" for a written-off
+                      // entitlement while the Bookings tab correctly offers nothing.
+                      const enrUnbooked = enr.credits_closed_at ? 0 : enrIsHB
                         ? Math.max(0, enrHbCreditsRemaining)
                         : Math.max(0, enrAllocated - enrBookedCount) + enrFlexRemaining;
                       const isUpcoming = enr.display_status === 'upcoming';
                       const isPrimary = enr.id === enrollment?.id;
-                      const statusLabel = isUpcoming ? 'UPCOMING' : enr.status === 'paused' ? 'PAUSED' : 'ACTIVE';
-                      const statusColor = isUpcoming ? '#6B7280' : enr.status === 'paused' ? '#D97706' : '#059669';
+                      // display_status is the server's verdict and outranks the raw
+                      // column: an enrollment still marked 'active' whose classes are
+                      // all past comes back as 'completed', and a student with no
+                      // active enrollment is shown their most recent completed one.
+                      // ACTIVE used to be the fall-through default here, so every
+                      // finished course badged itself ACTIVE on this page while the
+                      // Users list correctly said COURSE FINISHED for the same row.
+                      // 'Course finished' matches that wording deliberately.
+                      const effectiveStatus = enr.display_status || enr.status;
+                      const statusBadges = {
+                        upcoming:  { label: 'UPCOMING',        color: '#6B7280' },
+                        paused:    { label: 'PAUSED',          color: '#D97706' },
+                        completed: { label: 'COURSE FINISHED', color: MUTED },
+                        cancelled: { label: 'CANCELLED',       color: '#6B7280' },
+                        active:    { label: 'ACTIVE',          color: '#059669' },
+                      };
+                      const statusBadge = statusBadges[effectiveStatus] || statusBadges.active;
+                      const statusLabel = statusBadge.label;
+                      const statusColor = statusBadge.color;
 
                       return (
                         <div key={enr.id} style={{

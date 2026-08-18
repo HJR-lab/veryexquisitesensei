@@ -1,3 +1,5 @@
+import { isGlazingClass } from '../utils/glazing';
+
 // ─── Design tokens ───────────────────────────────────────────────────────────
 const TC       = '#C4622D';
 const TC_LIGHT = '#F9EDE6';
@@ -123,8 +125,14 @@ export default function StudentBookingsTab({
             const isHBGlazing = isHBEnrollment && booking.id === lastHBBookingId;
             // WT glazing = final session of a course (6th of 6, 7th of 7) — matches getClassLabel().
             // course_identifier can be the literal 'N/A', so check class_type too.
-            const ctStr = `${booking.course_identifier || ''} ${booking.class_type || ''}`;
-            const isWTGlazing = !booking._isWaitlist && (ctStr.includes('6.6') || ctStr.includes('7.7'));
+            // Checks the marked flag as well as the code, so an HB session marked
+            // as glazing is labelled Glazing rather than an ordinary class. Both
+            // identifier and class_type are tried because course_identifier can be
+            // the literal 'N/A'.
+            const isWTGlazing = !booking._isWaitlist && (
+              isGlazingClass(booking) ||
+              isGlazingClass(booking.course_identifier)
+            );
             const courseName = booking._isWaitlist ? (booking.class_type || '—') : (isHBGlazing || isWTGlazing) ? 'Glazing' : parseCourseName(booking.course_identifier, booking.class_type);
             const timeStr = booking.start_time && booking.end_time ? `${booking.start_time} – ${booking.end_time}` : booking.start_time || '—';
             const dateStr = new Date(booking.class_date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });

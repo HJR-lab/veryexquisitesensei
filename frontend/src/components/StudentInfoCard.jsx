@@ -149,11 +149,11 @@ export default function StudentInfoCard({
                   <input type="number" value={editForm.coursePurchaseCount} onChange={e => setEditForm(f => ({ ...f, coursePurchaseCount: e.target.value }))}
                     style={{ width: '100%', padding: '7px 9px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }} />
                 </div>
-                <div>
-                  <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: MUTED, marginBottom: '4px' }}>Classes Allocated</div>
-                  <input type="number" value={editForm.classesAllocated} onChange={e => setEditForm(f => ({ ...f, classesAllocated: e.target.value }))}
-                    style={{ width: '100%', padding: '7px 9px', border: `1px solid ${RULE}`, fontSize: '13px', fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }} />
-                </div>
+                {/* Classes Allocated is no longer editable here. It is derived from
+                    the student's enrollments (getStudentAllocation) rather than stored
+                    on the customer, so typing a number would have written to a column
+                    nothing reads. To change what a student is owed, change the
+                    enrollment — that is where a class can actually be spent or closed. */}
               </div>
               {/* Read-only */}
               <div>
@@ -179,6 +179,7 @@ export default function StudentInfoCard({
                   ];
                 })() : [
                   { label: 'Courses Purchased', value: student.course_purchase_count ?? 'N/A' },
+                  // Derived from open enrollments by the server, not the stored column.
                   { label: 'Classes Allocated', value: student.classes_allocated ?? 'N/A' },
                 ]),
                 { label: 'Created',          value: formatDate(student.created_at) },

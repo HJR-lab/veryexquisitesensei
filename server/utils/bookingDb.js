@@ -8,6 +8,7 @@
  */
 
 const { supabase } = require('./supabaseClient');
+const { glazingSubCap } = require('./glazing');
 
 /**
  * Get available classes (all classes including past ones for course viewing)
@@ -381,7 +382,7 @@ async function getInstanceCapacityOverrides(classInstanceId) {
  * @returns {{allowed: boolean, reason: string|null, counts: object, override: object|null}}
  */
 async function checkSeatAvailability(classInstance, studentId, opts = {}) {
-  const { checkWheels = false } = opts;
+  const { checkWheels = false, asGlazing = false } = opts;
   const cap = classInstance.max_capacity || 10;
 
   const { count: bookedCount } = await supabase
@@ -396,11 +397,29 @@ async function checkSeatAvailability(classInstance, studentId, opts = {}) {
     ({ count: wheels } = await getSlotWheelUsage(classInstance.class_date, classInstance.start_time));
   }
 
-  const counts = { booked, cap, wheels, studioWheels: STUDIO_WHEELS };
-  const classFull  = booked >= cap;
-  const studioFull = wheels !== null && wheels >= STUDIO_WHEELS;
+  // Third gate, for a class marked as glazing: the class keeps its own capacity
+  // (HB is 8) but only a slice of those seats may be glazing students, so the
+  // session still serves ordinary handbuilding bookings. Counted only when this
+  // booking would itself consume a glazing seat — a regular booker is bound by
+  // max_capacity alone, exactly as before.
+  const subCap = glazingSubCap(classInstance);
+  let glazingBooked = null;
+  if (asGlazing && subCap !== null) {
+    const { count } = await supabase
+      .from('bookings')
+      .select('id', { count: 'exact', head: true })
+      .eq('class_instance_id', classInstance.id)
+      .eq('status', 'booked')
+      .eq('counts_as_glazing', true);
+    glazingBooked = count || 0;
+  }
 
-  if (!classFull && !studioFull) {
+  const counts = { booked, cap, wheels, studioWheels: STUDIO_WHEELS, glazingBooked, glazingCap: subCap };
+  const classFull   = booked >= cap;
+  const studioFull  = wheels !== null && wheels >= STUDIO_WHEELS;
+  const glazingFull = glazingBooked !== null && glazingBooked >= subCap;
+
+  if (!classFull && !studioFull && !glazingFull) {
     return { allowed: true, reason: null, counts, override: null };
   }
 
@@ -409,7 +428,8 @@ async function checkSeatAvailability(classInstance, studentId, opts = {}) {
     return { allowed: true, reason: null, counts, override };
   }
 
-  return { allowed: false, reason: classFull ? 'CLASS_FULL' : 'STUDIO_FULL', counts, override: null };
+  const reason = classFull ? 'CLASS_FULL' : studioFull ? 'STUDIO_FULL' : 'GLAZING_FULL';
+  return { allowed: false, reason, counts, override: null };
 }
 
 /**
@@ -424,21 +444,26 @@ async function createBooking(bookingData) {
   if (bookingData.classInstanceId) {
     const { data: cls } = await supabase
       .from('class_instances')
-      .select('id, max_capacity, class_date, start_time')
+      .select('id, max_capacity, class_date, start_time, class_type, is_glazing, glazing_capacity')
       .eq('id', bookingData.classInstanceId)
       .single();
 
     const seat = await checkSeatAvailability(
       { ...(cls || {}), id: bookingData.classInstanceId },
       bookingData.studentId,
-      { checkWheels: true }
+      { checkWheels: true, asGlazing: bookingData.countsAsGlazing === true }
     );
 
     if (!seat.allowed) {
-      const err = seat.reason === 'STUDIO_FULL'
-        ? new Error(`Studio is full — all ${STUDIO_WHEELS} wheels are booked for this timeslot (${seat.counts.wheels}/${STUDIO_WHEELS})`)
-        : new Error(`Class is full (${seat.counts.booked}/${seat.counts.cap})`);
-      err.code = 'CLASS_FULL';
+      let err;
+      if (seat.reason === 'STUDIO_FULL') {
+        err = new Error(`Studio is full — all ${STUDIO_WHEELS} wheels are booked for this timeslot (${seat.counts.wheels}/${STUDIO_WHEELS})`);
+      } else if (seat.reason === 'GLAZING_FULL') {
+        err = new Error(`This class already has its ${seat.counts.glazingCap} glazing places taken (${seat.counts.glazingBooked}/${seat.counts.glazingCap}). The class itself still has room for regular bookings.`);
+      } else {
+        err = new Error(`Class is full (${seat.counts.booked}/${seat.counts.cap})`);
+      }
+      err.code = seat.reason === 'GLAZING_FULL' ? 'GLAZING_FULL' : 'CLASS_FULL';
       throw err;
     }
     grantedOverride = seat.override;
@@ -453,6 +478,13 @@ async function createBooking(bookingData) {
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   };
+
+  // Marks this booking as the one that consumed the student's glazing class.
+  // Distinct from is_glazing_reschedule, which records that a reschedule was
+  // waived because it moved a glazing class.
+  if (bookingData.countsAsGlazing !== undefined) {
+    insertData.counts_as_glazing = bookingData.countsAsGlazing === true;
+  }
 
   // Add optional reschedule fields if provided
   if (bookingData.isGlazingReschedule !== undefined) {
@@ -876,6 +908,120 @@ async function getEnrollmentCredits(enrollmentId) {
 }
 
 /**
+ * What one enrollment entitles a student to, in classes.
+ *
+ * Mirrors how getEnrollmentCredits decides an allocation, and is separate from
+ * it on purpose: getEnrollmentCredits reports `allocated: 0` for a standard WT
+ * enrollment because WT weeks are not credit-tracked, and `remaining` depends on
+ * that. Changing it would silently move booking eligibility. This function
+ * answers the different question the admin screens ask — "how many classes does
+ * this course come with" — without touching that.
+ *
+ *   10-class packages: number_of_weeks (10). class_credits_allocated holds the
+ *   flex portion (4) and is NOT the total.
+ *   Everything else: the class_credits_allocated override if set, else weeks.
+ */
+function enrollmentEntitlement(enr) {
+  if (!enr) return 0;
+  const weeks = enr.number_of_weeks || 0;
+  if (weeks >= 10) return weeks;
+  return enr.class_credits_allocated || weeks || 0;
+}
+
+/**
+ * A student's allocation across every open enrollment.
+ *
+ * THE ONE DEFINITION, replacing three ad-hoc recomputations that had quietly
+ * grown up around customers.classes_allocated — auth.js and admin.js each
+ * summed number_of_weeks over active enrollments in-memory before responding,
+ * and a third site preferred enrollment totals "because the column can be
+ * lifetime/legacy and causes inflated values (e.g. 18)". Each was subtly
+ * different, and none honoured class_credits_allocated overrides or closures.
+ *
+ * The column itself is not read. It was written additively on every purchase
+ * and never decremented, so it is a lifetime running total, meaningless for
+ * anyone who bought twice (one student reached 34).
+ */
+async function getStudentAllocation(customerId) {
+  const { data: enrollments } = await supabase
+    .from('course_enrollments')
+    .select('id, course_type, number_of_weeks, class_credits_allocated, credits_closed_at, status')
+    .eq('student_id', customerId)
+    .in('status', ['active', 'completed']);
+
+  let allocated = 0, committed = 0, remaining = 0;
+  for (const e of enrollments || []) {
+    if (e.credits_closed_at) continue;
+    const credits = await getEnrollmentCredits(e.id);
+    allocated += enrollmentEntitlement(e);
+    committed += credits.committed;
+    remaining += credits.remaining;
+  }
+  return { allocated, committed, remaining };
+}
+
+/**
+ * What a student may actually book, according to the bookings ledger.
+ *
+ * THE ONE ANSWER to "does this person have a class credit". Booking eligibility
+ * used to read customers.classes_allocated first and only consult the ledger if
+ * that came out <= 0. That column defaulted to 6 on every customer record ever
+ * created, so 444 students could book 2,703 classes nobody paid for, and the
+ * booking screen told them so in writing. See scripts/clear-phantom-class-
+ * allocations.js, which cleaned the data in 2026 but could not fix the code path.
+ *
+ * classes_allocated is deliberately NOT consulted here, not even as a fallback:
+ * a default is not a purchase, and the ledger is the only proof of entitlement.
+ *
+ * A student with no enrollment row at all gets remaining 0 and reason
+ * 'no-enrollment'. That case is real but ambiguous — the order-sync gap leaves
+ * genuinely-paid customers without an enrollment — so callers should say so
+ * plainly rather than claim the credits were used up.
+ *
+ * @param {number} customerId
+ * @returns {Promise<{remaining:number, enrollment:object|null, reason:string}>}
+ */
+async function getBookableCredits(customerId) {
+  const { data: candidates } = await supabase
+    .from('course_enrollments')
+    // 'completed' is included deliberately: a 10-class package keeps its flex
+    // classes after the 6-week cohort ends, and the student must still be able
+    // to book them.
+    .select('id, course_type, course_identifier, number_of_weeks, class_credits_allocated, credits_closed_at, status')
+    .eq('student_id', customerId)
+    .in('status', ['active', 'completed']);
+
+  if (!candidates || candidates.length === 0) {
+    return { remaining: 0, enrollment: null, reason: 'no-enrollment' };
+  }
+
+  const withCredits = [];
+  for (const e of candidates) {
+    // A block an admin has deliberately closed wins over whatever the ledger computes.
+    if (e.credits_closed_at) continue;
+    const credits = await getEnrollmentCredits(e.id);
+    if (credits.remaining > 0) {
+      withCredits.push({ ...e, computedRemaining: credits.remaining, computedCommitted: credits.committed });
+    }
+  }
+
+  if (withCredits.length === 0) {
+    return { remaining: 0, enrollment: null, reason: 'no-credits' };
+  }
+
+  // Prefer a 10-class package so flex credits are spent before anything else.
+  const enrollment = withCredits.find(e =>
+    e.number_of_weeks >= 10 || (e.course_type || '').includes('10 Classes')
+  ) || withCredits[0];
+
+  return {
+    remaining: withCredits.reduce((sum, e) => sum + e.computedRemaining, 0),
+    enrollment,
+    reason: 'ok',
+  };
+}
+
+/**
  * Recompute an enrollment's stored credit cache from the bookings ledger.
  *
  * THE ONLY SANCTIONED WRITER of class_credits_used / class_credits_remaining
@@ -1015,6 +1161,9 @@ async function resolveBookingEnrollment(studentId, classInstance) {
 }
 
 module.exports = {
+  getBookableCredits,
+  getStudentAllocation,
+  enrollmentEntitlement,
   getEnrollmentCredits,
   syncStoredCredits,
   resolveBookingEnrollment,

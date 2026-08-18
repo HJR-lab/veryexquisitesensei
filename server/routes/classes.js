@@ -1,8 +1,158 @@
 const supabaseDb = require('../utils/supabaseDb');
 const FEES = require('../config/fees');
 const { getPackageProgress } = require('../utils/packageProgress');
+const { isGlazingClass, isMarkedGlazing, GLAZING_DRYING_GAP_DAYS } = require('../utils/glazing');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler }) {
+
+/**
+ * The package enrollment that still owes its FLEX glazing class, if any.
+ *
+ * A 10-class package student gets two glazing classes, tracked two different ways:
+ *
+ *   week 6.6   the WT cohort's own glazing — structural, part of the booked
+ *              6-week block, derived from the class code. Nothing records it here.
+ *   class 10   the flex glazing, taken as a marked HB session. THIS is what
+ *              glazing_class_used tracks, so having attended 6.6 never blocks it.
+ *
+ * Not filtered to status 'active': a 10-class package is routinely marked
+ * completed once its 6-week cohort ends while the 4 flex classes — glazing among
+ * them — are still unspent. Filtering on 'active' is what has repeatedly hidden
+ * these students from code paths that should serve them.
+ */
+function isTenClassPackage(e) {
+  return e.package_total_classes === 10 ||
+         e.number_of_weeks === 10 ||
+         (e.course_title || '').toLowerCase().includes('10 class');
+}
+
+async function findTenClassPackages(studentId) {
+  const { data } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('id, glazing_class_used, number_of_weeks, package_total_classes, course_title, status')
+    .eq('student_id', studentId)
+    .neq('status', 'cancelled');
+
+  return (data || []).filter(isTenClassPackage);
+}
+
+async function findPendingGlazingEnrollment(studentId) {
+  const packages = await findTenClassPackages(studentId);
+  return packages.find(e => !e.glazing_class_used) || null;
+}
+
+// Statuses that mean a class of the package has been taken up. Matches the
+// counting used everywhere else — a forfeited or absent class is still spent.
+const SPENT_BOOKING_STATUSES = ['booked', 'attended', 'completed', 'rescheduled', 'absent', 'forfeited'];
+
+const dayStart = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+const daysBetween = (a, b) => (dayStart(b) - dayStart(a)) / (1000 * 60 * 60 * 24);
+
+/**
+ * The drying/firing gap before a package student's glazing class.
+ *
+ * Work made in the class before glazing needs ~3 days to dry and ~3 days to bisque
+ * fire before it can be glazed, so a class sitting closer than
+ * GLAZING_DRYING_GAP_DAYS to the glazing leaves the student with nothing to glaze.
+ *
+ * Checked from both sides, because either class can be booked first:
+ *   booking the glazing  → no already-booked class may fall inside the window
+ *   booking a flex class → it may not land inside the window before a booked glazing
+ *
+ * Package students are exempt from the blanket 5-day rule further down (they book
+ * legitimately after their 6.6 cohort glazing), which is why this exists.
+ *
+ * @returns {{blocked: boolean, reason?: string}}
+ */
+async function checkGlazingDryingGap(studentId, classInstance) {
+  const packages = await findTenClassPackages(studentId);
+  if (packages.length === 0) return { blocked: false };
+
+  const pkgIds = packages.map(p => p.id);
+  const { data: bookings, error } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id, status, class_instances!bookings_class_instance_id_fkey(class_date, class_type, is_glazing)')
+    .in('course_enrollment_id', pkgIds)
+    .in('status', ['booked', 'attended']);
+
+  // An unchecked error here reads as "no bookings", which would silently wave
+  // every booking through the gap rule.
+  if (error) throw error;
+
+  const dated = (bookings || []).filter(b => b.class_instances?.class_date);
+  const targetDate = classInstance.class_date;
+  const targetIsGlazing = isGlazingClass(classInstance);
+
+  if (targetIsGlazing) {
+    // Their glazing: nothing already booked may sit inside the drying window.
+    const tooClose = dated
+      .filter(b => !isGlazingClass(b.class_instances))
+      .map(b => ({ date: b.class_instances.class_date, gap: daysBetween(b.class_instances.class_date, targetDate) }))
+      .filter(x => x.gap >= 0 && x.gap < GLAZING_DRYING_GAP_DAYS)
+      .sort((a, b) => b.gap - a.gap)[0];
+
+    if (tooClose) {
+      return {
+        blocked: true,
+        reason: `Your glazing class needs to be at least ${GLAZING_DRYING_GAP_DAYS} days after your previous class so the work can dry and be bisque fired in time. Your class on ${tooClose.date} is only ${Math.round(tooClose.gap)} day${Math.round(tooClose.gap) === 1 ? '' : 's'} before this one — please pick a later glazing date.`,
+      };
+    }
+    return { blocked: false };
+  }
+
+  // A flex class: it may not land inside the window before a booked glazing.
+  const glazingBooked = dated
+    .filter(b => isGlazingClass(b.class_instances))
+    .map(b => b.class_instances.class_date)
+    .sort()
+    .find(d => daysBetween(targetDate, d) >= 0);
+
+  if (glazingBooked) {
+    const gap = daysBetween(targetDate, glazingBooked);
+    if (gap >= 0 && gap < GLAZING_DRYING_GAP_DAYS) {
+      return {
+        blocked: true,
+        reason: `This class is only ${Math.round(gap)} day${Math.round(gap) === 1 ? '' : 's'} before your glazing class on ${glazingBooked}. Work needs at least ${GLAZING_DRYING_GAP_DAYS} days to dry and be bisque fired before it can be glazed, so please pick an earlier date.`,
+      };
+    }
+  }
+
+  return { blocked: false };
+}
+
+/**
+ * Would this booking be the package's 10th class? The 10th is always the glazing
+ * class, so it may only ever be a glazing class — a WT cohort's week 6.6 or an HB
+ * session marked as glazing.
+ *
+ * Counted against the package enrollment's own bookings rather than every booking
+ * the student has, so a student who also holds a separate course is not pushed
+ * over the line by bookings that belong to that other course.
+ *
+ * @returns {{blocked: boolean, enrollment?: object, booked?: number}}
+ */
+async function checkTenthClassMustBeGlazing(studentId, classInstance) {
+  if (isGlazingClass(classInstance)) return { blocked: false };
+
+  const packages = await findTenClassPackages(studentId);
+  if (packages.length === 0) return { blocked: false };
+
+  for (const pkg of packages) {
+    const total = pkg.package_total_classes || pkg.number_of_weeks || 10;
+    const { count } = await supabaseDb.supabase
+      .from('bookings')
+      .select('id', { count: 'exact', head: true })
+      .eq('course_enrollment_id', pkg.id)
+      .in('status', SPENT_BOOKING_STATUSES);
+
+    const booked = count || 0;
+    if (booked >= total - 1) {
+      return { blocked: true, enrollment: pkg, booked };
+    }
+  }
+
+  return { blocked: false };
+}
 
 // Public: expose the authoritative fee schedule so the frontend can render
 // policy text from the same source the backend enforces (prevents drift).
@@ -82,7 +232,10 @@ app.get('/api/classes/my-bookings', authenticateToken, asyncHandler(async (req, 
       classTitle: booking.class_instance.class_title,
       classDescription: booking.class_instance.class_description,
       instructor: booking.class_instance.instructor,
-      room: booking.class_instance.room
+      room: booking.class_instance.room,
+      // So the student's own booking list can label a marked HB session as
+      // glazing — nothing in the class code says so.
+      isGlazing: booking.class_instance.is_glazing === true
     }
   }));
 
@@ -402,14 +555,61 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
   // booking paths agree — this one previously ran its own chain of three
   // lookups, every one filtered to status 'active', which silently skipped a
   // completed 10-class package still holding flex credits.
+  // The package's final class is always its glazing class, so it may only ever be
+  // a glazing one. Enforced here as well as on reschedule — previously only the
+  // reschedule path checked, so a student could book a plain class as their 10th
+  // and simply never take a second glazing.
+  const tenth = await checkTenthClassMustBeGlazing(dbCustomerId, classInstance);
+  if (tenth.blocked) {
+    const total = tenth.enrollment.package_total_classes || tenth.enrollment.number_of_weeks || 10;
+    return res.status(400).json({
+      error: `This would be class ${tenth.booked + 1} of ${total} — your final class, which must be a glazing class. Pick a Week 6 wheelthrowing glazing, or a handbuilding class marked as glazing.`
+    });
+  }
+
+  // Kiln schedule: the class before glazing must leave time to dry and bisque fire.
+  const dryingGap = await checkGlazingDryingGap(dbCustomerId, classInstance);
+  if (dryingGap.blocked) {
+    return res.status(400).json({ error: dryingGap.reason });
+  }
+
   const enrollmentId = await supabaseDb.resolveBookingEnrollment(dbCustomerId, classInstance);
 
-  const booking = await supabaseDb.createBooking({
-    studentId: dbCustomerId,
-    classInstanceId: parseInt(classInstanceId),
-    status: 'booked',
-    courseEnrollmentId: enrollmentId
-  });
+  // A class marked as glazing (the only way an HB drop-in can be one) doubles as
+  // the glazing class for a package student who still owes theirs. Everyone else
+  // books it as an ordinary class, which is why the marker alone does not decide
+  // this — the student's own enrollment does.
+  const glazingEnrollment = isMarkedGlazing(classInstance)
+    ? await findPendingGlazingEnrollment(dbCustomerId)
+    : null;
+  const countsAsGlazing = !!glazingEnrollment;
+
+  let booking;
+  try {
+    booking = await supabaseDb.createBooking({
+      studentId: dbCustomerId,
+      classInstanceId: parseInt(classInstanceId),
+      status: 'booked',
+      courseEnrollmentId: enrollmentId,
+      countsAsGlazing
+    });
+  } catch (err) {
+    // The glazing sub-capacity is a distinct refusal from the class being full:
+    // there are seats left, just not glazing ones.
+    if (err.code === 'GLAZING_FULL') {
+      return res.status(400).json({ error: err.message });
+    }
+    throw err;
+  }
+
+  // Spend the glazing entitlement only once the booking exists, so a refused
+  // booking never marks it used.
+  if (countsAsGlazing) {
+    await supabaseDb.supabase
+      .from('course_enrollments')
+      .update({ glazing_class_used: true, updated_at: new Date().toISOString() })
+      .eq('id', glazingEnrollment.id);
+  }
 
   await supabaseDb.updateClassEnrollment(parseInt(classInstanceId), 1);
 
@@ -439,6 +639,20 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
   });
 }));
 
+// What this student may actually book. Serves the SAME ledger answer the
+// booking gate enforces with, so the screen can never promise a class the
+// server will then refuse — which is exactly what customers.classes_allocated
+// used to do, in writing, to 444 students.
+app.get('/api/classes/my-credits', authenticateToken, asyncHandler(async (req, res) => {
+  const { dbCustomerId } = req.user;
+  const bookable = await supabaseDb.getBookableCredits(dbCustomerId);
+  res.json({
+    remaining: bookable.remaining,
+    reason: bookable.reason,
+    enrollmentId: bookable.enrollment?.id || null,
+  });
+}));
+
 // Book a makeup class using remaining credits
 app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req, res) => {
   const { dbCustomerId } = req.user;
@@ -448,10 +662,13 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
     return res.status(400).json({ error: 'Class instance ID required' });
   }
 
-  // Get student's credit info
+  // Eligibility comes from the bookings ledger and nothing else. This used to
+  // read customers.classes_allocated first — a column that defaulted to 6 — and
+  // only fell through to the ledger when that came out <= 0, so any student the
+  // stale figure said had credits booked without the ledger ever being asked.
   const { data: customer, error: customerError } = await supabaseDb.supabase
     .from('customers')
-    .select('id, classes_allocated, first_name, last_name')
+    .select('id, first_name, last_name')
     .eq('id', dbCustomerId)
     .single();
 
@@ -459,58 +676,18 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
     return res.status(404).json({ error: 'Customer not found' });
   }
 
-  // Get ALL bookings to calculate remaining credits
-  const { data: allBookings } = await supabaseDb.supabase
-    .from('bookings')
-    .select('id')
-    .eq('student_id', dbCustomerId)
-    .in('status', ['booked', 'attended']);
+  const bookable = await supabaseDb.getBookableCredits(dbCustomerId);
+  const creditEnrollment = bookable.enrollment;
 
-  const totalBooked = allBookings ? allBookings.length : 0;
-  const remainingCredits = customer.classes_allocated - totalBooked;
-
-  // Also check enrollment credits (for 10-class packages and other enrollment-based credits)
-  let enrollmentCredits = 0;
-  let creditEnrollment = null;
-  if (remainingCredits <= 0) {
-    // 'completed' is included deliberately: a 10-class package keeps its flex
-    // classes after the 6-week cohort ends, and the student must still be able
-    // to book them. Gating on 'active' alone locked them out of classes they own.
-    const { data: candidates } = await supabaseDb.supabase
-      .from('course_enrollments')
-      .select('id, course_type, class_credits_remaining, class_credits_used, number_of_weeks, credits_closed_at')
-      .eq('student_id', dbCustomerId)
-      .in('status', ['active', 'completed']);
-
-    // Eligibility comes from the bookings ledger. The one exception is a block
-    // an admin has deliberately closed, which wins over the ledger.
-    //
-    // That closure used to be inferred from class_credits_remaining === 0, which
-    // conflated "an admin closed this" with "the number happens to be zero" —
-    // and silently trapped any enrollment whose stored columns were never
-    // populated (Geraldine Lai, enr 5347: ledger said 3, stored said 0 because
-    // nothing had ever written it). Closure is now its own fact.
-    const withCredits = [];
-    for (const e of candidates || []) {
-      if (e.credits_closed_at) continue;
-      const credits = await supabaseDb.getEnrollmentCredits(e.id);
-      if (credits.remaining > 0) {
-        withCredits.push({ ...e, computedRemaining: credits.remaining, computedCommitted: credits.committed });
-      }
-    }
-
-    if (withCredits.length > 0) {
-      // Prefer 10-class package, then any enrollment with credits
-      creditEnrollment = withCredits.find(e => e.number_of_weeks >= 10 || (e.course_type || '').includes('10 Classes'))
-        || withCredits[0];
-      enrollmentCredits = creditEnrollment.computedRemaining;
-    }
-  }
-
-  if (remainingCredits <= 0 && enrollmentCredits <= 0) {
+  if (bookable.remaining <= 0) {
+    // Distinguish the two reasons. The order-sync gap can leave a genuinely
+    // paid-up student with no enrollment row, and telling them they have used
+    // up credits they never received sends them arguing with the studio.
     return res.status(400).json({
       error: 'No remaining credits available',
-      details: `You have used all ${customer.classes_allocated} class credits.`
+      details: bookable.reason === 'no-enrollment'
+        ? 'We have no active course on your account. If you have just purchased, please contact the studio so we can set it up.'
+        : 'You have used all the classes on your account.',
     });
   }
 
@@ -598,19 +775,20 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
     if (!has10ClassPackage) {
       const { data: glazingBookings } = await supabaseDb.supabase
         .from('bookings')
-        .select('class_instances!bookings_class_instance_id_fkey(class_date, class_type)')
+        .select('class_instances!bookings_class_instance_id_fkey(class_date, class_type, is_glazing)')
         .eq('student_id', dbCustomerId)
         .in('status', ['booked', 'attended'])
         .order('class_instances(class_date)', { ascending: true });
 
       const todayDate = new Date();
       todayDate.setHours(0, 0, 0, 0);
+      // Shared derivation: <total>.<week> equal, or explicitly marked. Was
+      // `week === '6' || week === '7'`, which read week 6 OF A 7-WEEK course
+      // (WT1104AM_DL7.6) as glazing and imposed the gap around an ordinary class.
       const glazing = (glazingBookings || []).find(b => {
         const classDate = new Date(b.class_instances?.class_date);
         if (classDate < todayDate) return false; // skip past glazing classes
-        const ct = b.class_instances?.class_type || '';
-        const weekMatch = ct.match(/\.(\d+)$/);
-        return weekMatch && (weekMatch[1] === '6' || weekMatch[1] === '7');
+        return isGlazingClass(b.class_instances);
       });
 
       if (glazing?.class_instances?.class_date) {
@@ -624,8 +802,8 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
         }
 
         const daysBefore = (glazingDate - targetDate) / (1000 * 60 * 60 * 24);
-        if (daysBefore > 0 && daysBefore < 5) {
-          return res.status(400).json({ error: 'Classes must be at least 5 days before your glazing class.' });
+        if (daysBefore > 0 && daysBefore < GLAZING_DRYING_GAP_DAYS) {
+          return res.status(400).json({ error: `Classes must be at least ${GLAZING_DRYING_GAP_DAYS} days before your glazing class, so the work can dry and be bisque fired in time.` });
         }
       }
     }
@@ -643,16 +821,16 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   let booking;
   let bookingError;
 
-  const useEnrollmentCredits = remainingCredits <= 0 && creditEnrollment;
   // Link the booking to the enrollment it is spending from. A booking with no
   // enrollment link is INVISIBLE to getEnrollmentCredits, which counts by
   // course_enrollment_id — the class gets booked, the seat is taken, and the
   // credit is never spent.
   //
-  // This fallback used to look only for a 10-class package, so a 6-week WT
-  // student whose legacy classes_allocated counter still read positive got a
-  // null link and a free class (Sanjana Vijay, booking 29649, 09/08/26).
-  let enrollmentId = useEnrollmentCredits ? creditEnrollment.id : null;
+  // Eligibility now always resolves an enrollment, so the old "legacy counter
+  // said yes, link nothing" path is gone with it — that was how a 6-week WT
+  // student got a null link and a free class (Sanjana Vijay, booking 29649,
+  // 09/08/26). The resolve call stays as a belt-and-braces fallback.
+  let enrollmentId = creditEnrollment ? creditEnrollment.id : null;
   if (!enrollmentId) {
     enrollmentId = await supabaseDb.resolveBookingEnrollment(dbCustomerId, classInstance);
   }
@@ -704,11 +882,11 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   await supabaseDb.updateClassEnrollment(parseInt(classInstanceId), 1);
 
   // The booking above is now in the ledger, so the cache just needs to catch up.
-  if (useEnrollmentCredits) {
+  if (creditEnrollment) {
     await supabaseDb.syncStoredCredits(creditEnrollment.id);
   }
 
-  const creditsLeft = useEnrollmentCredits ? enrollmentCredits - 1 : remainingCredits - 1;
+  const creditsLeft = Math.max(0, bookable.remaining - 1);
 
   // Auto-cancel waitlist if no credits remaining
   const cancelledWaitlist = await cancelWaitlistIfNoCredits(dbCustomerId);
@@ -1325,46 +1503,34 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
       (bookingEnrollment?.course_title?.includes('10 Classes') ?? false);
   }
 
-  // Check if this is a glazing class. class_type is the coded format
-  // (e.g. WT0206NT_JL6.6, WT1104AM_DL7.7) — glazing is the FINAL week, i.e.
-  // the trailing <totalWeeks>.<weekNum> are equal. The old code matched the
-  // literal strings 'Week 6/6'/'Glazing' which never appear in real data, so
-  // glazing was misclassified as a regular class and blocked from
-  // cross-cohort reschedule. Matches isGlazing() in
-  // scripts/backfill-glazing-capacity.js and the week regex used below.
-  const isGlazingClassType = (ct) => {
-    const m = (ct || '').match(/(\d+)\.(\d+)$/);
-    return !!m && m[1] === m[2];
-  };
-  const isOldClassGlazing = isGlazingClassType(oldClass.class_type);
-  const isNewClassGlazing = isGlazingClassType(newClass.class_type);
+  // Glazing is a WT cohort's FINAL week — class_type is the coded format
+  // (WT0206NT_JL6.6, WT1104AM_DL7.7), so the trailing <totalWeeks>.<weekNum> are
+  // equal — or a class explicitly marked as glazing, which is the only way an HB
+  // drop-in qualifies. Shared with every other glazing check via utils/glazing.js;
+  // the old code matched the literal strings 'Week 6/6'/'Glazing', which never
+  // appear in real data, so glazing was misclassified and blocked from
+  // cross-cohort reschedule.
+  const isOldClassGlazing = isGlazingClass(oldClass);
+  const isNewClassGlazing = isGlazingClass(newClass);
 
   // For 10-class package: check if this is their 10th class (final class must be glazing)
-  if (has10ClassPackage) {
-    // Count current bookings for this student
-    const { data: allBookings, error: bookingsError } = await supabaseDb.supabase
-      .from('bookings')
-      .select('id')
-      .eq('student_id', dbCustomerId)
-      .eq('status', 'booked');
-
-    if (bookingsError) {
-      console.error('Error fetching bookings:', bookingsError);
-      return res.status(500).json({ error: 'Failed to fetch bookings' });
-    }
-
-    // After rescheduling, they'll still have the same number of bookings (cancelling one, adding one)
-    // So if they currently have 9+ bookings, this must be for their 10th class slot
-    const totalBookings = allBookings.length;
-
-    if (totalBookings >= 9) {
-      // This is their 10th class - must be glazing
-      if (!isNewClassGlazing) {
-        return res.status(400).json({
-          error: 'Your 10th and final class must be a glazing class (Week 6). Please select a glazing class.'
-        });
-      }
-    }
+  // A reschedule moves one booking, so the only way it can cost a package student
+  // their glazing is by moving the GLAZING booking onto a non-glazing class. That
+  // is the whole rule.
+  //
+  // It used to count every 'booked' row the student had and, at 9 or more, demand
+  // the TARGET be glazing regardless of what was being moved — so a student with a
+  // full package rescheduling week 3 to another ordinary class was refused and told
+  // to pick a glazing class. The count was also across all bookings, so a second
+  // course's bookings could push them over the line on their own.
+  //
+  // The forward direction is covered where it belongs: /api/classes/book refuses a
+  // non-glazing class for the final slot, so a package student cannot arrive here
+  // with a non-glazing 10th class to begin with.
+  if (has10ClassPackage && isOldClassGlazing && !isNewClassGlazing) {
+    return res.status(400).json({
+      error: 'That booking is your glazing class, so it can only move to another glazing class — either a Week 6 wheelthrowing glazing or a handbuilding class marked as glazing.'
+    });
   }
 
   // Block rescheduling to a date after glazing or within 5 days of glazing
@@ -1372,18 +1538,17 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
   if (!has10ClassPackage) {
     const { data: studentBookings } = await supabaseDb.supabase
       .from('bookings')
-      .select('class_instances!bookings_class_instance_id_fkey(class_date, class_type)')
+      .select('class_instances!bookings_class_instance_id_fkey(class_date, class_type, is_glazing)')
       .eq('student_id', dbCustomerId)
       .in('status', ['booked', 'attended']);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    // Shared derivation — see the note on the same check in book-makeup.
     const glazingBooking = (studentBookings || []).find(b => {
       const classDate = new Date(b.class_instances?.class_date);
       if (classDate < today) return false; // skip past glazing classes
-      const ct = b.class_instances?.class_type || '';
-      const weekMatch = ct.match(/\.(\d+)$/);
-      return weekMatch && (weekMatch[1] === '6' || weekMatch[1] === '7');
+      return isGlazingClass(b.class_instances);
     });
 
     if (glazingBooking?.class_instances?.class_date) {
@@ -1399,8 +1564,8 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
           return res.status(400).json({ error: 'Cannot reschedule to a date after your glazing class. Glazing is your final class.' });
         }
         const daysBefore = (glazingDate - targetDate) / (1000 * 60 * 60 * 24);
-        if (daysBefore > 0 && daysBefore < 5) {
-          return res.status(400).json({ error: 'Classes must be at least 5 days before your glazing class.' });
+        if (daysBefore > 0 && daysBefore < GLAZING_DRYING_GAP_DAYS) {
+          return res.status(400).json({ error: `Classes must be at least ${GLAZING_DRYING_GAP_DAYS} days before your glazing class, so the work can dry and be bisque fired in time.` });
         }
       }
     }

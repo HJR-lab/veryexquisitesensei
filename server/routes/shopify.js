@@ -8,6 +8,7 @@ const { generateKidsOutreachEmail } = require('../email-templates/kids-outreach'
 const { generateMembershipConfirmedEmail } = require('../email-templates/membership-confirmed');
 const { generateVoucherOutreachEmail } = require('../email-templates/voucher-outreach');
 const { readMembershipSettings } = require('../utils/membershipSettings');
+const { autoCompleteFinishedEnrollments } = require('../utils/enrollmentCompletion');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, getShopifyClient, shopify }) {
 
@@ -78,87 +79,6 @@ function shopifyGraphQL(query, variables = {}) {
     }
     throw lastErr;
   })();
-}
-
-// Auto-complete enrollments where all booked class dates have passed
-async function autoCompleteFinishedEnrollments() {
-  try {
-    const todayStr = new Date().toISOString().split('T')[0];
-
-    // Get all active enrollments (include credit + package fields)
-    const { data: activeEnrollments, error } = await supabaseDb.supabase
-      .from('course_enrollments')
-      .select('id, student_id, course_identifier, course_type, number_of_weeks, total_weeks, class_credits_allocated, class_credits_remaining')
-      .in('status', ['active']);
-
-    if (error || !activeEnrollments?.length) return 0;
-
-    let completedCount = 0;
-
-    for (const enrollment of activeEnrollments) {
-      // Get all bookings for this enrollment
-      const { data: bookings } = await supabaseDb.supabase
-        .from('bookings')
-        .select('id, class_instances!bookings_class_instance_id_fkey(class_date)')
-        .eq('course_enrollment_id', enrollment.id)
-        .in('status', ['booked', 'completed', 'attended']);
-
-      if (!bookings || bookings.length === 0) continue;
-
-      // Check if ALL booking dates are in the past (use regex to handle both "T" and space separators)
-      const allPast = bookings.every(b => {
-        const d = b.class_instances?.class_date?.split(/[T ]/)[0];
-        return d && d < todayStr;
-      });
-
-      if (allPast) {
-        // Compute credits from actual bookings (never trust stale DB columns)
-        const credits = await supabaseDb.getEnrollmentCredits(enrollment.id);
-
-        // Skip HB credit-based enrollments that still have remaining credits
-        const isHB = enrollment.course_type && enrollment.course_type.toLowerCase().includes('handbuilding');
-        if (isHB && credits.remaining > 0) {
-          continue; // Student still has credits to use
-        }
-
-        // 10-class packages (number_of_weeks=10, total_weeks=6): allocate 4 flex credits
-        // when WT course completes, instead of marking as completed
-        const is10ClassPackage = enrollment.number_of_weeks === 10 && (enrollment.total_weeks === 6 || bookings.length === 6);
-        if (is10ClassPackage && !enrollment.class_credits_allocated) {
-          const flexCredits = enrollment.number_of_weeks - (enrollment.total_weeks || 6);
-          await supabaseDb.supabase
-            .from('course_enrollments')
-            .update({
-              class_credits_allocated: flexCredits,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', enrollment.id);
-          console.log(`Allocated ${flexCredits} flex credits for 10-class package enrollment ${enrollment.id} (${enrollment.course_identifier})`);
-          continue; // Don't complete yet — student has flex credits to use
-        }
-
-        // Skip if enrollment still has flex credits remaining
-        if (credits.remaining > 0) {
-          continue;
-        }
-
-        await supabaseDb.supabase
-          .from('course_enrollments')
-          .update({ status: 'completed', updated_at: new Date().toISOString() })
-          .eq('id', enrollment.id);
-        console.log(`Auto-completed enrollment ${enrollment.id} (${enrollment.course_identifier}) — all classes past`);
-        completedCount++;
-      }
-    }
-
-    if (completedCount > 0) {
-      console.log(`Auto-completed ${completedCount} finished enrollments`);
-    }
-    return completedCount;
-  } catch (error) {
-    console.error('Error auto-completing enrollments:', error);
-    return 0;
-  }
 }
 
 // Sync all customers from Shopify

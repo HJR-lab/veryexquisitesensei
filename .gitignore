@@ -63,3 +63,6 @@ supabase/.branches/
 # hook. ~20MB incl. a 2000-file Obsidian vault and dated graph backups.
 # Regenerate with `graphify update .` rather than tracking it.
 graphify-out/
+
+# Local-only: contains customer PII, never commit
+server/scripts/backup-legacy-class-allocations.json

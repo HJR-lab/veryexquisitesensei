@@ -172,6 +172,7 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
       course_identifier, schedule_pattern, class_time, status,
       number_of_weeks, weeks_completed, weeks_remaining,
       class_credits_allocated, class_credits_used, class_credits_remaining,
+      credits_closed_at,
       course_start_date, course_end_date, created_at, package_total_courses,
       customers!course_enrollments_student_id_fkey (
         id, email, first_name, last_name, customer_type,
@@ -239,7 +240,9 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
         const { data } = await supabaseDb.supabase
           .from('bookings')
           .select('course_enrollment_id, status, class_instances!bookings_class_instance_id_fkey(class_date)')
-          .in('status', ['booked', 'attended', 'completed'])
+          // forfeited/absent are burnt credits: they consume the entitlement even
+          // though nobody sat the class, so the unbooked maths below must see them.
+          .in('status', ['booked', 'attended', 'completed', 'forfeited', 'absent'])
           .not('course_enrollment_id', 'is', null)
           .range(page * 1000, (page + 1) * 1000 - 1);
         all = all.concat(data || []);
@@ -259,14 +262,25 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
   // fixed course end. What happened is a better answer than what was planned,
   // and it costs nothing: these rows are already in memory.
   const lastClassByEnrollment = {};
+  // Credits consumed per enrollment, and whether anything is still to come.
+  // Mirrors CREDIT_CONSUMING_STATUSES in bookingDb: a forfeited class is spent.
+  const committedByEnrollment = {};
+  const hasFutureByEnrollment = {};
   (bookingRows || []).forEach(b => {
     if (!b.course_enrollment_id) return;
     const classDate = b.class_instances?.class_date?.split(/[T ]/)[0];
     const isPast = classDate < todayStr;
-    if (b.status === 'attended' || b.status === 'completed' || (b.status === 'booked' && isPast)) {
+    const sat = b.status === 'attended' || b.status === 'completed';
+    const burnt = b.status === 'forfeited' || b.status === 'absent';
+
+    committedByEnrollment[b.course_enrollment_id] = (committedByEnrollment[b.course_enrollment_id] || 0) + 1;
+    if (classDate && !isPast) hasFutureByEnrollment[b.course_enrollment_id] = true;
+
+    if (sat || (b.status === 'booked' && isPast)) {
       attendedByEnrollment[b.course_enrollment_id] = (attendedByEnrollment[b.course_enrollment_id] || 0) + 1;
     }
-    if (classDate && isPast) {
+    // Deliberately excludes burnt classes: this is the last class actually sat.
+    if (classDate && isPast && !burnt) {
       const prev = lastClassByEnrollment[b.course_enrollment_id];
       if (!prev || classDate > prev) lastClassByEnrollment[b.course_enrollment_id] = classDate;
     }
@@ -335,6 +349,18 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
       creditsRemaining: isHB ? (enr._computedCredits?.remaining ?? enr.class_credits_remaining) : null,
       classesAllocated: isWT ? (enr.number_of_weeks || 6) : null,
       classesAttended: attendedByEnrollment[enr.id] || 0,
+      // A course whose classes are all in the past but whose entitlement is not
+      // spent. The Users list used to badge these ACTIVE beside the finished
+      // course's own date range, which reads as "currently attending a course
+      // that ended in February". A closed credit block advertises nothing.
+      courseEnded: !hasFutureByEnrollment[enr.id] && Boolean(lastClassByEnrollment[enr.id] || enr.course_end_date),
+      unbookedCredits: enr.credits_closed_at ? 0 : Math.max(
+        0,
+        (isHB
+          ? (enr._computedCredits?.allocated ?? enr.class_credits_allocated ?? 0)
+          : (enr.number_of_weeks || 6)
+        ) - (committedByEnrollment[enr.id] || 0)
+      ),
       coursePurchaseCount: student.course_purchase_count || 1,
       customerType: student.customer_type,
       isHB,

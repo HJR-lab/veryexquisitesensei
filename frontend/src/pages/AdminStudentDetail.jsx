@@ -904,8 +904,14 @@ export default function AdminStudentDetail() {
   const flexRemainingCount = Math.max(0, flexCredits?.remaining
     ?? (is10ClassPkg ? (enrollment?.class_credits_remaining || 0) : 0));
 
+  // A closed credit block advertises nothing. Closure is an explicit admin act
+  // recorded as credits_closed_at (never inferred from a stored zero), and it is
+  // how an ad-hoc or written-off entitlement stops offering Book buttons for
+  // classes that will never be scheduled.
+  const creditsClosed = Boolean(enrollment?.credits_closed_at);
+
   // Placeholders for the CURRENT enrollment's own credits (never flex).
-  const unbookedCount = isHBEnrollment
+  const unbookedCount = creditsClosed ? 0 : isHBEnrollment
     ? Math.max(0, hbCreditsRemaining)
     : currentIsFlexEnrollment
       ? flexRemainingCount
@@ -913,7 +919,7 @@ export default function AdminStudentDetail() {
   // Separate flex placeholders, shown when the package is NOT the current
   // enrollment. These book into the package enrollment (flexEnrollmentId), not
   // whatever enrollment is currently displayed.
-  const flexPlaceholderCount = (!currentIsFlexEnrollment && flexEnrollmentId) ? flexRemainingCount : 0;
+  const flexPlaceholderCount = (!currentIsFlexEnrollment && flexEnrollmentId && !creditsClosed) ? flexRemainingCount : 0;
 
   const filteredBookings = [...(showCompletedCourses ? bookings : activeBookings)]
     .filter(b => statusFilter === 'all' || b.status === statusFilter)

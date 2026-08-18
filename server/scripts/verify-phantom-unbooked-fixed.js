@@ -19,7 +19,7 @@ const RETURNED = ['booked', 'completed', 'attended', 'forfeited', 'absent'];
 (async () => {
   const { data: enrolls } = await supabase
     .from('course_enrollments')
-    .select('id, status, course_identifier, course_type, number_of_weeks, class_credits_allocated, customers(first_name,last_name)');
+    .select('id, status, course_identifier, course_type, number_of_weeks, class_credits_allocated, credits_closed_at, customers(first_name,last_name)');
 
   let phantomTotal = 0, worst = [], checked = 0;
   for (const e of enrolls) {
@@ -28,6 +28,9 @@ const RETURNED = ['booked', 'completed', 'attended', 'forfeited', 'absent'];
       .eq('course_enrollment_id', e.id).in('status', RETURNED);
     if (!bk?.length) continue;
     checked++;
+
+    // A closed credit block advertises nothing (AdminStudentDetail creditsClosed gate).
+    if (e.credits_closed_at) continue;
 
     const used = bk.filter(b => CONSUMING.includes(b.status)).length;
     const credits = await supabaseDb.getEnrollmentCredits(e.id);

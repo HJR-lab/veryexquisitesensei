@@ -61,6 +61,7 @@ function StatusBadge({ status, label }) {
     // Same palette the booking rows use for an unbooked credit, so the list and
     // the student page describe the same state in the same colour.
     unbooked:  { label: 'Unbooked',  bg: '#FFFBEA', color: '#9E6200' },
+    awaiting:  { label: 'Awaiting confirmation', bg: '#EEF2FF', color: '#3730A3' },
   };
   const cfg = map[status] || map.active;
   const text = label || cfg.label;
@@ -597,6 +598,7 @@ export default function AdminStudents() {
         _membership: membership || null,
         _statusKey: s.enrollmentStatus === 'upcoming' ? 'upcoming' : 'active',
         _courseEnded: s.courseEnded || false,
+        _awaitingDetails: s.awaitingDetails || false,
         _unbookedCredits: s.unbookedCredits || 0,
         _packageTotalCourses: s.packageTotalCourses || null,
         _upcomingCourse: s.upcomingCourse || null,
@@ -619,6 +621,13 @@ export default function AdminStudents() {
         _recentDate: s.latestEnrollmentDate || s.enrollmentCreatedAt || s.createdAt || null,
         _membership: membership || null,
         _statusKey: 'hb',
+        // Handbuilding rows need these too: Fusun Can and the placeholder pax
+        // are both HB, so leaving them off this branch would silently drop the
+        // unbooked count and the awaiting-confirmation badge for exactly the
+        // students they were added for.
+        _courseEnded: s.courseEnded || false,
+        _unbookedCredits: s.unbookedCredits || 0,
+        _awaitingDetails: s.awaitingDetails || false,
       };
     });
 
@@ -1005,7 +1014,15 @@ export default function AdminStudents() {
             // own finished date range reads as "still attending a course that
             // ended in February"; what is actually true is that classes are owed.
             const unbookedLeft = student._courseEnded ? (student._unbookedCredits || 0) : 0;
-            if (statusKey === 'active' && unbookedLeft > 0) statusKey = 'unbooked';
+            // Both branches qualify: WT rows badge 'active', handbuilding rows
+            // badge 'hb'. Paused and upcoming are deliberately excluded — they
+            // render through their own branches and mean something else.
+            if ((statusKey === 'active' || statusKey === 'hb') && unbookedLeft > 0) statusKey = 'unbooked';
+            // A placeholder from a multi-spot order: the purchaser has not sent
+            // this person's details back yet, so nothing here is confirmed —
+            // not the name, not the email. Outranks the unbooked badge, because
+            // counting credits for someone unidentified is meaningless.
+            if (student._awaitingDetails) statusKey = 'awaiting';
 
             return (
               <div

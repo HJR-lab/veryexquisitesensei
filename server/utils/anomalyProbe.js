@@ -351,6 +351,67 @@ async function checkDuplicateSpotEnrollments() {
   return findDuplicateSpots(enrollments, bookingCount);
 }
 
+const WEEKDAY_NAMES = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+
+/**
+ * course_start_date disagreeing with the day the cohort actually runs.
+ *
+ * Found 18/08/26: 6 of 8 upcoming cohorts stored the day BEFORE their first
+ * class (WT1009NT_JL6, a Thursday cohort, stored 2026-09-09 — a Wednesday —
+ * while its first class instance was 2026-09-10). A UTC/SGT boundary loss at
+ * write time. Anything that renders course_start_date to a person shows the
+ * wrong day, which is how a student nearly got told the wrong start date.
+ *
+ * Display code must resolve the real date via packageContinuation
+ * .resolveFirstClassDate(). This check exists so the underlying drift is
+ * visible rather than silently papered over by that helper.
+ */
+async function checkCohortStartDateDrift() {
+  const today = new Date().toISOString().split('T')[0];
+  const { data, error } = await supabase
+    .from('course_enrollments')
+    .select('id, student_id, course_start_date, schedule_pattern, course_identifier, status, customers!course_enrollments_student_id_fkey(id, first_name, last_name, email)')
+    .gte('course_start_date', today)
+    .not('schedule_pattern', 'is', null)
+    .not('course_start_date', 'is', null);
+
+  if (error) {
+    console.error('[AnomalyProbe] cohort start date query error:', error);
+    return [];
+  }
+
+  // One finding per cohort, not per student — the drift is a property of the
+  // cohort, and nine students in one bad cohort is one problem, not nine.
+  const seen = new Map();
+  for (const e of data || []) {
+    if (e.status === 'cancelled') continue;
+    const date = String(e.course_start_date).split(/[T ]/)[0];
+    const actual = WEEKDAY_NAMES[new Date(`${date}T00:00:00+08:00`).getDay()];
+    const stated = String(e.schedule_pattern).toUpperCase();
+    if (actual === stated) continue;
+
+    const key = `${date}|${stated}`;
+    if (!seen.has(key)) {
+      seen.set(key, {
+        type: 'cohort_start_date_drift',
+        severity: 'high',
+        student_id: e.student_id,
+        student_name: formatStudentName(e.customers),
+        student_email: e.customers ? e.customers.email || null : null,
+        enrollment_id: e.id,
+        details: `Cohort ${e.course_identifier || 'unassigned'} stores course_start_date ${date}, which is a ${actual[0]}${actual.slice(1).toLowerCase()}, but the cohort runs on ${stated[0]}${stated.slice(1).toLowerCase()}. Any screen or email showing course_start_date will state the wrong day.`,
+        _count: 0,
+      });
+    }
+    seen.get(key)._count++;
+  }
+
+  return [...seen.values()].map(f => {
+    const { _count, ...rest } = f;
+    return { ...rest, details: `${rest.details} Affects ${_count} enrollment${_count === 1 ? '' : 's'}.` };
+  });
+}
+
 /**
  * Run all invariant checks and return aggregated findings.
  * Failures within a single check do not abort the whole probe.
@@ -362,6 +423,7 @@ async function runAnomalyProbe() {
     checkUnlinkedUpcomingBookings(),
     checkRecentPurchaseWithoutEnrollment(),
     checkDuplicateSpotEnrollments(),
+    checkCohortStartDateDrift(),
   ]);
 
   const findings = [];
@@ -380,4 +442,4 @@ async function runAnomalyProbe() {
   return findings;
 }
 
-module.exports = { runAnomalyProbe, checkOverAllocated, checkStaleUnassigned10Class, checkUnlinkedUpcomingBookings, checkRecentPurchaseWithoutEnrollment, checkDuplicateSpotEnrollments, findDuplicateSpots };
+module.exports = { runAnomalyProbe, checkCohortStartDateDrift, checkOverAllocated, checkStaleUnassigned10Class, checkUnlinkedUpcomingBookings, checkRecentPurchaseWithoutEnrollment, checkDuplicateSpotEnrollments, findDuplicateSpots };

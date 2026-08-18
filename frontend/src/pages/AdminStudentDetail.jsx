@@ -193,6 +193,7 @@ export default function AdminStudentDetail() {
   // ── Continue Package ─────────────────────────────────────────────────────
   const [nextCourse, setNextCourse] = useState(null);
   const [continuingPackage, setContinuingPackage] = useState(false);
+  const [askingStudent, setAskingStudent] = useState(false);
 
   // ── Move / Switch Course ────────────────────────────────────────────────
   const [showMoveModal, setShowMoveModal] = useState(false);
@@ -650,6 +651,31 @@ export default function AdminStudentDetail() {
       setSaveMessage({ type: 'err', text: err.response?.data?.error || 'Failed to continue package' });
     } finally {
       setContinuingPackage(false);
+    }
+  };
+
+  // Ask the student instead of deciding for them: emails them a confirm / pass /
+  // more-time link. They answer, and the enrollment happens by itself.
+  const handleAskStudent = async () => {
+    if (!nextCourse?.available || !enrollment?.id || !student?.id) return;
+    const when = nextCourse.nextCourse?.startDate
+      ? new Date(nextCourse.nextCourse.startDate).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })
+      : 'the next course';
+    if (!confirm(`Email ${student.first_name || 'this student'} asking if they want the course starting ${when}?\n\nThey get 3 days to confirm, pass, or ask for more time.`)) return;
+    setAskingStudent(true);
+    try {
+      const { data } = await api.post(`/admin/students/${student.id}/continuation-offer`, {
+        currentEnrollmentId: enrollment.id,
+      });
+      setSaveMessage({
+        type: 'ok',
+        text: data.emailed ? 'Offer emailed — they have 3 days to reply.' : 'Offer created, but the email did not send. Check the address.',
+      });
+      await loadStudentData();
+    } catch (err) {
+      setSaveMessage({ type: 'err', text: err.response?.data?.error || 'Failed to send the offer' });
+    } finally {
+      setAskingStudent(false);
     }
   };
 
@@ -1357,10 +1383,44 @@ export default function AdminStudentDetail() {
                                   <div style={{ fontSize: '10px', color: MUTED, marginTop: '4px', textAlign: 'center' }}>
                                     {nextCourse.nextCourse?.startDate && new Date(nextCourse.nextCourse.startDate).toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' })}
                                     {nextCourse.nextCourse?.instructor && ` · ${nextCourse.nextCourse.instructor}`}
+                                    {nextCourse.seats && (
+                                      <span style={{ color: nextCourse.seats.severity === 'ok' ? MUTED : '#D93025', fontWeight: nextCourse.seats.severity === 'ok' ? 400 : 700 }}>
+                                        {` · ${nextCourse.seats.signups}/${nextCourse.seats.cap} signups`}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <button
+                                    onClick={handleAskStudent}
+                                    disabled={askingStudent || continuingPackage}
+                                    style={{
+                                      width: '100%', padding: '8px 16px', marginTop: '8px',
+                                      backgroundColor: '#FFFFFF', color: INK, border: `1px solid ${RULE}`,
+                                      borderRadius: '6px', fontSize: '11px', fontWeight: 700,
+                                      letterSpacing: '0.06em', textTransform: 'uppercase', fontFamily: 'inherit',
+                                      cursor: (askingStudent || continuingPackage) ? 'not-allowed' : 'pointer',
+                                      opacity: (askingStudent || continuingPackage) ? 0.6 : 1,
+                                    }}
+                                  >
+                                    {askingStudent ? 'Sending...' : 'Ask student instead'}
+                                  </button>
+                                </div>
+                              )}
+                              {/* Cohort at the signup cap. A continuing student's seat should have
+                                  been withheld before this course was listed, so this is an
+                                  accounting fault to investigate, not a queue to push past. */}
+                              {enr.package_courses_remaining > 0 && nextCourse?.reason === 'cohort_full' && (
+                                <div style={{ marginTop: '12px', padding: '10px 12px', backgroundColor: '#FDF2F2', border: '1px solid #D93025', borderRadius: '6px' }}>
+                                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#D93025' }}>
+                                    Cannot enrol — {nextCourse.seats?.signups}/{nextCourse.seats?.cap} signups
+                                  </div>
+                                  <div style={{ fontSize: '10px', color: MUTED, marginTop: '4px', lineHeight: 1.5 }}>
+                                    {nextCourse.nextCourse?.identifier} is already at capacity. This student's
+                                    seat should have been withheld before the course went on sale — check the
+                                    listed quantity. To seat them anyway, grant a capacity override.
                                   </div>
                                 </div>
                               )}
-                              {enr.package_courses_remaining > 0 && nextCourse !== null && !nextCourse?.available && (
+                              {enr.package_courses_remaining > 0 && nextCourse !== null && !nextCourse?.available && nextCourse?.reason !== 'cohort_full' && (
                                 <div style={{ fontSize: '10px', color: MUTED, marginTop: '8px', fontStyle: 'italic' }}>
                                   No matching upcoming course launched yet
                                 </div>

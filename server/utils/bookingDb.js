@@ -908,6 +908,67 @@ async function getEnrollmentCredits(enrollmentId) {
 }
 
 /**
+ * What a student may actually book, according to the bookings ledger.
+ *
+ * THE ONE ANSWER to "does this person have a class credit". Booking eligibility
+ * used to read customers.classes_allocated first and only consult the ledger if
+ * that came out <= 0. That column defaulted to 6 on every customer record ever
+ * created, so 444 students could book 2,703 classes nobody paid for, and the
+ * booking screen told them so in writing. See scripts/clear-phantom-class-
+ * allocations.js, which cleaned the data in 2026 but could not fix the code path.
+ *
+ * classes_allocated is deliberately NOT consulted here, not even as a fallback:
+ * a default is not a purchase, and the ledger is the only proof of entitlement.
+ *
+ * A student with no enrollment row at all gets remaining 0 and reason
+ * 'no-enrollment'. That case is real but ambiguous — the order-sync gap leaves
+ * genuinely-paid customers without an enrollment — so callers should say so
+ * plainly rather than claim the credits were used up.
+ *
+ * @param {number} customerId
+ * @returns {Promise<{remaining:number, enrollment:object|null, reason:string}>}
+ */
+async function getBookableCredits(customerId) {
+  const { data: candidates } = await supabase
+    .from('course_enrollments')
+    // 'completed' is included deliberately: a 10-class package keeps its flex
+    // classes after the 6-week cohort ends, and the student must still be able
+    // to book them.
+    .select('id, course_type, course_identifier, number_of_weeks, class_credits_allocated, credits_closed_at, status')
+    .eq('student_id', customerId)
+    .in('status', ['active', 'completed']);
+
+  if (!candidates || candidates.length === 0) {
+    return { remaining: 0, enrollment: null, reason: 'no-enrollment' };
+  }
+
+  const withCredits = [];
+  for (const e of candidates) {
+    // A block an admin has deliberately closed wins over whatever the ledger computes.
+    if (e.credits_closed_at) continue;
+    const credits = await getEnrollmentCredits(e.id);
+    if (credits.remaining > 0) {
+      withCredits.push({ ...e, computedRemaining: credits.remaining, computedCommitted: credits.committed });
+    }
+  }
+
+  if (withCredits.length === 0) {
+    return { remaining: 0, enrollment: null, reason: 'no-credits' };
+  }
+
+  // Prefer a 10-class package so flex credits are spent before anything else.
+  const enrollment = withCredits.find(e =>
+    e.number_of_weeks >= 10 || (e.course_type || '').includes('10 Classes')
+  ) || withCredits[0];
+
+  return {
+    remaining: withCredits.reduce((sum, e) => sum + e.computedRemaining, 0),
+    enrollment,
+    reason: 'ok',
+  };
+}
+
+/**
  * Recompute an enrollment's stored credit cache from the bookings ledger.
  *
  * THE ONLY SANCTIONED WRITER of class_credits_used / class_credits_remaining
@@ -1047,6 +1108,7 @@ async function resolveBookingEnrollment(studentId, classInstance) {
 }
 
 module.exports = {
+  getBookableCredits,
   getEnrollmentCredits,
   syncStoredCredits,
   resolveBookingEnrollment,

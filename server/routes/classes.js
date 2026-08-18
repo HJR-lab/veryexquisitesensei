@@ -639,6 +639,20 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
   });
 }));
 
+// What this student may actually book. Serves the SAME ledger answer the
+// booking gate enforces with, so the screen can never promise a class the
+// server will then refuse — which is exactly what customers.classes_allocated
+// used to do, in writing, to 444 students.
+app.get('/api/classes/my-credits', authenticateToken, asyncHandler(async (req, res) => {
+  const { dbCustomerId } = req.user;
+  const bookable = await supabaseDb.getBookableCredits(dbCustomerId);
+  res.json({
+    remaining: bookable.remaining,
+    reason: bookable.reason,
+    enrollmentId: bookable.enrollment?.id || null,
+  });
+}));
+
 // Book a makeup class using remaining credits
 app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req, res) => {
   const { dbCustomerId } = req.user;
@@ -648,10 +662,13 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
     return res.status(400).json({ error: 'Class instance ID required' });
   }
 
-  // Get student's credit info
+  // Eligibility comes from the bookings ledger and nothing else. This used to
+  // read customers.classes_allocated first — a column that defaulted to 6 — and
+  // only fell through to the ledger when that came out <= 0, so any student the
+  // stale figure said had credits booked without the ledger ever being asked.
   const { data: customer, error: customerError } = await supabaseDb.supabase
     .from('customers')
-    .select('id, classes_allocated, first_name, last_name')
+    .select('id, first_name, last_name')
     .eq('id', dbCustomerId)
     .single();
 
@@ -659,58 +676,18 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
     return res.status(404).json({ error: 'Customer not found' });
   }
 
-  // Get ALL bookings to calculate remaining credits
-  const { data: allBookings } = await supabaseDb.supabase
-    .from('bookings')
-    .select('id')
-    .eq('student_id', dbCustomerId)
-    .in('status', ['booked', 'attended']);
+  const bookable = await supabaseDb.getBookableCredits(dbCustomerId);
+  const creditEnrollment = bookable.enrollment;
 
-  const totalBooked = allBookings ? allBookings.length : 0;
-  const remainingCredits = customer.classes_allocated - totalBooked;
-
-  // Also check enrollment credits (for 10-class packages and other enrollment-based credits)
-  let enrollmentCredits = 0;
-  let creditEnrollment = null;
-  if (remainingCredits <= 0) {
-    // 'completed' is included deliberately: a 10-class package keeps its flex
-    // classes after the 6-week cohort ends, and the student must still be able
-    // to book them. Gating on 'active' alone locked them out of classes they own.
-    const { data: candidates } = await supabaseDb.supabase
-      .from('course_enrollments')
-      .select('id, course_type, class_credits_remaining, class_credits_used, number_of_weeks, credits_closed_at')
-      .eq('student_id', dbCustomerId)
-      .in('status', ['active', 'completed']);
-
-    // Eligibility comes from the bookings ledger. The one exception is a block
-    // an admin has deliberately closed, which wins over the ledger.
-    //
-    // That closure used to be inferred from class_credits_remaining === 0, which
-    // conflated "an admin closed this" with "the number happens to be zero" —
-    // and silently trapped any enrollment whose stored columns were never
-    // populated (Geraldine Lai, enr 5347: ledger said 3, stored said 0 because
-    // nothing had ever written it). Closure is now its own fact.
-    const withCredits = [];
-    for (const e of candidates || []) {
-      if (e.credits_closed_at) continue;
-      const credits = await supabaseDb.getEnrollmentCredits(e.id);
-      if (credits.remaining > 0) {
-        withCredits.push({ ...e, computedRemaining: credits.remaining, computedCommitted: credits.committed });
-      }
-    }
-
-    if (withCredits.length > 0) {
-      // Prefer 10-class package, then any enrollment with credits
-      creditEnrollment = withCredits.find(e => e.number_of_weeks >= 10 || (e.course_type || '').includes('10 Classes'))
-        || withCredits[0];
-      enrollmentCredits = creditEnrollment.computedRemaining;
-    }
-  }
-
-  if (remainingCredits <= 0 && enrollmentCredits <= 0) {
+  if (bookable.remaining <= 0) {
+    // Distinguish the two reasons. The order-sync gap can leave a genuinely
+    // paid-up student with no enrollment row, and telling them they have used
+    // up credits they never received sends them arguing with the studio.
     return res.status(400).json({
       error: 'No remaining credits available',
-      details: `You have used all ${customer.classes_allocated} class credits.`
+      details: bookable.reason === 'no-enrollment'
+        ? 'We have no active course on your account. If you have just purchased, please contact the studio so we can set it up.'
+        : 'You have used all the classes on your account.',
     });
   }
 
@@ -844,16 +821,16 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   let booking;
   let bookingError;
 
-  const useEnrollmentCredits = remainingCredits <= 0 && creditEnrollment;
   // Link the booking to the enrollment it is spending from. A booking with no
   // enrollment link is INVISIBLE to getEnrollmentCredits, which counts by
   // course_enrollment_id — the class gets booked, the seat is taken, and the
   // credit is never spent.
   //
-  // This fallback used to look only for a 10-class package, so a 6-week WT
-  // student whose legacy classes_allocated counter still read positive got a
-  // null link and a free class (Sanjana Vijay, booking 29649, 09/08/26).
-  let enrollmentId = useEnrollmentCredits ? creditEnrollment.id : null;
+  // Eligibility now always resolves an enrollment, so the old "legacy counter
+  // said yes, link nothing" path is gone with it — that was how a 6-week WT
+  // student got a null link and a free class (Sanjana Vijay, booking 29649,
+  // 09/08/26). The resolve call stays as a belt-and-braces fallback.
+  let enrollmentId = creditEnrollment ? creditEnrollment.id : null;
   if (!enrollmentId) {
     enrollmentId = await supabaseDb.resolveBookingEnrollment(dbCustomerId, classInstance);
   }
@@ -905,11 +882,11 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   await supabaseDb.updateClassEnrollment(parseInt(classInstanceId), 1);
 
   // The booking above is now in the ledger, so the cache just needs to catch up.
-  if (useEnrollmentCredits) {
+  if (creditEnrollment) {
     await supabaseDb.syncStoredCredits(creditEnrollment.id);
   }
 
-  const creditsLeft = useEnrollmentCredits ? enrollmentCredits - 1 : remainingCredits - 1;
+  const creditsLeft = Math.max(0, bookable.remaining - 1);
 
   // Auto-cancel waitlist if no credits remaining
   const cancelledWaitlist = await cancelWaitlistIfNoCredits(dbCustomerId);

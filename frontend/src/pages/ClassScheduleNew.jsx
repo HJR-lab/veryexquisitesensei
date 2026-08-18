@@ -58,6 +58,11 @@ export default function ClassScheduleNew() {
   // ── API state (preserved from production) ──────────────────────────────────
   const [classes, setClasses] = useState([]);
   const [myBookings, setMyBookings] = useState([]);
+  // The server's ledger answer. Never derive this on the client: the old
+  // formula read customers.classes_allocated (a column that defaulted to 6)
+  // minus locally-counted bookings, and told 444 students they had classes
+  // they had not bought.
+  const [bookableCredits, setBookableCredits] = useState(null);
   const myWaitlistEntries = []; // waitlist disabled
   const [studentData, setStudentData] = useState(null);
   const [dashboardData, setDashboardData] = useState(null);
@@ -183,6 +188,14 @@ export default function ClassScheduleNew() {
     try {
       const bookingsRes = await api.get('/classes/my-bookings');
       setMyBookings(bookingsRes.data.bookings || []);
+      try {
+        const creditsRes = await api.get('/classes/my-credits');
+        setBookableCredits(creditsRes.data?.remaining ?? 0);
+      } catch {
+        // Unknown is not zero: leave it null so the UI stays neutral rather
+        // than either promising credits or wrongly claiming there are none.
+        setBookableCredits(null);
+      }
     } catch (error) {
       console.error('Error fetching bookings:', error);
     }
@@ -497,9 +510,8 @@ export default function ClassScheduleNew() {
           }
         }
         // Check if student has credits for a makeup / single class
-        const remaining = (studentData?.classes_allocated || 0) -
-          (myBookings?.filter(b => b.status === 'booked' || b.status === 'attended').length || 0);
-        if (remaining > 0) {
+        // Same ledger number the server will enforce with; no local arithmetic.
+        if ((bookableCredits ?? 0) > 0) {
           const response = await classesAPI.bookMakeupClass(classItem.id);
           alert(response.message || 'Class booked successfully!');
         } else {
@@ -527,8 +539,7 @@ export default function ClassScheduleNew() {
   };
 
   // ── Remaining credits helper ────────────────────────────────────────────────
-  const remainingCredits = (studentData?.classes_allocated || 0) -
-    (myBookings?.filter(b => b.status === 'booked' || b.status === 'attended').length || 0);
+  const remainingCredits = bookableCredits ?? 0;
 
   // ── 10-class package: extra credits beyond the 6 scheduled classes ────────
   const allEnrollments = [...(dashboardData?.enrollments?.active || []), ...(dashboardData?.enrollments?.upcoming || []), ...(dashboardData?.enrollments?.pending || [])];

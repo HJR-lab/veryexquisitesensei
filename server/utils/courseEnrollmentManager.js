@@ -16,6 +16,7 @@ const {
   updateCustomer
 } = require('./supabaseDb');
 const courseConfig = require('./courseConfig');
+const { roomCapacity } = require('../config/capacity');
 
 const MINIMUM_STUDENTS_THRESHOLD = 4; // legacy export kept for backward compatibility
 
@@ -507,18 +508,21 @@ async function linkStudentsToExistingClasses(cohortEnrollments, classInstances) 
     // Skip if already has bookings
     if (enrollment.bookings_created_at) continue;
 
-    // Filter out classes that are already full (hard cap 10)
+    // Filter out classes that are already full. roomCapacity() is the same cap
+    // the booking gate applies, so a 6-week WT's weeks 4 and 5 correctly show
+    // their eleventh place here rather than turning a paid-up signup away.
     const availableInstances = [];
     for (const ci of classInstances) {
+      const cap = roomCapacity(ci);
       const { count } = await supabase
         .from('bookings')
         .select('id', { count: 'exact', head: true })
         .eq('class_instance_id', ci.id)
         .eq('status', 'booked');
-      if (count < (ci.max_capacity || 10)) {
+      if (count < cap) {
         availableInstances.push(ci);
       } else {
-        console.warn(`[Enrollment] Skipping class ${ci.id} (${ci.class_type}) — full (${count}/10)`);
+        console.warn(`[Enrollment] Skipping class ${ci.id} (${ci.class_type}) — full (${count}/${cap})`);
       }
     }
 

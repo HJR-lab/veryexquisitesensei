@@ -3,6 +3,7 @@ const { generateICS, generateMultipleICS } = require('../utils/calendarGenerator
 const courseConfig = require('../utils/courseConfig');
 const { getPackageProgress } = require('../utils/packageProgress');
 const { setClassGlazing } = require('../utils/glazing');
+const { roomCapacity } = require('../config/capacity');
 
 // In-memory cache for admin stats summary (30s TTL)
 let adminStatsSummaryCache = null;
@@ -4081,7 +4082,7 @@ app.post('/api/admin/classes/:classId/add-student', authenticateToken, requireAd
   if (!seat.allowed) {
     return res.status(400).json({
       error: seat.reason === 'STUDIO_FULL'
-        ? `Studio is full — all ${supabaseDb.STUDIO_WHEELS} wheels are booked for this timeslot`
+        ? `Studio is full — all ${seat.counts.studioWheels} places are taken for this timeslot`
         : 'Class is full'
     });
   }
@@ -4897,7 +4898,7 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
   if (!seat.allowed) {
     return res.status(400).json({
       error: seat.reason === 'STUDIO_FULL'
-        ? `Studio is full — all ${supabaseDb.STUDIO_WHEELS} wheels are booked for this timeslot`
+        ? `Studio is full — all ${seat.counts.studioWheels} places are taken for this timeslot`
         : 'Class is full'
     });
   }
@@ -5275,8 +5276,13 @@ app.post('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asy
     // Generate the class type with week number (e.g., WT1210AM_DL6.1, WT1210AM_DL6.2, etc.)
     const classTypeWithWeek = `${classType}.${weekNumber}`;
 
-    // Use glazing capacity for the last class, regular capacity for others
-    const classCapacity = isLastClass ? finalGlazingCapacity : regularCapacity;
+    // Use glazing capacity for the last class, regular capacity for others —
+    // then let roomCapacity() add the third make-up seat on a 6-week WT's
+    // weeks 4 and 5, which is the one place that rule lives.
+    const classCapacity = roomCapacity({
+      class_type: classTypeWithWeek,
+      max_capacity: isLastClass ? finalGlazingCapacity : regularCapacity,
+    });
 
     const { data, error} = await supabaseDb.supabase
       .from('class_instances')
@@ -5697,7 +5703,9 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
   // as the student reschedule path.
   const { data: targetClass, error: targetClassErr } = await supabaseDb.supabase
     .from('class_instances')
-    .select('id, max_capacity, class_date, start_time')
+    // class_type is needed by the seat gate: it is what tells roomCapacity() /
+    // wheelCapFor() that a 6-week WT's week 4 or 5 holds a third make-up.
+    .select('id, class_type, max_capacity, class_date, start_time')
     .eq('id', parseInt(newClassInstanceId))
     .single();
 
@@ -5712,7 +5720,7 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
   if (!seat.allowed) {
     return res.status(400).json({
       error: seat.reason === 'STUDIO_FULL'
-        ? `Studio is full — all ${supabaseDb.STUDIO_WHEELS} wheels are booked for this timeslot.`
+        ? `Studio is full — all ${seat.counts.studioWheels} places are taken for this timeslot.`
         : 'This class is full. Cannot reschedule to a class at max capacity.'
     });
   }

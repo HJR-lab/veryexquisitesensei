@@ -1685,7 +1685,7 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
   if (!rsSeat.allowed) {
     return res.status(400).json({
       error: rsSeat.reason === 'STUDIO_FULL'
-        ? `Studio is full — all ${supabaseDb.STUDIO_WHEELS} wheels are booked for this timeslot`
+        ? `Studio is full — all ${rsSeat.counts.studioWheels} places are taken for this timeslot`
         : 'This class is completely full'
     });
   }

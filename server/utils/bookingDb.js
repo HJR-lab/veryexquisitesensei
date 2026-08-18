@@ -9,6 +9,7 @@
 
 const { supabase } = require('./supabaseClient');
 const { glazingSubCap } = require('./glazing');
+const { STUDIO_WHEELS, roomCapacity, makeupSeats, wheelCapFor } = require('../config/capacity');
 
 /**
  * Get available classes (all classes including past ones for course viewing)
@@ -62,7 +63,8 @@ async function getAvailableClasses() {
     const actualEnrollment = bookingCounts[classInstance.id] || 0;
     const makeupCount = makeupCounts[classInstance.id] || 0;
     const waitlistCount = waitlistCounts[classInstance.id] || 0;
-    const totalCapacity = classInstance.max_capacity || 10;
+    const totalCapacity = roomCapacity(classInstance);
+    const makeupCapacity = makeupSeats(classInstance);
 
     return {
       id: classInstance.id,
@@ -84,7 +86,8 @@ async function getAvailableClasses() {
       updatedAt: classInstance.updated_at,
       waitlistCount,
       makeupBookings: makeupCount,
-      makeupSpotsAvailable: 2 - makeupCount,
+      makeupCapacity,
+      makeupSpotsAvailable: makeupCapacity - makeupCount,
       spotsAvailable: totalCapacity - actualEnrollment,
       regularSpotsAvailable: REGULAR_CAPACITY - actualEnrollment,
       isFull: actualEnrollment >= REGULAR_CAPACITY,
@@ -276,7 +279,7 @@ async function getClassInstanceById(classInstanceId) {
 // The studio has 10 wheels total. A "timeslot" (class_date + start_time) can hold
 // at most 10 booked students across ALL cohorts that share it — even when two
 // concurrent courses run at the same time (internally split as Studio A / Studio B).
-const STUDIO_WHEELS = 10;
+
 
 // Normalize start_time for slot matching — the column has drifted between formats
 // ("9:30am" vs "9:30 AM"), so compare case/space-insensitively.
@@ -383,7 +386,10 @@ async function getInstanceCapacityOverrides(classInstanceId) {
  */
 async function checkSeatAvailability(classInstance, studentId, opts = {}) {
   const { checkWheels = false, asGlazing = false } = opts;
-  const cap = classInstance.max_capacity || 10;
+  const cap = roomCapacity(classInstance);
+  // Weeks 4 and 5 of a 6-week WT are allowed one over the general ceiling; every
+  // other class reads the plain STUDIO_WHEELS number.
+  const wheelCap = wheelCapFor(classInstance);
 
   const { count: bookedCount } = await supabase
     .from('bookings')
@@ -414,9 +420,9 @@ async function checkSeatAvailability(classInstance, studentId, opts = {}) {
     glazingBooked = count || 0;
   }
 
-  const counts = { booked, cap, wheels, studioWheels: STUDIO_WHEELS, glazingBooked, glazingCap: subCap };
+  const counts = { booked, cap, wheels, studioWheels: wheelCap, glazingBooked, glazingCap: subCap };
   const classFull   = booked >= cap;
-  const studioFull  = wheels !== null && wheels >= STUDIO_WHEELS;
+  const studioFull  = wheels !== null && wheels >= wheelCap;
   const glazingFull = glazingBooked !== null && glazingBooked >= subCap;
 
   if (!classFull && !studioFull && !glazingFull) {
@@ -457,7 +463,7 @@ async function createBooking(bookingData) {
     if (!seat.allowed) {
       let err;
       if (seat.reason === 'STUDIO_FULL') {
-        err = new Error(`Studio is full — all ${STUDIO_WHEELS} wheels are booked for this timeslot (${seat.counts.wheels}/${STUDIO_WHEELS})`);
+        err = new Error(`Studio is full — all ${seat.counts.studioWheels} places are taken for this timeslot (${seat.counts.wheels}/${seat.counts.studioWheels})`);
       } else if (seat.reason === 'GLAZING_FULL') {
         err = new Error(`This class already has its ${seat.counts.glazingCap} glazing places taken (${seat.counts.glazingBooked}/${seat.counts.glazingCap}). The class itself still has room for regular bookings.`);
       } else {

@@ -626,6 +626,9 @@ function startAutomaticProcessing() {
       // Runs before the 2:15 anomaly probe, so the probe only reports what
       // could not be repaired automatically.
       autoRelinkUnlinkedBookings().catch(console.error);
+      // Lapse yesterday's expired continuation offers and offer the next
+      // course to anyone newly due one.
+      require('./continuationSweep').runContinuationSweep().catch(console.error);
     }
 
     // Run anomaly probe at 2:15 AM — after the 2:00 AM batch so any

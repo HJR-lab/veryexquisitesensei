@@ -39,10 +39,11 @@ async function main() {
   console.log(`offers already in the table: ${before.count}`);
 
   // ---- 1. Who the sweep considers ----
-  const due = await findDuePackageStudents();
-  console.log(`\npackage students considered: ${due.length}`);
+  const { due, paused } = await findDuePackageStudents();
+  console.log(`\npackage students considered: ${due.length} (plus ${paused.length} paused, deliberately skipped)`);
   const perStudent = new Map();
   due.forEach(e => perStudent.set(e.student_id, (perStudent.get(e.student_id) || 0) + 1));
+  assert(!due.some(e => e.status === 'paused'), 'no paused student is in the due list');
   assert([...perStudent.values()].every(n => n === 1), 'one enrollment per student (latest only, no duplicates)');
 
   // ---- 2. First run creates offers ----

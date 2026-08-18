@@ -44,24 +44,33 @@ async function lapseExpiredOffers() {
 }
 
 /**
- * Every active multi-course package enrollment that still owes the student a
- * course. One row per student per package; the student's CURRENT enrollment is
- * the one that knows their slot.
+ * The enrollment that describes where each package student is NOW.
+ *
+ * Status cannot be used to filter the query, only to judge the row we end up
+ * with. Filtering on active/upcoming dropped everyone BETWEEN courses — their
+ * last cohort is 'completed' and the next does not exist yet — which is
+ * precisely the group the offer exists for. April Koh (1182) had finished 2 of
+ * 3 and was invisible to the sweep for exactly this reason.
+ *
+ * So: read every non-cancelled package enrollment, take the newest per student,
+ * and judge that one. Taking the newest first is what makes a pause stick — a
+ * student whose latest cohort is paused must not be dragged back in by an older
+ * active row sitting behind it.
+ *
+ * @returns {Promise<{due: Array, paused: Array}>}
  */
 async function findDuePackageStudents() {
   const { data, error } = await supabase
     .from('course_enrollments')
     .select('*, customers!course_enrollments_student_id_fkey(id, first_name, last_name, email)')
     .gte('package_total_courses', 2)
-    .in('status', ['active', 'upcoming']);
+    .neq('status', 'cancelled');
 
   if (error) {
     console.error('[ContinuationSweep] enrollment query failed:', error.message);
-    return [];
+    return { due: [], paused: [] };
   }
 
-  // A student mid-package holds several enrollments over time. Only the latest
-  // one describes where they are now, so collapse to the newest per student.
   const latest = new Map();
   for (const e of data || []) {
     const prev = latest.get(e.student_id);
@@ -69,7 +78,16 @@ async function findDuePackageStudents() {
       latest.set(e.student_id, e);
     }
   }
-  return [...latest.values()];
+
+  const due = [];
+  const paused = [];
+  for (const e of latest.values()) {
+    // A pause is a deliberate "not now". Respect it — resuming is an admin
+    // action, not something a nightly job decides.
+    if (e.status === 'paused') paused.push(e);
+    else due.push(e);
+  }
+  return { due, paused };
 }
 
 /**
@@ -79,9 +97,10 @@ async function findDuePackageStudents() {
  * "no cohort scheduled yet" is the normal state for most of them, not news.
  */
 async function createDueOffers() {
-  const students = await findDuePackageStudents();
+  const { due: students, paused } = await findDuePackageStudents();
   const created = [];
   const skipped = {};
+  if (paused.length) skipped.paused = paused.length;
 
   for (const enrollment of students) {
     const studentId = enrollment.student_id;

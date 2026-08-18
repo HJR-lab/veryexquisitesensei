@@ -165,6 +165,14 @@ async function resolveNextCourse(enrollment, studentId) {
       .eq('id', enrollment.id);
   }
 
+  // "After their current course ends" is not the same as "in the future". A
+  // student between courses — finished one, not yet in the next — has an end
+  // date in the past, and asking only for cohorts after it happily returns one
+  // that has already run. April Koh (1182) resolved to WT2107NT_JL6 starting
+  // 21 Jul while today was 18 Aug. Take whichever boundary is later.
+  const todayStr = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const notBefore = currentEndDate > todayStr ? currentEndDate : todayStr;
+
   // Future enrollments at the same slot stand in for "launched cohorts" —
   // the app cannot see the Shopify catalogue, so a cohort is only visible
   // once somebody is in it.
@@ -173,7 +181,7 @@ async function resolveNextCourse(enrollment, studentId) {
     .select('course_start_date, course_end_date, course_identifier, schedule_pattern, class_time, instructor, course_title, course_variant_title')
     .eq('schedule_pattern', schedulePattern)
     .eq('class_time', classTime)
-    .gt('course_start_date', currentEndDate)
+    .gt('course_start_date', notBefore)
     .not('course_start_date', 'is', null)
     .order('course_start_date', { ascending: true });
 

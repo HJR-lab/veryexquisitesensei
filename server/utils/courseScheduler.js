@@ -395,9 +395,9 @@ function createClassInstances(courseInfo, options = {}) {
       class_type: courseIdentifier || `${courseInfo.courseType} (Week ${weekNumber}/${classDates.length})`,
       instructor: courseInfo.instructor || instructorName,
       room: courseInfo.room || room,
-      // roomCapacity() widens weeks 4 and 5 of a 6-week WT to their third
-      // make-up seat. Storing it (rather than leaving the gate to derive it)
-      // keeps every roster and capacity readout agreeing with the gate.
+      // roomCapacity() widens weeks 4 and 5 of a 6-week WT to 11. Storing it
+      // (rather than leaving the gate to derive it) keeps every roster and
+      // capacity readout agreeing with the gate.
       max_capacity: roomCapacity({
         class_type: courseIdentifier,
         max_capacity: isLastClass ? glazingCapacity : maxCapacity,

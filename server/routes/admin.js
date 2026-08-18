@@ -5277,8 +5277,8 @@ app.post('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asy
     const classTypeWithWeek = `${classType}.${weekNumber}`;
 
     // Use glazing capacity for the last class, regular capacity for others —
-    // then let roomCapacity() add the third make-up seat on a 6-week WT's
-    // weeks 4 and 5, which is the one place that rule lives.
+    // then let roomCapacity() widen a 6-week WT's weeks 4 and 5, which is the
+    // one place that rule lives.
     const classCapacity = roomCapacity({
       class_type: classTypeWithWeek,
       max_capacity: isLastClass ? finalGlazingCapacity : regularCapacity,
@@ -5704,7 +5704,7 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
   const { data: targetClass, error: targetClassErr } = await supabaseDb.supabase
     .from('class_instances')
     // class_type is needed by the seat gate: it is what tells roomCapacity() /
-    // wheelCapFor() that a 6-week WT's week 4 or 5 holds a third make-up.
+    // wheelCapFor() that a 6-week WT's week 4 or 5 holds an eleventh place.
     .select('id, class_type, max_capacity, class_date, start_time')
     .eq('id', parseInt(newClassInstanceId))
     .single();

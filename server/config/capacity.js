@@ -45,27 +45,29 @@ const WT_SIGNUP_CRITICAL = 10;
 // deliberate decision rather than a matter of buying a wheel.
 const STUDIO_WHEELS = 10;
 
-// Room cap for an ordinary WT class instance: 8 signups + 2 make-ups.
+// Room cap for an ordinary WT class instance. It usually fills as 8 signups plus
+// 2 make-ups, but that split is DESCRIPTIVE, not a rule: make-ups have no
+// allowance of their own and compete for the same seats as everyone else. The
+// only question a booking asks is whether the room is under its cap.
 const WT_ROOM_CAP = 10;
 
-// Make-up seats in an ordinary week — the gap between the signup cap and the
-// room cap, named so it stops being an unexplained "2" in three files.
-const WT_MAKEUP_SEATS = 2;
-
-// Weeks 4 and 5 of a 6-week WT course take a THIRD make-up: 8 + 3 = 11.
+// Weeks 4 and 5 of a 6-week WT course hold 11 instead.
 //
-// Those two weeks are trimming. Trimming needs far less instructor attention
-// than throwing does, so an eleventh student fits the teaching load even though
-// the general ceiling is 10 — and the studio has the wheel for them either way.
-// The allowance is read off the class being seated, so it belongs to the 6.4 and
-// 6.5 classes alone: another class sharing that timeslot is still bound by
+// Those two weeks are trimming, which needs far less instructor attention than
+// throwing does, so an eleventh student fits the teaching load even though the
+// general ceiling is 10 — and the studio has the wheel for them either way.
+//
+// The extra place is not earmarked for a make-up. 6 signups and 5 make-ups is
+// as valid as 8 and 3; 11 in the room is the whole rule.
+//
+// It is read off the class being seated, so it belongs to the 6.4 and 6.5
+// classes alone: another class sharing that timeslot is still bound by
 // STUDIO_WHEELS.
 //
 // 11 is a trial. If it holds, the next step is 12 (the real wheel count), which
-// is a change to WT_EXTRA_ROOM_CAP here and nowhere else.
-const WT_EXTRA_MAKEUP_WEEKS = Object.freeze({ 6: [4, 5] });
-const WT_EXTRA_MAKEUP_SEATS = 3;
-const WT_EXTRA_ROOM_CAP = 11;
+// is a change to WT_WIDE_ROOM_CAP here and nowhere else.
+const WT_WIDE_WEEKS = Object.freeze({ 6: [4, 5] });
+const WT_WIDE_ROOM_CAP = 11;
 
 /**
  * Read the week indicator off a class code.
@@ -82,22 +84,14 @@ function parseWtWeek(classType) {
 }
 
 /**
- * Does this class carry the third make-up seat?
+ * Is this one of the weeks that holds the wider room?
  * @param {object|string} classInstance  a class_instances row, or its class_type
  */
-function hasExtraMakeupSeat(classInstance) {
+function hasWideRoom(classInstance) {
   const classType = typeof classInstance === 'string' ? classInstance : classInstance?.class_type;
   const wk = parseWtWeek(classType);
   if (!wk) return false;
-  return (WT_EXTRA_MAKEUP_WEEKS[wk.total] || []).includes(wk.week);
-}
-
-/**
- * How many make-up seats this class holds — 3 on a 6-week WT's weeks 4 and 5,
- * 2 everywhere else.
- */
-function makeupSeats(classInstance) {
-  return hasExtraMakeupSeat(classInstance) ? WT_EXTRA_MAKEUP_SEATS : WT_MAKEUP_SEATS;
+  return (WT_WIDE_WEEKS[wk.total] || []).includes(wk.week);
 }
 
 /**
@@ -111,19 +105,20 @@ function makeupSeats(classInstance) {
  */
 function roomCapacity(classInstance) {
   const stored = Number.isInteger(classInstance?.max_capacity) ? classInstance.max_capacity : null;
-  if (hasExtraMakeupSeat(classInstance)) return Math.max(stored || 0, WT_EXTRA_ROOM_CAP);
+  if (hasWideRoom(classInstance)) return Math.max(stored || 0, WT_WIDE_ROOM_CAP);
   return stored || WT_ROOM_CAP;
 }
 
 /**
- * The wheel ceiling that applies when seating someone in THIS class.
+ * The timeslot ceiling that applies when seating someone in THIS class.
  *
- * Weeks 4 and 5 of a 6-week WT run one over the wheel count on purpose. The
- * allowance is read off the class being booked, so a make-up into a 6.4 gets
- * the 11th place while an ordinary class in the same timeslot does not.
+ * Weeks 4 and 5 of a 6-week WT run one over the general ceiling on purpose. It
+ * is read off the class being booked, so whoever takes the 11th place in a 6.4
+ * gets it — signup or make-up, the gate does not distinguish — while an
+ * ordinary class in the same timeslot is still held to 10.
  */
 function wheelCapFor(classInstance) {
-  return hasExtraMakeupSeat(classInstance) ? WT_EXTRA_ROOM_CAP : STUDIO_WHEELS;
+  return hasWideRoom(classInstance) ? WT_WIDE_ROOM_CAP : STUDIO_WHEELS;
 }
 
 /**
@@ -144,13 +139,10 @@ module.exports = {
   signupSeverity,
   STUDIO_WHEELS,
   WT_ROOM_CAP,
-  WT_MAKEUP_SEATS,
-  WT_EXTRA_MAKEUP_WEEKS,
-  WT_EXTRA_MAKEUP_SEATS,
-  WT_EXTRA_ROOM_CAP,
+  WT_WIDE_WEEKS,
+  WT_WIDE_ROOM_CAP,
   parseWtWeek,
-  hasExtraMakeupSeat,
-  makeupSeats,
+  hasWideRoom,
   roomCapacity,
   wheelCapFor,
 };

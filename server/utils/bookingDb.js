@@ -9,7 +9,7 @@
 
 const { supabase } = require('./supabaseClient');
 const { glazingSubCap } = require('./glazing');
-const { STUDIO_WHEELS, roomCapacity, makeupSeats, wheelCapFor } = require('../config/capacity');
+const { STUDIO_WHEELS, roomCapacity, wheelCapFor } = require('../config/capacity');
 
 /**
  * Get available classes (all classes including past ones for course viewing)
@@ -64,7 +64,6 @@ async function getAvailableClasses() {
     const makeupCount = makeupCounts[classInstance.id] || 0;
     const waitlistCount = waitlistCounts[classInstance.id] || 0;
     const totalCapacity = roomCapacity(classInstance);
-    const makeupCapacity = makeupSeats(classInstance);
 
     return {
       id: classInstance.id,
@@ -86,8 +85,9 @@ async function getAvailableClasses() {
       updatedAt: classInstance.updated_at,
       waitlistCount,
       makeupBookings: makeupCount,
-      makeupCapacity,
-      makeupSpotsAvailable: makeupCapacity - makeupCount,
+      // Make-ups have no allowance of their own — they compete for the same
+      // seats as everyone else, so what is left for one is simply what is left.
+      makeupSpotsAvailable: Math.max(0, totalCapacity - actualEnrollment),
       spotsAvailable: totalCapacity - actualEnrollment,
       regularSpotsAvailable: REGULAR_CAPACITY - actualEnrollment,
       isFull: actualEnrollment >= REGULAR_CAPACITY,
@@ -388,7 +388,8 @@ async function checkSeatAvailability(classInstance, studentId, opts = {}) {
   const { checkWheels = false, asGlazing = false } = opts;
   const cap = roomCapacity(classInstance);
   // Weeks 4 and 5 of a 6-week WT are allowed one over the general ceiling; every
-  // other class reads the plain STUDIO_WHEELS number.
+  // other class reads the plain STUDIO_WHEELS number. Neither gate cares whether
+  // the booking is a signup or a make-up — only whether the room is under cap.
   const wheelCap = wheelCapFor(classInstance);
 
   const { count: bookedCount } = await supabase

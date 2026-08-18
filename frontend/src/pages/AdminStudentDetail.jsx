@@ -1195,8 +1195,25 @@ export default function AdminStudentDetail() {
                         : Math.max(0, enrAllocated - enrBookedCount) + enrFlexRemaining;
                       const isUpcoming = enr.display_status === 'upcoming';
                       const isPrimary = enr.id === enrollment?.id;
-                      const statusLabel = isUpcoming ? 'UPCOMING' : enr.status === 'paused' ? 'PAUSED' : 'ACTIVE';
-                      const statusColor = isUpcoming ? '#6B7280' : enr.status === 'paused' ? '#D97706' : '#059669';
+                      // display_status is the server's verdict and outranks the raw
+                      // column: an enrollment still marked 'active' whose classes are
+                      // all past comes back as 'completed', and a student with no
+                      // active enrollment is shown their most recent completed one.
+                      // ACTIVE used to be the fall-through default here, so every
+                      // finished course badged itself ACTIVE on this page while the
+                      // Users list correctly said COURSE FINISHED for the same row.
+                      // 'Course finished' matches that wording deliberately.
+                      const effectiveStatus = enr.display_status || enr.status;
+                      const statusBadges = {
+                        upcoming:  { label: 'UPCOMING',        color: '#6B7280' },
+                        paused:    { label: 'PAUSED',          color: '#D97706' },
+                        completed: { label: 'COURSE FINISHED', color: MUTED },
+                        cancelled: { label: 'CANCELLED',       color: '#6B7280' },
+                        active:    { label: 'ACTIVE',          color: '#059669' },
+                      };
+                      const statusBadge = statusBadges[effectiveStatus] || statusBadges.active;
+                      const statusLabel = statusBadge.label;
+                      const statusColor = statusBadge.color;
 
                       return (
                         <div key={enr.id} style={{

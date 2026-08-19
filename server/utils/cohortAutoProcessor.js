@@ -472,7 +472,7 @@ async function checkWeeklyUnconfirmedRecheck() {
 /**
  * Check for piece batches that need reminder emails.
  * Sends reminders every 14 days for batches in 'ready' status
- * that haven't been collected/shipped within the 60-day hold period.
+ * that haven't been collected/shipped within the hold period (supabaseDb.PIECE_HOLD_DAYS).
  */
 async function checkPieceReminders() {
   try {
@@ -493,7 +493,7 @@ async function checkPieceReminders() {
       const now = new Date();
       const daysSinceReady = Math.floor((now - readyAt) / (1000 * 60 * 60 * 24));
 
-      if (daysSinceReady > 60) continue;
+      if (daysSinceReady > supabaseDb.PIECE_HOLD_DAYS) continue;
 
       const holdExpires = new Date(batch.hold_expires_at);
       const holdExpiresDate = holdExpires.toLocaleDateString('en-SG', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -509,6 +509,7 @@ async function checkPieceReminders() {
         appUrl,
         daysSinceReady,
         holdExpiresDate,
+        holdDays: supabaseDb.PIECE_HOLD_DAYS,
       });
 
       const result = await sendAndLogEmail({

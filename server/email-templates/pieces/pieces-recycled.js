@@ -9,7 +9,7 @@ function generate({ studentName, pieceCount, courseName, appUrl }) {
     </h2>
     <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.6; color: #333;">
       We've been keeping your <strong>${pieceCount} piece${pieceCount !== 1 ? 's' : ''}</strong> from
-      <strong>${courseName}</strong> safe for 60 days since they were ready.
+      <strong>${courseName}</strong> safe for 3 months since they were ready.
     </p>
     <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.6; color: #333;">
       As we need to make space in the studio for new work, we've unfortunately had to let them go.

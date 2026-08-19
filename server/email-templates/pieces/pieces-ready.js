@@ -34,7 +34,10 @@ function generate({ studentName, courseName, pieceCount, photoUrl, appUrl }) {
       </tr>
     </table>
     <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #888;">
-      We'll hold your pieces for up to 60 days. After that, uncollected pieces may be recycled.
+      We'll hold your pieces for 3 months, and we'll remind you along the way. After that we have to
+      recycle whatever is left to make space for the next class.
+      <br /><br />
+      Can't get to the studio? Choose Deliver above and we'll arrange local delivery to you.
       <br /><br />
       Questions? Reply to this email or visit the studio.
     </p>

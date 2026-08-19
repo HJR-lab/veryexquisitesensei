@@ -1,5 +1,6 @@
 const supabaseDb = require('../utils/supabaseDb');
 const { sendAndLogEmail } = require('../utils/emailService');
+const { sendPiecesReady } = require('../utils/piecesNotifier');
 const courseConfig = require('../utils/courseConfig');
 const { publicBaseUrl } = require('../utils/publicUrl');
 
@@ -436,40 +437,9 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
 
     const batch = await supabaseDb.updatePieceBatchStatus(batchId, status);
 
-    // Send notification + email when marking as ready
-    if (status === 'ready' && batch.customers) {
-      const student = batch.customers;
-      const courseName = batch.course_enrollments?.course_title || batch.course_enrollments?.course_variant_title || 'your course';
-      const photoUrl = batch.photo_urls && batch.photo_urls.length > 0 ? batch.photo_urls[0] : null;
-      const appUrl = publicBaseUrl();
-
-      // Create in-app notification
-      await supabaseDb.createNotification({
-        customerId: student.id,
-        type: 'pieces_ready',
-        title: 'Your pottery is ready!',
-        message: `Your ${batch.piece_count} piece${batch.piece_count !== 1 ? 's' : ''} from ${courseName} ${batch.piece_count !== 1 ? 'have' : 'has'} been fired and ${batch.piece_count !== 1 ? 'are' : 'is'} ready for collection.`,
-        data: { batchId: batch.id, pieceCount: batch.piece_count, courseName, photoUrl },
-      });
-
-      // Send email
-      const piecesReadyTemplate = require('../email-templates/pieces/pieces-ready');
-      const { subject, html } = piecesReadyTemplate.generate({
-        studentName: student.first_name || 'there',
-        courseName,
-        pieceCount: batch.piece_count,
-        photoUrl,
-        appUrl,
-      });
-
-      await sendAndLogEmail({
-        emailType: 'pieces-ready',
-        courseIdentifier: batch.course_enrollments?.course_identifier || `batch-${batchId}`,
-        subject,
-        html,
-        recipientEmails: [student.email],
-        sentBy: 'system',
-      });
+    // Marking a batch ready always tells the student, immediately.
+    if (status === 'ready') {
+      await sendPiecesReady(batch);
     }
 
     res.json({ success: true, batch });
@@ -501,39 +471,8 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
       const batch = await supabaseDb.updatePieceBatchStatus(batchId, status);
       results.push(batch);
 
-      // Send ready notification + email for each batch if status is 'ready'
-      if (status === 'ready' && batch.customers) {
-        const student = batch.customers;
-        const courseName = batch.course_enrollments?.course_title || batch.course_enrollments?.course_variant_title || 'your course';
-        const photoUrl = batch.photo_urls && batch.photo_urls.length > 0 ? batch.photo_urls[0] : null;
-        const appUrl = publicBaseUrl();
-
-        // Create in-app notification
-        await supabaseDb.createNotification({
-          customerId: student.id,
-          type: 'pieces_ready',
-          title: 'Your pottery is ready!',
-          message: `Your ${batch.piece_count} piece${batch.piece_count !== 1 ? 's' : ''} from ${courseName} ${batch.piece_count !== 1 ? 'have' : 'has'} been fired and ${batch.piece_count !== 1 ? 'are' : 'is'} ready for collection.`,
-          data: { batchId: batch.id, pieceCount: batch.piece_count, courseName, photoUrl },
-        });
-
-        const piecesReadyTemplate = require('../email-templates/pieces/pieces-ready');
-        const { subject, html } = piecesReadyTemplate.generate({
-          studentName: student.first_name || 'there',
-          courseName,
-          pieceCount: batch.piece_count,
-          photoUrl,
-          appUrl,
-        });
-
-        await sendAndLogEmail({
-          emailType: 'pieces-ready',
-          courseIdentifier: batch.course_enrollments?.course_identifier || `batch-${batchId}`,
-          subject,
-          html,
-          recipientEmails: [student.email],
-          sentBy: 'system',
-        });
+      if (status === 'ready') {
+        await sendPiecesReady(batch);
       }
     }
 
@@ -601,30 +540,8 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
     for (const batch of run.batches) {
       await supabaseDb.updatePieceBatchStatus(batch.id, nextStatus);
 
-      // Send ready email if advancing to 'ready'
-      if (nextStatus === 'ready' && batch.customers) {
-        const student = batch.customers;
-        const courseName = batch.course_enrollments?.course_title || batch.course_enrollments?.course_variant_title || 'your course';
-        const photoUrl = batch.photo_urls && batch.photo_urls.length > 0 ? batch.photo_urls[0] : null;
-        const appUrl = publicBaseUrl();
-
-        const piecesReadyTemplate = require('../email-templates/pieces/pieces-ready');
-        const { subject, html } = piecesReadyTemplate.generate({
-          studentName: student.first_name || 'there',
-          courseName,
-          pieceCount: batch.piece_count,
-          photoUrl,
-          appUrl,
-        });
-
-        await sendAndLogEmail({
-          emailType: 'pieces-ready',
-          courseIdentifier: batch.course_enrollments?.course_identifier || `batch-${batch.id}`,
-          subject,
-          html,
-          recipientEmails: [student.email],
-          sentBy: 'system',
-        });
+      if (nextStatus === 'ready') {
+        await sendPiecesReady(batch);
       }
     }
 

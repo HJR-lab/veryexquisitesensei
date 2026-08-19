@@ -366,6 +366,14 @@ async function getAllActivePieceBatches() {
   return data || [];
 }
 
+// The whole uncollected-work policy, in three numbers. Pieces are held for three
+// months from the ready date, with a reminder at the end of each of the first two
+// months and a final week's notice before they are recycled — the studio has no
+// room to hold them longer. Day 83 rather than day 90 so the last warning lands
+// BEFORE the recycling, not on the same day as it.
+const PIECE_HOLD_DAYS = 90;
+const PIECE_REMINDER_DAYS = [30, 60, 83];
+
 async function updatePieceBatchStatus(batchId, status, extraFields = {}) {
   const updateData = { status, updated_at: new Date().toISOString(), ...extraFields };
 
@@ -373,7 +381,7 @@ async function updatePieceBatchStatus(batchId, status, extraFields = {}) {
     const readyAt = new Date().toISOString();
     updateData.ready_at = readyAt;
     const holdExpires = new Date();
-    holdExpires.setDate(holdExpires.getDate() + 60);
+    holdExpires.setDate(holdExpires.getDate() + PIECE_HOLD_DAYS);
     updateData.hold_expires_at = holdExpires.toISOString();
   }
 
@@ -425,25 +433,35 @@ async function searchPieceBatchesByInitials(initials) {
   return data || [];
 }
 
+// Batches due a reminder RIGHT NOW, judged against PIECE_REMINDER_DAYS.
+//
+// Deliberately milestone-based rather than "last reminder older than N days":
+// with monthly reminders, an elapsed-time rule can never fire the final
+// week's-notice one, because day 60 + 30 lands past the recycling date.
 async function getReadyBatchesNeedingReminder() {
-  const fourteenDaysAgo = new Date();
-  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
-  const cutoff = fourteenDaysAgo.toISOString();
-
   const { data, error } = await supabase
     .from('piece_batches')
     .select('*, customers(id, first_name, last_name, email), course_enrollments(course_type, course_title, course_variant_title)')
     .in('status', ['ready', 'collecting', 'delivering'])
-    .or(`last_reminder_at.is.null,last_reminder_at.lt.${cutoff}`)
     .not('ready_at', 'is', null);
 
   if (error) throw error;
 
+  const DAY = 1000 * 60 * 60 * 24;
   const now = new Date();
+
   return (data || []).filter(batch => {
     const readyAt = new Date(batch.ready_at);
-    const daysSinceReady = Math.floor((now - readyAt) / (1000 * 60 * 60 * 24));
-    return daysSinceReady >= 14;
+    const daysSinceReady = Math.floor((now - readyAt) / DAY);
+    if (daysSinceReady > PIECE_HOLD_DAYS) return false;
+
+    // The most recent milestone this batch has passed.
+    const due = [...PIECE_REMINDER_DAYS].reverse().find(d => daysSinceReady >= d);
+    if (due === undefined) return false;
+
+    // Already reminded for that milestone? A send for it would postdate it.
+    if (!batch.last_reminder_at) return true;
+    return new Date(batch.last_reminder_at) < new Date(readyAt.getTime() + due * DAY);
   });
 }
 
@@ -599,6 +617,8 @@ module.exports = {
   deletePieceBatch,
   searchPieceBatchesByInitials,
   getReadyBatchesNeedingReminder,
+  PIECE_HOLD_DAYS,
+  PIECE_REMINDER_DAYS,
   createFiringRun,
   getFiringRuns,
   getFiringRunById,

@@ -1,18 +1,20 @@
 const { wrapEmailTemplate } = require('../base');
 
-function generate({ studentName, courseName, pieceCount, photoUrl, appUrl, daysSinceReady, holdExpiresDate }) {
-  const daysLeft = Math.max(0, 60 - daysSinceReady);
-  const isUrgent = daysLeft <= 7;
-  const isFinal = daysLeft <= 4;
+// holdDays mirrors supabaseDb.PIECE_HOLD_DAYS; the thresholds below are the
+// reminder milestones (30 / 60 / 83 days), so each send gets its own headline.
+function generate({ studentName, courseName, pieceCount, photoUrl, appUrl, daysSinceReady, holdExpiresDate, holdDays = 90 }) {
+  const daysLeft = Math.max(0, holdDays - daysSinceReady);
+  const isUrgent = daysLeft <= 14;
+  const isFinal = daysLeft <= 7;
 
   let headline;
   if (isFinal) {
-    headline = 'Last chance — your pieces will be recycled soon';
+    headline = 'Last chance — your pottery will be recycled in ' + daysLeft + ' days';
   } else if (isUrgent) {
     headline = 'Your pottery will be recycled in ' + daysLeft + ' days';
-  } else if (daysSinceReady >= 42) {
+  } else if (daysSinceReady >= 60) {
     headline = "Don't forget your pottery!";
-  } else if (daysSinceReady >= 28) {
+  } else if (daysSinceReady >= 30) {
     headline = 'Your pottery is still here';
   } else {
     headline = 'Just a reminder — your pieces are waiting!';
@@ -55,7 +57,9 @@ function generate({ studentName, courseName, pieceCount, photoUrl, appUrl, daysS
       </tr>
     </table>
     <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #888;">
-      We hold pieces for 60 days from the ready date.
+      We hold pieces for 3 months from the ready date.
+      <br /><br />
+      Can't get to the studio? Choose Deliver above and we'll arrange local delivery to you.
       <br /><br />
       Questions? Reply to this email or visit the studio.
     </p>

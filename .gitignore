@@ -66,3 +66,4 @@ graphify-out/
 
 # Local-only: contains customer PII, never commit
 server/scripts/backup-legacy-class-allocations.json
+.date-repair-backups/

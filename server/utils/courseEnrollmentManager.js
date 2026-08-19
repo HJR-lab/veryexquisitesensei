@@ -158,9 +158,16 @@ async function processCoursePurchase(order, lineItem) {
       return { success: false, error: 'Incomplete course information', courseInfo };
     }
 
-    // Format dates for database (may be null for HB credit courses)
-    const startDate = courseInfo.startDate ? courseInfo.startDate.toISOString().split('T')[0] : null;
-    const endDate = courseInfo.endDate ? courseInfo.endDate.toISOString().split('T')[0] : null;
+    // Format dates for database (may be null for HB credit courses).
+    //
+    // NOT toISOString(). parseCourseInfo builds these as SGT midnight, and SGT
+    // midnight is 16:00 UTC the DAY BEFORE — so toISOString().split('T')[0]
+    // stored every cohort one day early, in every timezone. That single line
+    // is why 6 of 8 upcoming cohorts carried a course_start_date on the wrong
+    // weekday. ymdFromInstant reads the Singapore calendar date instead.
+    const { ymdFromInstant } = require('./sgtDate');
+    const startDate = courseInfo.startDate ? ymdFromInstant(courseInfo.startDate) : null;
+    const endDate = courseInfo.endDate ? ymdFromInstant(courseInfo.endDate) : null;
 
     // Calculate allocations first (needed for both enrollment and customer update)
     const defaultWeeks = courseInfo.courseType && courseInfo.courseType.toLowerCase().includes('handbuilding') ? 4 : 6;

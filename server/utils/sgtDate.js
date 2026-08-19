@@ -65,6 +65,22 @@ function daysUntilWeekday(value, name) {
   return (want - have + 7) % 7;
 }
 
+/**
+ * The Singapore calendar date of an INSTANT (a Date object).
+ *
+ * This is the one that has bitten hardest. `d.toISOString().split('T')[0]` on
+ * an SGT-midnight instant returns the PREVIOUS day in every timezone, because
+ * SGT midnight is 16:00 UTC the day before. That single line is why
+ * course_start_date sits a day early on most cohorts in the database.
+ */
+function ymdFromInstant(d) {
+  if (!(d instanceof Date) || isNaN(d)) return null;
+  // en-CA formats as YYYY-MM-DD.
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Singapore', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+}
+
 /** Today's calendar date in Singapore, whatever the runtime's timezone. */
 function todaySGT() {
   return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -79,4 +95,5 @@ module.exports = {
   addDays,
   daysUntilWeekday,
   todaySGT,
+  ymdFromInstant,
 };

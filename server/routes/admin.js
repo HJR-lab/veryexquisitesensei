@@ -5909,10 +5909,15 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
             .order('class_date', { ascending: true });
 
           if (newCourseClasses && newCourseClasses.length > 0) {
-            const firstDate = new Date(newCourseClasses[0].class_date);
-            const lastDate = new Date(newCourseClasses[newCourseClasses.length - 1].class_date);
-            const dayNames = ['SUNDAYS', 'MONDAYS', 'TUESDAYS', 'WEDNESDAYS', 'THURSDAYS', 'FRIDAYS', 'SATURDAYS'];
-            const dayName = dayNames[firstDate.getDay()];
+            // Date parts straight off the stored class_date — a Date
+            // round-trip here shifts the day depending on where this runs.
+            const { toYmd, weekdayName } = require('../utils/sgtDate');
+            const firstYmd = toYmd(newCourseClasses[0].class_date);
+            const lastYmd = toYmd(newCourseClasses[newCourseClasses.length - 1].class_date);
+            const firstDate = new Date(`${firstYmd}T00:00:00`);
+            const lastDate = new Date(`${lastYmd}T00:00:00`);
+            // Plural form, e.g. TUESDAYS — the next line strips the S back off.
+            const dayName = `${weekdayName(firstYmd)}S`;
             const schedulePattern = dayName.replace(/S$/, ''); // TUESDAY
             const fmtShort = (d) => `${d.getDate()} ${d.toLocaleString('en-GB', { month: 'short' })}`;
             const timeStr = `${newCourseClasses[0].start_time} - ${newCourseClasses[0].end_time}`;
@@ -5924,8 +5929,8 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
                 course_identifier: newBase,
                 schedule_pattern: schedulePattern,
                 course_variant_title: variantTitle,
-                course_start_date: firstDate.toISOString().split('T')[0],
-                course_end_date: lastDate.toISOString().split('T')[0],
+                course_start_date: firstYmd,
+                course_end_date: lastYmd,
                 class_time: timeStr,
                 updated_at: new Date().toISOString(),
               })

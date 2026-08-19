@@ -1171,15 +1171,19 @@ app.post('/api/classes/book-hb-schedule', authenticateToken, asyncHandler(async 
     .eq('id', enrollmentId);
 
   // Update enrollment with course dates (do NOT overwrite number_of_weeks — it reflects the purchase, not the booking)
-  const startDate = new Date(firstClass.class_date);
-  const endDate = new Date(hbClasses[hbClasses.length - 1].classDate);
+  // Take the date part of the stored class_date directly. Round-tripping it
+  // through `new Date(...).toISOString()` reads the runtime's timezone and
+  // shifts the day on any machine east of UTC.
+  const { toYmd } = require('../utils/sgtDate');
+  const startDate = toYmd(firstClass.class_date);
+  const endDate = toYmd(hbClasses[hbClasses.length - 1].classDate);
 
   const dateUpdate = {
-    course_end_date: endDate.toISOString().split('T')[0],
+    course_end_date: endDate,
   };
   // Only set start date if not already set
   if (!enrollment.course_start_date) {
-    dateUpdate.course_start_date = startDate.toISOString().split('T')[0];
+    dateUpdate.course_start_date = startDate;
   }
 
   await supabaseDb.supabase

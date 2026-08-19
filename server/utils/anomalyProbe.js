@@ -415,6 +415,174 @@ async function checkCohortStartDateDrift() {
   });
 }
 
+
+/**
+ * A cohort carrying more signups than the studio sells.
+ *
+ * The gate on the Continue button only blocks DISCRETIONARY paths. An order
+ * cannot be refused — the customer has already paid — so a cohort can still go
+ * over, and until now nothing said so. WT2908PM_DL6 sat at 9/8 for days while
+ * every screen reported it as healthy, because the only cap in the database is
+ * the 10-wheel booking cap and 9 is under it.
+ *
+ * Counts SIGNUPS (distinct non-cancelled enrollments), not bookings, so
+ * make-ups legitimately using the 9th and 10th wheel are not mistaken for
+ * over-selling. One finding per cohort — nine students in one bad cohort is one
+ * problem, not nine.
+ */
+async function checkCohortOverCapacity() {
+  const { WT_SIGNUP_CAP, WT_SIGNUP_CRITICAL, signupSeverity } = require('../config/capacity');
+  const today = todaySGT();
+
+  const { data, error } = await supabase
+    .from('course_enrollments')
+    .select('id, student_id, course_start_date, schedule_pattern, class_time, course_identifier, course_type, status, customers!course_enrollments_student_id_fkey(id, first_name, last_name, email)')
+    .gte('course_start_date', today)
+    .not('schedule_pattern', 'is', null)
+    .not('class_time', 'is', null);
+
+  if (error) {
+    console.error('[AnomalyProbe] cohort capacity query error:', error);
+    return [];
+  }
+
+  const cohorts = new Map();
+  for (const e of data || []) {
+    if (e.status === 'cancelled') continue;
+    if (/handbuilding/i.test(e.course_type || '')) continue; // HB is credit-based, not a cohort
+    const key = `${String(e.course_start_date).split(/[T ]/)[0]}|${e.schedule_pattern}|${e.class_time}`;
+    if (!cohorts.has(key)) cohorts.set(key, { sample: e, students: new Set() });
+    cohorts.get(key).students.add(e.student_id);
+  }
+
+  const findings = [];
+  for (const [key, c] of cohorts) {
+    const signups = c.students.size;
+    if (signups <= WT_SIGNUP_CAP) continue;
+    const over = signups - WT_SIGNUP_CAP;
+    const critical = signups >= WT_SIGNUP_CRITICAL;
+    findings.push({
+      type: 'cohort_over_capacity',
+      severity: critical ? 'high' : signupSeverity(signups) === 'over' ? 'medium' : 'low',
+      student_id: c.sample.student_id,
+      student_name: formatStudentName(c.sample.customers),
+      student_email: c.sample.customers ? c.sample.customers.email || null : null,
+      enrollment_id: c.sample.id,
+      details: `Cohort ${c.sample.course_identifier || key} has ${signups} signups against a cap of ${WT_SIGNUP_CAP} (${over} over). ${
+        critical
+          ? 'Every wheel is committed to a signup — this cohort can no longer absorb a single make-up.'
+          : `Workable (${signups} signups + ${WT_SIGNUP_CRITICAL - signups} make-up wheel${WT_SIGNUP_CRITICAL - signups === 1 ? '' : 's'} still fits 10), but a seat was sold that was not meant to exist — check the listed quantity.`
+      }`,
+    });
+  }
+  return findings;
+}
+
+/**
+ * Continuation offers past their deadline that were never closed.
+ *
+ * Lapsing happens in the nightly sweep. A pending row past its expiry means the
+ * sweep did not run — and because a live offer blocks a new one for the same
+ * cohort, that student silently stops being re-offered. A cron that quietly
+ * stops looks exactly like a quiet week, so this is the only signal.
+ */
+async function checkStaleContinuationOffers() {
+  const { data, error } = await supabase
+    .from('continuation_offers')
+    .select('id, student_id, expires_at, cohort_identifier, first_class_date, customers!continuation_offers_student_id_fkey(id, first_name, last_name, email)')
+    .eq('status', 'pending')
+    .lt('expires_at', new Date().toISOString());
+
+  if (error) {
+    // Table may not exist on an environment without the migration.
+    if (error.code !== 'PGRST116' && !/does not exist/i.test(error.message || '')) {
+      console.error('[AnomalyProbe] stale offers query error:', error);
+    }
+    return [];
+  }
+
+  return (data || []).map(o => {
+    const hoursLate = Math.floor((Date.now() - new Date(o.expires_at).getTime()) / 3600000);
+    return {
+      type: 'stale_continuation_offer',
+      severity: hoursLate >= 48 ? 'high' : 'medium',
+      student_id: o.student_id,
+      student_name: formatStudentName(o.customers),
+      student_email: o.customers ? o.customers.email || null : null,
+      enrollment_id: null,
+      details: `Offer #${o.id} for ${o.cohort_identifier || o.first_class_date} passed its deadline ${hoursLate}h ago and is still pending. The nightly sweep should have lapsed it — until it does, this student cannot be offered that cohort again.`,
+    };
+  });
+}
+
+/**
+ * A package student owed a course with nowhere to go.
+ *
+ * By design these students are told NOTHING: an offer is only sent once a real
+ * cohort exists at their day and time, so nobody ever receives a dateless
+ * email. The cost of that rule is silence — if no cohort is ever scheduled,
+ * the student simply waits and no part of the system mentions it. This check is
+ * the counterweight.
+ *
+ * Covers 3-course packages only (package_total_courses >= 2). A 10-Class
+ * package is one cohort plus flex classes booked individually, so there is no
+ * next course to place them into.
+ */
+async function checkFinishingStudentNoCohort() {
+  const { resolveNextCourse } = require('./packageContinuation');
+  const { addDays, toYmd } = require('./sgtDate');
+  const today = todaySGT();
+  const horizon = addDays(today, 21);
+
+  const { data, error } = await supabase
+    .from('course_enrollments')
+    .select('*, customers!course_enrollments_student_id_fkey(id, first_name, last_name, email)')
+    .gte('package_total_courses', 2)
+    .neq('status', 'cancelled');
+
+  if (error) {
+    console.error('[AnomalyProbe] package student query error:', error);
+    return [];
+  }
+
+  // Only the newest enrollment describes where a student is now.
+  const latest = new Map();
+  for (const e of data || []) {
+    const prev = latest.get(e.student_id);
+    if (!prev || (e.course_start_date || '') > (prev.course_start_date || '')) latest.set(e.student_id, e);
+  }
+
+  const findings = [];
+  for (const e of latest.values()) {
+    if (e.status === 'paused') continue; // a pause is a deliberate "not now"
+
+    // Ending within three weeks, or already ended and still owed a course.
+    const end = toYmd(e.course_end_date);
+    if (end && end > horizon) continue;
+
+    let r;
+    try {
+      r = await resolveNextCourse(e, e.student_id);
+    } catch (err) {
+      console.error(`[AnomalyProbe] resolve failed for student ${e.student_id}:`, err.message);
+      continue;
+    }
+    if (r.reason !== 'no_matching_course') continue;
+
+    const ended = end && end < today;
+    findings.push({
+      type: 'package_student_no_cohort',
+      severity: ended ? 'high' : 'medium',
+      student_id: e.student_id,
+      student_name: formatStudentName(e.customers),
+      student_email: e.customers ? e.customers.email || null : null,
+      enrollment_id: e.id,
+      details: `Owed ${r.remaining || 1} more course${(r.remaining || 1) === 1 ? '' : 's'} on a ${e.package_total_courses}-course package, but no cohort is scheduled at their slot (${e.schedule_pattern} ${e.class_time}). Their course ${ended ? `ended on ${end}` : `ends on ${end || 'an unknown date'}`}. They are deliberately not emailed until a cohort exists, so nothing else will surface this.`,
+    });
+  }
+  return findings;
+}
+
 /**
  * Run all invariant checks and return aggregated findings.
  * Failures within a single check do not abort the whole probe.
@@ -427,6 +595,9 @@ async function runAnomalyProbe() {
     checkRecentPurchaseWithoutEnrollment(),
     checkDuplicateSpotEnrollments(),
     checkCohortStartDateDrift(),
+    checkCohortOverCapacity(),
+    checkStaleContinuationOffers(),
+    checkFinishingStudentNoCohort(),
   ]);
 
   const findings = [];
@@ -445,4 +616,4 @@ async function runAnomalyProbe() {
   return findings;
 }
 
-module.exports = { runAnomalyProbe, checkCohortStartDateDrift, checkOverAllocated, checkStaleUnassigned10Class, checkUnlinkedUpcomingBookings, checkRecentPurchaseWithoutEnrollment, checkDuplicateSpotEnrollments, findDuplicateSpots };
+module.exports = { runAnomalyProbe, checkCohortStartDateDrift, checkCohortOverCapacity, checkStaleContinuationOffers, checkFinishingStudentNoCohort, checkOverAllocated, checkStaleUnassigned10Class, checkUnlinkedUpcomingBookings, checkRecentPurchaseWithoutEnrollment, checkDuplicateSpotEnrollments, findDuplicateSpots };

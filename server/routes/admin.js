@@ -1869,45 +1869,83 @@ app.get('/api/admin/students/stats', authenticateToken, requireAdmin, asyncHandl
 }));
 
 // Resume a paused student
+// A pause is recorded in two places: customers.course_paused (what the
+// paused-students list reads) and course_enrollments.status (what booking
+// eligibility reads — getBookableCredits only counts active/completed). Resuming
+// used to be split across two routes registered on this same path, so only this
+// one ever ran and every resume left the customer flagged as paused forever.
+// Both halves are cleared here.
 app.post('/api/admin/students/:id/resume', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const studentId = parseInt(req.params.id);
 
-  // Get the student's paused enrollment
-  const { data: enrollment, error: fetchError } = await supabaseDb.supabase
+  const { data: customer } = await supabaseDb.supabase
+    .from('customers')
+    .select('id, course_paused')
+    .eq('id', studentId)
+    .single();
+
+  // Not .single(): a student can hold more than one paused enrollment, and that
+  // used to throw rather than resume the most recent one.
+  const { data: pausedEnrollments } = await supabaseDb.supabase
     .from('course_enrollments')
     .select('*')
     .eq('student_id', studentId)
     .eq('status', 'paused')
-    .single();
+    .order('id', { ascending: false });
 
-  if (fetchError || !enrollment) {
+  const enrollment = pausedEnrollments?.[0] || null;
+
+  if (!enrollment && !customer?.course_paused) {
     return res.status(404).json({ error: 'No paused enrollment found for this student' });
   }
 
-  // Update enrollment status to active
-  const { error: updateError } = await supabaseDb.supabase
-    .from('course_enrollments')
-    .update({
-      status: 'active',
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', enrollment.id);
+  if (enrollment) {
+    const { error: updateError } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .update({
+        status: 'active',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', enrollment.id);
 
-  if (updateError) {
-    console.error('Error resuming enrollment:', updateError);
-    return res.status(500).json({ error: 'Failed to resume enrollment' });
+    if (updateError) {
+      console.error('Error resuming enrollment:', updateError);
+      return res.status(500).json({ error: 'Failed to resume enrollment' });
+    }
   }
+
+  if (customer) {
+    const { error: customerError } = await supabaseDb.supabase
+      .from('customers')
+      .update({
+        course_paused: false,
+        pause_start_date: null,
+        pause_reason: null,
+        paused_at_week: null,
+        resume_course_identifier: null,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', studentId);
+
+    if (customerError) {
+      console.error('Error clearing customer pause flags:', customerError);
+      return res.status(500).json({ error: 'Failed to resume enrollment' });
+    }
+  }
+
+  // The ledger, not weeks_remaining — that column is never decremented and still
+  // reads 6 for a student who has taken every week of their block.
+  const bookable = await supabaseDb.getBookableCredits(studentId);
 
   res.json({
     success: true,
     message: 'Student enrollment resumed successfully',
-    enrollment: {
+    remainingClasses: bookable.remaining,
+    enrollment: enrollment ? {
       id: enrollment.id,
       studentId: enrollment.student_id,
-      courseTitle: enrollment.course_title,
-      weeksCompleted: enrollment.weeks_completed,
-      weeksRemaining: enrollment.weeks_remaining
-    }
+      courseTitle: enrollment.course_title
+    } : null
   });
 }));
 
@@ -5511,28 +5549,8 @@ app.post('/api/admin/students/:studentId/pause', authenticateToken, requireAdmin
   res.json({ message: 'Student paused successfully', student });
 }));
 
-// Resume a paused student
-app.post('/api/admin/students/:studentId/resume', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
-  const { studentId } = req.params;
-
-  const { data: student, error } = await supabaseDb.supabase
-    .from('customers')
-    .update({
-      course_paused: false,
-      pause_start_date: null,
-      pause_reason: null,
-      paused_at_week: null,
-      resume_course_identifier: null,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', studentId)
-    .select()
-    .single();
-
-  if (error) throw error;
-
-  res.json({ message: 'Student resumed successfully', student });
-}));
+// Resuming a paused student lives with the other student routes above — a
+// second handler on this same path was unreachable and has been folded into it.
 
 // GET /api/admin/reschedules — list all reschedule movements
 app.get('/api/admin/reschedules', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {

@@ -723,11 +723,17 @@ export default function AdminStudentDetail() {
 
   const handleResumeCourse = async () => {
     if (!enrollment || enrollment.status !== 'paused') return;
-    if (!confirm(`Are you sure you want to resume this student's course?\n\nThey will need to book ${enrollment.weeks_remaining} more classes to complete their course.`)) return;
+    // weeks_remaining is a legacy column nothing decrements — it sits at its
+    // default for the life of the enrollment, so this dialog used to promise
+    // "6 more classes" to a student with 4 credits left. Quote the same count
+    // the page already renders as unbooked rows; that one comes from the ledger.
+    const remaining = unbookedCount + flexPlaceholderCount;
+    if (!confirm(`Are you sure you want to resume this student's course?\n\nThey will need to book ${remaining} more ${remaining === 1 ? 'class' : 'classes'} to complete their course.`)) return;
     try {
       setResuming(true);
-      await api.post(`/admin/students/${student.id}/resume`);
-      alert('Course resumed successfully! Student can now book their remaining classes.');
+      const res = await api.post(`/admin/students/${student.id}/resume`);
+      const left = res.data?.remainingClasses ?? remaining;
+      alert(`Course resumed successfully! Student can now book their remaining ${left} ${left === 1 ? 'class' : 'classes'}.`);
       await loadStudentData();
     } catch (error) {
       console.error('Failed to resume course:', error);

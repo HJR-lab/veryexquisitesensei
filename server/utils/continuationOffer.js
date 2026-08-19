@@ -19,6 +19,40 @@ const OFFER_DAYS = 3;
 const EXTENSION_DAYS = 5;
 const MAX_EXTENSIONS = 1;
 
+/**
+ * May the nightly sweep email students?
+ *
+ * Opt-IN and explicit, on purpose. This used to ride on the 'continuation'
+ * entry in the DEFAULT value of PAUSED_EMAIL_CATEGORIES — which an env var
+ * silently overrides in full. Production had PAUSED_EMAIL_CATEGORIES set to
+ * 'credits,waitlist', so the default never applied, the category was never
+ * paused, and the sweep emailed two students during what was meant to be a dry
+ * run. Everything passed locally, where no such env var exists.
+ *
+ * The lesson is the direction of the default. An absent or misspelt variable
+ * must mean SILENCE, never "mail the customers". So sending now requires
+ * CONTINUATION_AUTOSEND to be deliberately switched on, and PAUSED_EMAIL_
+ * CATEGORIES survives as an independent kill switch: either can stop a send,
+ * neither alone can start one.
+ *
+ * Admin-pressed offers are NOT automated sends and are unaffected — a human
+ * clicking "Ask student" has already made the decision this gate protects.
+ *
+ * @returns {{enabled: boolean, reason: string|null}}
+ */
+function autosendStatus() {
+  const raw = String(process.env.CONTINUATION_AUTOSEND ?? '').trim().toLowerCase();
+  const on = raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on';
+  if (!on) {
+    return { enabled: false, reason: `CONTINUATION_AUTOSEND is ${raw ? `"${raw}"` : 'not set'} — automatic sending is off` };
+  }
+  const { isEmailCategoryPaused } = require('./emailService');
+  if (isEmailCategoryPaused('continuation')) {
+    return { enabled: false, reason: "'continuation' is listed in PAUSED_EMAIL_CATEGORIES" };
+  }
+  return { enabled: true, reason: null };
+}
+
 const daysFromNow = n => new Date(Date.now() + n * 24 * 60 * 60 * 1000).toISOString();
 
 /**
@@ -78,9 +112,10 @@ async function createContinuationOffer({ enrollment, studentId, automated = fals
 
   let emailed = false;
   if (student?.email) {
-    const { sendEmail, isEmailCategoryPaused } = require('./emailService');
-    if (automated && isEmailCategoryPaused('continuation')) {
-      console.log(`[Continuation] Offer ${offer.id} created but 'continuation' emails are paused — not sent.`);
+    const { sendEmail } = require('./emailService');
+    const gate = automated ? autosendStatus() : { enabled: true, reason: null };
+    if (!gate.enabled) {
+      console.log(`[Continuation] Offer ${offer.id} created but NOT emailed — ${gate.reason}.`);
     } else {
       const template = require('../email-templates/continuation-offer');
       const { subject, html } = template.generate({
@@ -211,6 +246,7 @@ async function respondToOffer(token, action) {
 }
 
 module.exports = {
+  autosendStatus,
   createContinuationOffer,
   getOfferByToken,
   offerState,

@@ -32,12 +32,13 @@ function deriveScheduleFromIdentifier(courseIdentifier) {
 
   const dateMatch = courseIdentifier.match(/^[A-Z]{2}(\d{2})(\d{2})/);
   if (!dateMatch) return { classTime };
-  const day = parseInt(dateMatch[1]);
-  const month = parseInt(dateMatch[2]) - 1;
-  const year = new Date().getFullYear();
-  const date = new Date(year, month, day);
-  const days = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
-  return { schedulePattern: days[date.getDay()], classTime };
+  const day = dateMatch[1];
+  const month = dateMatch[2];
+  // Identifiers carry DDMM with no year, so assume the current Singapore year.
+  // Weekday comes from utils/sgtDate so the answer cannot depend on where this
+  // happens to be running.
+  const year = todaySGT().slice(0, 4);
+  return { schedulePattern: weekdayName(`${year}-${month}-${day}`), classTime };
 }
 
 /**
@@ -55,7 +56,7 @@ async function deriveEndDateFromBookings(enrollmentId) {
     || new Date().toISOString().split('T')[0];
 }
 
-const DAY_NAMES = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+const { weekdayName, isWeekday, addDays, daysUntilWeekday, toYmd, todaySGT } = require('./sgtDate');
 
 /**
  * The date a cohort ACTUALLY starts, for showing to a human.
@@ -70,14 +71,12 @@ const DAY_NAMES = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRID
  * So: prefer the first class instance, which is correct. Failing that (a
  * cohort with no classes created yet), nudge the stored date forward to the
  * weekday the cohort actually runs on.
+ *
+ * All weekday maths goes through utils/sgtDate, which is timezone-independent.
+ * Doing it with Date#getDay() reads the RUNTIME's zone and gives a different
+ * answer on Railway (UTC) than on a Singapore laptop.
  */
 async function resolveFirstClassDate(courseIdentifier, fallbackDate, schedulePattern) {
-  const wanted = DAY_NAMES.indexOf(String(schedulePattern || '').toUpperCase());
-
-  // Weekday of a YYYY-MM-DD, evaluated in SGT so a UTC-midnight timestamp
-  // cannot slide the date back a day — the exact mistake being guarded here.
-  const weekdayOf = ymd => new Date(`${ymd}T00:00:00+08:00`).getDay();
-
   const base = String(courseIdentifier || '').split('.')[0];
   if (base) {
     const { data } = await supabase
@@ -88,27 +87,25 @@ async function resolveFirstClassDate(courseIdentifier, fallbackDate, schedulePat
       .limit(1);
     const first = data?.[0]?.class_date;
     if (first) {
-      const ymd = String(first).split(/[T ]/)[0];
+      const ymd = toYmd(first);
       // The booked class is the strongest evidence there is, so it wins — but
       // if it contradicts the cohort's own stated day, something is wrong
       // upstream and a human needs to know.
-      if (wanted >= 0 && weekdayOf(ymd) !== wanted) {
-        console.error(`[Continuation] ${base}: first class ${ymd} is a ${DAY_NAMES[weekdayOf(ymd)]} but the cohort claims ${schedulePattern}. Using the class date.`);
+      if (schedulePattern && !isWeekday(ymd, schedulePattern)) {
+        console.error(`[Continuation] ${base}: first class ${ymd} is a ${weekdayName(ymd)} but the cohort claims ${schedulePattern}. Using the class date.`);
       }
       return ymd;
     }
   }
 
-  const stored = String(fallbackDate || '').split(/[T ]/)[0];
-  if (!stored || wanted < 0) return stored || null;
+  const stored = toYmd(fallbackDate);
+  if (!stored || !schedulePattern) return stored || null;
 
-  const delta = (wanted - weekdayOf(stored) + 7) % 7;
+  const delta = daysUntilWeekday(stored, schedulePattern);
   if (delta === 0) return stored;
 
-  const d = new Date(`${stored}T00:00:00+08:00`);
-  d.setDate(d.getDate() + delta);
-  const corrected = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  console.warn(`[Continuation] ${base || 'cohort'}: course_start_date ${stored} is a ${DAY_NAMES[weekdayOf(stored)]}, not ${schedulePattern}. Showing ${corrected}.`);
+  const corrected = addDays(stored, delta);
+  console.warn(`[Continuation] ${base || 'cohort'}: course_start_date ${stored} is a ${weekdayName(stored)}, not ${schedulePattern}. Showing ${corrected}.`);
   return corrected;
 }
 
@@ -119,11 +116,9 @@ async function resolveFirstClassDate(courseIdentifier, fallbackDate, schedulePat
  */
 function assertDisplayDate(ymd, schedulePattern) {
   if (!ymd) return null;
-  const wanted = DAY_NAMES.indexOf(String(schedulePattern || '').toUpperCase());
-  if (wanted < 0) return ymd;
-  const actual = new Date(`${String(ymd).split(/[T ]/)[0]}T00:00:00+08:00`).getDay();
-  if (actual === wanted) return ymd;
-  console.error(`[Continuation] REFUSING to display ${ymd} (${DAY_NAMES[actual]}) for a ${schedulePattern} cohort.`);
+  if (!schedulePattern) return ymd;
+  if (isWeekday(ymd, schedulePattern)) return ymd;
+  console.error(`[Continuation] REFUSING to display ${ymd} (${weekdayName(ymd)}) for a ${schedulePattern} cohort.`);
   return null;
 }
 
@@ -170,7 +165,7 @@ async function resolveNextCourse(enrollment, studentId) {
   // date in the past, and asking only for cohorts after it happily returns one
   // that has already run. April Koh (1182) resolved to WT2107NT_JL6 starting
   // 21 Jul while today was 18 Aug. Take whichever boundary is later.
-  const todayStr = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const todayStr = todaySGT();
   const notBefore = currentEndDate > todayStr ? currentEndDate : todayStr;
 
   // Future enrollments at the same slot stand in for "launched cohorts" —

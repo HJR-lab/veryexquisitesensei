@@ -351,7 +351,7 @@ async function checkDuplicateSpotEnrollments() {
   return findDuplicateSpots(enrollments, bookingCount);
 }
 
-const WEEKDAY_NAMES = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+const { weekdayName, todaySGT } = require('./sgtDate');
 
 /**
  * course_start_date disagreeing with the day the cohort actually runs.
@@ -367,7 +367,7 @@ const WEEKDAY_NAMES = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', '
  * visible rather than silently papered over by that helper.
  */
 async function checkCohortStartDateDrift() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = todaySGT();
   const { data, error } = await supabase
     .from('course_enrollments')
     .select('id, student_id, course_start_date, schedule_pattern, course_identifier, status, customers!course_enrollments_student_id_fkey(id, first_name, last_name, email)')
@@ -386,7 +386,10 @@ async function checkCohortStartDateDrift() {
   for (const e of data || []) {
     if (e.status === 'cancelled') continue;
     const date = String(e.course_start_date).split(/[T ]/)[0];
-    const actual = WEEKDAY_NAMES[new Date(`${date}T00:00:00+08:00`).getDay()];
+    // Timezone-independent: Date#getDay() would answer differently on Railway
+    // (UTC) than on a Singapore laptop, which is how this check first shipped
+    // reporting every weekday one day early.
+    const actual = weekdayName(date);
     const stated = String(e.schedule_pattern).toUpperCase();
     if (actual === stated) continue;
 

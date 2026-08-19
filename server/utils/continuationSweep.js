@@ -203,14 +203,92 @@ async function reportSweep({ created, skipped, examined, lapsed }) {
   await sendEmail({ to: 'info@ves.sg', subject, html });
 }
 
+
+/**
+ * Nudge students who asked for more time and are about to run out.
+ *
+ * Only offers that were EXTENDED get one. Asking for +5 days is the signal
+ * that someone means to say yes and might let it slip; a first-time offer gets
+ * its three days and no chasing, which is what Justin wanted.
+ *
+ * Sent once per offer (reminder_sent_at), inside the last 24 hours, and
+ * subject to the same autosend gate as the offer itself.
+ */
+async function remindExtendedOffers() {
+  const { autosendStatus } = require('./continuationOffer');
+  const { publicBaseUrl } = require('./publicUrl');
+
+  const soon = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from('continuation_offers')
+    .select('*, customers!continuation_offers_student_id_fkey(first_name, email)')
+    .eq('status', 'pending')
+    .gte('extension_count', 1)
+    .is('reminder_sent_at', null)
+    .gt('expires_at', new Date().toISOString())
+    .lt('expires_at', soon);
+
+  if (error) {
+    console.error('[ContinuationSweep] reminder query failed:', error.message);
+    return [];
+  }
+  if (!data || data.length === 0) return [];
+
+  const gate = autosendStatus();
+  const sent = [];
+
+  for (const o of data) {
+    if (!o.customers?.email) continue;
+
+    if (!gate.enabled) {
+      console.log(`[ContinuationSweep] Reminder for offer ${o.id} withheld — ${gate.reason}.`);
+      continue;
+    }
+
+    const { sendEmail } = require('./emailService');
+    const when = new Date(o.expires_at).toLocaleDateString('en-SG', {
+      weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Asia/Singapore',
+    });
+    const name = o.customers.first_name ? ` ${o.customers.first_name}` : '';
+    const result = await sendEmail({
+      to: o.customers.email,
+      subject: 'Your place closes tomorrow',
+      html: `<p style="font-size:15px;line-height:1.6;color:#282828;">Hi${name},</p>
+             <p style="font-size:15px;line-height:1.6;color:#282828;">
+               Just a note that the extra time you asked for runs out on <strong>${when}</strong>.
+               After that we release your place to the next person.
+             </p>
+             <p style="font-size:15px;line-height:1.6;color:#282828;">
+               One tap either way — confirm, or let us know it is not the right time:
+             </p>
+             <p><a href="${publicBaseUrl()}/continue/${o.token}"
+                   style="display:inline-block;padding:12px 28px;background:#C4622D;color:#fff;
+                          font-weight:600;text-decoration:none;border-radius:8px;">Confirm your place</a></p>
+             <p style="font-size:13px;color:#888;">Your remaining courses do not expire either way.</p>`,
+    });
+
+    if (result.success) {
+      await supabase.from('continuation_offers')
+        .update({ reminder_sent_at: new Date().toISOString() })
+        .eq('id', o.id);
+      sent.push(o.id);
+      console.log(`[ContinuationSweep] Reminder sent for offer ${o.id}`);
+    } else {
+      console.error(`[ContinuationSweep] Reminder for offer ${o.id} failed: ${result.error}`);
+    }
+  }
+  return sent;
+}
+
 /**
  * Entry point for the daily cron. Never throws.
  */
 async function runContinuationSweep() {
   try {
     const lapsed = await lapseExpiredOffers();
+    const reminded = await remindExtendedOffers();
     const { created, skipped, examined } = await createDueOffers();
-    console.log(`[ContinuationSweep] examined ${examined}, created ${created.length}, lapsed ${lapsed.length}`);
+    console.log(`[ContinuationSweep] examined ${examined}, created ${created.length}, lapsed ${lapsed.length}, reminded ${reminded.length}`);
     await reportSweep({ created, skipped, examined, lapsed });
     return { created, skipped, examined, lapsed };
   } catch (err) {
@@ -222,6 +300,7 @@ async function runContinuationSweep() {
 module.exports = {
   buildSweepReport,
   lapseExpiredOffers,
+  remindExtendedOffers,
   findDuePackageStudents,
   createDueOffers,
   runContinuationSweep,

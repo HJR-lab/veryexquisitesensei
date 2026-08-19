@@ -639,6 +639,11 @@ function startAutomaticProcessing() {
       });
     }
 
+    // Capacity is the one thing that cannot wait for the morning digest.
+    if (minute === 30) {
+      alertCohortOverCapacity().catch(console.error);
+    }
+
     // Check waitlist 24h notifications and process campaigns every hour
     if (minute === 30) {
       notifyWaitlist24Hours().catch(console.error);
@@ -898,6 +903,59 @@ async function cleanupExpiredWaitlist() {
  * Idempotent — checks sent_emails for today before sending, so cron restarts
  * or multiple ticks at minute=15 won't double-send.
  */
+
+/**
+ * Email the studio the moment a cohort goes over the signup cap.
+ *
+ * The daily digest is fine for most findings, but not this one: a seat sold on
+ * a Friday night is gone by Saturday morning. Runs hourly rather than nightly.
+ *
+ * Deduped per (cohort, signup count) via sent_emails, so a given cohort alerts
+ * once at 9 and again if it reaches 10 — a worse state deserves a second
+ * warning — but never repeats the same state every hour.
+ */
+async function alertCohortOverCapacity() {
+  try {
+    const { checkCohortOverCapacity } = require('./anomalyProbe');
+    const findings = await checkCohortOverCapacity();
+    if (findings.length === 0) return;
+
+    const { sendAndLogEmail } = require('./emailService');
+    const baseUrl = publicBaseUrl();
+
+    for (const f of findings) {
+      // The details line carries the cohort and count; key on both so a
+      // 9 -> 10 escalation is treated as new, and 9 -> 9 is not.
+      const cohort = (f.details.match(/Cohort (\S+)/) || [])[1] || 'unknown';
+      const signups = (f.details.match(/has (\d+) signups/) || [])[1] || '?';
+      const key = `${cohort}@${signups}`;
+
+      const { data: already } = await supabase
+        .from('sent_emails')
+        .select('id')
+        .eq('email_type', 'cohort_over_capacity')
+        .eq('course_identifier', key)
+        .limit(1);
+      if (already && already.length > 0) continue;
+
+      await sendAndLogEmail({
+        emailType: 'cohort_over_capacity',
+        courseIdentifier: key,
+        subject: `VES: ${cohort} is over capacity (${signups} signups)`,
+        html: `<p>${f.details}</p>
+               <p style="color:#888;font-size:13px;">Seen at ${new Date().toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })} SGT.
+               You are getting this immediately rather than in the morning digest because a seat sold overnight is gone by morning.</p>
+               <p><a href="${baseUrl}/admin/classes">Open the class list</a></p>`,
+        recipientEmails: ['info@ves.sg'],
+        sentBy: 'over-capacity-watch',
+      });
+      console.log(`[Auto-Processor] Over-capacity alert sent for ${key}`);
+    }
+  } catch (error) {
+    console.error('[Auto-Processor] Over-capacity alert failed:', error);
+  }
+}
+
 async function runAnomalyProbeAndAlert() {
   const { runAnomalyProbe } = require('./anomalyProbe');
   const findings = await runAnomalyProbe();
@@ -949,5 +1007,6 @@ module.exports = {
   cleanupExpiredWaitlist,
   notifyWaitlist24Hours,
   runAnomalyProbeAndAlert,
+  alertCohortOverCapacity,
   startAutomaticProcessing
 };

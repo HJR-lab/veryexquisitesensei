@@ -73,6 +73,11 @@ CREATE INDEX IF NOT EXISTS continuation_offers_student
 
 -- For databases created before first_class_date existed.
 ALTER TABLE continuation_offers ADD COLUMN IF NOT EXISTS first_class_date date;
+
+-- Set when the pre-deadline nudge goes out. Only offers that were EXTENDED get
+-- one: asking for more time is the signal that someone means to say yes and
+-- might let it slip. A first-time offer gets its 3 days and no chasing.
+ALTER TABLE continuation_offers ADD COLUMN IF NOT EXISTS reminder_sent_at timestamptz;
 `;
 
 (async () => {

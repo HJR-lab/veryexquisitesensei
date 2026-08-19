@@ -140,7 +140,7 @@ async function createDueOffers() {
  * system would have written to, for Justin to send by hand and to check the
  * picks against what he would have done.
  */
-function buildSweepReport({ created, skipped, examined, lapsed, paused, base }) {
+function buildSweepReport({ created, skipped, examined, lapsed, paused, pausedReason, base }) {
   const esc = s => String(s ?? '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -160,10 +160,11 @@ function buildSweepReport({ created, skipped, examined, lapsed, paused, base }) 
     </tr>`).join('');
 
   const header = paused
-    ? `<p><strong>Continuation emails are paused</strong> — these ${created.length} student(s) were NOT emailed.
-       Each link below is live, so you can send it by hand. Unpause by removing
-       <code>continuation</code> from <code>PAUSED_EMAIL_CATEGORIES</code>.</p>`
-    : `<p>${created.length} continuation offer(s) emailed.</p>`;
+    ? `<p><strong>Automatic sending is off</strong> — these ${created.length} student(s) were NOT emailed.
+       Each link below is live, so you can send it by hand.</p>
+       <p style="color:#888;font-size:13px;">Reason: ${esc(pausedReason || 'unknown')}. Turn it on by setting
+       <code>CONTINUATION_AUTOSEND=true</code>.</p>`
+    : `<p>${created.length} continuation offer(s) emailed automatically.</p>`;
 
   const skipLine = Object.keys(skipped).length
     ? `<p style="color:#888;font-size:13px;">Examined ${examined} package student(s). Skipped: ${
@@ -187,12 +188,15 @@ function buildSweepReport({ created, skipped, examined, lapsed, paused, base }) 
 async function reportSweep({ created, skipped, examined, lapsed }) {
   if (created.length === 0 && lapsed.length === 0) return;
 
-  const { sendEmail, isEmailCategoryPaused } = require('./emailService');
+  const { sendEmail } = require('./emailService');
   const { publicBaseUrl } = require('./publicUrl');
+  const { autosendStatus } = require('./continuationOffer');
 
+  const gate = autosendStatus();
   const { subject, html } = buildSweepReport({
     created, skipped, examined, lapsed,
-    paused: isEmailCategoryPaused('continuation'),
+    paused: !gate.enabled,
+    pausedReason: gate.reason,
     base: publicBaseUrl(),
   });
 

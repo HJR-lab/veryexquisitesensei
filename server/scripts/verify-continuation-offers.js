@@ -9,11 +9,11 @@
 // exercise is against a FULL cohort, which must be refused.
 require('dotenv').config();
 const { supabase } = require('../utils/supabaseDb');
-const { isEmailCategoryPaused } = require('../utils/emailService');
 const { resolveNextCourse, assertDisplayDate } = require('../utils/packageContinuation');
 const {
   createContinuationOffer, getOfferByToken, offerState, respondToOffer,
   OFFER_DAYS, EXTENSION_DAYS, MAX_EXTENSIONS,
+  autosendStatus,
 } = require('../utils/continuationOffer');
 
 let failures = 0;
@@ -31,12 +31,13 @@ async function cleanup() {
 }
 
 async function main() {
-  // Guard: without the pause, creating an offer would email a real student.
-  if (!isEmailCategoryPaused('continuation')) {
-    console.error('ABORT: the "continuation" email category is NOT paused. This script would email real students.');
+  // Guard: with autosend on, creating an offer would email a real student.
+  const gate = autosendStatus();
+  if (gate.enabled) {
+    console.error('ABORT: CONTINUATION_AUTOSEND is on. This script would email real students.');
     process.exit(1);
   }
-  console.log('continuation emails are paused — safe to run\n');
+  console.log(`automatic sending is off (${gate.reason}) — safe to run\n`);
 
   // Find live multi-course package students.
   const { data: pkgs } = await supabase
@@ -49,12 +50,25 @@ async function main() {
 
   console.log(`active package enrollments examined: ${(pkgs || []).length}`);
 
+  // Students who already hold a live offer cannot be used for the lifecycle
+  // test — creating a second one is correctly refused. Real offers made by the
+  // nightly sweep live in this table, so this is the normal case, not an edge.
+  const { data: liveOffers } = await supabase
+    .from('continuation_offers')
+    .select('student_id')
+    .eq('status', 'pending')
+    .gt('expires_at', new Date().toISOString());
+  const alreadyOffered = new Set((liveOffers || []).map(o => o.student_id));
+
   const withRoom = [];
   const full = [];
   for (const e of pkgs || []) {
     const r = await resolveNextCourse(e, e.student_id);
-    if (r.ok) withRoom.push({ e, r });
+    if (r.ok && !alreadyOffered.has(e.student_id)) withRoom.push({ e, r });
     else if (r.reason === 'cohort_full') full.push({ e, r });
+  }
+  if (alreadyOffered.size) {
+    console.log(`  (${alreadyOffered.size} student(s) already hold a live offer and are excluded)`);
   }
   console.log(`  can continue now: ${withRoom.length}`);
   console.log(`  next cohort full: ${full.length}\n`);

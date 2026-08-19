@@ -9,9 +9,9 @@
 // creates is deleted before exit.
 require('dotenv').config();
 const { supabase } = require('../utils/supabaseDb');
-const { isEmailCategoryPaused } = require('../utils/emailService');
 const { assertDisplayDate } = require('../utils/packageContinuation');
 const { lapseExpiredOffers, findDuePackageStudents, createDueOffers } = require('../utils/continuationSweep');
+const { autosendStatus } = require('../utils/continuationOffer');
 
 let failures = 0;
 const created = [];
@@ -29,11 +29,12 @@ async function cleanup() {
 }
 
 async function main() {
-  if (!isEmailCategoryPaused('continuation')) {
-    console.error('ABORT: "continuation" is not paused. The sweep would email real students.');
+  const gate = autosendStatus();
+  if (gate.enabled) {
+    console.error('ABORT: CONTINUATION_AUTOSEND is on. The sweep would email real students.');
     process.exit(1);
   }
-  console.log('continuation emails are paused — safe to run\n');
+  console.log(`automatic sending is off (${gate.reason}) — safe to run\n`);
 
   const before = await supabase.from('continuation_offers').select('id', { count: 'exact', head: true });
   console.log(`offers already in the table: ${before.count}`);

@@ -20,7 +20,7 @@ function trackingUrl(carrier, number) {
   return base ? base + encodeURIComponent(number.trim()) : null;
 }
 
-function generate({ studentName, pieceCount, carrier, trackingNumber, photoUrl, appUrl, feeCharged, feeOutstanding }) {
+function generate({ studentName, pieceCount, carrier, trackingNumber, photoUrl, appUrl, feeCharged, feeOutstanding, feeWaived }) {
   const subject = 'Your pottery is on its way 📦';
   const plural = pieceCount !== 1;
   const url = trackingUrl(carrier, trackingNumber);
@@ -58,14 +58,19 @@ function generate({ studentName, pieceCount, carrier, trackingNumber, photoUrl, 
     </table>
     ` : ''}
     <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #333;">
-      ${feeOutstanding > 0
+      ${feeWaived > 0
         ? (feeCharged > 0
-            ? `We put $${feeCharged.toFixed(2)} of your studio credit towards the $10 delivery fee.
-               There's <strong>$${feeOutstanding.toFixed(2)} left to settle</strong> — we'll sort that
-               out with you, no rush.`
-            : `The $10 delivery fee is still <strong>outstanding</strong> — we'll sort that out with
-               you, no rush.`)
-        : `The $10 delivery fee came out of your studio credit, so there's nothing to pay.`}
+            ? `We put $${feeCharged.toFixed(2)} of your studio credit towards the $10 delivery, and
+               the rest is <strong>on us</strong> — nothing to pay.`
+            : `The $10 delivery is <strong>on us</strong> this time — nothing to pay.`)
+        : feeOutstanding > 0
+          ? (feeCharged > 0
+              ? `We put $${feeCharged.toFixed(2)} of your studio credit towards the $10 delivery fee.
+                 There's <strong>$${feeOutstanding.toFixed(2)} left to settle</strong> — we'll sort
+                 that out with you, no rush.`
+              : `The $10 delivery fee is still <strong>outstanding</strong> — we'll sort that out
+                 with you, no rush.`)
+          : `The $10 delivery fee came out of your studio credit, so there's nothing to pay.`}
     </p>
     <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #888;">
       Pottery travels badly, so we pack carefully — but if anything arrives damaged, reply to this

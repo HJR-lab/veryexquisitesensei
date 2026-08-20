@@ -658,7 +658,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
   // than silently written off or silently charged twice.
   app.put('/api/admin/pieces/batches/:id/ship', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
     const batchId = parseInt(req.params.id);
-    const { carrier, trackingNumber } = req.body;
+    const { carrier, trackingNumber, feeAction } = req.body;
 
     const existing = await supabaseDb.getPieceBatchById(batchId);
     if (!existing) return res.status(404).json({ error: 'Batch not found' });
@@ -667,24 +667,53 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
     }
 
     const fee = Number(existing.delivery_fee) || 0;
-
-    // Charge first: if the ledger write fails we must not have already told the
-    // student their parcel is on its way with the fee settled.
     let charged = Number(existing.delivery_fee_charged) || 0;
+    let outstanding = 0;
+    let waived = 0;
+
     if (fee > 0 && charged === 0 && existing.customer_id) {
-      const { spendCredits } = require('../utils/creditManager');
-      const result = await spendCredits({
-        customerId: existing.customer_id,
-        maxAmount: fee,
-        source: 'piece_delivery',
-        referenceId: String(batchId),
-        description: `Delivery of ${existing.piece_count} fired piece${existing.piece_count !== 1 ? 's' : ''}`,
-        // The shipped email below already explains the deduction.
-        notify: false,
-      });
-      charged = result.spent;
+      const { getCreditBalance, spendCredits } = require('../utils/creditManager');
+
+      // Check coverage BEFORE spending anything. Most students carry no credit,
+      // so a shortfall is the common case, and silently recording a debt nobody
+      // chose creates a ledger of forgotten money. Ask instead — the admin
+      // decides at the moment of shipping whether it is billed or written off.
+      const balance = await getCreditBalance(existing.customer_id);
+      const shortfall = Math.max(0, fee - Math.min(balance, fee));
+
+      if (shortfall > 0 && !['waive', 'bill'].includes(feeAction)) {
+        return res.status(409).json({
+          error: 'fee_not_covered',
+          needsFeeDecision: true,
+          fee,
+          balance,
+          shortfall,
+          studentName: [existing.customers?.first_name, existing.customers?.last_name].filter(Boolean).join(' '),
+        });
+      }
+
+      // Charge before emailing: if the ledger write fails we must not already
+      // have told the student their parcel is on its way with the fee settled.
+      if (balance > 0) {
+        const result = await spendCredits({
+          customerId: existing.customer_id,
+          maxAmount: fee,
+          source: 'piece_delivery',
+          referenceId: String(batchId),
+          description: `Delivery of ${existing.piece_count} fired piece${existing.piece_count !== 1 ? 's' : ''}`,
+          // The shipped email below already explains the deduction.
+          notify: false,
+        });
+        charged = result.spent;
+      }
+
+      const remainder = Math.max(0, fee - charged);
+      if (feeAction === 'waive') {
+        waived = remainder;
+      } else {
+        outstanding = remainder;
+      }
     }
-    const outstanding = Math.max(0, fee - charged);
 
     const batch = await supabaseDb.updatePieceBatchStatus(batchId, 'shipped', {
       tracking_carrier: carrier ? String(carrier).trim() : null,
@@ -692,6 +721,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
       shipped_at: new Date().toISOString(),
       delivery_fee_charged: charged,
       delivery_fee_outstanding: outstanding,
+      delivery_fee_waived: waived,
     });
 
     if (batch.customers?.email) {
@@ -705,6 +735,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
         appUrl: publicBaseUrl(),
         feeCharged: charged,
         feeOutstanding: outstanding,
+        feeWaived: waived,
       });
 
       await sendAndLogEmail({
@@ -718,7 +749,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
     }
 
     clearPickupMarker(batchId);
-    res.json({ success: true, batch, feeCharged: charged, feeOutstanding: outstanding });
+    res.json({ success: true, batch, feeCharged: charged, feeOutstanding: outstanding, feeWaived: waived });
   }));
 
   // Admin: Mark collected (fallback)

@@ -187,16 +187,20 @@ export default function AdminPiecePipeline({ embedded = false }) {
     }
   };
 
-  const handleShip = async (batchId, carrier, trackingNumber) => {
+  // Returns a fee-decision object when the student's credit will not cover the
+  // $10; the caller shows the choice and calls again with feeAction. The server
+  // refuses to create an unpaid balance nobody chose, so this round trip is the
+  // point rather than an inconvenience.
+  const handleShip = async (batchId, carrier, trackingNumber, feeAction) => {
     try {
-      const { data } = await api.put(`/admin/pieces/batches/${batchId}/ship`, { carrier, trackingNumber });
-      if (data?.feeOutstanding > 0) {
-        alert(`Shipped. $${Number(data.feeCharged).toFixed(2)} came off their credit — $${Number(data.feeOutstanding).toFixed(2)} still outstanding.`);
-      }
+      const { data } = await api.put(`/admin/pieces/batches/${batchId}/ship`, { carrier, trackingNumber, feeAction });
       fetchPipeline();
+      return { ok: true, data };
     } catch (err) {
+      const body = err?.response?.data;
+      if (body?.needsFeeDecision) return { ok: false, decision: body };
       console.error('Failed to mark shipped:', err);
-      alert(err?.response?.data?.error || 'Failed to mark shipped');
+      return { ok: false, error: body?.error || 'Failed to mark shipped' };
     }
   };
 
@@ -746,6 +750,18 @@ function ShipControl({ batch, onShip }) {
   const [open, setOpen] = useState(false);
   const [carrier, setCarrier] = useState(batch.tracking_carrier || '');
   const [tracking, setTracking] = useState(batch.tracking_number || '');
+  const [decision, setDecision] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const submit = async (feeAction) => {
+    setBusy(true);
+    setError(null);
+    const res = await onShip(batch.id, carrier.trim(), tracking.trim(), feeAction);
+    setBusy(false);
+    if (res?.decision) { setDecision(res.decision); return; }
+    if (res?.error) { setError(res.error); return; }
+  };
 
   const inputSt = {
     padding: '5px 8px',
@@ -765,8 +781,25 @@ function ShipControl({ batch, onShip }) {
     );
   }
 
+  // Credit will not cover it — the fee becomes a deliberate choice, not a debt
+  // that quietly appears.
+  if (decision) {
+    return (
+      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '11px', color: WARN, fontWeight: 700 }}>
+          {decision.studentName || 'This student'} has ${Number(decision.balance).toFixed(2)} credit —
+          ${Number(decision.shortfall).toFixed(2)} of the ${Number(decision.fee).toFixed(2)} fee is uncovered.
+        </span>
+        <button onClick={() => submit('waive')} disabled={busy} style={btnSt}>Ship &amp; waive</button>
+        <button onClick={() => submit('bill')} disabled={busy} style={btnWarnSt}>Ship &amp; bill</button>
+        <button onClick={() => { setDecision(null); setOpen(false); }} disabled={busy} style={btnSt}>Cancel</button>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+      {error && <span style={{ fontSize: '11px', color: '#C03030', fontWeight: 700 }}>{error}</span>}
       <input
         list={`carriers-${batch.id}`}
         value={carrier}
@@ -789,11 +822,11 @@ function ShipControl({ batch, onShip }) {
         style={{ ...inputSt, width: '140px' }}
       />
       <button
-        onClick={() => onShip(batch.id, carrier.trim(), tracking.trim())}
-        disabled={!tracking.trim()}
-        style={{ ...btnAccentSt, opacity: tracking.trim() ? 1 : 0.45, cursor: tracking.trim() ? 'pointer' : 'not-allowed' }}
+        onClick={() => submit()}
+        disabled={!tracking.trim() || busy}
+        style={{ ...btnAccentSt, opacity: tracking.trim() && !busy ? 1 : 0.45, cursor: tracking.trim() && !busy ? 'pointer' : 'not-allowed' }}
       >
-        Send
+        {busy ? 'Sending…' : 'Send'}
       </button>
       <button onClick={() => setOpen(false)} style={btnSt}>Cancel</button>
     </div>

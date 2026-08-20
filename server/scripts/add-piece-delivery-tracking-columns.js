@@ -6,9 +6,10 @@
 // VES credit balance, so the row needs somewhere to record all of that.
 //
 // delivery_fee (already present) stays the PRICE. delivery_fee_charged is what
-// credits actually covered and delivery_fee_outstanding is the remainder owed —
-// spendCredits() settles up to the available balance, so a partial cover is a
-// normal outcome, not an error. Idempotent.
+// credits actually covered; whatever they could not reach becomes either
+// delivery_fee_outstanding (billed, still owed) or delivery_fee_waived (written
+// off). The admin picks which at the moment of shipping, so an unpaid balance is
+// never created without somebody choosing it. Idempotent.
 //
 // Run from server/:  node scripts/add-piece-delivery-tracking-columns.js
 require('dotenv').config();
@@ -36,6 +37,7 @@ const COLUMNS = [
   ['shipped_at', 'TIMESTAMPTZ'],
   ['delivery_fee_charged', 'NUMERIC(10,2)'],
   ['delivery_fee_outstanding', 'NUMERIC(10,2)'],
+  ['delivery_fee_waived', 'NUMERIC(10,2)'],
 ];
 
 (async () => {

@@ -184,6 +184,33 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
       } catch (err) {
         console.error(`[pieces] scheduling ack failed for batch ${batchId}:`, err.message);
       }
+
+      // And tell the studio, immediately. Nothing else announces a booking —
+      // the two-day staging window only works if somebody knows there is
+      // something to stage, and the pipeline board only helps the person who
+      // happens to open it. Best-effort for the same reason as the ack above.
+      try {
+        const studioTemplate = require('../email-templates/pieces/pickup-booked-studio');
+        const { subject, html } = studioTemplate.generate({
+          studentName: [batch.customers.first_name, batch.customers.last_name].filter(Boolean).join(' ') || 'A student',
+          studentEmail: batch.customers.email,
+          pieceCount: batch.piece_count,
+          initials: batch.initials,
+          collectionDate: updates.collection_date,
+          batchId,
+          appUrl: publicBaseUrl(),
+        });
+        await sendAndLogEmail({
+          emailType: 'pickup-booked-studio',
+          courseIdentifier: batch.course_enrollments?.course_identifier || `batch-${batchId}`,
+          subject,
+          html,
+          recipientEmails: ['info@ves.sg'],
+          sentBy: 'system',
+        });
+      } catch (err) {
+        console.error(`[pieces] studio pickup notice failed for batch ${batchId}:`, err.message);
+      }
     }
 
     res.json({ success: true, batch: updated });

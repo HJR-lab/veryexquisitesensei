@@ -584,6 +584,66 @@ async function checkFinishingStudentNoCohort() {
 }
 
 /**
+ * A pickup the student has booked that nobody has staged yet.
+ *
+ * The +2 day rule exists so staff can put a batch out before the student comes
+ * for it — but nothing announced a booking, so the whole arrangement rested on
+ * somebody happening to open the pipeline board. Miss it for three days and a
+ * student arrives to a cabinet with nothing in it, having been told a date.
+ *
+ * Severity climbs as the date closes: the last day before is when staging still
+ * fixes it, and the day itself is already a failure in progress.
+ */
+async function checkUnstagedPickups() {
+  const { toYmd, addDays } = require('./sgtDate');
+  const today = todaySGT();
+
+  const { data, error } = await supabase
+    .from('piece_batches')
+    .select('id, collection_date, piece_count, initials, customers(id, first_name, last_name, email)')
+    .eq('status', 'collecting')
+    .not('collection_date', 'is', null);
+
+  if (error) {
+    console.error('[AnomalyProbe] unstaged pickups query error:', error);
+    return [];
+  }
+
+  const findings = [];
+  for (const b of data || []) {
+    const due = String(b.collection_date).split('T')[0];
+    // Anything still unstaged counts, including dates already gone — a missed
+    // pickup does not stop mattering because the day passed.
+    if (due > toYmd(addDays(today, 3))) continue;
+
+    const daysAway = Math.round(
+      (new Date(due + 'T00:00:00+08:00') - new Date(toYmd(today) + 'T00:00:00+08:00')) / 86400000
+    );
+
+    let severity = 'low';
+    if (daysAway <= 0) severity = 'high';
+    else if (daysAway === 1) severity = 'medium';
+
+    const when = daysAway < 0 ? `${Math.abs(daysAway)} day(s) ago`
+      : daysAway === 0 ? 'TODAY'
+      : daysAway === 1 ? 'TOMORROW'
+      : `in ${daysAway} days`;
+
+    findings.push({
+      type: 'unstaged_pickup',
+      severity,
+      student_id: b.customers ? b.customers.id : null,
+      student_name: formatStudentName(b.customers),
+      student_email: b.customers ? b.customers.email || null : null,
+      enrollment_id: null,
+      details: `${formatStudentName(b.customers)} is collecting ${b.piece_count} piece(s) (${b.initials || 'no initials'}) ${when} — ${due} — and batch #${b.id} is still not in the cabinet. Find it and press Place in Cabinet, which is also what sends their confirmation.`,
+    });
+  }
+
+  return findings;
+}
+
+/**
  * Run all invariant checks and return aggregated findings.
  * Failures within a single check do not abort the whole probe.
  */
@@ -598,6 +658,7 @@ async function runAnomalyProbe() {
     checkCohortOverCapacity(),
     checkStaleContinuationOffers(),
     checkFinishingStudentNoCohort(),
+    checkUnstagedPickups(),
   ]);
 
   const findings = [];
@@ -616,4 +677,4 @@ async function runAnomalyProbe() {
   return findings;
 }
 
-module.exports = { runAnomalyProbe, checkCohortStartDateDrift, checkCohortOverCapacity, checkStaleContinuationOffers, checkFinishingStudentNoCohort, checkOverAllocated, checkStaleUnassigned10Class, checkUnlinkedUpcomingBookings, checkRecentPurchaseWithoutEnrollment, checkDuplicateSpotEnrollments, findDuplicateSpots };
+module.exports = { runAnomalyProbe, checkUnstagedPickups, checkCohortStartDateDrift, checkCohortOverCapacity, checkStaleContinuationOffers, checkFinishingStudentNoCohort, checkOverAllocated, checkStaleUnassigned10Class, checkUnlinkedUpcomingBookings, checkRecentPurchaseWithoutEnrollment, checkDuplicateSpotEnrollments, findDuplicateSpots };

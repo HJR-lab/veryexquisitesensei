@@ -12,6 +12,69 @@ const MUTED    = '#888888';
 const RULE     = 'rgba(40,40,40,0.09)';
 const ALT      = '#F5F3F0';
 
+// Shown only while a delivery fee is genuinely outstanding. Uploading a
+// screenshot records a claim; the studio still has to check the bank, so the
+// copy promises confirmation rather than pretending the balance is cleared.
+function PayNowBox({ batch, paynow, onUploaded }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const owed = Number(batch.delivery_fee_outstanding) || 0;
+  const sent = !!batch.payment_uploaded_at;
+
+  const upload = async (file) => {
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append('receipt', file);
+      await api.post(`/pieces/batches/${batch.id}/payment-receipt`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      await onUploaded();
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Upload failed — try again');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 8, padding: 10, background: ALT, border: `1px solid ${RULE}` }} onClick={e => e.stopPropagation()}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: TC, marginBottom: 6 }}>
+        ${owed.toFixed(2)} delivery fee
+      </div>
+      {paynow ? (
+        <div style={{ fontSize: 11, color: INK, lineHeight: 1.5, marginBottom: 8 }}>
+          PayNow to UEN <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{paynow.uen}</span> ({paynow.payee}),
+          then upload the screenshot here.
+        </div>
+      ) : (
+        <div style={{ fontSize: 11, color: MUTED, lineHeight: 1.5, marginBottom: 8 }}>
+          Contact the studio to settle this.
+        </div>
+      )}
+      {sent ? (
+        <div style={{ fontSize: 11, color: '#2D8C4E', fontWeight: 600 }}>
+          Screenshot received — we&rsquo;ll confirm once we&rsquo;ve checked.
+        </div>
+      ) : (
+        <label style={{ display: 'inline-block', padding: '5px 12px', background: INK, color: '#fff', fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', cursor: busy ? 'wait' : 'pointer' }}>
+          {busy ? 'Uploading…' : 'Upload screenshot'}
+          <input
+            type="file"
+            accept="image/*"
+            disabled={busy}
+            onChange={e => upload(e.target.files?.[0])}
+            style={{ display: 'none' }}
+          />
+        </label>
+      )}
+      {error && <div style={{ fontSize: 11, color: '#C03030', marginTop: 6 }}>{error}</div>}
+    </div>
+  );
+}
+
 export default function GalleryNew() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -64,6 +127,13 @@ export default function GalleryNew() {
 
   // Per-batch chosen collection date for the inline "ready" row picker
   const [collectionDates, setCollectionDates] = useState({});
+  const [paynow, setPaynow] = useState(null);
+
+  useEffect(() => {
+    api.get('/policy/fees')
+      .then(({ data }) => setPaynow(data?.PAYNOW || null))
+      .catch(() => setPaynow(null)); // the card degrades to "contact the studio"
+  }, []);
 
   // Batches arrive after the first render and refetch on every upload, so this
   // is guarded to fire once — otherwise a later refetch would yank the page back
@@ -153,6 +223,9 @@ export default function GalleryNew() {
       const RECENT_SHIP_DAYS = 30;
       const active = (data.batches || []).filter(b => {
         if (['collected', 'recycled'].includes(b.status)) return false;
+        // An unpaid delivery fee outlives the tracking window — hiding the batch
+        // would take the PayNow instructions away with it.
+        if (Number(b.delivery_fee_outstanding) > 0) return true;
         if (b.status !== 'shipped') return true;
         if (!b.shipped_at) return false;
         return (Date.now() - new Date(b.shipped_at)) < RECENT_SHIP_DAYS * 86400000;
@@ -657,6 +730,14 @@ export default function GalleryNew() {
                             {batch.tracking_number
                               ? <>Sent{batch.tracking_carrier ? ` via ${batch.tracking_carrier}` : ''} · <span style={{ fontFamily: 'monospace' }}>{batch.tracking_number}</span></>
                               : 'On its way to you'}
+                          </div>
+                        )}
+                        {Number(batch.delivery_fee_outstanding) > 0 && (
+                          <PayNowBox batch={batch} paynow={paynow} onUploaded={fetchFiringBatches} />
+                        )}
+                        {batch.payment_confirmed_at && (
+                          <div style={{ fontSize: 11, color: '#2D8C4E', fontWeight: 600, marginTop: 4 }}>
+                            Delivery fee received — thank you
                           </div>
                         )}
                       </div>

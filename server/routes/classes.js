@@ -157,7 +157,11 @@ async function checkTenthClassMustBeGlazing(studentId, classInstance) {
 // Public: expose the authoritative fee schedule so the frontend can render
 // policy text from the same source the backend enforces (prevents drift).
 app.get('/api/policy/fees', (req, res) => {
-  res.json(FEES);
+  // PayNow details ride along so the frontend renders the UEN from the same
+  // source the emails do. A UEN hardcoded in a component and edited in one
+  // place sends a customer's money to a stranger.
+  const { PAYNOW } = require('../config/payment');
+  res.json({ ...FEES, PAYNOW });
 });
 
 // Auto-cancel waitlist entries when student has no remaining credits

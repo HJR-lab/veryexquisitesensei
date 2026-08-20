@@ -1,4 +1,5 @@
 const { wrapEmailTemplate, esc, escUrl } = require('../base');
+const { PAYNOW } = require('../../config/payment');
 
 // Known couriers get a real tracking link; anything else still shows the number
 // so the student can paste it wherever they need to. Never invent a URL for a
@@ -27,6 +28,7 @@ function generate({ studentName, pieceCount, carrier, trackingNumber, photoUrl, 
   const charged = Number(feeCharged) || 0;
   const outstanding = Number(feeOutstanding) || 0;
   const waived = Number(feeWaived) || 0;
+  const safeApp = escUrl(appUrl);
   const url = trackingUrl(carrier, trackingNumber);
 
   const body = `
@@ -70,12 +72,30 @@ function generate({ studentName, pieceCount, carrier, trackingNumber, photoUrl, 
         : outstanding > 0
           ? (charged > 0
               ? `We put $${charged.toFixed(2)} of your studio credit towards the $10 delivery fee.
-                 There's <strong>$${outstanding.toFixed(2)} left to settle</strong> — we'll sort
-                 that out with you, no rush.`
-              : `The $10 delivery fee is still <strong>outstanding</strong> — we'll sort that out
-                 with you, no rush.`)
+                 There's <strong>$${outstanding.toFixed(2)} left to settle</strong> — details below.`
+              : `That leaves the <strong>$${outstanding.toFixed(2)} delivery fee</strong> to settle —
+                 details below.`)
           : `The $10 delivery fee came out of your studio credit, so there's nothing to pay.`}
     </p>
+    ${outstanding > 0 ? `
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #F5F3F0; border-radius: 8px; margin: 0 0 20px;">
+      <tr><td style="padding: 18px 20px;">
+        <p style="margin: 0 0 10px; font-size: 12px; font-weight: 700; color: #C4622D; text-transform: uppercase; letter-spacing: 0.06em;">How to pay</p>
+        <p style="margin: 0 0 10px; font-size: 15px; line-height: 1.6; color: #282828;">
+          PayNow <strong>$${outstanding.toFixed(2)}</strong> to UEN
+          <strong style="font-family: monospace; letter-spacing: 0.03em;">${esc(PAYNOW.uen)}</strong>
+          (${esc(PAYNOW.payee)}), then send us the screenshot so we can tick it off.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr><td align="center" style="padding-top: 4px;">
+            <a href="${safeApp}/gallery" style="display: inline-block; padding: 12px 28px; background-color: #282828; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;">
+              Upload My Payment Screenshot
+            </a>
+          </td></tr>
+        </table>
+      </td></tr>
+    </table>
+    ` : ''}
     <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #888;">
       Pottery travels badly, so we pack carefully — but if anything arrives damaged, reply to this
       email with a photo and we'll make it right.

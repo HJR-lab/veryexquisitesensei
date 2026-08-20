@@ -204,6 +204,16 @@ export default function AdminPiecePipeline({ embedded = false }) {
     }
   };
 
+  const handleConfirmPayment = async (batchId) => {
+    try {
+      await api.put(`/admin/pieces/batches/${batchId}/payment-confirm`);
+      fetchPipeline();
+    } catch (err) {
+      console.error('Failed to confirm payment:', err);
+      alert(err?.response?.data?.error || 'Failed to confirm payment');
+    }
+  };
+
   const handleAssignCustomer = async (batchId, customerId) => {
     try {
       await api.put(`/admin/pieces/batches/${batchId}/assign`, { customerId });
@@ -292,7 +302,7 @@ export default function AdminPiecePipeline({ embedded = false }) {
                 {searchResults.length} result{searchResults.length !== 1 ? 's' : ''}
               </div>
               {searchResults.map(batch => (
-                <BatchCard key={batch.id} batch={batch} daysSince={daysSince} onStatusUpdate={handleStatusUpdate} onComplete={handleComplete} onPlaceInCabinet={handlePlaceInCabinet} onMarkCollected={handleMarkCollected} onShip={handleShip} onOpenPhoto={setViewingBatch} onAssignCustomer={handleAssignCustomer} onFlagDiscrepancy={handleFlagDiscrepancy} />
+                <BatchCard key={batch.id} batch={batch} daysSince={daysSince} onStatusUpdate={handleStatusUpdate} onComplete={handleComplete} onPlaceInCabinet={handlePlaceInCabinet} onMarkCollected={handleMarkCollected} onShip={handleShip} onConfirmPayment={handleConfirmPayment} onOpenPhoto={setViewingBatch} onAssignCustomer={handleAssignCustomer} onFlagDiscrepancy={handleFlagDiscrepancy} />
               ))}
             </div>
           )}
@@ -376,6 +386,7 @@ export default function AdminPiecePipeline({ embedded = false }) {
                     onPlaceInCabinet={handlePlaceInCabinet}
                     onMarkCollected={handleMarkCollected}
                     onShip={handleShip}
+                    onConfirmPayment={handleConfirmPayment}
                     onOpenPhoto={setViewingBatch}
                     onAssignCustomer={handleAssignCustomer}
                     onFlagDiscrepancy={handleFlagDiscrepancy}
@@ -833,7 +844,7 @@ function ShipControl({ batch, onShip }) {
   );
 }
 
-function BatchCard({ batch, daysSince, onStatusUpdate, onComplete, onPlaceInCabinet, onMarkCollected, onShip, onOpenPhoto, onAssignCustomer, onFlagDiscrepancy, selected, onToggleSelect, showCheckbox }) {
+function BatchCard({ batch, daysSince, onStatusUpdate, onComplete, onPlaceInCabinet, onMarkCollected, onShip, onConfirmPayment, onOpenPhoto, onAssignCustomer, onFlagDiscrepancy, selected, onToggleSelect, showCheckbox }) {
   const [showAssign, setShowAssign] = useState(false);
   const [assignSearch, setAssignSearch] = useState('');
   const [assignResults, setAssignResults] = useState([]);
@@ -984,6 +995,25 @@ function BatchCard({ batch, daysSince, onStatusUpdate, onComplete, onPlaceInCabi
           )}
           {batch.status === 'delivering' && (
             <ShipControl batch={batch} onShip={onShip} />
+          )}
+          {Number(batch.delivery_fee_outstanding) > 0 && (
+            <>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: WARN }}>
+                ${Number(batch.delivery_fee_outstanding).toFixed(2)} unpaid
+              </span>
+              {batch.payment_receipt_url && (
+                <a href={batch.payment_receipt_url} target="_blank" rel="noopener noreferrer" style={{ ...btnSt, textDecoration: 'none', display: 'inline-block' }}>
+                  View receipt
+                </a>
+              )}
+              <button
+                onClick={() => onConfirmPayment(batch.id)}
+                style={batch.payment_receipt_url ? btnSuccessSt : btnSt}
+                title={batch.payment_receipt_url ? 'Check the bank, then confirm' : 'No screenshot uploaded yet'}
+              >
+                Confirm paid
+              </button>
+            </>
           )}
           {batch.status === 'in_cabinet' && (
             <button onClick={() => onMarkCollected(batch.id)} style={btnSt}>

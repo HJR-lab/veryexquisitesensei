@@ -189,6 +189,41 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
     res.json({ success: true, batch: updated });
   }));
 
+  // Student: upload a PayNow screenshot for an unpaid delivery fee.
+  //
+  // Uploading is a CLAIM, not a payment. It records that the student says they
+  // have paid; delivery_fee_outstanding is untouched until an admin checks the
+  // bank and confirms. Anything else would let a screenshot of nothing clear a
+  // real debt.
+  app.post('/api/pieces/batches/:id/payment-receipt', authenticateToken, upload.single('receipt'), asyncHandler(async (req, res) => {
+    const batchId = parseInt(req.params.id);
+    const customerId = req.user.dbCustomerId;
+
+    const batch = await supabaseDb.getPieceBatchById(batchId);
+    if (!batch || batch.customer_id !== customerId) {
+      return res.status(404).json({ error: 'Batch not found' });
+    }
+    if (!(Number(batch.delivery_fee_outstanding) > 0)) {
+      return res.status(400).json({ error: 'There is nothing outstanding on this delivery' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'Attach a screenshot of the payment' });
+    }
+
+    const { uploadImageToSupabase } = require('../utils/imageUpload');
+    const { url } = await uploadImageToSupabase(
+      req.file.buffer, req.file.originalname, req.file.mimetype,
+      `customers/${customerId}/payments`
+    );
+
+    const updated = await supabaseDb.updatePieceBatch(batchId, {
+      payment_receipt_url: url,
+      payment_uploaded_at: new Date().toISOString(),
+    });
+
+    res.json({ success: true, batch: updated });
+  }));
+
   // Student: Confirm collection
   app.put('/api/pieces/batches/:id/confirm-collected', authenticateToken, asyncHandler(async (req, res) => {
     const batchId = parseInt(req.params.id);
@@ -750,6 +785,30 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
 
     clearPickupMarker(batchId);
     res.json({ success: true, batch, feeCharged: charged, feeOutstanding: outstanding, feeWaived: waived });
+  }));
+
+  // Admin: confirm a PayNow payment actually arrived.
+  //
+  // Separate from the upload on purpose — this is the step where a human has
+  // looked at the bank, so it is the only thing that clears the balance.
+  app.put('/api/admin/pieces/batches/:id/payment-confirm', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+    const batchId = parseInt(req.params.id);
+
+    const existing = await supabaseDb.getPieceBatchById(batchId);
+    if (!existing) return res.status(404).json({ error: 'Batch not found' });
+
+    const outstanding = Number(existing.delivery_fee_outstanding) || 0;
+    if (outstanding <= 0) {
+      return res.status(400).json({ error: 'There is nothing outstanding on this delivery' });
+    }
+
+    const batch = await supabaseDb.updatePieceBatch(batchId, {
+      delivery_fee_charged: (Number(existing.delivery_fee_charged) || 0) + outstanding,
+      delivery_fee_outstanding: 0,
+      payment_confirmed_at: new Date().toISOString(),
+    });
+
+    res.json({ success: true, batch });
   }));
 
   // Admin: Mark collected (fallback)

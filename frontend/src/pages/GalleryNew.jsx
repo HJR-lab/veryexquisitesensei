@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import { useAuth } from '../hooks/useAuth';
 import ImpersonationBanner from '../components/ImpersonationBanner';
@@ -14,7 +14,19 @@ const ALT      = '#F5F3F0';
 
 export default function GalleryNew() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
+
+  // The pieces-ready email sends both CTAs here, distinguished only by ?intent.
+  // Both buttons used to land on the same URL, so the click carried nothing and
+  // the student had to choose all over again. We honour the click by scrolling
+  // to the batch and pre-highlighting the option they picked — but never by
+  // submitting it. "Deliver" costs $10; a single tap in an email must not commit
+  // a charge, and a mis-tap on "Collect" would lock in a date they never saw.
+  const emailIntent = searchParams.get('intent');
+  const firingSectionRef = useRef(null);
+  const intentAppliedRef = useRef(false);
+  const [intentHighlight, setIntentHighlight] = useState(null);
 
   // Redirect admin to dashboard instead of gallery
   useEffect(() => {
@@ -52,6 +64,23 @@ export default function GalleryNew() {
 
   // Per-batch chosen collection date for the inline "ready" row picker
   const [collectionDates, setCollectionDates] = useState({});
+
+  // Batches arrive after the first render and refetch on every upload, so this
+  // is guarded to fire once — otherwise a later refetch would yank the page back
+  // to the pipeline mid-scroll.
+  useEffect(() => {
+    if (intentAppliedRef.current) return;
+    if (!emailIntent || !['collect', 'deliver'].includes(emailIntent)) return;
+    if (!firingBatches.some(b => b.status === 'ready')) return;
+    intentAppliedRef.current = true;
+    setIntentHighlight(emailIntent);
+    setGalleryTab('mine');
+    // Wait a frame so the section exists before we scroll to it.
+    const id = requestAnimationFrame(() => {
+      firingSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [emailIntent, firingBatches]);
 
   // --- filters ---
   const [filterClayType, setFilterClayType] = useState('');
@@ -118,8 +147,16 @@ export default function GalleryNew() {
   const fetchFiringBatches = async () => {
     try {
       const { data } = await api.get('/pieces/my-batches');
-      // Only show batches still in the pipeline (not collected/shipped/recycled)
-      const active = (data.batches || []).filter(b => !['collected', 'shipped', 'recycled'].includes(b.status));
+      // Still in the pipeline, plus recently shipped ones — a parcel in transit is
+      // the moment the student most wants the tracking number, and dropping it the
+      // instant it ships hides exactly that. Collected and recycled are done.
+      const RECENT_SHIP_DAYS = 30;
+      const active = (data.batches || []).filter(b => {
+        if (['collected', 'recycled'].includes(b.status)) return false;
+        if (b.status !== 'shipped') return true;
+        if (!b.shipped_at) return false;
+        return (Date.now() - new Date(b.shipped_at)) < RECENT_SHIP_DAYS * 86400000;
+      });
       setFiringBatches(active);
     } catch (err) {
       console.info('Firing batches not available:', err.message);
@@ -499,18 +536,21 @@ export default function GalleryNew() {
 
             {/* FIRING PIPELINE */}
             {firingBatches.length > 0 && (
-              <div style={{ marginBottom: 20 }}>
+              <div ref={firingSectionRef} style={{ marginBottom: 20, scrollMarginTop: 16 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, marginBottom: 10 }}>
                   In Progress
                 </div>
                 {firingBatches.map(batch => {
+                  const firstReadyId = firingBatches.find(b => b.status === 'ready')?.id;
                   const statusMap = {
                     logged: { label: 'Drying', color: MUTED },
                     bisque_fired: { label: 'Bisque Fired', color: MUTED },
                     glaze_fired: { label: 'Glaze Firing', color: '#E65100' },
                     ready: { label: 'Ready!', color: '#2D8C4E' },
                     collecting: { label: 'Collecting', color: '#2D8C4E' },
-                    delivering: { label: 'Delivery', color: TC },
+                    in_cabinet: { label: 'In Cabinet', color: '#2D8C4E' },
+                    delivering: { label: 'To Deliver', color: TC },
+                    shipped: { label: 'On Its Way', color: TC },
                   };
                   const st = statusMap[batch.status] || statusMap.logged;
                   const isReady = batch.status === 'ready';
@@ -553,11 +593,17 @@ export default function GalleryNew() {
                         {/* Collect (with date) / Deliver buttons */}
                         {isReady && (
                           <div style={{ marginTop: 8 }}>
+                            {intentHighlight === 'deliver' && (
+                              <div style={{ fontSize: 10, color: TC, fontWeight: 700, marginBottom: 4 }}>
+                                You chose delivery — confirm below to arrange it.
+                              </div>
+                            )}
                             <div style={{ fontSize: 10, color: MUTED, marginBottom: 4 }}>
                               Pick a collection date (at least 2 days from today)
                             </div>
                             <input
                               type="date"
+                              autoFocus={intentHighlight === 'collect' && batch.id === firstReadyId}
                               min={minCollectionDate()}
                               value={collectionDates[batch.id] || ''}
                               onClick={(e) => e.stopPropagation()}
@@ -578,7 +624,13 @@ export default function GalleryNew() {
                               >Collect</button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleDeliveryChoice(batch.id, 'deliver'); }}
-                                style={{ padding: '5px 12px', background: 'transparent', color: TC, border: `1px solid ${TC}`, fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', cursor: 'pointer' }}
+                                style={{
+                                  padding: '5px 12px',
+                                  background: intentHighlight === 'deliver' ? TC : 'transparent',
+                                  color: intentHighlight === 'deliver' ? '#fff' : TC,
+                                  border: `1px solid ${TC}`,
+                                  fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', cursor: 'pointer',
+                                }}
                               >Deliver ($10)</button>
                             </div>
                           </div>
@@ -590,8 +642,22 @@ export default function GalleryNew() {
                               : 'Come visit the studio to collect'}
                           </div>
                         )}
+                        {batch.status === 'in_cabinet' && (
+                          <div style={{ fontSize: 11, color: '#2D8C4E', fontWeight: 600, marginTop: 4 }}>
+                            Out in the cabinet — come pick {batch.piece_count !== 1 ? 'them' : 'it'} up
+                          </div>
+                        )}
                         {batch.status === 'delivering' && (
-                          <div style={{ fontSize: 11, color: TC, fontWeight: 600, marginTop: 4 }}>Delivery arranged ($10)</div>
+                          <div style={{ fontSize: 11, color: TC, fontWeight: 600, marginTop: 4 }}>
+                            Delivery arranged ($10) — we&rsquo;ll send tracking when it goes out
+                          </div>
+                        )}
+                        {batch.status === 'shipped' && (
+                          <div style={{ fontSize: 11, color: TC, fontWeight: 600, marginTop: 4 }}>
+                            {batch.tracking_number
+                              ? <>Sent{batch.tracking_carrier ? ` via ${batch.tracking_carrier}` : ''} · <span style={{ fontFamily: 'monospace' }}>{batch.tracking_number}</span></>
+                              : 'On its way to you'}
+                          </div>
                         )}
                       </div>
                     </div>

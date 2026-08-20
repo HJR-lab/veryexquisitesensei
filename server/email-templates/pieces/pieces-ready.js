@@ -22,12 +22,12 @@ function generate({ studentName, courseName, pieceCount, photoUrl, appUrl }) {
     <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 24px;">
       <tr>
         <td width="48%" align="center" style="padding-right: 8px;">
-          <a href="${appUrl}/gallery?tab=pieces" style="display: block; padding: 14px 20px; background-color: #2D8C4E; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px;">
+          <a href="${appUrl}/gallery?intent=collect" style="display: block; padding: 14px 20px; background-color: #2D8C4E; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px;">
             I'll Collect
           </a>
         </td>
         <td width="48%" align="center" style="padding-left: 8px;">
-          <a href="${appUrl}/gallery?tab=pieces" style="display: block; padding: 14px 20px; background-color: #C4622D; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px;">
+          <a href="${appUrl}/gallery?intent=deliver" style="display: block; padding: 14px 20px; background-color: #C4622D; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px;">
             Deliver ($10)
           </a>
         </td>

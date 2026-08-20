@@ -1,4 +1,35 @@
 /**
+ * Escape a value for interpolation into email HTML.
+ *
+ * Names, course titles and notes reach these templates from Shopify, where a
+ * customer sets their own first_name. That value is embedded in HTML which is
+ * stored in sent_emails and later rendered in the admin's browser, so an
+ * unescaped name is a stored XSS with the admin's session, not just a broken
+ * email. Escape every interpolated value that did not originate in this file.
+ *
+ * @param {*} value
+ * @returns {string} HTML-safe text
+ */
+const HTML_ENTITIES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => HTML_ENTITIES[c]);
+}
+
+/**
+ * Escape a URL for an href/src. Anything that is not plainly http(s) is dropped
+ * rather than escaped — javascript: and data: URIs have no business in an email
+ * and there is no safe way to render an attacker-chosen scheme.
+ *
+ * @param {*} value
+ * @returns {string} a safe URL, or '' if the scheme is not http(s)
+ */
+function escUrl(value) {
+  const raw = String(value ?? '').trim();
+  if (!/^https?:\/\//i.test(raw)) return '';
+  return esc(raw);
+}
+
+/**
  * Base email template wrapper — VES branded HTML email
  * @param {string} bodyContent - Inner HTML content for the email body
  * @returns {string} Full HTML email string
@@ -52,4 +83,4 @@ function wrapEmailTemplate(bodyContent) {
 </html>`;
 }
 
-module.exports = { wrapEmailTemplate };
+module.exports = { wrapEmailTemplate, esc, escUrl };

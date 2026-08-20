@@ -1190,8 +1190,15 @@ export default function AdminEmails() {
                 )}
               </div>
 
+              {/* sandbox="" is load-bearing, not decoration. srcDoc renders in THIS
+                  origin, and the HTML contains customer-supplied fields (a name a
+                  student sets in Shopify) that reach us through sync. Without the
+                  attribute, a scripted name stored in sent_emails executes here with
+                  the admin's session. Emails are static markup, so an empty sandbox
+                  costs nothing — images still load, scripts and forms do not run. */}
               <iframe
                 title="Email preview"
+                sandbox=""
                 srcDoc={group.html}
                 style={{ flex: 1, minHeight: '420px', width: '100%', border: 'none', backgroundColor: '#FFF' }}
               />

@@ -85,8 +85,13 @@ async function earnCredits({ customerId, amount, source, referenceId, descriptio
  * Spend credits for a customer.
  * Spends up to available balance (capped at maxAmount).
  * Returns { spent, transaction } where spent is the actual amount deducted.
+ *
+ * notify=false suppresses the credits-spent email. Use it when the caller sends
+ * its own email that already accounts for the deduction — the delivery flow
+ * says "the $10 came out of your studio credit" in the shipped email, and a
+ * second generic credits email arriving alongside it is just noise.
  */
-async function spendCredits({ customerId, maxAmount, source, referenceId, description }) {
+async function spendCredits({ customerId, maxAmount, source, referenceId, description, notify = true }) {
   const balance = await getCreditBalance(customerId);
 
   if (balance <= 0) {
@@ -113,6 +118,17 @@ async function spendCredits({ customerId, maxAmount, source, referenceId, descri
   if (error) throw error;
 
   // Send credit spent email (non-blocking)
+  if (!notify) return { spent, transaction: data };
+
+  // credits-earned is gated on the pause list in both its call sites; this one
+  // was not, so a paused 'credits' category still let spend receipts out. Same
+  // category, same gate.
+  const { isEmailCategoryPaused } = require('./emailService');
+  if (isEmailCategoryPaused('credits')) {
+    console.log(`[Credits] credits-spent email suppressed for customer ${customerId} — category paused`);
+    return { spent, transaction: data };
+  }
+
   try {
     const { sendEmail } = require('./emailService');
     const { generate: generateCreditSpent } = require('../email-templates/credits-spent');

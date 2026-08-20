@@ -11,23 +11,25 @@ const ALT      = '#F5F3F0';
 const SUCCESS  = '#059669';
 const WARN     = '#E65100';
 
-const STATUS_ORDER = ['ready', 'in_cabinet', 'collecting', 'unmatched', 'glaze_fired', 'bisque_fired', 'logged'];
+// No 'unmatched' column: piece_batches.customer_id is NOT NULL and the log
+// route requires a customerId, so that bucket could never fill.
+const STATUS_ORDER = ['ready', 'in_cabinet', 'collecting', 'delivering', 'glaze_fired', 'bisque_fired', 'logged'];
 const STATUS_LABELS = {
   logged: 'Logged / Drying',
   bisque_fired: 'Bisque Fired',
   glaze_fired: 'Glaze Fired',
-  unmatched: 'Unmatched',
   ready: 'Ready for Collection',
   collecting: 'Collection Scheduled',
+  delivering: 'To Deliver',
   in_cabinet: 'In Cabinet',
 };
 const STATUS_COLORS = {
   logged: MUTED,
   bisque_fired: WARN,
   glaze_fired: WARN,
-  unmatched: '#C03030',
   ready: SUCCESS,
   collecting: SUCCESS,
+  delivering: TC,
   in_cabinet: TC,
 };
 const NEXT_STATUS = {
@@ -185,6 +187,19 @@ export default function AdminPiecePipeline({ embedded = false }) {
     }
   };
 
+  const handleShip = async (batchId, carrier, trackingNumber) => {
+    try {
+      const { data } = await api.put(`/admin/pieces/batches/${batchId}/ship`, { carrier, trackingNumber });
+      if (data?.feeOutstanding > 0) {
+        alert(`Shipped. $${Number(data.feeCharged).toFixed(2)} came off their credit — $${Number(data.feeOutstanding).toFixed(2)} still outstanding.`);
+      }
+      fetchPipeline();
+    } catch (err) {
+      console.error('Failed to mark shipped:', err);
+      alert(err?.response?.data?.error || 'Failed to mark shipped');
+    }
+  };
+
   const handleAssignCustomer = async (batchId, customerId) => {
     try {
       await api.put(`/admin/pieces/batches/${batchId}/assign`, { customerId });
@@ -236,7 +251,7 @@ export default function AdminPiecePipeline({ embedded = false }) {
     >
         {/* Stats Bar */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1px', backgroundColor: RULE, border: `1px solid ${RULE}`, marginBottom: '24px' }}>
-          {['glaze_fired', 'unmatched', 'ready', 'collecting', 'in_cabinet'].map(key => (
+          {['glaze_fired', 'ready', 'collecting', 'delivering', 'in_cabinet'].map(key => (
             <div key={key} style={{ padding: '20px 16px', backgroundColor: '#FFFFFF', textAlign: 'left' }}>
               <div style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.5px', lineHeight: 1, color: STATUS_COLORS[key], marginBottom: '8px' }}>
                 {stats[key]?.count || 0}
@@ -273,7 +288,7 @@ export default function AdminPiecePipeline({ embedded = false }) {
                 {searchResults.length} result{searchResults.length !== 1 ? 's' : ''}
               </div>
               {searchResults.map(batch => (
-                <BatchCard key={batch.id} batch={batch} daysSince={daysSince} onStatusUpdate={handleStatusUpdate} onComplete={handleComplete} onPlaceInCabinet={handlePlaceInCabinet} onMarkCollected={handleMarkCollected} onOpenPhoto={setViewingBatch} onAssignCustomer={handleAssignCustomer} onFlagDiscrepancy={handleFlagDiscrepancy} />
+                <BatchCard key={batch.id} batch={batch} daysSince={daysSince} onStatusUpdate={handleStatusUpdate} onComplete={handleComplete} onPlaceInCabinet={handlePlaceInCabinet} onMarkCollected={handleMarkCollected} onShip={handleShip} onOpenPhoto={setViewingBatch} onAssignCustomer={handleAssignCustomer} onFlagDiscrepancy={handleFlagDiscrepancy} />
               ))}
             </div>
           )}
@@ -356,6 +371,7 @@ export default function AdminPiecePipeline({ embedded = false }) {
                     onComplete={handleComplete}
                     onPlaceInCabinet={handlePlaceInCabinet}
                     onMarkCollected={handleMarkCollected}
+                    onShip={handleShip}
                     onOpenPhoto={setViewingBatch}
                     onAssignCustomer={handleAssignCustomer}
                     onFlagDiscrepancy={handleFlagDiscrepancy}
@@ -722,7 +738,69 @@ function LogBatchModal({ onClose, onSaved }) {
   );
 }
 
-function BatchCard({ batch, daysSince, onStatusUpdate, onComplete, onPlaceInCabinet, onMarkCollected, onOpenPhoto, onAssignCustomer, onFlagDiscrepancy, selected, onToggleSelect, showCheckbox }) {
+// The studio ships the parcel itself, so this records what the courier gave back
+// rather than booking anything. Tracking is required: the whole point of the
+// deliver path is that the student gets a number to follow, and shipping without
+// one just recreates the silence this replaced.
+function ShipControl({ batch, onShip }) {
+  const [open, setOpen] = useState(false);
+  const [carrier, setCarrier] = useState(batch.tracking_carrier || '');
+  const [tracking, setTracking] = useState(batch.tracking_number || '');
+
+  const inputSt = {
+    padding: '5px 8px',
+    fontSize: '11px',
+    fontFamily: 'inherit',
+    border: `1px solid ${RULE}`,
+    backgroundColor: '#FFFFFF',
+    color: INK,
+    width: '110px',
+  };
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} style={btnAccentSt}>
+        Ship &amp; Track
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+      <input
+        list={`carriers-${batch.id}`}
+        value={carrier}
+        onChange={e => setCarrier(e.target.value)}
+        placeholder="Carrier"
+        style={inputSt}
+      />
+      <datalist id={`carriers-${batch.id}`}>
+        <option value="SingPost" />
+        <option value="NinjaVan" />
+        <option value="J&T" />
+        <option value="Qxpress" />
+        <option value="Lalamove" />
+        <option value="Grab" />
+      </datalist>
+      <input
+        value={tracking}
+        onChange={e => setTracking(e.target.value)}
+        placeholder="Tracking no."
+        style={{ ...inputSt, width: '140px' }}
+      />
+      <button
+        onClick={() => onShip(batch.id, carrier.trim(), tracking.trim())}
+        disabled={!tracking.trim()}
+        style={{ ...btnAccentSt, opacity: tracking.trim() ? 1 : 0.45, cursor: tracking.trim() ? 'pointer' : 'not-allowed' }}
+      >
+        Send
+      </button>
+      <button onClick={() => setOpen(false)} style={btnSt}>Cancel</button>
+    </div>
+  );
+}
+
+function BatchCard({ batch, daysSince, onStatusUpdate, onComplete, onPlaceInCabinet, onMarkCollected, onShip, onOpenPhoto, onAssignCustomer, onFlagDiscrepancy, selected, onToggleSelect, showCheckbox }) {
   const [showAssign, setShowAssign] = useState(false);
   const [assignSearch, setAssignSearch] = useState('');
   const [assignResults, setAssignResults] = useState([]);
@@ -870,6 +948,9 @@ function BatchCard({ batch, daysSince, onStatusUpdate, onComplete, onPlaceInCabi
                 Place in Cabinet
               </button>
             </>
+          )}
+          {batch.status === 'delivering' && (
+            <ShipControl batch={batch} onShip={onShip} />
           )}
           {batch.status === 'in_cabinet' && (
             <button onClick={() => onMarkCollected(batch.id)} style={btnSt}>

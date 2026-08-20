@@ -3,6 +3,16 @@ const { sendAndLogEmail } = require('../utils/emailService');
 const { sendPiecesReady } = require('../utils/piecesNotifier');
 const courseConfig = require('../utils/courseConfig');
 const { publicBaseUrl } = require('../utils/publicUrl');
+const calendarSync = require('../utils/calendarSync');
+
+// Drop a batch's pickup marker off the studio calendar once it has been handed
+// over. Fire-and-forget: the batch is already collected in the database, and a
+// stale calendar entry must never turn into a failed request for the admin.
+function clearPickupMarker(batchId) {
+  calendarSync.deletePieceCollectionEvent(batchId).catch(err =>
+    console.error(`[pieces] calendar cleanup failed for batch ${batchId}:`, err.message)
+  );
+}
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, upload }) {
 
@@ -148,6 +158,34 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
     }
 
     const updated = await supabaseDb.updatePieceBatch(batchId, updates);
+
+    // Acknowledge the date immediately. This is a receipt, not a confirmation —
+    // the studio still has to locate the batch and stage it, and THAT step sends
+    // pieces-in-cabinet. Before this the student heard nothing between picking a
+    // date and the cabinet email, which could be days of silence. Best-effort:
+    // an email failure must never fail the scheduling the student just did.
+    if (method === 'collect' && batch.customers?.email) {
+      try {
+        const scheduledTemplate = require('../email-templates/pieces/pieces-collection-scheduled');
+        const { subject, html } = scheduledTemplate.generate({
+          studentName: batch.customers.first_name || 'there',
+          pieceCount: batch.piece_count,
+          collectionDate: updates.collection_date,
+          appUrl: publicBaseUrl(),
+        });
+        await sendAndLogEmail({
+          emailType: 'pieces-collection-scheduled',
+          courseIdentifier: batch.course_enrollments?.course_identifier || `batch-${batchId}`,
+          subject,
+          html,
+          recipientEmails: [batch.customers.email],
+          sentBy: 'system',
+        });
+      } catch (err) {
+        console.error(`[pieces] scheduling ack failed for batch ${batchId}:`, err.message);
+      }
+    }
+
     res.json({ success: true, batch: updated });
   }));
 
@@ -165,6 +203,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
     }
 
     const updated = await supabaseDb.updatePieceBatchStatus(batchId, 'collected');
+    clearPickupMarker(batchId);
     res.json({ success: true, batch: updated });
   }));
 
@@ -174,17 +213,20 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
   app.get('/api/admin/pieces/pipeline', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
     const batches = await supabaseDb.getAllActivePieceBatches();
 
-    // Unmatched = batches with no customer_id (admin logged but initials didn't match)
-    const unmatched = batches.filter(b => !b.customer_id);
-    const matched = batches.filter(b => b.customer_id);
+    // There is no "unmatched" bucket, despite the board once having a column for
+    // it: piece_batches.customer_id is NOT NULL and the admin log route requires a
+    // customerId, so no path can produce a batch without an owner. The column
+    // could never populate. /assign stays — it is still how a batch attributed to
+    // the wrong student gets moved.
+    const matched = batches;
 
     const grouped = {
       logged: matched.filter(b => b.status === 'logged'),
       bisque_fired: matched.filter(b => b.status === 'bisque_fired'),
       glaze_fired: matched.filter(b => b.status === 'glaze_fired'),
-      unmatched: unmatched,
       ready: matched.filter(b => b.status === 'ready'),
       collecting: matched.filter(b => b.status === 'collecting'),
+      delivering: matched.filter(b => b.status === 'delivering'),
       in_cabinet: matched.filter(b => b.status === 'in_cabinet'),
     };
 
@@ -194,9 +236,9 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
       logged: makeStats(grouped.logged),
       bisque_fired: makeStats(grouped.bisque_fired),
       glaze_fired: makeStats(grouped.glaze_fired),
-      unmatched: makeStats(grouped.unmatched),
       ready: makeStats(grouped.ready),
       collecting: makeStats(grouped.collecting),
+      delivering: makeStats(grouped.delivering),
       in_cabinet: makeStats(grouped.in_cabinet),
     };
 
@@ -437,6 +479,11 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
 
     const batch = await supabaseDb.updatePieceBatchStatus(batchId, status);
 
+    // Any hand-driven status change can strand a pickup marker, so re-sync.
+    // syncPieceCollection deletes the marker for statuses that are no longer
+    // awaiting pickup, and is a no-op when there was never one.
+    calendarSync.syncPieceCollection(batchId).catch(() => {});
+
     // Marking a batch ready always tells the student, immediately.
     if (status === 'ready') {
       await sendPiecesReady(batch);
@@ -455,6 +502,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
     }
 
     const batch = await supabaseDb.updatePieceBatchStatus(batchId, completionType);
+    clearPickupMarker(batchId);
     res.json({ success: true, batch });
   }));
 
@@ -470,6 +518,11 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
     for (const batchId of batchIds) {
       const batch = await supabaseDb.updatePieceBatchStatus(batchId, status);
       results.push(batch);
+
+      // syncPieceCollection is self-cancelling: it deletes the marker for any
+      // status that is no longer awaiting pickup, so one call covers both
+      // directions of a bulk move.
+      calendarSync.syncPieceCollection(batchId).catch(() => {});
 
       if (status === 'ready') {
         await sendPiecesReady(batch);
@@ -573,6 +626,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
         pieceCount: batch.piece_count,
         photoUrl,
         appUrl,
+        collectionDate: batch.collection_date,
       });
 
       await sendAndLogEmail({
@@ -585,13 +639,93 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
       });
     }
 
+    // Staging is the confirmation step, so this is where the pickup earns its
+    // place on the studio calendar. Fire-and-forget — a calendar outage must not
+    // block an admin from moving pieces into the cabinet.
+    calendarSync.syncPieceCollection(batchId).catch(err =>
+      console.error(`[pieces] calendar sync failed for batch ${batchId}:`, err.message)
+    );
+
     res.json({ success: true, batch });
+  }));
+
+  // Admin: Ship a delivery — record the tracking, settle the $10, tell the student.
+  //
+  // The studio sends the parcel itself and issues tracking; nothing here books a
+  // courier. The fee comes off the student's VES credit balance, and spendCredits
+  // deliberately spends only what is there, so a partial cover is a normal
+  // outcome: whatever credit could not cover is recorded as outstanding rather
+  // than silently written off or silently charged twice.
+  app.put('/api/admin/pieces/batches/:id/ship', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+    const batchId = parseInt(req.params.id);
+    const { carrier, trackingNumber } = req.body;
+
+    const existing = await supabaseDb.getPieceBatchById(batchId);
+    if (!existing) return res.status(404).json({ error: 'Batch not found' });
+    if (existing.status === 'shipped') {
+      return res.status(400).json({ error: 'This batch has already been shipped' });
+    }
+
+    const fee = Number(existing.delivery_fee) || 0;
+
+    // Charge first: if the ledger write fails we must not have already told the
+    // student their parcel is on its way with the fee settled.
+    let charged = Number(existing.delivery_fee_charged) || 0;
+    if (fee > 0 && charged === 0 && existing.customer_id) {
+      const { spendCredits } = require('../utils/creditManager');
+      const result = await spendCredits({
+        customerId: existing.customer_id,
+        maxAmount: fee,
+        source: 'piece_delivery',
+        referenceId: String(batchId),
+        description: `Delivery of ${existing.piece_count} fired piece${existing.piece_count !== 1 ? 's' : ''}`,
+        // The shipped email below already explains the deduction.
+        notify: false,
+      });
+      charged = result.spent;
+    }
+    const outstanding = Math.max(0, fee - charged);
+
+    const batch = await supabaseDb.updatePieceBatchStatus(batchId, 'shipped', {
+      tracking_carrier: carrier ? String(carrier).trim() : null,
+      tracking_number: trackingNumber ? String(trackingNumber).trim() : null,
+      shipped_at: new Date().toISOString(),
+      delivery_fee_charged: charged,
+      delivery_fee_outstanding: outstanding,
+    });
+
+    if (batch.customers?.email) {
+      const shippedTemplate = require('../email-templates/pieces/pieces-shipped');
+      const { subject, html } = shippedTemplate.generate({
+        studentName: batch.customers.first_name || 'there',
+        pieceCount: batch.piece_count,
+        carrier: batch.tracking_carrier,
+        trackingNumber: batch.tracking_number,
+        photoUrl: batch.photo_urls && batch.photo_urls.length > 0 ? batch.photo_urls[0] : null,
+        appUrl: publicBaseUrl(),
+        feeCharged: charged,
+        feeOutstanding: outstanding,
+      });
+
+      await sendAndLogEmail({
+        emailType: 'pieces-shipped',
+        courseIdentifier: batch.course_enrollments?.course_identifier || `batch-${batchId}`,
+        subject,
+        html,
+        recipientEmails: [batch.customers.email],
+        sentBy: 'admin',
+      });
+    }
+
+    clearPickupMarker(batchId);
+    res.json({ success: true, batch, feeCharged: charged, feeOutstanding: outstanding });
   }));
 
   // Admin: Mark collected (fallback)
   app.put('/api/admin/pieces/batches/:id/mark-collected', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
     const batchId = parseInt(req.params.id);
     const batch = await supabaseDb.updatePieceBatchStatus(batchId, 'collected');
+    clearPickupMarker(batchId);
     res.json({ success: true, batch });
   }));
 
@@ -692,78 +826,83 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
   }));
 
   // Admin: Send collection email manually
+  //
+  // This used to carry its own hand-written copy of all three emails. The copy
+  // drifted: it promised "collect within 60 days" while the actual policy is a
+  // 90-day hold with reminders at 30/60/83, so which deadline a student was told
+  // depended on whether the email came from the automated path or this button.
+  // It now renders the same templates the automated sends use — one source of
+  // truth for the policy, the links, and the wording.
   app.post('/api/admin/pieces/batches/:id/send-collection-email', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
     const batchId = parseInt(req.params.id);
     const { emailType } = req.body; // 'ready' | 'cabinet' | 'reminder'
 
-    const { data: batch, error } = await supabaseDb.supabase
-      .from('piece_batches')
-      .select('*, customers!piece_batches_customer_id_fkey(first_name, last_name, email)')
-      .eq('id', batchId)
-      .single();
+    if (!['ready', 'cabinet', 'reminder'].includes(emailType)) {
+      return res.status(400).json({ error: 'Invalid emailType. Use: ready, cabinet, or reminder' });
+    }
 
-    if (error || !batch) return res.status(404).json({ error: 'Batch not found' });
+    const batch = await supabaseDb.getPieceBatchById(batchId);
+    if (!batch) return res.status(404).json({ error: 'Batch not found' });
 
     const student = batch.customers;
     if (!student?.email) return res.status(400).json({ error: 'Student has no email' });
 
-    const { sendEmail } = require('../utils/emailService');
-    const { wrapEmailTemplate } = require('../email-templates/base');
-    const pieceStr = `${batch.piece_count} piece${batch.piece_count !== 1 ? 's' : ''} (Initials: ${batch.initials || '—'})`;
-
-    let subject, body;
-
+    // 'ready' is the full notification (email + in-app), so reuse the notifier
+    // rather than half-repeating it here.
     if (emailType === 'ready') {
-      subject = 'VES — Your fired pieces are ready for collection!';
-      body = `
-        <h1 style="margin: 0 0 16px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">Your pieces are ready for collection!</h1>
-        <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">Hi ${student.first_name}, great news — your fired pottery pieces are ready to be picked up from the studio!</p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #F9EDE6; border-radius: 8px; margin: 0 0 20px;">
-          <tr><td style="padding: 16px 20px;">
-            <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #C4622D; text-transform: uppercase; letter-spacing: 0.05em;">Ready for Collection</p>
-            <p style="margin: 0 0 2px; font-size: 15px; font-weight: 600; color: #282828;">${pieceStr}</p>
-            ${batch.notes ? `<p style="margin: 0 0 2px; font-size: 14px; color: #282828;">${batch.notes}</p>` : ''}
-            <p style="margin: 0; font-size: 13px; color: #888888;">Logged: ${new Date(batch.created_at).toLocaleDateString('en-SG', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
-          </td></tr>
-        </table>
-        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #F5F3F0; border-radius: 8px; margin: 0 0 20px;">
-          <tr><td style="padding: 16px 20px;">
-            <p style="margin: 0 0 8px; font-size: 14px; font-weight: 600; color: #282828;">How to collect</p>
-            <p style="margin: 0 0 4px; font-size: 14px; line-height: 1.6; color: #282828;">1. Sign in and choose your <strong>collection date</strong> (+2 days notice).</p>
-            <p style="margin: 0 0 4px; font-size: 14px; line-height: 1.6; color: #282828;">2. Collect your pieces from the <strong>glass cabinet</strong> of the studio porch.</p>
-            <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #282828;">3. Identify and confirm the collection in Ves Clay Club app.</p>
-          </td></tr>
-        </table>
-        <p style="margin: 0 0 8px; font-size: 14px; color: #282828;">Please collect within 60 days or opt for door-to-door delivery at $10.</p>
-        <p style="margin: 0 0 20px; font-size: 12px; color: #888888;">Uncollected pieces will be recycled.</p>
-        <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
-          <a href="https://club.ves.sg/gallery?tab=pieces" style="display: inline-block; padding: 14px 32px; background-color: #C4622D; color: #fff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">Schedule Collection</a>
-        </td></tr></table>`;
-    } else if (emailType === 'cabinet') {
-      subject = 'VES — Your pieces are in the cabinet!';
-      body = `
-        <h1 style="margin: 0 0 16px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">Your pieces are in the cabinet</h1>
-        <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">Hi ${student.first_name}, your <strong>${pieceStr}</strong> ${batch.piece_count !== 1 ? 'are' : 'is'} now in the glass cabinet outside the studio — come pick ${batch.piece_count !== 1 ? 'them' : 'it'} up anytime!</p>
-        <p style="margin: 0 0 4px; font-size: 14px; color: #282828;"><strong>Address:</strong> 75 Jalan Kelabu Asap, Chip Bee Gardens 278268 (<a href="https://maps.app.goo.gl/g84xejcaZbAsD2ze7" style="color: #C4622D;">Map</a>)</p>
-        <p style="margin: 0 0 20px; font-size: 13px; color: #888888;">Once collected, confirm in the app so we know you've got them.</p>
-        <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
-          <a href="https://club.ves.sg/gallery?tab=pieces" style="display: inline-block; padding: 14px 32px; background-color: #1565C0; color: #fff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">I've Collected My Pieces</a>
-        </td></tr></table>`;
-    } else if (emailType === 'reminder') {
-      subject = 'VES — Reminder: Your pottery pieces are waiting!';
-      body = `
-        <h1 style="margin: 0 0 16px; font-size: 22px; font-weight: 600; color: #282828; text-align: center;">Your pieces are still waiting!</h1>
-        <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #282828;">Hi ${student.first_name}, just a friendly reminder — your <strong>${pieceStr}</strong> ${batch.piece_count !== 1 ? 'are' : 'is'} ready and waiting for you at the studio.</p>
-        <p style="margin: 0 0 8px; font-size: 14px; line-height: 1.6; color: #9E6200;">Please collect within 60 days or opt for door-to-door delivery at $10.</p>
-        <p style="margin: 0 0 20px; font-size: 12px; color: #888888;">Uncollected pieces will be recycled.</p>
-        <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
-          <a href="https://club.ves.sg/gallery?tab=pieces" style="display: inline-block; padding: 14px 32px; background-color: #C4622D; color: #fff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">Schedule Collection</a>
-        </td></tr></table>`;
-    } else {
-      return res.status(400).json({ error: 'Invalid emailType. Use: ready, cabinet, or reminder' });
+      const result = await sendPiecesReady(batch);
+      return res.json({
+        success: result.emailed,
+        studentName: `${student.first_name} ${student.last_name}`,
+      });
     }
 
-    const result = await sendEmail({ to: student.email, subject, html: wrapEmailTemplate(body) });
+    const appUrl = publicBaseUrl();
+    const courseName = batch.course_enrollments?.course_title
+      || batch.course_enrollments?.course_variant_title
+      || 'your course';
+    const photoUrl = batch.photo_urls && batch.photo_urls.length > 0 ? batch.photo_urls[0] : null;
+
+    let subject, html;
+
+    if (emailType === 'cabinet') {
+      ({ subject, html } = require('../email-templates/pieces/pieces-in-cabinet').generate({
+        studentName: student.first_name || 'there',
+        pieceCount: batch.piece_count,
+        photoUrl,
+        appUrl,
+        collectionDate: batch.collection_date,
+      }));
+    } else {
+      // Reminder copy is keyed off how long the batch has been waiting, so a
+      // manual send lands on the same milestone wording the cron would use.
+      const readyAt = batch.ready_at ? new Date(batch.ready_at) : new Date();
+      const daysSinceReady = Math.max(0, Math.floor((Date.now() - readyAt) / (1000 * 60 * 60 * 24)));
+      const holdExpiresDate = batch.hold_expires_at
+        ? new Date(batch.hold_expires_at).toLocaleDateString('en-SG', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Singapore' })
+        : null;
+
+      ({ subject, html } = require('../email-templates/pieces/pieces-reminder').generate({
+        studentName: student.first_name || 'there',
+        courseName,
+        pieceCount: batch.piece_count,
+        photoUrl,
+        appUrl,
+        daysSinceReady,
+        holdExpiresDate,
+        holdDays: supabaseDb.PIECE_HOLD_DAYS,
+      }));
+    }
+
+    const result = await sendAndLogEmail({
+      emailType: emailType === 'cabinet' ? 'pieces-in-cabinet' : 'pieces-reminder',
+      courseIdentifier: batch.course_enrollments?.course_identifier || `batch-${batchId}`,
+      subject,
+      html,
+      recipientEmails: [student.email],
+      sentBy: 'admin',
+    });
+
     res.json({ success: result.success, studentName: `${student.first_name} ${student.last_name}` });
   }));
 };

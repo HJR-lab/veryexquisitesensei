@@ -1,4 +1,4 @@
-const { wrapEmailTemplate } = require('../base');
+const { wrapEmailTemplate, esc, escUrl } = require('../base');
 
 // Two clocks, two sets of copy. A batch still on the shelf runs the 90-day hold
 // with milestones at 30/60/83; a batch already staged in the cabinet runs a
@@ -12,7 +12,14 @@ function generate({ studentName, courseName, pieceCount, photoUrl, appUrl, daysS
   const isUrgent = daysLeft <= 14;
   const isFinal = daysLeft <= 7;
   const inCabinet = clockKind === 'cabinet';
-  const plural = pieceCount !== 1;
+  // Everything below that came from outside this file is escaped: a student
+  // sets their own name in Shopify and it reaches us through sync. See esc()
+  // in ../base for why an unescaped name is more than a broken email.
+  const count = Number(pieceCount) || 0;
+  const safePhoto = escUrl(photoUrl);
+  const safeApp = escUrl(appUrl);
+
+  const plural = count !== 1;
 
   let headline;
   if (isFinal) {
@@ -37,21 +44,21 @@ function generate({ studentName, courseName, pieceCount, photoUrl, appUrl, daysS
     </h2>
     <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.6; color: #333;">
       ${inCabinet
-        ? `Hi ${studentName}, your <strong>${pieceCount} piece${plural ? 's' : ''}</strong> from
-           <strong>${courseName}</strong> ${plural ? 'are' : 'is'} already out in the glass cabinet
+        ? `Hi ${esc(studentName)}, your <strong>${count} piece${plural ? 's' : ''}</strong> from
+           <strong>${esc(courseName)}</strong> ${plural ? 'are' : 'is'} already out in the glass cabinet
            outside the studio — just waiting for you to swing by.`
-        : `Hi ${studentName}, your <strong>${pieceCount} piece${plural ? 's' : ''}</strong> from
-           <strong>${courseName}</strong> ${plural ? 'are' : 'is'} ready for collection.`}
+        : `Hi ${esc(studentName)}, your <strong>${count} piece${plural ? 's' : ''}</strong> from
+           <strong>${esc(courseName)}</strong> ${plural ? 'are' : 'is'} ready for collection.`}
     </p>
-    ${photoUrl ? `
+    ${safePhoto ? `
     <div style="margin: 0 0 20px; text-align: center;">
-      <img src="${photoUrl}" alt="Your pottery pieces" style="max-width: 100%; border-radius: 8px; max-height: 300px;" />
+      <img src="${safePhoto}" alt="Your pottery pieces" style="max-width: 100%; border-radius: 8px; max-height: 300px;" />
     </div>
     ` : ''}
     ${isUrgent ? `
     <div style="margin: 0 0 20px; padding: 16px; background: #FFF3E0; border-radius: 8px; border-left: 4px solid #E65100;">
       <p style="margin: 0; font-size: 14px; color: #E65100; font-weight: 600;">
-        ⚠️ Your pieces will be recycled after ${holdExpiresDate}. Please collect or arrange delivery before then.
+        ⚠️ Your pieces will be recycled after ${esc(holdExpiresDate)}. Please collect or arrange delivery before then.
       </p>
     </div>
     ` : ''}
@@ -59,7 +66,7 @@ function generate({ studentName, courseName, pieceCount, photoUrl, appUrl, daysS
     <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 24px;">
       <tr>
         <td align="center">
-          <a href="${appUrl}/gallery" style="display: inline-block; padding: 14px 32px; background-color: #2D8C4E; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px;">
+          <a href="${safeApp}/gallery" style="display: inline-block; padding: 14px 32px; background-color: #2D8C4E; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px;">
             I've Collected My Pieces
           </a>
         </td>
@@ -74,12 +81,12 @@ function generate({ studentName, courseName, pieceCount, photoUrl, appUrl, daysS
     <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 24px;">
       <tr>
         <td width="48%" align="center" style="padding-right: 8px;">
-          <a href="${appUrl}/gallery?intent=collect" style="display: block; padding: 14px 20px; background-color: #2D8C4E; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px;">
+          <a href="${safeApp}/gallery?intent=collect" style="display: block; padding: 14px 20px; background-color: #2D8C4E; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px;">
             I'll Collect
           </a>
         </td>
         <td width="48%" align="center" style="padding-left: 8px;">
-          <a href="${appUrl}/gallery?intent=deliver" style="display: block; padding: 14px 20px; background-color: #C4622D; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px;">
+          <a href="${safeApp}/gallery?intent=deliver" style="display: block; padding: 14px 20px; background-color: #C4622D; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px;">
             Deliver ($10)
           </a>
         </td>

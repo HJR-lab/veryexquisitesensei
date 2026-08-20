@@ -374,6 +374,38 @@ async function getAllActivePieceBatches() {
 const PIECE_HOLD_DAYS = 90;
 const PIECE_REMINDER_DAYS = [30, 60, 83];
 
+// Once a batch is physically staged in the cabinet it runs on a SHORTER, separate
+// clock. The scarce thing changes: a batch waiting on a shelf costs storage, a
+// batch in the cabinet costs the cabinet, which is where every other student's
+// finished work has to go. So staging restarts the countdown from
+// cabinet_placed_at rather than continuing the 90-day one from ready_at.
+const CABINET_HOLD_DAYS = 30;
+const CABINET_REMINDER_DAYS = [14, 21];
+
+const DAY_MS = 1000 * 60 * 60 * 24;
+
+// Which clock a batch is on, and where it currently sits on it. Everything that
+// reminds, expires or recycles reads this rather than reaching for ready_at, so
+// the two clocks can never drift apart.
+function pieceClock(batch, now = new Date()) {
+  const inCabinet = batch.status === 'in_cabinet' && batch.cabinet_placed_at;
+  const anchorRaw = inCabinet ? batch.cabinet_placed_at : batch.ready_at;
+  if (!anchorRaw) return null;
+
+  const anchor = new Date(anchorRaw);
+  const holdDays = inCabinet ? CABINET_HOLD_DAYS : PIECE_HOLD_DAYS;
+  const milestones = inCabinet ? CABINET_REMINDER_DAYS : PIECE_REMINDER_DAYS;
+
+  return {
+    kind: inCabinet ? 'cabinet' : 'ready',
+    anchor,
+    holdDays,
+    milestones,
+    daysElapsed: Math.floor((now - anchor) / DAY_MS),
+    expiresAt: new Date(anchor.getTime() + holdDays * DAY_MS),
+  };
+}
+
 async function updatePieceBatchStatus(batchId, status, extraFields = {}) {
   const updateData = { status, updated_at: new Date().toISOString(), ...extraFields };
 
@@ -438,31 +470,54 @@ async function searchPieceBatchesByInitials(initials) {
 // Deliberately milestone-based rather than "last reminder older than N days":
 // with monthly reminders, an elapsed-time rule can never fire the final
 // week's-notice one, because day 60 + 30 lands past the recycling date.
+// Whether a batch is due a reminder right now. Pure and exported so the milestone
+// arithmetic can be exercised without a database — the rule is fiddly (two clocks,
+// milestone-based rather than elapsed-time) and it is the part most likely to
+// silently stop firing.
+//
+// Sets batch.reminder_clock as a side effect so the caller's email can quote the
+// right deadline without recomputing which clock applied.
+function isReminderDue(batch, now = new Date()) {
+  const clock = pieceClock(batch, now);
+  if (!clock) return false;
+  if (clock.daysElapsed > clock.holdDays) return false;
+
+  // The most recent milestone this batch has passed.
+  const due = [...clock.milestones].reverse().find(d => clock.daysElapsed >= d);
+  if (due === undefined) return false;
+
+  // Already reminded for that milestone? A send for it would postdate it.
+  if (batch.last_reminder_at
+      && new Date(batch.last_reminder_at) >= new Date(clock.anchor.getTime() + due * DAY_MS)) {
+    return false;
+  }
+
+  batch.reminder_clock = clock;
+  return true;
+}
+
+function isExpired(batch, now = new Date()) {
+  const clock = pieceClock(batch, now);
+  if (!clock) return false;
+  if (clock.expiresAt >= now) return false;
+  batch.reminder_clock = clock;
+  return true;
+}
+
+// in_cabinet is included: pieces staged and never picked up used to fall out of
+// BOTH this sweep and the recycling one, so a batch could sit in the cabinet
+// forever, silently, with nobody reminded and nothing reclaiming the space.
+// Each batch is judged against its own clock — see pieceClock().
 async function getReadyBatchesNeedingReminder() {
   const { data, error } = await supabase
     .from('piece_batches')
     .select('*, customers(id, first_name, last_name, email), course_enrollments(course_type, course_title, course_variant_title)')
-    .in('status', ['ready', 'collecting', 'delivering'])
-    .not('ready_at', 'is', null);
+    .in('status', ['ready', 'collecting', 'delivering', 'in_cabinet']);
 
   if (error) throw error;
 
-  const DAY = 1000 * 60 * 60 * 24;
   const now = new Date();
-
-  return (data || []).filter(batch => {
-    const readyAt = new Date(batch.ready_at);
-    const daysSinceReady = Math.floor((now - readyAt) / DAY);
-    if (daysSinceReady > PIECE_HOLD_DAYS) return false;
-
-    // The most recent milestone this batch has passed.
-    const due = [...PIECE_REMINDER_DAYS].reverse().find(d => daysSinceReady >= d);
-    if (due === undefined) return false;
-
-    // Already reminded for that milestone? A send for it would postdate it.
-    if (!batch.last_reminder_at) return true;
-    return new Date(batch.last_reminder_at) < new Date(readyAt.getTime() + due * DAY);
-  });
+  return (data || []).filter(batch => isReminderDue(batch, now));
 }
 
 async function createFiringRun({ firingType, notes, batchIds }) {
@@ -552,17 +607,20 @@ async function completeFiringRun(runId) {
   return data;
 }
 
+// Expiry is clock-dependent, so it cannot be a single hold_expires_at comparison
+// in SQL any more: staged batches expire 30 days after cabinet_placed_at while
+// everything else expires 90 days after ready_at. Filter in code against
+// pieceClock() so both are judged by the same rule.
 async function getExpiredPieceBatches() {
-  const now = new Date().toISOString();
   const { data, error } = await supabase
     .from('piece_batches')
     .select('*, customers(id, first_name, last_name, email), course_enrollments(course_type, course_title, course_variant_title, course_identifier)')
-    .in('status', ['ready', 'collecting', 'delivering'])
-    .lt('hold_expires_at', now)
-    .not('hold_expires_at', 'is', null);
+    .in('status', ['ready', 'collecting', 'delivering', 'in_cabinet']);
 
   if (error) throw error;
-  return data || [];
+
+  const now = new Date();
+  return (data || []).filter(batch => isExpired(batch, now));
 }
 
 async function searchPotteryPiecesByInitials(initials) {
@@ -619,6 +677,11 @@ module.exports = {
   getReadyBatchesNeedingReminder,
   PIECE_HOLD_DAYS,
   PIECE_REMINDER_DAYS,
+  CABINET_HOLD_DAYS,
+  CABINET_REMINDER_DAYS,
+  pieceClock,
+  isReminderDue,
+  isExpired,
   createFiringRun,
   getFiringRuns,
   getFiringRunById,

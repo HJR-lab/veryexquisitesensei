@@ -489,14 +489,15 @@ async function checkPieceReminders() {
       const student = batch.customers;
       if (!student || !student.email) continue;
 
-      const readyAt = new Date(batch.ready_at);
-      const now = new Date();
-      const daysSinceReady = Math.floor((now - readyAt) / (1000 * 60 * 60 * 24));
+      // The selector already judged this batch against its own clock (90 days
+      // from ready, or 30 from cabinet_placed_at once staged) and attached it.
+      // Quote that clock's numbers, not ready_at's, or a staged batch is told
+      // the wrong deadline.
+      const clock = batch.reminder_clock;
+      if (!clock) continue;
 
-      if (daysSinceReady > supabaseDb.PIECE_HOLD_DAYS) continue;
-
-      const holdExpires = new Date(batch.hold_expires_at);
-      const holdExpiresDate = holdExpires.toLocaleDateString('en-SG', { day: 'numeric', month: 'long', year: 'numeric' });
+      const daysSinceReady = clock.daysElapsed;
+      const holdExpiresDate = clock.expiresAt.toLocaleDateString('en-SG', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Singapore' });
 
       const courseName = batch.course_enrollments?.course_title || batch.course_enrollments?.course_variant_title || 'your course';
       const photoUrl = batch.photo_urls && batch.photo_urls.length > 0 ? batch.photo_urls[0] : null;
@@ -509,7 +510,8 @@ async function checkPieceReminders() {
         appUrl,
         daysSinceReady,
         holdExpiresDate,
-        holdDays: supabaseDb.PIECE_HOLD_DAYS,
+        holdDays: clock.holdDays,
+        clockKind: clock.kind,
       });
 
       const result = await sendAndLogEmail({

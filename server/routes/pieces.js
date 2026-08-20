@@ -4,6 +4,7 @@ const { sendPiecesReady } = require('../utils/piecesNotifier');
 const courseConfig = require('../utils/courseConfig');
 const { publicBaseUrl } = require('../utils/publicUrl');
 const calendarSync = require('../utils/calendarSync');
+const { notifyStudio } = require('../utils/studioNotifier');
 
 // Drop a batch's pickup marker off the studio calendar once it has been handed
 // over. Fire-and-forget: the batch is already collected in the database, and a
@@ -185,32 +186,54 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
         console.error(`[pieces] scheduling ack failed for batch ${batchId}:`, err.message);
       }
 
-      // And tell the studio, immediately. Nothing else announces a booking —
-      // the two-day staging window only works if somebody knows there is
-      // something to stage, and the pipeline board only helps the person who
-      // happens to open it. Best-effort for the same reason as the ack above.
-      try {
-        const studioTemplate = require('../email-templates/pieces/pickup-booked-studio');
-        const { subject, html } = studioTemplate.generate({
-          studentName: [batch.customers.first_name, batch.customers.last_name].filter(Boolean).join(' ') || 'A student',
-          studentEmail: batch.customers.email,
-          pieceCount: batch.piece_count,
-          initials: batch.initials,
-          collectionDate: updates.collection_date,
-          batchId,
-          appUrl: publicBaseUrl(),
-        });
-        await sendAndLogEmail({
-          emailType: 'pickup-booked-studio',
-          courseIdentifier: batch.course_enrollments?.course_identifier || `batch-${batchId}`,
-          subject,
-          html,
-          recipientEmails: ['info@ves.sg'],
-          sentBy: 'system',
-        });
-      } catch (err) {
-        console.error(`[pieces] studio pickup notice failed for batch ${batchId}:`, err.message);
-      }
+    }
+
+    // Tell the studio either way. Nothing used to announce a booking at all —
+    // the two-day staging window only works if somebody knows there is
+    // something to stage, and the pipeline board only helps the person who
+    // opens it. Deliver was worse: it announced nothing to anybody, ever.
+    const studentLabel = [batch.customers?.first_name, batch.customers?.last_name]
+      .filter(Boolean).join(' ') || 'A student';
+    const pieceLabel = `${batch.piece_count} piece${batch.piece_count !== 1 ? 's' : ''}`
+      + (batch.initials ? ` (${batch.initials})` : '');
+
+    if (method === 'collect') {
+      const pretty = new Date(updates.collection_date).toLocaleDateString('en-SG', {
+        weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Asia/Singapore',
+      });
+      await notifyStudio({
+        kind: 'pickup-booked',
+        subject: `[VES] ${studentLabel} booked a collection for ${pretty}`,
+        headline: 'Collection booked',
+        facts: [
+          { label: 'Student', value: studentLabel },
+          { label: 'Collecting', value: pretty },
+          { label: 'Pieces', value: pieceLabel },
+          { label: 'Batch', value: `#${batchId}` },
+          { label: 'Email', value: batch.customers?.email },
+        ],
+        body: 'Find the pieces and press Place in Cabinet before that date. That is also what sends the student their confirmation — until it happens they have only been told we have their date, not that the pieces are out.',
+        actionLabel: 'Open the pipeline',
+        actionPath: '/admin/pieces',
+        reference: `batch-${batchId}`,
+      });
+    } else {
+      await notifyStudio({
+        kind: 'delivery-requested',
+        subject: `[VES] ${studentLabel} asked for delivery`,
+        headline: 'Delivery requested',
+        facts: [
+          { label: 'Student', value: studentLabel },
+          { label: 'Pieces', value: pieceLabel },
+          { label: 'Batch', value: `#${batchId}` },
+          { label: 'Fee', value: `$${Number(batch.delivery_fee || 10).toFixed(2)}` },
+          { label: 'Email', value: batch.customers?.email },
+        ],
+        body: 'Pack and send it, then record the carrier and tracking number with Ship & Track. That is what charges the fee and sends the student their tracking.',
+        actionLabel: 'Open the pipeline',
+        actionPath: '/admin/pieces',
+        reference: `batch-${batchId}`,
+      });
     }
 
     res.json({ success: true, batch: updated });
@@ -246,6 +269,25 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
     const updated = await supabaseDb.updatePieceBatch(batchId, {
       payment_receipt_url: url,
       payment_uploaded_at: new Date().toISOString(),
+    });
+
+    // A receipt nobody is told about is a payment nobody confirms, and the
+    // balance sits open forever with the student believing they have settled.
+    await notifyStudio({
+      kind: 'payment-receipt',
+      subject: `[VES] Payment screenshot from ${[batch.customers?.first_name, batch.customers?.last_name].filter(Boolean).join(' ') || 'a student'}`,
+      headline: 'Delivery payment to check',
+      facts: [
+        { label: 'Student', value: [batch.customers?.first_name, batch.customers?.last_name].filter(Boolean).join(' ') },
+        { label: 'Claimed', value: `$${Number(batch.delivery_fee_outstanding).toFixed(2)}` },
+        { label: 'Batch', value: `#${batchId}` },
+        { label: 'Email', value: batch.customers?.email },
+      ],
+      body: 'Check the bank, then press Confirm paid on the batch. A screenshot is what the student says happened — the balance stays open until someone agrees.',
+      actionLabel: 'Open the pipeline',
+      actionPath: '/admin/pieces',
+      reference: `batch-${batchId}-payment`,
+      urgency: 'high',
     });
 
     res.json({ success: true, batch: updated });

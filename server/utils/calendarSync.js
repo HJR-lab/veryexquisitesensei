@@ -498,6 +498,113 @@ async function deleteMembershipEvents(membershipId) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// A CONFIRMED pickup shows up on the studio calendar as one all-day marker on
+// the collection date. Deliberately created at the Place-in-Cabinet step, not
+// when the student picks the date: an unconfirmed date is a request, and the
+// calendar should only carry pickups the studio has actually staged. Reuses the
+// membership marker shape (transparent, no reminders) so it reads as a day note
+// rather than a busy block.
+
+function buildPickupMarker(dateStr, summary, description) {
+  const date = String(dateStr).split('T')[0];
+  return {
+    summary,
+    description,
+    location: 'VES Pottery Studio',
+    start: { date },
+    end: { date: addDaysStr(date, 1) },
+    colorId: '5', // Banana — distinct from the class and membership markers
+    transparency: 'transparent',
+    reminders: { useDefault: false, overrides: [] }
+  };
+}
+
+// Create/update the pickup marker for a piece batch. Only batches with a
+// collection_date that are still awaiting pickup get one; anything terminal
+// (collected/shipped/recycled) or without a date has its marker removed.
+async function syncPieceCollection(batchId) {
+  if (!isEnabled()) return { status: 'skipped', batchId, reason: 'calendar_disabled' };
+  try {
+    const { data: batch } = await supabaseDb.supabase
+      .from('piece_batches')
+      .select('id, status, collection_date, piece_count, initials, google_calendar_event_id, customers(first_name, last_name, email)')
+      .eq('id', batchId)
+      .single();
+    if (!batch) return { status: 'skipped', batchId, reason: 'not_found' };
+
+    const eligible = batch.collection_date && ['collecting', 'in_cabinet'].includes(batch.status);
+    if (!eligible) {
+      await deletePieceCollectionEvent(batchId);
+      return { status: 'skipped', batchId, reason: `not_eligible:${batch.status}` };
+    }
+
+    const student = batch.customers;
+    const name = ((student?.first_name || '') + ' ' + (student?.last_name || '')).trim() || 'Student';
+    const dateStr = String(batch.collection_date).split('T')[0];
+    const plural = batch.piece_count !== 1;
+
+    let desc = 'VES Piece Collection\n\n';
+    desc += 'Student: ' + name + '\n';
+    if (student?.email) desc += 'Email: ' + student.email + '\n';
+    desc += 'Pieces: ' + batch.piece_count + '\n';
+    if (batch.initials) desc += 'Initials: ' + batch.initials + '\n';
+    desc += 'Batch: #' + batch.id + '\n';
+
+    const summary = '🏺 ' + name + ' — collecting ' + batch.piece_count + ' piece' + (plural ? 's' : '');
+    const payload = buildPickupMarker(dateStr, summary, desc);
+
+    if (batch.google_calendar_event_id) {
+      try {
+        await cal.events.update({
+          calendarId: CALENDAR_ID,
+          eventId: batch.google_calendar_event_id,
+          resource: payload,
+        });
+        return { status: 'ok', batchId };
+      } catch (err) {
+        // Event was deleted upstream (404/410) — fall through and re-create.
+        if (![404, 410].includes(err.code)) throw err;
+      }
+    }
+
+    const res = await cal.events.insert({ calendarId: CALENDAR_ID, resource: payload });
+    await supabaseDb.supabase
+      .from('piece_batches')
+      .update({ google_calendar_event_id: res.data.id })
+      .eq('id', batchId);
+    return { status: 'ok', batchId };
+  } catch (err) {
+    console.error('[CalendarSync] syncPieceCollection error:', err.message);
+    return { status: 'failed', batchId, error: err.message };
+  }
+}
+
+// Remove the pickup marker (on collect/ship/recycle, or when the batch stops
+// being eligible). Clears the stored id so a re-schedule creates a fresh one.
+async function deletePieceCollectionEvent(batchId) {
+  if (!isEnabled()) return;
+  try {
+    const { data: batch } = await supabaseDb.supabase
+      .from('piece_batches')
+      .select('google_calendar_event_id')
+      .eq('id', batchId)
+      .single();
+    if (!batch?.google_calendar_event_id) return;
+    try {
+      await cal.events.delete({ calendarId: CALENDAR_ID, eventId: batch.google_calendar_event_id });
+    } catch (err) {
+      if (![404, 410].includes(err.code)) throw err;
+    }
+    await supabaseDb.supabase
+      .from('piece_batches')
+      .update({ google_calendar_event_id: null })
+      .eq('id', batchId);
+  } catch (err) {
+    console.error('[CalendarSync] deletePieceCollectionEvent error:', err.message);
+  }
+}
+
 // Nightly self-heal: re-sync every active membership so term markers stay in
 // place even if a fire-and-forget syncMembership() call failed. Idempotent
 // (updates existing events in place).
@@ -564,5 +671,7 @@ module.exports = {
   resyncUpcoming,
   syncMembership,
   deleteMembershipEvents,
-  resyncMemberships
+  resyncMemberships,
+  syncPieceCollection,
+  deletePieceCollectionEvent
 };

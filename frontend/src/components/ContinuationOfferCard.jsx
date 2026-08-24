@@ -6,7 +6,7 @@ const TC_DARK = '#9E4A1E';
 const TC_LIGHT = '#F9EDE6';
 const INK = '#282828';
 const MUTED = '#888888';
-const RULE = '#E8E4DF';
+const RULE = 'rgba(40,40,40,0.09)';
 
 // The student's open continuation offer, on their own dashboard.
 //

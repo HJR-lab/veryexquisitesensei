@@ -8,7 +8,7 @@ const TC_LIGHT = '#F9EDE6';
 const TC_DARK  = '#9E4A1E';
 const INK      = '#282828';
 const MUTED    = '#888888';
-const RULE     = '#E8E0DA';
+const RULE     = 'rgba(40,40,40,0.09)';
 const ALT      = '#F5F3F0';
 
 // ─── Status badge colors ──────────────────────────────────────────────────────

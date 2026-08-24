@@ -67,3 +67,7 @@ graphify-out/
 # Local-only: contains customer PII, never commit
 server/scripts/backup-legacy-class-allocations.json
 .date-repair-backups/
+
+# Shopify Theme Access token (shptka_...) for theme pull/push on ves-sg.
+# Local-only secret, never commit.
+.shopify-theme-access.env

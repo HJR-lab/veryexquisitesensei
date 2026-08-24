@@ -104,44 +104,70 @@ async function createContinuationOffer({ enrollment, studentId, automated = fals
     .single();
   if (error) throw error;
 
-  const { data: student } = await supabase
-    .from('customers')
-    .select('email, first_name')
-    .eq('id', studentId)
-    .single();
-
-  let emailed = false;
-  if (student?.email) {
-    const { sendEmail } = require('./emailService');
-    const gate = automated ? autosendStatus() : { enabled: true, reason: null };
-    if (!gate.enabled) {
-      console.log(`[Continuation] Offer ${offer.id} created but NOT emailed — ${gate.reason}.`);
-    } else {
-      const template = require('../email-templates/continuation-offer');
-      const { subject, html } = template.generate({
-        firstName: student.first_name,
-        startDate: firstClassDate || cohortStartDate,
-        classTime,
-        schedulePattern,
-        courseNumber: currentCourseNumber + 1,
-        totalCourses: enrollment.package_total_courses,
-        deadlineIso: offer.expires_at,
-        offerUrl: `${publicBaseUrl()}/continue/${offer.token}`,
-      });
-      const result = await sendEmail({ to: student.email, subject, html });
-      emailed = !!result.success;
-      if (emailed) {
-        await supabase.from('continuation_offers')
-          .update({ sent_at: new Date().toISOString() })
-          .eq('id', offer.id);
-      } else {
-        console.error(`[Continuation] Email to ${student.email} failed: ${result.error}`);
-      }
-    }
-  }
+  const { emailed } = await sendOfferEmail({
+    offer, enrollment, currentCourseNumber, automated,
+  });
 
   console.log(`[Continuation] Offer ${offer.id} for student ${studentId} → ${cohortStartDate} (${remaining} remaining)`);
   return { ok: true, offer, emailed };
+}
+
+/**
+ * Email the student the link to an offer row that already exists.
+ *
+ * Split out of createContinuationOffer because sending is no longer tied to the
+ * moment of creation: the sweep also has to catch up offers that were minted
+ * while automatic sending was off. Both paths share this so the letter, the
+ * gate and the sent_at stamp cannot drift apart.
+ *
+ * sent_at is written only after Resend accepts the message, so a null value
+ * always means "this student has heard nothing" — which is what the catch-up
+ * pass keys on.
+ *
+ * @param {object} p
+ * @param {object} p.offer       the continuation_offers row
+ * @param {object} p.enrollment  the SOURCE enrollment the offer came from
+ * @param {number} p.currentCourseNumber  position in the package, 0-based
+ * @param {boolean} [p.automated] when true the send respects the autosend gate
+ * @returns {Promise<{emailed: boolean, reason?: string}>}
+ */
+async function sendOfferEmail({ offer, enrollment, currentCourseNumber, automated = false }) {
+  const gate = automated ? autosendStatus() : { enabled: true, reason: null };
+  if (!gate.enabled) {
+    console.log(`[Continuation] Offer ${offer.id} not emailed — ${gate.reason}.`);
+    return { emailed: false, reason: gate.reason };
+  }
+
+  const { data: student } = await supabase
+    .from('customers')
+    .select('email, first_name')
+    .eq('id', offer.student_id)
+    .single();
+  if (!student?.email) return { emailed: false, reason: 'no_email' };
+
+  const { sendEmail } = require('./emailService');
+  const template = require('../email-templates/continuation-offer');
+  const { subject, html } = template.generate({
+    firstName: student.first_name,
+    startDate: offer.first_class_date || offer.cohort_start_date,
+    classTime: offer.class_time,
+    schedulePattern: offer.schedule_pattern,
+    courseNumber: currentCourseNumber + 1,
+    totalCourses: enrollment.package_total_courses,
+    deadlineIso: offer.expires_at,
+    offerUrl: `${publicBaseUrl()}/continue/${offer.token}`,
+  });
+
+  const result = await sendEmail({ to: student.email, subject, html });
+  if (!result.success) {
+    console.error(`[Continuation] Email to ${student.email} failed: ${result.error}`);
+    return { emailed: false, reason: result.error };
+  }
+
+  await supabase.from('continuation_offers')
+    .update({ sent_at: new Date().toISOString() })
+    .eq('id', offer.id);
+  return { emailed: true };
 }
 
 /** Fetch an offer by its token, with the cohort details the page needs. */
@@ -248,6 +274,7 @@ async function respondToOffer(token, action) {
 module.exports = {
   autosendStatus,
   createContinuationOffer,
+  sendOfferEmail,
   getOfferByToken,
   offerState,
   respondToOffer,

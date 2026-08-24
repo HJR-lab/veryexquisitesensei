@@ -44,6 +44,82 @@ async function lapseExpiredOffers() {
 }
 
 /**
+ * Email offers that exist but were never sent.
+ *
+ * An offer minted while automatic sending was off is otherwise stranded for
+ * its whole life: createDueOffers skips that student as 'offer_exists' on every
+ * later run, and nothing else ever looks at sent_at. The student hears nothing
+ * until the offer expires and a fresh one is minted a week later — a week of
+ * silence for someone whose seat is being held. April Koh and Ignacius Tay sat
+ * in exactly that state after the 19/08 pause.
+ *
+ * Two deliberate exclusions:
+ *
+ * - extension_count > 0. An extension is the student saying "I know, give me a
+ *   few days" from their own dashboard, where the offer appears whether or not
+ *   an email went out. Writing to them cold would answer a question they never
+ *   asked. They are already in the remindExtendedOffers path instead.
+ * - an offer whose course no longer resolves. If the next cohort has filled or
+ *   vanished since the row was written, "confirm your place" is a promise we
+ *   cannot keep — better to leave it and let it lapse.
+ *
+ * @returns {Promise<Array>} the offer ids emailed
+ */
+async function sendUnsentOffers() {
+  const { autosendStatus, sendOfferEmail } = require('./continuationOffer');
+
+  const gate = autosendStatus();
+  if (!gate.enabled) return [];
+
+  const { data, error } = await supabase
+    .from('continuation_offers')
+    .select('*')
+    .eq('status', 'pending')
+    .is('sent_at', null)
+    .eq('extension_count', 0)
+    .gt('expires_at', new Date().toISOString());
+
+  if (error) {
+    console.error('[ContinuationSweep] unsent query failed:', error.message);
+    return [];
+  }
+  if (!data?.length) return [];
+
+  const sent = [];
+  for (const offer of data) {
+    try {
+      const { data: enrollment } = await supabase
+        .from('course_enrollments')
+        .select('*')
+        .eq('id', offer.source_enrollment_id)
+        .single();
+      if (!enrollment) continue;
+
+      const resolved = await resolveNextCourse(enrollment, offer.student_id);
+      if (!resolved.ok) {
+        console.log(`[ContinuationSweep] Unsent offer ${offer.id} left alone — ${resolved.reason}`);
+        continue;
+      }
+
+      const result = await sendOfferEmail({
+        offer,
+        enrollment,
+        currentCourseNumber: resolved.currentCourseNumber,
+        automated: true,
+      });
+      if (result.emailed) {
+        sent.push(offer.id);
+        console.log(`[ContinuationSweep] Caught up unsent offer ${offer.id}`);
+      }
+    } catch (err) {
+      // One bad row must never stop the sweep.
+      console.error(`[ContinuationSweep] unsent offer ${offer.id} failed:`, err.message);
+    }
+  }
+  return sent;
+}
+
+/**
  * The enrollment that describes where each package student is NOW.
  *
  * Status cannot be used to filter the query, only to judge the row we end up
@@ -140,7 +216,7 @@ async function createDueOffers() {
  * system would have written to, for Justin to send by hand and to check the
  * picks against what he would have done.
  */
-function buildSweepReport({ created, skipped, examined, lapsed, paused, pausedReason, base }) {
+function buildSweepReport({ created, skipped, examined, lapsed, caughtUp = [], paused, pausedReason, base }) {
   const esc = s => String(s ?? '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -175,9 +251,15 @@ function buildSweepReport({ created, skipped, examined, lapsed, paused, pausedRe
     ? `<p style="color:#888;font-size:13px;">${lapsed.length} offer(s) lapsed today — those seats are back.</p>`
     : '';
 
+  // Caught-up offers are worth calling out separately: they are students who
+  // had been waiting on an offer that existed but had never been sent.
+  const caughtUpLine = caughtUp.length
+    ? `<p style="color:#888;font-size:13px;">${caughtUp.length} offer(s) that had never been sent were emailed today.</p>`
+    : '';
+
   const html = `${header}${
     created.length ? `<table style="border-collapse:collapse;font-size:14px;">${rows}</table>` : ''
-  }${skipLine}${lapsedLine}`;
+  }${skipLine}${caughtUpLine}${lapsedLine}`;
 
   return {
     subject: `VES: ${created.length} continuation offer(s)${paused ? ' ready to send' : ' sent'}`,
@@ -185,8 +267,8 @@ function buildSweepReport({ created, skipped, examined, lapsed, paused, pausedRe
   };
 }
 
-async function reportSweep({ created, skipped, examined, lapsed }) {
-  if (created.length === 0 && lapsed.length === 0) return;
+async function reportSweep({ created, skipped, examined, lapsed, caughtUp = [] }) {
+  if (created.length === 0 && lapsed.length === 0 && caughtUp.length === 0) return;
 
   const { sendEmail } = require('./emailService');
   const { publicBaseUrl } = require('./publicUrl');
@@ -194,7 +276,7 @@ async function reportSweep({ created, skipped, examined, lapsed }) {
 
   const gate = autosendStatus();
   const { subject, html } = buildSweepReport({
-    created, skipped, examined, lapsed,
+    created, skipped, examined, lapsed, caughtUp,
     paused: !gate.enabled,
     pausedReason: gate.reason,
     base: publicBaseUrl(),
@@ -286,11 +368,14 @@ async function remindExtendedOffers() {
 async function runContinuationSweep() {
   try {
     const lapsed = await lapseExpiredOffers();
+    // After lapsing, so an offer past its deadline is released rather than
+    // emailed; before creating, so a caught-up offer is not also re-minted.
+    const caughtUp = await sendUnsentOffers();
     const reminded = await remindExtendedOffers();
     const { created, skipped, examined } = await createDueOffers();
-    console.log(`[ContinuationSweep] examined ${examined}, created ${created.length}, lapsed ${lapsed.length}, reminded ${reminded.length}`);
-    await reportSweep({ created, skipped, examined, lapsed });
-    return { created, skipped, examined, lapsed };
+    console.log(`[ContinuationSweep] examined ${examined}, created ${created.length}, lapsed ${lapsed.length}, caught up ${caughtUp.length}, reminded ${reminded.length}`);
+    await reportSweep({ created, skipped, examined, lapsed, caughtUp });
+    return { created, skipped, examined, lapsed, caughtUp };
   } catch (err) {
     console.error('[ContinuationSweep] failed:', err);
     return null;
@@ -300,6 +385,7 @@ async function runContinuationSweep() {
 module.exports = {
   buildSweepReport,
   lapseExpiredOffers,
+  sendUnsentOffers,
   remindExtendedOffers,
   findDuePackageStudents,
   createDueOffers,

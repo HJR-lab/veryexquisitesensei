@@ -22,6 +22,11 @@
  * If a capacity changes, change it HERE and nowhere else.
  */
 
+// Glazing is defined once, in utils/glazing.js — the marked flag or a WT cohort's
+// final week. Required here so the ceiling below can read it; glazing.js has no
+// dependency back on this file.
+const { isGlazingClass } = require('../utils/glazing');
+
 // Students who may enrol in a WT cohort. The studio lists this many seats for
 // sale (less any withheld for continuing package students), so exceeding it
 // means a seat was sold or granted that was never meant to exist.
@@ -116,8 +121,17 @@ function roomCapacity(classInstance) {
  * is read off the class being booked, so whoever takes the 11th place in a 6.4
  * gets it — signup or make-up, the gate does not distinguish — while an
  * ordinary class in the same timeslot is still held to 10.
+ *
+ * A glazing class is not held to it at all. Nobody throws at a glazing class, so
+ * neither the wheel count nor the throwing teaching load it stands for applies —
+ * which is why every 6.6 instance is created at max_capacity 14. Until now the
+ * ceiling overrode that 14 silently: the booking page showed the seats (it reads
+ * max_capacity) while the server refused them with STUDIO_FULL, and a student
+ * whose glazing sat in a slot with 10 booked could not move it anywhere. The
+ * class's own capacity is the only gate a glazing class has ever wanted.
  */
 function wheelCapFor(classInstance) {
+  if (isGlazingClass(classInstance)) return roomCapacity(classInstance);
   return hasWideRoom(classInstance) ? WT_WIDE_ROOM_CAP : STUDIO_WHEELS;
 }
 

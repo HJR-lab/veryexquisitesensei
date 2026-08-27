@@ -362,10 +362,12 @@ export function RescheduleModal({
                       key={cls.id}
                       onClick={() => setRescheduleData({ ...rescheduleData, newClassInstanceId: cls.id })}
                       style={{
-                        width: '100%', textAlign: 'left', padding: '10px 14px', borderBottom: `1px solid ${RULE}`,
+                        width: '100%', textAlign: 'left', padding: '10px 14px',
                         backgroundColor: isSel ? TC_LIGHT : '#FFFFFF',
+                        border: 'none',
+                        borderBottom: `1px solid ${RULE}`,
                         borderLeft: isSel ? `3px solid ${TC}` : '3px solid transparent',
-                        cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', border: 'none', borderBottom: `1px solid ${RULE}`,
+                        cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px',
                       }}
                     >
                       <div>
@@ -458,7 +460,7 @@ export function AddStudentModal({
                     onClick={() => handleAddStudent(student.dbId)}
                     disabled={addingStudent}
                     style={{
-                      width: '100%', textAlign: 'left', padding: '10px 14px', borderBottom: `1px solid ${RULE}`,
+                      width: '100%', textAlign: 'left', padding: '10px 14px',
                       backgroundColor: '#FFFFFF', border: 'none', borderBottom: `1px solid ${RULE}`,
                       cursor: addingStudent ? 'not-allowed' : 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px',
                       opacity: addingStudent ? 0.6 : 1,

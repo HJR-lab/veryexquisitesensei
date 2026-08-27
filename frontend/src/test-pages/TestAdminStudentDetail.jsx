@@ -318,7 +318,7 @@ export default function TestAdminStudentDetail() {
           <div>
 
             {/* Section tabs */}
-            <div style={{ display: 'flex', borderBottom: `1px solid ${RULE}`, marginBottom: '0', backgroundColor: '#FFFFFF', border: `1px solid ${RULE}`, borderBottom: 'none' }}>
+            <div style={{ display: 'flex', marginBottom: '0', backgroundColor: '#FFFFFF', border: `1px solid ${RULE}`, borderBottom: 'none' }}>
               {[
                 { id: 'enrollment', label: 'Enrollment' },
                 { id: 'bookings',   label: 'Bookings'   },

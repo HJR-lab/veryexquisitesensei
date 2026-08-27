@@ -107,6 +107,30 @@ export default function AdminEvents() {
     }
   };
 
+  const handleEnd = async (event) => {
+    if (!confirm(`Mark "${event.title}" as ended? It will stop showing on student dashboards.`)) return;
+    try {
+      await api.put(`/admin/events/${event.id}`, {
+        title: event.title,
+        event_type: event.event_type,
+        status: 'completed',
+        date: event.date || null,
+        end_date: event.end_date || null,
+        start_time: event.start_time || null,
+        end_time: event.end_time || null,
+        location: event.location,
+        description: event.description,
+        link: event.link || null,
+        notes: event.notes,
+        checklist: event.checklist || [],
+      });
+      loadEvents();
+    } catch (err) {
+      console.error('Failed to end event:', err);
+      alert('Failed to end event');
+    }
+  };
+
   const handleDelete = async (id) => {
     if (!confirm('Delete this event?')) return;
     try {
@@ -281,6 +305,9 @@ export default function AdminEvents() {
                   )}
                 </div>
                 <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                  {(event.status === 'active' || event.status === 'upcoming') && (
+                    <button onClick={() => handleEnd(event)} style={{ padding: '6px 12px', border: `1px solid ${RULE}`, background: 'none', fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', cursor: 'pointer', color: TC_DARK }}>End</button>
+                  )}
                   <button onClick={() => openEdit(event)} style={{ padding: '6px 12px', border: `1px solid ${RULE}`, background: 'none', fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', cursor: 'pointer', color: INK }}>Edit</button>
                   <button onClick={() => handleDelete(event.id)} style={{ padding: '6px 12px', border: `1px solid ${RULE}`, background: 'none', fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', cursor: 'pointer', color: '#C62828' }}>Delete</button>
                 </div>

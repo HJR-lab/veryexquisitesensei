@@ -411,7 +411,21 @@ export default function ClassScheduleNew() {
   };
 
   const handleReschedule = (newClassId) => {
-    confirmAction('Confirm Reschedule', 'Are you sure you want to reschedule? You must reschedule more than 24 hours before class. Missed makeup classes incur a $20 no-show fee. Makeup classes outside your cohort schedule incur a $40 fee (glazing excluded).', async () => {
+    // A 10-class package has no cohort and no expiry, so it can never fall outside
+    // a cohort window — the $40 out-of-cohort fee does not apply and must not be
+    // quoted to them. The backend skips the fee for these students too.
+    const rescheduleEnrollments = [
+      ...(dashboardData?.enrollments?.active || []),
+      ...(dashboardData?.enrollments?.upcoming || []),
+      ...(dashboardData?.enrollments?.pending || []),
+    ];
+    const has10ClassPkg = rescheduleEnrollments.some(e =>
+      e.number_of_weeks === 10 || (e.courseType || e.course_type || '').toLowerCase().includes('10 classes')
+    );
+    const rescheduleNotice = has10ClassPkg
+      ? 'Are you sure you want to reschedule? You must reschedule more than 24 hours before class. Missed makeup classes incur a $20 no-show fee.'
+      : 'Are you sure you want to reschedule? You must reschedule more than 24 hours before class. Missed makeup classes incur a $20 no-show fee. Makeup classes outside your cohort schedule incur a $40 fee (glazing excluded).';
+    confirmAction('Confirm Reschedule', rescheduleNotice, async () => {
       try {
         await api.post('/classes/reschedule', { oldClassId: selectedClass.id, newClassId });
         alert('Successfully rescheduled your class!');

@@ -2,6 +2,7 @@ const supabaseDb = require('../utils/supabaseDb');
 const FEES = require('../config/fees');
 const { getPackageProgress } = require('../utils/packageProgress');
 const { isGlazingClass, isMarkedGlazing, GLAZING_DRYING_GAP_DAYS } = require('../utils/glazing');
+const { getEnrollmentCredits } = require('../utils/bookingDb');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler }) {
 
@@ -41,9 +42,16 @@ async function findPendingGlazingEnrollment(studentId) {
   return packages.find(e => !e.glazing_class_used) || null;
 }
 
-// Statuses that mean a class of the package has been taken up. Matches the
-// counting used everywhere else — a forfeited or absent class is still spent.
-const SPENT_BOOKING_STATUSES = ['booked', 'attended', 'completed', 'rescheduled', 'absent', 'forfeited'];
+// Statuses that mean a class of the package has been taken up — mirrors
+// bookingDb's own list. A forfeited or absent class is still spent.
+//
+// 'rescheduled' is absent on purpose: that row is the VACATED ORIGIN of a move,
+// and the destination row is the one holding the credit, so counting both
+// double-counts every reschedule. A list here that included it made three live
+// packages read as full while 2-4 classes were still owed, which locked those
+// students out of booking anything but a glazing class. Prefer
+// getEnrollmentCredits() over counting these rows by hand.
+const CREDIT_CONSUMING_STATUSES = ['attended', 'completed', 'booked', 'forfeited', 'absent'];
 
 const dayStart = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
 const daysBetween = (a, b) => (dayStart(b) - dayStart(a)) / (1000 * 60 * 60 * 24);
@@ -139,19 +147,64 @@ async function checkTenthClassMustBeGlazing(studentId, classInstance) {
 
   for (const pkg of packages) {
     const total = pkg.package_total_classes || pkg.number_of_weeks || 10;
-    const { count } = await supabaseDb.supabase
-      .from('bookings')
-      .select('id', { count: 'exact', head: true })
-      .eq('course_enrollment_id', pkg.id)
-      .in('status', SPENT_BOOKING_STATUSES);
-
-    const booked = count || 0;
-    if (booked >= total - 1) {
-      return { blocked: true, enrollment: pkg, booked };
+    // Counted through the credit ledger, not a raw row count. This used to count
+    // rows over a status list that included 'rescheduled' — the vacated origin of
+    // a move, whose destination row is counted too — so every reschedule inflated
+    // the count by one. A student who had rescheduled five times was told her 8th
+    // class was her last and had to be glazing, with three still owed.
+    const { committed } = await getEnrollmentCredits(pkg.id);
+    if (committed >= total - 1) {
+      return { blocked: true, enrollment: pkg, booked: committed };
     }
   }
 
   return { blocked: false };
+}
+
+/**
+ * Every 10-class package must contain at least one glazing class — that is what
+ * makes the pieces thrown across the other nine finished rather than raw.
+ *
+ * The booking path guarantees it going in (checkTenthClassMustBeGlazing: the
+ * package's final class must be a glazing one). Rescheduling could otherwise walk
+ * straight back out of that guarantee — move the glazing booking onto an ordinary
+ * class and the student ends the package having never glazed — so the same
+ * invariant is checked on the way across.
+ *
+ * It is checked as an invariant, not as a blanket ban on moving glazing. A package
+ * student may move their glazing booking to a regular class whenever the package
+ * can still get a glazing class afterwards, which is true when either:
+ *   - another glazing booking already exists in the package, or
+ *   - the package still has unbooked classes, so the final one can be glazing —
+ *     and checkTenthClassMustBeGlazing will require exactly that when they book it.
+ *
+ * Only the move that would leave zero glazing and no room to book one is refused.
+ *
+ * @returns {{blocked: boolean, reason?: string}}
+ */
+async function checkPackageKeepsGlazing(enrollment, movedBookingId) {
+  const total = enrollment.package_total_classes || enrollment.number_of_weeks || 10;
+
+  // Room left is read from the credit ledger — the one place that knows a
+  // 'rescheduled' row is a vacated origin rather than a spent class.
+  const { remaining } = await getEnrollmentCredits(enrollment.id);
+  if (remaining > 0) return { blocked: false };
+
+  const { data: pkgBookings } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id, status, class_instances!bookings_class_instance_id_fkey(class_type, is_glazing)')
+    .eq('course_enrollment_id', enrollment.id)
+    .in('status', CREDIT_CONSUMING_STATUSES);
+
+  const keepsGlazing = (pkgBookings || []).some(b =>
+    b.id !== movedBookingId && isGlazingClass(b.class_instances)
+  );
+  if (keepsGlazing) return { blocked: false };
+
+  return {
+    blocked: true,
+    reason: `This is the only glazing class in your ${total}-class package, and all ${total} classes are booked — moving it to a regular class would leave you with nothing to glaze your pieces in. Pick another glazing class, or cancel a booking first so you have a class left to glaze in.`,
+  };
 }
 
 // Public: expose the authoritative fee schedule so the frontend can render
@@ -560,9 +613,9 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
   // lookups, every one filtered to status 'active', which silently skipped a
   // completed 10-class package still holding flex credits.
   // The package's final class is always its glazing class, so it may only ever be
-  // a glazing one. Enforced here as well as on reschedule — previously only the
-  // reschedule path checked, so a student could book a plain class as their 10th
-  // and simply never take a second glazing.
+  // a glazing one. Enforced on the booking path only: the reschedule path is
+  // deliberately unrestricted for package students (no cohort, no expiry, no
+  // fees), so a package student who needs to move their glazing can.
   const tenth = await checkTenthClassMustBeGlazing(dbCustomerId, classInstance);
   if (tenth.blocked) {
     const total = tenth.enrollment.package_total_classes || tenth.enrollment.number_of_weeks || 10;
@@ -1452,6 +1505,30 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
     });
   }
 
+  // Check for 10-class package via the booking's enrollment (not the stale classes_allocated field).
+  //
+  // "10 Classes NO EXPIRY" is sold with no cohort, no expiry and free, unrestricted
+  // rescheduling: no cohort date window, no WT/HB category lock and no $40
+  // out-of-cohort fee. Resolved up here because the restrictions below have to be
+  // able to skip it.
+  //
+  // Two rules still bind them: the beginner/intermediate level lock (a teaching
+  // rule, not a package one), and the package must keep at least one glazing
+  // class — see checkPackageKeepsGlazing below. Plus the studio-wide rules: no
+  // past classes, the 24-hour cutoff, and seat/wheel capacity on the target.
+  let has10ClassPackage = false;
+  let packageEnrollment = null;
+  if (currentBooking.course_enrollment_id) {
+    const { data: bookingEnrollment } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('id, number_of_weeks, package_total_classes, course_title')
+      .eq('id', currentBooking.course_enrollment_id)
+      .single();
+    has10ClassPackage = bookingEnrollment?.number_of_weeks >= 10 ||
+      (bookingEnrollment?.course_title?.includes('10 Classes') ?? false);
+    if (has10ClassPackage) packageEnrollment = bookingEnrollment;
+  }
+
   // Level-based reschedule rules
   //   Beginner WT: 6-week identifier (e.g. WT1104PM_DL6.x)
   //   Intermediate WT: 7-week identifier (e.g. WT1104AM_DL7.x)
@@ -1499,18 +1576,6 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
     }
   }
 
-  // Check for 10-class package via the booking's enrollment (not the stale classes_allocated field)
-  let has10ClassPackage = false;
-  if (currentBooking.course_enrollment_id) {
-    const { data: bookingEnrollment } = await supabaseDb.supabase
-      .from('course_enrollments')
-      .select('number_of_weeks, course_title')
-      .eq('id', currentBooking.course_enrollment_id)
-      .single();
-    has10ClassPackage = bookingEnrollment?.number_of_weeks >= 10 ||
-      (bookingEnrollment?.course_title?.includes('10 Classes') ?? false);
-  }
-
   // Glazing is a WT cohort's FINAL week — class_type is the coded format
   // (WT0206NT_JL6.6, WT1104AM_DL7.7), so the trailing <totalWeeks>.<weekNum> are
   // equal — or a class explicitly marked as glazing, which is the only way an HB
@@ -1521,24 +1586,15 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
   const isOldClassGlazing = isGlazingClass(oldClass);
   const isNewClassGlazing = isGlazingClass(newClass);
 
-  // For 10-class package: check if this is their 10th class (final class must be glazing)
-  // A reschedule moves one booking, so the only way it can cost a package student
-  // their glazing is by moving the GLAZING booking onto a non-glazing class. That
-  // is the whole rule.
-  //
-  // It used to count every 'booked' row the student had and, at 9 or more, demand
-  // the TARGET be glazing regardless of what was being moved — so a student with a
-  // full package rescheduling week 3 to another ordinary class was refused and told
-  // to pick a glazing class. The count was also across all bookings, so a second
-  // course's bookings could push them over the line on their own.
-  //
-  // The forward direction is covered where it belongs: /api/classes/book refuses a
-  // non-glazing class for the final slot, so a package student cannot arrive here
-  // with a non-glazing 10th class to begin with.
-  if (has10ClassPackage && isOldClassGlazing && !isNewClassGlazing) {
-    return res.status(400).json({
-      error: 'That booking is your glazing class, so it can only move to another glazing class — either a Week 6 wheelthrowing glazing or a handbuilding class marked as glazing.'
-    });
+  // A package student may move their glazing booking to an ordinary class — but the
+  // package must still end up with a glazing class in it, otherwise they finish
+  // ten classes with nothing fired. The old rule refused every glazing → regular
+  // move outright; this refuses only the one that actually breaks the guarantee.
+  if (has10ClassPackage && packageEnrollment && isOldClassGlazing && !isNewClassGlazing) {
+    const keeps = await checkPackageKeepsGlazing(packageEnrollment, currentBooking.id);
+    if (keeps.blocked) {
+      return res.status(400).json({ error: keeps.reason });
+    }
   }
 
   // Block rescheduling to a date after glazing or within 5 days of glazing
@@ -1717,9 +1773,12 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
   // For non-glazing classes, check if reschedule is within same cohort period (no fee) or outside ($40 fee)
   // Uses admin-defined cohort_periods table as source of truth for date ranges
   // HB (Handbuilding) courses are drop-in with no cohort — rescheduling is always free
+  // 10-class package ("10 Classes NO EXPIRY") is sold with no cohort, no expiry and
+  // free rescheduling — a package student has no cohort window to fall outside of,
+  // so the out-of-cohort fee must never apply to them.
   let rescheduleFee = 0;
   const isHBCourse = oldClass.class_type?.startsWith('HB') || newClass.class_type?.startsWith('HB');
-  if (!isOldClassGlazing && !isHBCourse) {
+  if (!isOldClassGlazing && !isHBCourse && !has10ClassPackage) {
     // Check if the new class date falls within any admin-defined cohort period
     let isSameCohort = false;
     const newClassDate = new Date(newClass.class_date);

@@ -893,6 +893,12 @@ export default function AdminStudentDetail() {
   }).length;
 
   const isHBEnrollment = enrollment && (enrollment.course_type || '').toLowerCase().includes('handbuilding');
+  // "10 Classes NO EXPIRY" — no cohort, no expiry, no reschedule restrictions and
+  // no $40 out-of-cohort fee, so the fee notice must not be shown for them.
+  const is10ClassPackage = !!enrollment && (
+    enrollment.number_of_weeks === 10 ||
+    (enrollment.course_type || enrollment.course_title || '').toLowerCase().includes('10 classes')
+  );
   const hbCreditsAllocated = enrollment?.class_credits_allocated || enrollment?.number_of_weeks || 0;
   // Attendance, not commitment — class_credits_used counts booked and forfeited
   // classes too, which would overstate what an HB student has actually taken.
@@ -1764,6 +1770,7 @@ export default function AdminStudentDetail() {
           handleConvertToCredit={handleConvertToCredit}
           deletingBookingId={deletingBookingId}
           isHBEnrollment={isHBEnrollment}
+          is10ClassPackage={is10ClassPackage}
         />
       )}
 

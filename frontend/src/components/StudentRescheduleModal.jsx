@@ -102,6 +102,7 @@ export default function StudentRescheduleModal({
   handleConvertToCredit,
   deletingBookingId,
   isHBEnrollment,
+  is10ClassPackage = false,
 }) {
   const classes = getMakeupClassesForDate(makeupSelectedDate);
 
@@ -197,7 +198,7 @@ export default function StudentRescheduleModal({
                         <div style={{ padding: '10px 16px', backgroundColor: TC_LIGHT, borderTop: `1px solid ${TC}` }}>
                           {!selectedBookingForMakeup.isPlaceholder && !isHBEnrollment && (
                             <div style={{ fontSize: '11px', color: TC_DARK, lineHeight: 1.5, marginBottom: '8px' }}>
-                              <strong>Please note:</strong> You must reschedule more than 24 hours before class. Missed makeup classes incur a <strong>$20 no-show fee</strong>. Makeup classes outside your cohort schedule incur a <strong>$40 fee</strong> (glazing classes excluded).
+                              <strong>Please note:</strong> You must reschedule more than 24 hours before class. Missed makeup classes incur a <strong>$20 no-show fee</strong>.{!is10ClassPackage && <> Makeup classes outside your cohort schedule incur a <strong>$40 fee</strong> (glazing classes excluded).</>}
                             </div>
                           )}
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

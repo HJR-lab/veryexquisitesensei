@@ -385,8 +385,17 @@ async function checkAndProcessThreshold(newEnrollment) {
       });
     }
 
-    // Check if any cohort peer already has bookings
-    const enrollmentWithBookings = cohortEnrollments.find(e => e.bookings_created_at);
+    // Check if any cohort peer already has bookings we can copy.
+    //
+    // A peer only qualifies if the classes it is actually booked into belong to
+    // THIS cohort — same weekday, same start date. A peer can be sitting in a
+    // different cohort's classes (an admin moves someone to another day, which
+    // rewrites their course_identifier but leaves their cohort key alone), and
+    // copying that peer books every later buyer into the wrong cohort. That is
+    // exactly how three Thursday 10 Sep students ended up in the Tuesday 8 Sep
+    // classes. bookings_created_at is not proof on its own — it is stamped even
+    // when the booking insert failed and the peer holds no bookings at all.
+    const enrollmentWithBookings = await findCopyablePeer(newEnrollment, cohortEnrollments);
 
     if (enrollmentWithBookings) {
       console.log(`✅ Cohort already has classes, adding student to existing classes`);
@@ -426,6 +435,70 @@ async function checkAndProcessThreshold(newEnrollment) {
  */
 function normalizeTime(t) {
   return (t || '').toLowerCase().replace(/\s+/g, '');
+}
+
+/**
+ * The base course identifier an enrollment is ACTUALLY booked into, read from
+ * its bookings rather than from its course_identifier column. Null when it
+ * holds no bookings, whatever bookings_created_at claims.
+ */
+async function bookedCourseBase(enrollmentId) {
+  const { data } = await supabase
+    .from('bookings')
+    .select('class_instances!bookings_class_instance_id_fkey(class_type)')
+    .eq('course_enrollment_id', enrollmentId)
+    .limit(1);
+
+  const classType = data?.[0]?.class_instances?.class_type || '';
+  return classType ? classType.replace(/\.\d+$/, '') : null;
+}
+
+/**
+ * The cohort peer whose bookings are safe to copy for a new enrollment.
+ *
+ * Membership of a cohort is decided by the enrollment's key (start date +
+ * schedule + time), but the classes get copied from a peer's BOOKINGS, and the
+ * two can disagree: move a student to another day and their bookings leave the
+ * cohort while their key stays behind. So a peer only qualifies when the
+ * classes it sits in start on this cohort's start date and fall on its weekday.
+ *
+ * Returns null when no peer qualifies — the caller then builds this cohort's own
+ * classes instead of inheriting somebody else's.
+ */
+async function findCopyablePeer(newEnrollment, cohortEnrollments) {
+  const { toYmd, isWeekday } = require('./sgtDate');
+  const wantStart = toYmd(newEnrollment.course_start_date);
+  const wantDay = String(newEnrollment.schedule_pattern || '').toUpperCase().replace(/S$/, '');
+
+  for (const peer of cohortEnrollments) {
+    if (!peer.bookings_created_at) continue;
+
+    const base = await bookedCourseBase(peer.id);
+    if (!base) {
+      console.warn(`[Cohort] Peer ${peer.id} is stamped as booked but holds no bookings — not copying it`);
+      continue;
+    }
+
+    const { data: firstClass } = await supabase
+      .from('class_instances')
+      .select('class_date')
+      .ilike('class_type', `${base}.%`)
+      .order('class_date', { ascending: true })
+      .limit(1);
+
+    const firstDate = toYmd(firstClass?.[0]?.class_date);
+    const startsRight = !wantStart || firstDate === wantStart;
+    const fallsRight = !wantDay || isWeekday(firstDate, wantDay);
+
+    if (!firstDate || !startsRight || !fallsRight) {
+      console.warn(`[Cohort] Peer ${peer.id} is booked into ${base} starting ${firstDate} — not this cohort (${wantDay} ${wantStart}). Not copying it.`);
+      continue;
+    }
+
+    return peer;
+  }
+
+  return null;
 }
 
 /**
@@ -623,18 +696,50 @@ async function createClassesAndBookings(cohortEnrollments, classStatus = 'active
       instance.status = classStatus; // Set draft or active status
     });
 
-    // Create class instances in database
-    console.log(`📅 Creating ${classInstanceObjects.length} ${classStatus.toUpperCase()} class instances...`);
-    const createdClasses = await createClassInstances(classInstanceObjects);
+    // Reuse this cohort's classes if they already exist. They do whenever an
+    // earlier student in the same slot created them, and (date, time, room) is
+    // unique — so blindly inserting would throw and leave the enrollment with no
+    // bookings at all. Only the missing weeks get created.
+    const { toYmd } = require('./sgtDate');
+    const { data: alreadyThere } = await supabase
+      .from('class_instances')
+      .select('id, class_date, class_type, start_time, room, status')
+      .in('class_date', classInstanceObjects.map(o => o.class_date))
+      .eq('start_time', classInstanceObjects[0].start_time)
+      .eq('room', classInstanceObjects[0].room);
 
-    console.log(`✅ Created ${createdClasses.length} class instances`);
+    const existingByDate = new Map((alreadyThere || []).map(ci => [toYmd(ci.class_date), ci]));
+    const missing = classInstanceObjects.filter(o => !existingByDate.has(o.class_date));
 
-    // Create bookings for all students in the cohort
+    if (existingByDate.size > 0) {
+      console.log(`♻️  ${existingByDate.size} class instance(s) for this cohort already exist — reusing them`);
+    }
+
+    console.log(`📅 Creating ${missing.length} ${classStatus.toUpperCase()} class instances...`);
+    const freshClasses = missing.length > 0 ? await createClassInstances(missing) : [];
+
+    // Keep the cohort in week order however the weeks were sourced.
+    const createdClasses = classInstanceObjects
+      .map(o => existingByDate.get(o.class_date) || freshClasses.find(c => toYmd(c.class_date) === o.class_date))
+      .filter(Boolean);
+
+    console.log(`✅ Cohort has ${createdClasses.length} class instances (${freshClasses.length} new)`);
+
+    // Create bookings for all students in the cohort, skipping any week a
+    // student is already booked into.
     const bookingsToCreate = [];
+    const { data: heldBookings } = await supabase
+      .from('bookings')
+      .select('student_id, class_instance_id')
+      .in('student_id', cohortEnrollments.map(e => e.student_id))
+      .in('class_instance_id', createdClasses.map(c => c.id))
+      .eq('status', 'booked');
+    const alreadyHeld = new Set((heldBookings || []).map(b => `${b.student_id}:${b.class_instance_id}`));
 
     const bookingNow = new Date().toISOString();
     for (const enrollment of cohortEnrollments) {
       for (const classInstance of createdClasses) {
+        if (alreadyHeld.has(`${enrollment.student_id}:${classInstance.id}`)) continue;
         bookingsToCreate.push({
           student_id: enrollment.student_id,
           class_instance_id: classInstance.id,
@@ -649,7 +754,9 @@ async function createClassesAndBookings(cohortEnrollments, classStatus = 'active
     }
 
     console.log(`📚 Creating ${bookingsToCreate.length} bookings for ${cohortEnrollments.length} students...`);
-    const createdBookings = await createMultipleBookings(bookingsToCreate);
+    const createdBookings = bookingsToCreate.length > 0
+      ? await createMultipleBookings(bookingsToCreate)
+      : [];
 
     console.log(`✅ Created ${createdBookings.length} bookings`);
 
@@ -704,20 +811,14 @@ async function addStudentToExistingCohort(newEnrollment, existingEnrollment) {
     const { supabase } = require('./supabaseDb');
 
     // First get one booking to find the course identifier pattern
-    const { data: sampleBooking } = await supabase
-      .from('bookings')
-      .select('class_instance_id, class_instances!bookings_class_instance_id_fkey(class_type)')
-      .eq('course_enrollment_id', existingEnrollment.id)
-      .limit(1)
-      .single();
+    // Base course identifier (e.g. WT0503NT_JL6 from WT0503NT_JL6.1), read from
+    // the peer's bookings — where the peer actually sits, not where its
+    // course_identifier says it should.
+    const baseCourseId = await bookedCourseBase(existingEnrollment.id);
 
-    if (!sampleBooking) {
+    if (!baseCourseId) {
       throw new Error('No existing bookings found for confirmed cohort');
     }
-
-    // Extract base course identifier (e.g. WT0503NT_JL6 from WT0503NT_JL6.1)
-    const classType = sampleBooking.class_instances?.class_type || '';
-    const baseCourseId = classType.replace(/\.\d+$/, '');
 
     // Get ALL class instances matching this course (ensures we get .6 even if peer is missing it)
     const { data: allClassInstances } = await supabase
@@ -730,7 +831,19 @@ async function addStudentToExistingCohort(newEnrollment, existingEnrollment) {
       throw new Error('No class instances found for course ' + baseCourseId);
     }
 
-    const classInstanceIds = allClassInstances.map(ci => ci.id);
+    // Never book a class the student already holds — this path is re-entered by
+    // the admin threshold re-check, and a plain insert would hand them a second
+    // row for every week.
+    const { data: heldBookings } = await supabase
+      .from('bookings')
+      .select('class_instance_id')
+      .eq('student_id', newEnrollment.student_id)
+      .eq('status', 'booked');
+    const alreadyHeld = new Set((heldBookings || []).map(b => b.class_instance_id));
+
+    const classInstanceIds = allClassInstances
+      .map(ci => ci.id)
+      .filter(id => !alreadyHeld.has(id));
 
     // Create bookings for the new student
     const addNow = new Date().toISOString();
@@ -746,7 +859,9 @@ async function addStudentToExistingCohort(newEnrollment, existingEnrollment) {
     }));
 
     console.log(`📚 Adding ${bookingsToCreate.length} bookings for new student...`);
-    const createdBookings = await createMultipleBookings(bookingsToCreate);
+    const createdBookings = bookingsToCreate.length > 0
+      ? await createMultipleBookings(bookingsToCreate)
+      : [];
 
     // Increment enrollment count for all class instances
     for (const classInstanceId of classInstanceIds) {
@@ -910,5 +1025,7 @@ module.exports = {
   findExistingClassInstances,
   getInstructorForCourse,
   normalizeTime,
+  findCopyablePeer,
+  bookedCourseBase,
   MINIMUM_STUDENTS_THRESHOLD
 };

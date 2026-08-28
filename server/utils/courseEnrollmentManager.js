@@ -17,6 +17,7 @@ const {
 } = require('./supabaseDb');
 const courseConfig = require('./courseConfig');
 const { roomCapacity } = require('../config/capacity');
+const { toYmd, isWeekday, ymdFromInstant } = require('./sgtDate');
 
 const MINIMUM_STUDENTS_THRESHOLD = 4; // legacy export kept for backward compatibility
 
@@ -93,14 +94,19 @@ async function processCoursePurchase(order, lineItem) {
 
     // Skip if the course end date is in the past (old order from a previous year)
     if (courseInfo.endDate && courseInfo.endDate < new Date()) {
-      console.log(`⏭️  Skipping old course — end date ${courseInfo.endDate.toISOString().slice(0, 10)} is in the past (order ${order.id})`);
+      console.log(`⏭️  Skipping old course — end date ${ymdFromInstant(courseInfo.endDate)} is in the past (order ${order.id})`);
       return { success: true, skipped: true, reason: 'course_ended' };
     }
 
     // Secondary dedup: check if student already has an enrollment with the same start date
-    // (catches old manually-imported enrollments that lack shopify_order_id)
+    // (catches old manually-imported enrollments that lack shopify_order_id).
+    //
+    // The key must be built the same way course_start_date is written, below —
+    // ymdFromInstant, not toISOString(). parseCourseInfo returns SGT midnight,
+    // which is 16:00 UTC the day before, so toISOString() asked for the previous
+    // day and this guard almost never matched the row it was meant to catch.
     if (courseInfo.startDate) {
-      const startStr = courseInfo.startDate.toISOString().split('T')[0];
+      const startStr = ymdFromInstant(courseInfo.startDate);
       const { data: dateMatch } = await supabase
         .from('course_enrollments')
         .select('id, status, course_title')
@@ -165,7 +171,6 @@ async function processCoursePurchase(order, lineItem) {
     // stored every cohort one day early, in every timezone. That single line
     // is why 6 of 8 upcoming cohorts carried a course_start_date on the wrong
     // weekday. ymdFromInstant reads the Singapore calendar date instead.
-    const { ymdFromInstant } = require('./sgtDate');
     const startDate = courseInfo.startDate ? ymdFromInstant(courseInfo.startDate) : null;
     const endDate = courseInfo.endDate ? ymdFromInstant(courseInfo.endDate) : null;
 
@@ -466,7 +471,6 @@ async function bookedCourseBase(enrollmentId) {
  * classes instead of inheriting somebody else's.
  */
 async function findCopyablePeer(newEnrollment, cohortEnrollments) {
-  const { toYmd, isWeekday } = require('./sgtDate');
   const wantStart = toYmd(newEnrollment.course_start_date);
   const wantDay = String(newEnrollment.schedule_pattern || '').toUpperCase().replace(/S$/, '');
 
@@ -700,7 +704,6 @@ async function createClassesAndBookings(cohortEnrollments, classStatus = 'active
     // earlier student in the same slot created them, and (date, time, room) is
     // unique — so blindly inserting would throw and leave the enrollment with no
     // bookings at all. Only the missing weeks get created.
-    const { toYmd } = require('./sgtDate');
     const { data: alreadyThere } = await supabase
       .from('class_instances')
       .select('id, class_date, class_type, start_time, room, status')

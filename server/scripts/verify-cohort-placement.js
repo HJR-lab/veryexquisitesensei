@@ -104,9 +104,40 @@ async function checkGuard() {
   else pass('a peer stamped booked but holding no bookings is refused');
 }
 
+async function checkDedupeKey() {
+  console.log('\nCHECK 3 — the duplicate-by-date guard looks up the day that was stored\n');
+
+  const { parseCourseInfo } = require('../utils/courseScheduler');
+  const { ymdFromInstant } = require('../utils/sgtDate');
+
+  const { data: enrollments } = await supabase
+    .from('course_enrollments')
+    .select('id, course_title, course_variant_title, course_start_date, created_at')
+    .not('course_variant_title', 'is', null)
+    .not('course_start_date', 'is', null)
+    .neq('shopify_order_id', 'MANUAL')
+    .order('id', { ascending: false })
+    .limit(10);
+
+  let compared = 0;
+  for (const e of enrollments || []) {
+    const info = parseCourseInfo(e.course_title, e.course_variant_title, e.created_at);
+    if (!info?.startDate) continue;
+    compared++;
+    const lookupKey = ymdFromInstant(info.startDate);
+    const stored = toYmd(e.course_start_date);
+    if (lookupKey !== stored) {
+      fail(`enrollment ${e.id}: guard would look up ${lookupKey} but the row holds ${stored} (${e.course_variant_title})`);
+    }
+  }
+  if (compared === 0) fail('no enrollments available to compare');
+  else pass(`${compared} enrollment(s): the lookup key matches the stored start date`);
+}
+
 (async () => {
   await checkPlacement();
   await checkGuard();
+  await checkDedupeKey();
   console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
   process.exit(failures === 0 ? 0 : 1);
 })();

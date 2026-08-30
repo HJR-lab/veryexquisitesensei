@@ -114,7 +114,7 @@ function MessageRow({ msg, isExpanded, onToggle, onSend, onDismiss, onSaveDraft 
   };
 
   const isDismissed = msg.status === 'dismissed';
-  const isSent      = msg.status === 'sent';
+  const isSent      = msg.status === 'sent' || (msg.status === 'resolved' && Boolean(msg.sent_at));
 
   return (
     <div style={{ borderBottom: `1px solid ${RULE}` }}>
@@ -469,7 +469,7 @@ export default function AdminInbox() {
       // Save draft before sending in case it was edited inline
       await api.put(`/admin/inbox/${id}`, { draft_reply: draftText });
       await api.post(`/admin/inbox/${id}/send`);
-      setMessages(prev => prev.map(m => m.id === id ? { ...m, status: 'sent', sent_at: new Date().toISOString(), draft_reply: draftText } : m));
+      setMessages(prev => prev.map(m => m.id === id ? { ...m, status: 'resolved', sent_at: new Date().toISOString(), draft_reply: draftText, next_action: 'Resolved: reply sent by admin.' } : m));
       showStatus('success', 'Reply sent');
     } catch (err) {
       showStatus('error', err.response?.data?.error || 'Failed to send reply');

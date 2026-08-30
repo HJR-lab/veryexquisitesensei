@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { potteryAPI, communityAPI } from '../utils/api';
 
@@ -27,10 +27,8 @@ export default function PublicGallery() {
   const [error, setError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
-  const [otpCode, setOtpCode] = useState('');
-  const [verifyingOtp, setVerifyingOtp] = useState(false);
-  const { login, loginWithPassword, verifyEmailOtp } = useAuth();
-  const navigate = useNavigate();
+  const { login, loginWithPassword } = useAuth();
+
 
   // Gallery state
   const [pieces, setPieces] = useState([]);
@@ -97,25 +95,6 @@ export default function PublicGallery() {
     }
   };
 
-  const handleOtpSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    const token = otpCode.replace(/\s/g, '');
-    if (!/^\d{6}$/.test(token)) {
-      setError('Enter the 6-digit code from your email');
-      return;
-    }
-    setVerifyingOtp(true);
-    try {
-      await verifyEmailOtp(email.trim(), token);
-      // Session set; reuse callback page's role-aware redirect logic.
-      navigate('/auth/callback', { replace: true });
-    } catch (err) {
-      setError(err.message || 'Invalid or expired code');
-    } finally {
-      setVerifyingOtp(false);
-    }
-  };
 
   const handleImageError = (id) => {
     setImageErrors(prev => ({ ...prev, [id]: true }));
@@ -185,49 +164,11 @@ export default function PublicGallery() {
                 If you have an account, we've sent a sign-in email to <strong>{email}</strong>
               </p>
               <p style={{ fontSize: '12px', color: MUTED, marginBottom: '20px' }}>
-                Click the link, or enter the 6-digit code below if the link doesn't work.
+                Click the magic link in the email to sign in.
               </p>
 
-              <form onSubmit={handleOtpSubmit}>
-                {error && (
-                  <div style={{
-                    fontSize: '12px', color: '#C0392B', backgroundColor: '#FDEDEC',
-                    padding: '10px 14px', marginBottom: '14px', textAlign: 'left',
-                  }}>
-                    {error}
-                  </div>
-                )}
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="\d{6}"
-                  maxLength={6}
-                  value={otpCode}
-                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                  placeholder="6-digit code"
-                  autoComplete="one-time-code"
-                  style={{ ...inputStyle, textAlign: 'center', letterSpacing: '0.4em', fontSize: '16px' }}
-                />
-                <button
-                  type="submit"
-                  disabled={verifyingOtp || otpCode.length !== 6}
-                  style={{
-                    marginTop: '12px', width: '100%',
-                    fontSize: '12px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-                    padding: '12px',
-                    backgroundColor: TC, color: '#FFFFFF',
-                    border: 'none',
-                    cursor: (verifyingOtp || otpCode.length !== 6) ? 'default' : 'pointer',
-                    opacity: (verifyingOtp || otpCode.length !== 6) ? 0.5 : 1,
-                    fontFamily: 'inherit',
-                  }}
-                >
-                  {verifyingOtp ? 'Verifying...' : 'Sign In with Code'}
-                </button>
-              </form>
-
               <button
-                onClick={() => { setMagicLinkSent(false); setOtpCode(''); setError(''); }}
+                onClick={() => { setMagicLinkSent(false); setError(''); }}
                 style={{
                   marginTop: '16px', fontSize: '12px', fontWeight: 600,
                   color: TC_DARK, backgroundColor: 'transparent',

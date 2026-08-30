@@ -129,11 +129,6 @@ export function AuthProvider({ children }) {
     if (error) throw error;
   };
 
-  const verifyEmailOtp = async (email, token) => {
-    const { error } = await supabase.auth.verifyOtp({ email, token, type: 'email' });
-    if (error) throw error;
-  };
-
   const logout = async () => {
     clearCachedAuth();
     await supabase.auth.signOut();
@@ -152,7 +147,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, loginWithPassword, verifyEmailOtp, logout, updateUser, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, login, loginWithPassword, logout, updateUser, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

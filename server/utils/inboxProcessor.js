@@ -23,6 +23,7 @@ const CATEGORY_LINKS = {
 
 const VALID_CATEGORIES = Object.keys(CATEGORY_LINKS);
 const VALID_PRIORITIES = ['low', 'normal', 'high', 'urgent'];
+const PRIORITY_RANKS = { urgent: 1, high: 2, normal: 3, low: 4 };
 const VALID_RISK_FLAGS = [
   'low_confidence',
   'no_matching_student',
@@ -393,6 +394,7 @@ async function processNewEmails() {
           received_at: receivedAt,
           category: triage.category,
           priority: triage.priority,
+          priority_rank: PRIORITY_RANKS[triage.priority] || PRIORITY_RANKS.normal,
           confidence: triage.confidence,
           summary: triage.summary,
           draft_reply: triage.draftReply || null,
@@ -431,4 +433,5 @@ module.exports = {
   processNewEmails,
   VALID_CATEGORIES,
   VALID_RISK_FLAGS,
+  PRIORITY_RANKS,
 };

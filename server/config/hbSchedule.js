@@ -73,7 +73,32 @@ const HB_SLOTS = [
   },
 ];
 
+// Dates the studio is shut. A slot falling on one of these is still created —
+// as a CANCELLED row, carrying its reason — rather than skipped.
+//
+// Creating it is the point. A cancelled class shows on the studio calendar as
+// 'HBFRINT_LT [CANCELLED]', which tells a student the studio knows about the
+// date; a skipped one is indistinguishable from the calendar having run dry
+// again, which is the exact failure this module exists to prevent. It also
+// pins the date: the generator treats any existing row as taken, so a closure
+// written here can never be quietly refilled as an active class.
+//
+// Add next year's holidays here and they are handled before anyone books them.
+const HB_CLOSURES = [
+  { date: '2026-12-25', reason: 'Christmas Day — studio closed' },
+  { date: '2026-12-26', reason: 'Boxing Day — studio closed' },
+  { date: '2026-12-31', reason: "New Year's Eve — studio closed" },
+  { date: '2027-01-01', reason: "New Year's Day — studio closed" },
+];
+
+/** The closure covering a date, or null. */
+function closureOn(ymd) {
+  return HB_CLOSURES.find(c => c.date === ymd) || null;
+}
+
 module.exports = {
   HB_HORIZON_DAYS,
   HB_SLOTS,
+  HB_CLOSURES,
+  closureOn,
 };

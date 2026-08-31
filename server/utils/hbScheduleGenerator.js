@@ -32,7 +32,7 @@
 
 const supabaseDb = require('./supabaseDb');
 const calendarSync = require('./calendarSync');
-const { HB_SLOTS, HB_HORIZON_DAYS } = require('../config/hbSchedule');
+const { HB_SLOTS, HB_HORIZON_DAYS, HB_CLOSURES, closureOn } = require('../config/hbSchedule');
 const { toYmd, addDays, daysUntilWeekday, todaySGT } = require('./sgtDate');
 
 /**
@@ -62,8 +62,14 @@ function plannedDates(slot, firstDate, lastDate) {
   return dates;
 }
 
-/** The row a slot creates on a given date. */
+/**
+ * The row a slot creates on a given date.
+ *
+ * On a studio closure the class is still created, but cancelled — see the note
+ * beside HB_CLOSURES for why it is written rather than skipped.
+ */
 function buildInstance(slot, classDate) {
+  const closure = closureOn(classDate);
   return {
     class_date: classDate,
     start_time: slot.startTime,
@@ -73,7 +79,8 @@ function buildInstance(slot, classDate) {
     room: slot.room,
     max_capacity: slot.maxCapacity,
     current_enrollment: 0,
-    status: 'active',
+    status: closure ? 'cancelled' : 'active',
+    cancellation_reason: closure ? closure.reason : null,
     is_glazing: false,
     updated_at: new Date().toISOString(),
   };
@@ -120,6 +127,60 @@ async function planHbTopUp(options = {}) {
 }
 
 /**
+ * Cancel any HB class still standing on a studio closure date.
+ *
+ * buildInstance() creates closures cancelled, so this only has work to do for
+ * classes that already existed when a closure was added to the timetable —
+ * which is how the December holidays were handled, the calendar having been
+ * backfilled before anyone thought about Christmas.
+ *
+ * It only ever touches the HB slots in this timetable, and only ever cancels;
+ * a class the studio cancelled for its own reasons keeps that reason.
+ *
+ * @returns {Promise<{cancelled: number, classes: string[]}>}
+ */
+async function closeHolidayClasses(options = {}) {
+  const dates = HB_CLOSURES.map(c => c.date).filter(d => d >= (toYmd(options.from) || todaySGT()));
+  if (dates.length === 0) return { cancelled: 0, classes: [] };
+
+  const { data, error } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('id, class_date, class_type, status')
+    .in('class_type', HB_SLOTS.map(s => s.classType))
+    .in('class_date', dates)
+    .eq('status', 'active');
+
+  if (error) throw new Error(`[HB Schedule] could not read closure dates: ${error.message}`);
+  if (!data || data.length === 0) return { cancelled: 0, classes: [] };
+
+  const classes = [];
+  for (const row of data) {
+    const closure = closureOn(toYmd(row.class_date));
+    if (!closure) continue;
+    const { error: updateError } = await supabaseDb.supabase
+      .from('class_instances')
+      .update({
+        status: 'cancelled',
+        cancellation_reason: closure.reason,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', row.id);
+    if (updateError) {
+      console.error(`[HB Schedule] could not cancel ${row.id}: ${updateError.message}`);
+      continue;
+    }
+    // Retitles the calendar event to '<class_type> [CANCELLED]'.
+    await calendarSync.syncClassInstance(row.id);
+    classes.push(`${toYmd(row.class_date)} ${row.class_type} — ${closure.reason}`);
+  }
+
+  if (classes.length > 0) {
+    console.log(`[HB Schedule] cancelled ${classes.length} classes falling on studio closures`);
+  }
+  return { cancelled: classes.length, classes };
+}
+
+/**
  * Fill the HB calendar forward, and put the new classes on the studio calendar.
  *
  * @param {Object} [options] - as planHbTopUp, plus:
@@ -129,14 +190,19 @@ async function planHbTopUp(options = {}) {
 async function topUpHbSchedule(options = {}) {
   const { from, until, missing, existing } = await planHbTopUp(options);
 
+  // Bring any class already standing on a closure date into line first, so a
+  // dry run still reports the calendar honestly rather than describing a
+  // holiday as open.
+  const closed = options.dryRun ? { cancelled: 0, classes: [] } : await closeHolidayClasses({ from });
+
   if (missing.length === 0) {
-    return { created: 0, from, until, dryRun: !!options.dryRun, dates: [], existing };
+    return { created: 0, from, until, dryRun: !!options.dryRun, dates: [], existing, closed };
   }
 
   const dates = missing.map(m => `${m.class_date} ${m.class_type}`);
 
   if (options.dryRun) {
-    return { created: 0, from, until, dryRun: true, dates, existing };
+    return { created: 0, from, until, dryRun: true, dates, existing, closed };
   }
 
   const { data, error } = await supabaseDb.supabase
@@ -157,11 +223,13 @@ async function topUpHbSchedule(options = {}) {
     await calendarSync.syncClassInstance(row.id);
   }
 
-  return { created, from, until, dryRun: false, dates, existing };
+  return { created, from, until, dryRun: false, dates, existing, closed };
 }
 
 module.exports = {
   plannedDates,
+  buildInstance,
   planHbTopUp,
   topUpHbSchedule,
+  closeHolidayClasses,
 };

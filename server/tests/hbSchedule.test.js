@@ -7,9 +7,9 @@ process.env.SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || 'dummy';
 
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { plannedDates } = require('../utils/hbScheduleGenerator');
-const { HB_SLOTS, HB_HORIZON_DAYS } = require('../config/hbSchedule');
-const { weekdayName, addDays, DAY_NAMES } = require('../utils/sgtDate');
+const { plannedDates, buildInstance } = require('../utils/hbScheduleGenerator');
+const { HB_SLOTS, HB_HORIZON_DAYS, HB_CLOSURES, closureOn } = require('../config/hbSchedule');
+const { weekdayName, addDays, toYmd, DAY_NAMES } = require('../utils/sgtDate');
 
 const slotFor = (classType) => HB_SLOTS.find(s => s.classType === classType);
 
@@ -81,4 +81,43 @@ test('HB-08: every slot is fully specified', () => {
     assert.ok(slot.instructor, `${slot.classType} has no instructor`);
     assert.ok(Number.isInteger(slot.maxCapacity) && slot.maxCapacity > 0, `${slot.classType} has a bad capacity`);
   }
+});
+
+test('HB-09: a class on a studio closure is created cancelled, with its reason', () => {
+  // Christmas Day 2026 is a Friday, so the Friday slot lands on it.
+  const dates = plannedDates(slotFor('HBFRINT_LT'), '2026-12-21', '2026-12-27');
+  assert.deepEqual(dates, ['2026-12-25'], 'the Friday slot should land on Christmas Day');
+
+  const row = buildInstance(slotFor('HBFRINT_LT'), '2026-12-25');
+  assert.equal(row.status, 'cancelled');
+  assert.match(row.cancellation_reason, /Christmas/);
+});
+
+test('HB-10: an ordinary date is created active with no cancellation reason', () => {
+  const row = buildInstance(slotFor('HBMONNT_LT'), '2026-09-07');
+  assert.equal(row.status, 'active');
+  assert.equal(row.cancellation_reason, null);
+});
+
+test('HB-11: a closure still plans its date — it is cancelled, never skipped', () => {
+  // Skipping would leave a hole indistinguishable from the calendar running
+  // dry, which is the failure this module exists to prevent.
+  const dates = plannedDates(slotFor('HBSATEV_LT'), '2026-12-20', '2026-12-27');
+  assert.ok(dates.includes('2026-12-26'), 'Boxing Day should still be planned');
+});
+
+test('HB-12: every closure names a real date and a reason', () => {
+  for (const c of HB_CLOSURES) {
+    assert.match(c.date, /^\d{4}-\d{2}-\d{2}$/, `${c.date} is not a calendar date`);
+    assert.equal(toYmd(c.date), c.date, `${c.date} does not round-trip`);
+    assert.ok(c.reason && c.reason.trim().length > 0, `${c.date} has no reason`);
+  }
+  const dates = HB_CLOSURES.map(c => c.date);
+  assert.equal(new Set(dates).size, dates.length, 'a date is listed as closed twice');
+});
+
+test('HB-13: closureOn matches only the exact date', () => {
+  assert.ok(closureOn('2026-12-25'), 'Christmas Day should be a closure');
+  assert.equal(closureOn('2026-12-24'), null, 'Christmas Eve is not listed');
+  assert.equal(closureOn('2026-12-25T00:00:00'), null, 'closureOn takes a bare YYYY-MM-DD');
 });

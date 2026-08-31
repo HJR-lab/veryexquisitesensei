@@ -644,6 +644,73 @@ async function checkUnstagedPickups() {
 }
 
 /**
+ * The handbuilding calendar is running out of classes.
+ *
+ * HB has no cohort to schedule from, so its calendar only exists because
+ * hbScheduleGenerator fills it. If that job stops running — a failed deploy, a
+ * crash in the 2 AM batch, a timetable emptied by mistake — nothing else in the
+ * system notices. It went blank once already, on 2026-09-01, with 48 open
+ * enrolments holding 165 unspent credits and no error anywhere to say so. HB
+ * credits never expire, so there is no expiry sweep to trip either.
+ *
+ * The generator keeps a four-month horizon. Two weeks of runway left means it
+ * has not run in over three months.
+ */
+const HB_RUNWAY_DAYS = 14;
+
+async function checkHbCalendarRunway() {
+  const { toYmd } = require('./sgtDate');
+  const { HB_SLOTS } = require('../config/hbSchedule');
+  const today = toYmd(todaySGT());
+
+  const { data, error } = await supabase
+    .from('class_instances')
+    .select('class_date')
+    .in('class_type', HB_SLOTS.map(s => s.classType))
+    .eq('status', 'active')
+    .gte('class_date', today)
+    .order('class_date', { ascending: false })
+    .limit(1);
+
+  if (error) {
+    console.error('[AnomalyProbe] HB runway query error:', error);
+    return [];
+  }
+
+  return hbRunwayFinding(data && data[0] ? toYmd(data[0].class_date) : null, today);
+}
+
+/**
+ * The finding for a calendar whose last active class is `lastClassDate`, or
+ * none if there is enough runway left.
+ *
+ * Split from the query so the threshold can be tested at its boundary — the
+ * check is worthless if it is quiet in the one case it exists to catch.
+ *
+ * @param {string|null} lastClassDate - last active HB class, YYYY-MM-DD
+ * @param {string} today - YYYY-MM-DD
+ * @returns {Object[]} zero or one finding
+ */
+function hbRunwayFinding(lastClassDate, today) {
+  const { addDays } = require('./sgtDate');
+  if (lastClassDate && lastClassDate > addDays(today, HB_RUNWAY_DAYS)) return [];
+
+  const details = lastClassDate
+    ? `The handbuilding calendar runs out on ${lastClassDate} — under ${HB_RUNWAY_DAYS} days away. Students with HB credits will find nothing to book after that date. The nightly top-up should keep it four months ahead, so it has not run successfully in months: check the 2 AM batch, then run \`node scripts/backfill-hb-schedule.js --until <date> --write\` from server/.`
+    : 'There are NO handbuilding classes scheduled at all. Every student holding HB credits is looking at an empty calendar right now. Run `node scripts/backfill-hb-schedule.js --until <date> --write` from server/ and check why the nightly top-up stopped.';
+
+  return [{
+    type: 'hb_calendar_runway',
+    severity: 'high',
+    student_id: null,
+    student_name: null,
+    student_email: null,
+    enrollment_id: null,
+    details,
+  }];
+}
+
+/**
  * Run all invariant checks and return aggregated findings.
  * Failures within a single check do not abort the whole probe.
  */
@@ -659,6 +726,7 @@ async function runAnomalyProbe() {
     checkStaleContinuationOffers(),
     checkFinishingStudentNoCohort(),
     checkUnstagedPickups(),
+    checkHbCalendarRunway(),
   ]);
 
   const findings = [];
@@ -677,4 +745,4 @@ async function runAnomalyProbe() {
   return findings;
 }
 
-module.exports = { runAnomalyProbe, checkUnstagedPickups, checkCohortStartDateDrift, checkCohortOverCapacity, checkStaleContinuationOffers, checkFinishingStudentNoCohort, checkOverAllocated, checkStaleUnassigned10Class, checkUnlinkedUpcomingBookings, checkRecentPurchaseWithoutEnrollment, checkDuplicateSpotEnrollments, findDuplicateSpots };
+module.exports = { runAnomalyProbe, checkHbCalendarRunway, hbRunwayFinding, checkUnstagedPickups, checkCohortStartDateDrift, checkCohortOverCapacity, checkStaleContinuationOffers, checkFinishingStudentNoCohort, checkOverAllocated, checkStaleUnassigned10Class, checkUnlinkedUpcomingBookings, checkRecentPurchaseWithoutEnrollment, checkDuplicateSpotEnrollments, findDuplicateSpots };

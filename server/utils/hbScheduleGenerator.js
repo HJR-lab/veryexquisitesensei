@@ -196,6 +196,11 @@ async function topUpHbSchedule(options = {}) {
   const closed = options.dryRun ? { cancelled: 0, classes: [] } : await closeHolidayClasses({ from });
 
   if (missing.length === 0) {
+    // Say so even when there is nothing to do. The calendar ran dry for a whole
+    // day before anyone noticed precisely because nothing in the logs ever
+    // mentioned handbuilding; a nightly line saying how far ahead it is filled
+    // is what makes the next lapse visible on the day it starts.
+    console.log(`[HB Schedule] calendar filled to ${until}, ${existing} classes scheduled — nothing to create`);
     return { created: 0, from, until, dryRun: !!options.dryRun, dates: [], existing, closed };
   }
 

@@ -602,6 +602,10 @@ function startAutomaticProcessing() {
     cleanupExpiredWaitlist().catch(console.error);
     processCampaigns().catch(console.error);
     autoRelinkUnlinkedBookings().catch(console.error);
+    // HB has no cohort to schedule from, so the drop-in calendar only exists
+    // because something fills it. Top up on boot as well as nightly: a deploy
+    // is the fastest way to recover if the nightly run has been failing.
+    require('./hbScheduleGenerator').topUpHbSchedule().catch(console.error);
   }, 5000);
 
   // Run daily at 2 AM
@@ -632,6 +636,9 @@ function startAutomaticProcessing() {
       // Lapse yesterday's expired continuation offers and offer the next
       // course to anyone newly due one.
       require('./continuationSweep').runContinuationSweep().catch(console.error);
+      // Keep the handbuilding calendar filled to its rolling horizon. Idempotent
+      // — on an ordinary night this creates one class, or none.
+      require('./hbScheduleGenerator').topUpHbSchedule().catch(console.error);
     }
 
     // Run anomaly probe at 2:15 AM — after the 2:00 AM batch so any

@@ -3,6 +3,15 @@ const { rewriteLocalLinks } = require('./publicUrl');
 
 const FROM_ADDRESS = 'VES Studio <info@mail.ves.sg>';
 
+// mail.ves.sg is the Resend SENDING subdomain — correct in From, but nothing
+// accepts mail there. Addressing the studio copy to it made every bulk send
+// (course details, membership, reschedules — anything routed through
+// sendAndLogEmail, which puts recipients in BCC) report as bounced even though
+// the BCC recipients received it. That inflates the bounce rate, erodes domain
+// reputation, and buries the bounces that actually mean something. The studio
+// copy goes to the real inbox instead.
+const INBOX_ADDRESS = 'VES Studio <info@ves.sg>';
+
 // Temporarily paused automated email categories. Override via the
 // PAUSED_EMAIL_CATEGORIES env var (comma-separated) or set it to an empty
 // string to resume all. Only gates AUTOMATED sends — admin-initiated
@@ -58,7 +67,7 @@ async function sendEmail({ to, cc, bcc, subject, html, replyTo }) {
 
     const payload = {
       from: FROM_ADDRESS,
-      to: to || FROM_ADDRESS,
+      to: to || INBOX_ADDRESS,
       subject,
       html: safeHtml,
     };
@@ -86,7 +95,9 @@ async function sendEmail({ to, cc, bcc, subject, html, replyTo }) {
  */
 async function sendAndLogEmail({ emailType, courseIdentifier, subject, html, recipientEmails, sentBy }) {
   const result = await sendEmail({
-    to: FROM_ADDRESS,
+    // Recipients stay in BCC so they never see each other; the visible To is
+    // the studio's own inbox, which — unlike FROM_ADDRESS — can receive mail.
+    to: INBOX_ADDRESS,
     bcc: recipientEmails,
     subject,
     html,
@@ -143,4 +154,4 @@ function detectStudentTemplate(enrollment) {
   return detectCourseTemplate(enrollment);
 }
 
-module.exports = { sendEmail, sendAndLogEmail, detectCourseTemplate, detectStudentTemplate, isEmailCategoryPaused, FROM_ADDRESS };
+module.exports = { sendEmail, sendAndLogEmail, detectCourseTemplate, detectStudentTemplate, isEmailCategoryPaused, FROM_ADDRESS, INBOX_ADDRESS };

@@ -98,10 +98,12 @@ app.post('/api/student-details/:token', asyncHandler(async (req, res) => {
       .update({ ...submission, status: 'needs_admin' })
       .eq('id', request.id);
 
-    const { sendEmail, FROM_ADDRESS } = require('../utils/emailService');
+    // INBOX_ADDRESS, not FROM_ADDRESS: this alert is for the studio to read,
+    // and mail.ves.sg has no mailbox — these notifications bounced silently.
+    const { sendEmail, INBOX_ADDRESS } = require('../utils/emailService');
     const safeName = `${esc(firstName)} ${esc(lastName)}`.trim();
     sendEmail({
-      to: FROM_ADDRESS,
+      to: INBOX_ADDRESS,
       subject: `VES Admin: student details submission needs a merge (${`${firstName} ${lastName}`.replace(/[\r\n]+/g, ' ').trim()})`,
       html: `<p>A second-student details form was submitted with an email that already has an account:</p>
         <p><strong>${safeName}</strong> — ${esc(email)}${phone ? ` — ${esc(phone)}` : ''}</p>

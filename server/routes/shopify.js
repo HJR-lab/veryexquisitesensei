@@ -1089,6 +1089,16 @@ app.post('/api/admin/sync-shopify-orders', authenticateToken, requireAdmin, asyn
 }));
 
 // Shopify webhook HMAC verification middleware
+/**
+ * Shopify signs a webhook with the API secret of the app whose access token
+ * created the subscription — NOT necessarily the app in SHOPIFY_API_KEY. This
+ * shop runs two custom apps: the webhooks were registered with Pottery
+ * Manager's token, while SHOPIFY_API_SECRET holds Pottery Gallery API's
+ * secret, so every real delivery failed HMAC and 401'd before reaching a
+ * handler (see scripts/register-shopify-webhooks.js, which uses
+ * SHOPIFY_ACCESS_TOKEN). Set SHOPIFY_WEBHOOK_SECRET to the secret of the app
+ * that owns the webhooks; both are accepted so either app can deliver.
+ */
 function verifyShopifyWebhook(req, res, next) {
   const hmac = req.headers['x-shopify-hmac-sha256'];
   if (!hmac) {
@@ -1096,27 +1106,28 @@ function verifyShopifyWebhook(req, res, next) {
     return res.status(401).json({ error: 'Missing webhook signature' });
   }
 
-  const secret = process.env.SHOPIFY_API_SECRET;
-  if (!secret) {
-    console.error('SHOPIFY_API_SECRET not configured');
+  const secrets = [process.env.SHOPIFY_WEBHOOK_SECRET, process.env.SHOPIFY_API_SECRET]
+    .filter(Boolean);
+  if (secrets.length === 0) {
+    console.error('Neither SHOPIFY_WEBHOOK_SECRET nor SHOPIFY_API_SECRET is configured');
     return res.status(500).json({ error: 'Webhook verification not configured' });
   }
 
   const crypto = require('crypto');
   // req.body is a Buffer from express.raw(), use it directly for HMAC
   const body = Buffer.isBuffer(req.body) ? req.body : (req.rawBody || '');
-  const digest = crypto
-    .createHmac('sha256', secret)
-    .update(body)
-    .digest('base64');
+  const provided = Buffer.from(hmac);
 
-  try {
-    if (!crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(hmac))) {
-      console.error('Invalid Shopify HMAC');
-      return res.status(401).json({ error: 'Invalid webhook signature' });
-    }
-  } catch (e) {
-    console.error('HMAC comparison failed:', e.message);
+  const matched = secrets.some(secret => {
+    const digest = Buffer.from(
+      crypto.createHmac('sha256', secret).update(body).digest('base64')
+    );
+    // timingSafeEqual throws on a length mismatch — a malformed header, not a match.
+    return digest.length === provided.length && crypto.timingSafeEqual(digest, provided);
+  });
+
+  if (!matched) {
+    console.error(`Invalid Shopify HMAC (tried ${secrets.length} secret(s))`);
     return res.status(401).json({ error: 'Invalid webhook signature' });
   }
 

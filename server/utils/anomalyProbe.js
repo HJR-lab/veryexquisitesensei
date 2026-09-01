@@ -711,6 +711,90 @@ function hbRunwayFinding(lastClassDate, today) {
 }
 
 /**
+ * Customers whose stored email address Resend refuses to send to.
+ *
+ * A hard bounce puts the address on Resend's suppression list permanently.
+ * Every later send returns "suppressed" and never leaves Resend, while
+ * sendAndLogEmail still writes a success row to sent_emails — so the app
+ * believes it is mailing someone who has heard nothing since. Sian Bostrom
+ * (31/08/26) lost her Clay Club confirmation this way: her order carried a
+ * one-character typo (sina… for sian…), the address bounced, and nothing
+ * surfaced it until she was asked about it.
+ *
+ * Only addresses actually stored on a customer are reported. The list also
+ * collects typos people mistype into the sign-in form, which harm nobody and
+ * would otherwise make this fire every day until it is ignored.
+ */
+async function checkUndeliverableCustomerEmails() {
+  if (!process.env.RESEND_API_KEY) return [];
+
+  let suppressed;
+  try {
+    const res = await fetch('https://api.resend.com/suppressions?limit=100', {
+      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
+    });
+    if (!res.ok) {
+      console.error('[AnomalyProbe] Resend suppressions:', res.status);
+      return [];
+    }
+    suppressed = ((await res.json()).data || []);
+  } catch (err) {
+    // Never let a third-party outage take down the rest of the probe.
+    console.error('[AnomalyProbe] Resend suppressions unreachable:', err.message);
+    return [];
+  }
+  if (suppressed.length === 0) return [];
+
+  // Page: an unbounded select stops at 1000 rows without saying so.
+  const customers = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase.from('customers')
+      .select('id, first_name, last_name, email').range(from, from + 999);
+    if (error) throw error;
+    customers.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+
+  return undeliverableFindings(suppressed, customers);
+}
+
+/**
+ * Pure half of checkUndeliverableCustomerEmails: which customers hold an
+ * address that Resend will not deliver to. Split out so it is testable without
+ * reaching Resend or the database.
+ *
+ * @param {Array<{email: string, created_at: string, origin: string}>} suppressed
+ * @param {Array<{id: number, first_name: string, last_name: string, email: string}>} customers
+ */
+function undeliverableFindings(suppressed, customers) {
+  const byAddress = new Map(
+    (suppressed || []).map(s => [String(s.email || '').toLowerCase().trim(), s])
+  );
+  if (byAddress.size === 0) return [];
+
+  const findings = [];
+  for (const c of customers || []) {
+    const addr = String(c.email || '').toLowerCase().trim();
+    if (!addr) continue;
+    const hit = byAddress.get(addr);
+    if (!hit) continue;
+
+    const name = `${c.first_name || ''} ${c.last_name || ''}`.trim() || `customer ${c.id}`;
+    findings.push({
+      type: 'undeliverable_customer_email',
+      severity: 'high',
+      student_id: c.id,
+      student_name: name,
+      student_email: c.email,
+      enrollment_id: null,
+      details: `${name} <${c.email}> is on Resend's suppression list since ${String(hit.created_at).slice(0, 10)} (${hit.origin}). Every email the app sends them is discarded before it leaves Resend, and the app records it as sent — they have received nothing since. Usually a typo in the address: check it against the customer, correct it in Shopify AND on the customer record, then re-send anything they missed. Removing the suppression without fixing the address just bounces again.`,
+    });
+  }
+
+  return findings;
+}
+
+/**
  * Run all invariant checks and return aggregated findings.
  * Failures within a single check do not abort the whole probe.
  */
@@ -727,6 +811,7 @@ async function runAnomalyProbe() {
     checkFinishingStudentNoCohort(),
     checkUnstagedPickups(),
     checkHbCalendarRunway(),
+    checkUndeliverableCustomerEmails(),
   ]);
 
   const findings = [];
@@ -745,4 +830,4 @@ async function runAnomalyProbe() {
   return findings;
 }
 
-module.exports = { runAnomalyProbe, checkHbCalendarRunway, hbRunwayFinding, checkUnstagedPickups, checkCohortStartDateDrift, checkCohortOverCapacity, checkStaleContinuationOffers, checkFinishingStudentNoCohort, checkOverAllocated, checkStaleUnassigned10Class, checkUnlinkedUpcomingBookings, checkRecentPurchaseWithoutEnrollment, checkDuplicateSpotEnrollments, findDuplicateSpots };
+module.exports = { runAnomalyProbe, checkUndeliverableCustomerEmails, undeliverableFindings, checkHbCalendarRunway, hbRunwayFinding, checkUnstagedPickups, checkCohortStartDateDrift, checkCohortOverCapacity, checkStaleContinuationOffers, checkFinishingStudentNoCohort, checkOverAllocated, checkStaleUnassigned10Class, checkUnlinkedUpcomingBookings, checkRecentPurchaseWithoutEnrollment, checkDuplicateSpotEnrollments, findDuplicateSpots };

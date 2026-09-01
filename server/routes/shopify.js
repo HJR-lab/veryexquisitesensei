@@ -606,9 +606,34 @@ app.post('/api/admin/hb-enrollments/:enrollmentId/book-classes', authenticateTok
 
 }));
 
-// Sync recent orders and create enrollments/bookings
-app.post('/api/admin/sync-shopify-orders', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
-  const { sinceDate } = req.body || {};
+// Sync recent orders and create enrollments/bookings.
+//
+// This sweep is not merely a backstop for the order webhook: it is the ONLY
+// path that creates Clay Club membership rows, and it sends the course-details,
+// kids and membership emails for anything the webhook missed. It used to run
+// only when an admin clicked Sync, so a membership bought on a quiet day could
+// sit unrecorded for hours. index.js now also runs it on a timer — see
+// startOrderSyncPolling in utils/orderSyncScheduler.js.
+//
+// Both callers funnel through runOrderSync, so the in-flight guard lives there:
+// two concurrent passes would read the same sync_tracking watermark, walk the
+// same order window, and race to create the same enrollments.
+let orderSyncInFlight = false;
+
+async function runOrderSync({ sinceDate } = {}) {
+  if (orderSyncInFlight) {
+    const err = new Error('An order sync is already running');
+    err.code = 'SYNC_IN_PROGRESS';
+    throw err;
+  }
+  orderSyncInFlight = true;
+  return orderSyncPass({ sinceDate }).finally(() => { orderSyncInFlight = false; });
+}
+
+// Handed to index.js so the timer and the admin button share one code path.
+app.locals.runOrderSync = runOrderSync;
+
+async function orderSyncPass({ sinceDate } = {}) {
   console.log('🔄 Starting Shopify order sync...');
   const { processCoursePurchase } = require('../utils/courseEnrollmentManager');
   const { supabase } = require('../utils/supabaseDb');
@@ -1075,7 +1100,7 @@ app.post('/api/admin/sync-shopify-orders', authenticateToken, requireAdmin, asyn
   // Sync customer_type based on active memberships
   const customerTypesUpdated = await supabaseDb.syncCustomerTypeFromMemberships();
 
-  res.json({
+  return {
     success: true,
     message: `Processed ${processedCount} course purchases, created ${enrollmentsCreated} new enrollments, ${skippedCount} already existed, ${membershipsExpired} memberships expired` + (autoCompleted > 0 ? `, auto-completed ${autoCompleted} finished enrollments` : '') + (customerTypesUpdated > 0 ? `, updated ${customerTypesUpdated} customer types` : ''),
     processedCount,
@@ -1084,8 +1109,20 @@ app.post('/api/admin/sync-shopify-orders', authenticateToken, requireAdmin, asyn
     membershipsExpired,
     autoCompleted,
     customerTypesUpdated
-  });
+  };
+}
 
+app.post('/api/admin/sync-shopify-orders', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { sinceDate } = req.body || {};
+  try {
+    res.json(await runOrderSync({ sinceDate }));
+  } catch (err) {
+    if (err.code === 'SYNC_IN_PROGRESS') {
+      // The timer is mid-sweep. Saying so beats queueing a second pass behind it.
+      return res.status(409).json({ success: false, error: err.message });
+    }
+    throw err;
+  }
 }));
 
 // Shopify webhook HMAC verification middleware

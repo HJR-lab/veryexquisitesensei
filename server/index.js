@@ -30,6 +30,7 @@ require('@shopify/shopify-api/adapters/node');
 const { upload, ensureBucketExists } = require('./utils/imageUpload');
 const { startAutomaticProcessing, autoMarkPastBookingsAsAttended } = require('./utils/cohortAutoProcessor');
 const { startCustomerPolling } = require('./utils/shopifySync');
+const { startOrderSyncPolling, DEFAULT_INTERVAL_MINUTES } = require('./utils/orderSyncScheduler');
 const courseConfig = require('./utils/courseConfig');
 
 const rateLimit = require('express-rate-limit');
@@ -297,6 +298,14 @@ if (require.main === module) {
     await ensureBucketExists();
     startAutomaticProcessing();
     startCustomerPolling(15);
+    // The order sweep creates membership rows and backfills anything the
+    // Shopify webhook missed; it should not wait on an admin clicking Sync.
+    startOrderSyncPolling(
+      app.locals.runOrderSync,
+      process.env.ORDER_SYNC_INTERVAL_MINUTES !== undefined
+        ? Number(process.env.ORDER_SYNC_INTERVAL_MINUTES)
+        : DEFAULT_INTERVAL_MINUTES
+    );
   });
 
   process.on('SIGTERM', async () => {

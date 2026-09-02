@@ -10,7 +10,18 @@ const FROM_ADDRESS = 'VES Studio <info@mail.ves.sg>';
 // the BCC recipients received it. That inflates the bounce rate, erodes domain
 // reputation, and buries the bounces that actually mean something. The studio
 // copy goes to the real inbox instead.
-const INBOX_ADDRESS = 'VES Studio <info@ves.sg>';
+const INBOX_EMAIL = 'info@ves.sg';
+const INBOX_ADDRESS = `VES Studio <${INBOX_EMAIL}>`;
+
+// Nothing accepts mail at FROM_ADDRESS, so without this every student who hit
+// Reply was writing to a mailbox that does not exist.
+const REPLY_TO_ADDRESS = INBOX_EMAIL;
+
+/** Bare address out of either `a@b.com` or `Name <a@b.com>`. */
+function bareAddress(address) {
+  const match = String(address || '').match(/<([^>]+)>/);
+  return (match ? match[1] : String(address || '')).trim().toLowerCase();
+}
 
 // Temporarily paused automated email categories. Override via the
 // PAUSED_EMAIL_CATEGORIES env var (comma-separated) or set it to an empty
@@ -44,6 +55,47 @@ function getResend() {
 }
 
 /**
+ * The Resend payload for one message, minus the body. Pure, so the addressing
+ * rules can be asserted without sending anything.
+ */
+function buildEnvelope({ to, cc, bcc, subject, replyTo }) {
+  const envelope = {
+    from: FROM_ADDRESS,
+    to: to || INBOX_ADDRESS,
+    subject,
+    // The Resend SDK reads `replyTo` and maps it to the wire field itself; a
+    // `reply_to` key here is silently dropped.
+    replyTo: replyTo || REPLY_TO_ADDRESS,
+  };
+  if (cc && cc.length > 0) envelope.cc = cc;
+  if (bcc && bcc.length > 0) envelope.bcc = bcc;
+  return envelope;
+}
+
+/**
+ * Who a logged send is addressed to, and who is merely copied.
+ *
+ * BCC exists to stop a cohort blast leaking seven students' addresses to each
+ * other. It costs something, though: the message then reads as addressed to the
+ * studio, which is wrong for a "Dear Doreen" reschedule notice and looks, in the
+ * studio's own inbox, like the student was never written to at all. So hide
+ * recipients only when there is more than one of them.
+ */
+function resolveAddressing(recipientEmails) {
+  const recipients = (Array.isArray(recipientEmails) ? recipientEmails : [recipientEmails]).filter(Boolean);
+  const only = recipients.length === 1 ? recipients[0] : null;
+
+  // A studio-facing notice BCC'd to itself would arrive twice.
+  if (only && bareAddress(only) === INBOX_EMAIL) {
+    return { recipients, to: INBOX_ADDRESS, bcc: undefined };
+  }
+  if (only) {
+    return { recipients, to: only, bcc: [INBOX_ADDRESS] }; // the studio still keeps its copy
+  }
+  return { recipients, to: INBOX_ADDRESS, bcc: recipients };
+}
+
+/**
  * Send an email via Resend
  */
 async function sendEmail({ to, cc, bcc, subject, html, replyTo }) {
@@ -65,15 +117,7 @@ async function sendEmail({ to, cc, bcc, subject, html, replyTo }) {
       );
     }
 
-    const payload = {
-      from: FROM_ADDRESS,
-      to: to || INBOX_ADDRESS,
-      subject,
-      html: safeHtml,
-    };
-    if (cc && cc.length > 0) payload.cc = cc;
-    if (bcc && bcc.length > 0) payload.bcc = bcc;
-    if (replyTo) payload.reply_to = replyTo;
+    const payload = { ...buildEnvelope({ to, cc, bcc, subject, replyTo }), html: safeHtml };
 
     const { data, error } = await resend.emails.send(payload);
 
@@ -82,7 +126,10 @@ async function sendEmail({ to, cc, bcc, subject, html, replyTo }) {
       return { success: false, error: error.message };
     }
 
-    console.log(`[Email] Sent "${subject}" to ${bcc ? bcc.length + ' recipients' : to} (ID: ${data.id})`);
+    const audience = payload.bcc
+      ? `${payload.to} + ${payload.bcc.length} bcc`
+      : payload.to;
+    console.log(`[Email] Sent "${subject}" to ${audience} (ID: ${data.id})`);
     return { success: true, messageId: data.id };
   } catch (err) {
     console.error('[Email] Send error:', err);
@@ -94,14 +141,9 @@ async function sendEmail({ to, cc, bcc, subject, html, replyTo }) {
  * Send and log a course-related email
  */
 async function sendAndLogEmail({ emailType, courseIdentifier, subject, html, recipientEmails, sentBy }) {
-  const result = await sendEmail({
-    // Recipients stay in BCC so they never see each other; the visible To is
-    // the studio's own inbox, which — unlike FROM_ADDRESS — can receive mail.
-    to: INBOX_ADDRESS,
-    bcc: recipientEmails,
-    subject,
-    html,
-  });
+  const { recipients, to, bcc } = resolveAddressing(recipientEmails);
+
+  const result = await sendEmail({ to, bcc, subject, html });
 
   if (result.success) {
     const { supabase } = require('./supabaseDb');
@@ -109,8 +151,8 @@ async function sendAndLogEmail({ emailType, courseIdentifier, subject, html, rec
       email_type: emailType,
       course_identifier: courseIdentifier,
       subject,
-      recipient_count: recipientEmails.length,
-      recipient_emails: recipientEmails,
+      recipient_count: recipients.length,
+      recipient_emails: recipients,
       sent_by: sentBy || 'system',
       resend_message_id: result.messageId,
     });
@@ -154,4 +196,4 @@ function detectStudentTemplate(enrollment) {
   return detectCourseTemplate(enrollment);
 }
 
-module.exports = { sendEmail, sendAndLogEmail, detectCourseTemplate, detectStudentTemplate, isEmailCategoryPaused, FROM_ADDRESS, INBOX_ADDRESS };
+module.exports = { sendEmail, sendAndLogEmail, detectCourseTemplate, detectStudentTemplate, isEmailCategoryPaused, buildEnvelope, resolveAddressing, FROM_ADDRESS, INBOX_ADDRESS, INBOX_EMAIL, REPLY_TO_ADDRESS };

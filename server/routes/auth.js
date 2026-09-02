@@ -111,6 +111,9 @@ async function syncShopifyOrdersForCustomer(customer) {
             createdAt: orderNode.createdAt,
             customer: {
               email: customer.email,
+              // Stable identity fallback when the local row's email is locked to a
+              // different value than Shopify's — see processCoursePurchase.
+              shopifyCustomerId: customer.shopify_customer_id,
               first_name: customer.first_name,
               last_name: customer.last_name,
             }

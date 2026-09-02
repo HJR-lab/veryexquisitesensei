@@ -641,6 +641,10 @@ async function orderSyncPass({ sinceDate } = {}) {
   let processedCount = 0;
   let enrollmentsCreated = 0;
   let skippedCount = 0;
+  // Course purchases that could not be turned into an enrollment. These used to
+  // fall through silently — a paid order would vanish on every pass with nothing
+  // logged and nothing counted. Collected here so the summary surfaces them.
+  const failedPurchases = [];
   let hasNextPage = true;
   let cursor = null;
 
@@ -849,6 +853,12 @@ async function orderSyncPass({ sinceDate } = {}) {
               createdAt: orderNode.createdAt,
               customer: {
                 email: paxEmail,
+                // Stable fallback for when the local row's email is locked to a
+                // different value than Shopify's — see processCoursePurchase.
+                // isExtraPax suppresses that fallback: extra spots share the
+                // purchaser's Shopify ID and are identified only by paxEmail.
+                shopifyCustomerId: customer.id.split('/').pop(),
+                isExtraPax,
                 first_name: isExtraPax ? (customer.firstName || '') : customer.firstName,
                 last_name: isExtraPax ? `${customer.lastName || ''} (${paxIndex + 1})` : customer.lastName
               }
@@ -926,6 +936,19 @@ async function orderSyncPass({ sinceDate } = {}) {
                   console.log(`✅ Enrollment created for ${paxEmail}`);
                 }
               }
+            } else {
+              // A paid course purchase that produced no enrollment. Loud, counted,
+              // and returned — never swallowed.
+              const failure = {
+                orderId: orderNode.id.split('/').pop(),
+                email: paxEmail,
+                shopifyCustomerId: customer.id.split('/').pop(),
+                title: productTitle,
+                variantTitle,
+                error: result.error || 'unknown',
+              };
+              failedPurchases.push(failure);
+              console.error(`❌ Order ${failure.orderId} (${paxEmail}) produced NO enrollment: ${failure.error} — "${productTitle}" / "${variantTitle}"`);
             }
 
             processedCount++;
@@ -1044,6 +1067,13 @@ async function orderSyncPass({ sinceDate } = {}) {
 
   console.log(`✅ Processed ${processedCount} course purchases, created ${enrollmentsCreated} enrollments`);
 
+  if (failedPurchases.length > 0) {
+    console.error(`❌ ${failedPurchases.length} paid course purchase(s) created NO enrollment:`);
+    for (const f of failedPurchases) {
+      console.error(`   order ${f.orderId} — ${f.email} (shopify customer ${f.shopifyCustomerId}) — ${f.error}`);
+    }
+  }
+
   // Update membership expiry statuses
   let membershipsExpired = 0;
   try {
@@ -1102,10 +1132,12 @@ async function orderSyncPass({ sinceDate } = {}) {
 
   return {
     success: true,
-    message: `Processed ${processedCount} course purchases, created ${enrollmentsCreated} new enrollments, ${skippedCount} already existed, ${membershipsExpired} memberships expired` + (autoCompleted > 0 ? `, auto-completed ${autoCompleted} finished enrollments` : '') + (customerTypesUpdated > 0 ? `, updated ${customerTypesUpdated} customer types` : ''),
+    message: `Processed ${processedCount} course purchases, created ${enrollmentsCreated} new enrollments, ${skippedCount} already existed, ${membershipsExpired} memberships expired` + (autoCompleted > 0 ? `, auto-completed ${autoCompleted} finished enrollments` : '') + (customerTypesUpdated > 0 ? `, updated ${customerTypesUpdated} customer types` : '') + (failedPurchases.length > 0 ? `, ⚠️ ${failedPurchases.length} purchase(s) created no enrollment` : ''),
     processedCount,
     enrollmentsCreated,
     skippedCount,
+    failedCount: failedPurchases.length,
+    failedPurchases,
     membershipsExpired,
     autoCompleted,
     customerTypesUpdated
@@ -1252,6 +1284,9 @@ async function processOrderWebhook(orderData) {
             createdAt: orderData.created_at,
             customer: {
               email: customer.email,
+              // Stable identity fallback when the local row's email is locked to a
+              // different value than Shopify's — see processCoursePurchase.
+              shopifyCustomerId: customer.id?.toString(),
               first_name: customer.first_name,
               last_name: customer.last_name
             }

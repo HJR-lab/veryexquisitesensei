@@ -12,6 +12,7 @@ const {
   createClassInstances,
   createMultipleBookings,
   findCustomerByEmail,
+  findCustomerByShopifyId,
   createDuplicatePaxCustomer,
   updateCustomer
 } = require('./supabaseDb');
@@ -61,11 +62,29 @@ function getInstructorForCourse(courseType, schedulePattern) {
  */
 async function processCoursePurchase(order, lineItem) {
   try {
-    // Find or create student record
-    const student = await findCustomerByEmail(order.customer.email);
+    // Resolve the student. Email first, then the Shopify customer ID.
+    //
+    // The ID fallback exists because email_locked permanently pins a local row's
+    // email to the admin's value, so a customer who later changes their email in
+    // Shopify (or checks out under a second Shopify customer record) no longer
+    // matches on email at all — and every future order for them was silently
+    // dropped. shopify_customer_id is the stable link; email is not.
+    //
+    // Extra-pax spots are deliberately excluded: their synthetic "+dup@" email is
+    // the ONLY thing that distinguishes them, and they share the purchaser's
+    // Shopify customer ID. Falling back on ID there would collapse every extra
+    // spot onto the purchaser.
+    let student = await findCustomerByEmail(order.customer.email);
+
+    if (!student && order.customer.shopifyCustomerId && !order.customer.isExtraPax) {
+      student = await findCustomerByShopifyId(order.customer.shopifyCustomerId);
+      if (student) {
+        console.log(`🔗 ${order.customer.email} matched no local row; resolved by Shopify customer ID ${order.customer.shopifyCustomerId} → customer ${student.id} (${student.email})`);
+      }
+    }
 
     if (!student) {
-      console.log(`⚠️  Customer ${order.customer.email} not found in database`);
+      console.log(`⚠️  Customer ${order.customer.email} not found in database (shopify id ${order.customer.shopifyCustomerId || 'n/a'})`);
       return {
         success: false,
         error: 'Customer not found in database'
@@ -338,6 +357,10 @@ async function enrollAllPax({ order, lineItem, customer, quantity }) {
       customer: {
         ...order.customer,
         email: paxEmail,
+        // Must be set explicitly, not inherited from the spread: it suppresses the
+        // Shopify-ID fallback in processCoursePurchase, which would otherwise
+        // collapse every extra spot onto the purchaser's row.
+        isExtraPax,
         first_name: isExtraPax ? (customer.firstName || '') : order.customer.first_name,
         last_name: isExtraPax ? `${customer.lastName || ''} (${paxIndex + 1})` : order.customer.last_name
       }

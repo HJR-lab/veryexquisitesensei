@@ -7,7 +7,7 @@
  * modules) so existing `require('./supabaseDb').<fn>` call sites keep working.
  */
 
-const { supabase } = require('./supabaseClient');
+const { supabase, fetchAllRows } = require('./supabaseClient');
 const { glazingSubCap } = require('./glazing');
 const { STUDIO_WHEELS, roomCapacity, wheelCapFor } = require('../config/capacity');
 
@@ -15,47 +15,54 @@ const { STUDIO_WHEELS, roomCapacity, wheelCapFor } = require('../config/capacity
  * Get available classes (all classes including past ones for course viewing)
  */
 async function getAvailableClasses() {
-  const { data: classes, error } = await supabase
+  const classes = await fetchAllRows((from, to) => supabase
     .from('class_instances')
     .select('*')
     .eq('status', 'active')
     .gte('class_date', '2026-01-01')
     .order('class_date', { ascending: true })
     .order('start_time', { ascending: true })
-    .limit(1000);
+    .range(from, to));
 
-  if (error) throw error;
-  if (!classes || classes.length === 0) return [];
+  if (classes.length === 0) return [];
 
   const classIds = classes.map(c => c.id);
 
-  // Batch: get ALL booking counts and waitlist counts in 3 queries total (not per-class)
-  const [bookingsResult, makeupResult, waitlistResult] = await Promise.all([
-    supabase
+  // Batch the counts across every class rather than querying per-class — but read
+  // them through fetchAllRows, because a year of bookings is well over the 1000
+  // rows PostgREST returns in one page and a short page silently undercounts.
+  const [bookingRows, makeupRows, waitlistRows] = await Promise.all([
+    fetchAllRows((from, to) => supabase
       .from('bookings')
       .select('class_instance_id')
       .in('class_instance_id', classIds)
-      .in('status', ['booked', 'attended']),
-    supabase
+      .in('status', ['booked', 'attended'])
+      .order('id', { ascending: true })
+      .range(from, to)),
+    fetchAllRows((from, to) => supabase
       .from('bookings')
       .select('class_instance_id')
       .in('class_instance_id', classIds)
       .eq('booking_type', 'makeup')
-      .eq('status', 'booked'),
-    supabase
+      .eq('status', 'booked')
+      .order('id', { ascending: true })
+      .range(from, to)),
+    fetchAllRows((from, to) => supabase
       .from('waitlist')
       .select('class_instance_id')
       .in('class_instance_id', classIds)
       .eq('claimed', false)
+      .order('id', { ascending: true })
+      .range(from, to))
   ]);
 
   // Build count maps
   const bookingCounts = {};
   const makeupCounts = {};
   const waitlistCounts = {};
-  (bookingsResult.data || []).forEach(b => { bookingCounts[b.class_instance_id] = (bookingCounts[b.class_instance_id] || 0) + 1; });
-  (makeupResult.data || []).forEach(b => { makeupCounts[b.class_instance_id] = (makeupCounts[b.class_instance_id] || 0) + 1; });
-  (waitlistResult.data || []).forEach(w => { waitlistCounts[w.class_instance_id] = (waitlistCounts[w.class_instance_id] || 0) + 1; });
+  bookingRows.forEach(b => { bookingCounts[b.class_instance_id] = (bookingCounts[b.class_instance_id] || 0) + 1; });
+  makeupRows.forEach(b => { makeupCounts[b.class_instance_id] = (makeupCounts[b.class_instance_id] || 0) + 1; });
+  waitlistRows.forEach(w => { waitlistCounts[w.class_instance_id] = (waitlistCounts[w.class_instance_id] || 0) + 1; });
 
   const REGULAR_CAPACITY = 8;
 

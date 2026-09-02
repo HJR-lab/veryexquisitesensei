@@ -55,6 +55,34 @@ function getInstructorForCourse(courseType, schedulePattern) {
 }
 
 /**
+ * Do a local customer row and a Shopify order's customer name the same person?
+ *
+ * Used only to veto the shopify_customer_id fallback in processCoursePurchase.
+ * Compares the full name as an unordered set of parts, requiring one side to be a
+ * subset of the other. That accepts case differences, reordering ("Tay Min Yi" vs
+ * "Min Yi Tay") and an added middle name, while rejecting two different people.
+ *
+ * Subset, NOT "any shared part": gifts here are usually between family, so a
+ * shared surname is common. Kirsty Gascoin gifting her husband Kevin House is the
+ * case this guards; had she taken his surname, "any shared part" would have
+ * matched on "house" and filed her next order as his.
+ */
+function samePerson(localCustomer, orderCustomer) {
+  const parts = (...bits) => new Set(
+    bits.filter(Boolean).join(' ').toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean)
+  );
+  const local = parts(localCustomer.first_name, localCustomer.last_name);
+  const incoming = parts(orderCustomer.first_name, orderCustomer.last_name);
+
+  // No name on either side is not evidence of a mismatch — don't veto on absence.
+  if (local.size === 0 || incoming.size === 0) return true;
+
+  const [small, large] = local.size <= incoming.size ? [local, incoming] : [incoming, local];
+  for (const part of small) if (!large.has(part)) return false;
+  return true;
+}
+
+/**
  * Process a course purchase from Shopify order
  * @param {Object} order - Shopify order object
  * @param {Object} lineItem - Shopify line item (course product)
@@ -77,9 +105,23 @@ async function processCoursePurchase(order, lineItem) {
     let student = await findCustomerByEmail(order.customer.email);
 
     if (!student && order.customer.shopifyCustomerId && !order.customer.isExtraPax) {
-      student = await findCustomerByShopifyId(order.customer.shopifyCustomerId);
-      if (student) {
+      const candidate = await findCustomerByShopifyId(order.customer.shopifyCustomerId);
+
+      // shopify_customer_id records the Shopify customer a local row was CREATED
+      // FROM, which for a bought-for-someone-else order is the purchaser, not the
+      // student. So an ID match alone does not prove same person — e.g. Kevin
+      // House's row carries the Shopify ID of Kirsty Gascoin, who bought his
+      // course. Without this check her next order would file as his enrollment.
+      //
+      // The name is the identity check. It only ever vetoes a fallback the email
+      // already failed to make, and a veto is logged loudly rather than swallowed,
+      // so the failure mode is "a human looks at it" — never silent bad data.
+      if (candidate && samePerson(candidate, order.customer)) {
+        student = candidate;
         console.log(`🔗 ${order.customer.email} matched no local row; resolved by Shopify customer ID ${order.customer.shopifyCustomerId} → customer ${student.id} (${student.email})`);
+      } else if (candidate) {
+        console.warn(`⚠️  Shopify customer ${order.customer.shopifyCustomerId} maps to local customer ${candidate.id} "${candidate.first_name} ${candidate.last_name}", but this order is for "${order.customer.first_name} ${order.customer.last_name}" — refusing to attribute it. Likely a purchase made on someone else's behalf.`);
+        return { success: false, error: 'Shopify customer ID maps to a different person' };
       }
     }
 
@@ -1053,5 +1095,6 @@ module.exports = {
   normalizeTime,
   findCopyablePeer,
   bookedCourseBase,
+  samePerson,
   MINIMUM_STUDENTS_THRESHOLD
 };

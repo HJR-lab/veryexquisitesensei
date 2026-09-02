@@ -66,11 +66,23 @@ async function getAvailableClasses() {
 
   const REGULAR_CAPACITY = 8;
 
+  // The timeslot ceiling the booking gate enforces, mirrored here so the page
+  // cannot advertise a seat the server would refuse with STUDIO_FULL. Two
+  // cohorts sharing Studio A at the same hour each look half-empty on their own;
+  // only the slot total says whether the instructor can take another body.
+  const slotUsage = {};
+  classes.forEach(c => {
+    const key = `${c.class_date}|${normalizeSlotTime(c.start_time)}`;
+    slotUsage[key] = (slotUsage[key] || 0) + (bookingCounts[c.id] || 0);
+  });
+
   return classes.map(classInstance => {
     const actualEnrollment = bookingCounts[classInstance.id] || 0;
     const makeupCount = makeupCounts[classInstance.id] || 0;
     const waitlistCount = waitlistCounts[classInstance.id] || 0;
     const totalCapacity = roomCapacity(classInstance);
+    const slotBooked = slotUsage[`${classInstance.class_date}|${normalizeSlotTime(classInstance.start_time)}`] || 0;
+    const slotFull = slotBooked >= wheelCapFor(classInstance);
 
     return {
       id: classInstance.id,
@@ -95,10 +107,13 @@ async function getAvailableClasses() {
       // Make-ups have no allowance of their own — they compete for the same
       // seats as everyone else, so what is left for one is simply what is left.
       makeupSpotsAvailable: Math.max(0, totalCapacity - actualEnrollment),
-      spotsAvailable: totalCapacity - actualEnrollment,
-      regularSpotsAvailable: REGULAR_CAPACITY - actualEnrollment,
-      isFull: actualEnrollment >= REGULAR_CAPACITY,
-      isCompletelyFull: actualEnrollment >= totalCapacity
+      spotsAvailable: slotFull ? 0 : totalCapacity - actualEnrollment,
+      regularSpotsAvailable: slotFull ? 0 : REGULAR_CAPACITY - actualEnrollment,
+      // Full means "the server will refuse the next booking", not one particular
+      // reason for refusing. Anything short of that lets the page offer a seat
+      // that checkSeatAvailability() then denies.
+      isFull: actualEnrollment >= REGULAR_CAPACITY || actualEnrollment >= totalCapacity || slotFull,
+      isCompletelyFull: actualEnrollment >= totalCapacity || slotFull
     };
   });
 }

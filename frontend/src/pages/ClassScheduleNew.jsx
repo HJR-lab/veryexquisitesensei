@@ -650,6 +650,11 @@ export default function ClassScheduleNew() {
 
   // ── Spots left label ───────────────────────────────────────────────────────
   const spotsLeft = (classItem) => {
+    // Take the server's number. It has already applied every cap the booking
+    // gate applies — the class, the timeslot's teaching-load ceiling, glazing —
+    // and recomputing it here from maxCapacity alone reintroduces a second,
+    // weaker opinion that can only ever be too generous.
+    if (Number.isFinite(classItem.spotsAvailable)) return Math.max(0, classItem.spotsAvailable);
     const total = classItem.maxCapacity || 10;
     const used  = classItem.currentEnrollment || 0;
     return Math.max(0, total - used);

@@ -795,6 +795,66 @@ function undeliverableFindings(suppressed, customers) {
 }
 
 /**
+ * Phantom seat — the booking page offers a seat the server will refuse.
+ *
+ * The student page and the booking gate answer "is there room?" by different
+ * routes: the page reads a batched payload, the gate re-counts one class at the
+ * moment of booking. Whenever those two disagree in the permissive direction a
+ * student is invited to book something that then fails, which is how a full
+ * Sunday cohort advertised "7 left" for weeks (02/09/26 — the payload counted
+ * bookings from a Supabase page capped at 1000 rows and silently undercounted
+ * 190 of 386 classes).
+ *
+ * The specific bug is fixed; this check exists so the NEXT way they drift apart
+ * is caught the night it appears rather than by a student hitting a dead Book
+ * button. It compares the two paths directly and reports only the direction
+ * that misleads — a page that is stricter than the gate is safe.
+ */
+async function checkPhantomSeats() {
+  const { getAvailableClasses, checkSeatAvailability } = require('./bookingDb');
+  const { todaySGT } = require('./sgtDate');
+
+  const today = todaySGT();
+  const offered = (await getAvailableClasses()).filter(
+    c => String(c.classDate).slice(0, 10) >= today && !c.isFull
+  );
+  if (offered.length === 0) return [];
+
+  const { data: rows, error } = await supabase
+    .from('class_instances')
+    .select('*')
+    .in('id', offered.map(c => c.id));
+  if (error) throw error;
+
+  const byId = {};
+  (rows || []).forEach(r => { byId[r.id] = r; });
+
+  const findings = [];
+  for (const cls of offered) {
+    const row = byId[cls.id];
+    if (!row) continue;
+
+    // No studentId: a per-student capacity grant is a deliberate exception, not
+    // an open seat, so the verdict wanted here is the one an ordinary student
+    // would get.
+    const verdict = await checkSeatAvailability(row, null, { checkWheels: true });
+    if (verdict.allowed) continue;
+
+    const { booked, cap, wheels, studioWheels } = verdict.counts;
+    findings.push({
+      type: 'phantom_seat',
+      severity: 'high',
+      student_id: null,
+      student_name: null,
+      enrollment_id: null,
+      details: `${cls.classType} on ${String(cls.classDate).slice(0, 10)} ${cls.startTime} shows "${Math.max(0, cls.spotsAvailable)} left" with a live Book button, but the booking gate refuses it with ${verdict.reason} (${booked} booked against a class cap of ${cap}${wheels !== null ? `, ${wheels} in the timeslot against ${studioWheels}` : ''}). Students are being invited to book a seat that does not exist. The page and the gate count seats by different routes; find which one is wrong before touching capacity numbers.`,
+    });
+  }
+
+  return findings;
+}
+
+/**
  * Run all invariant checks and return aggregated findings.
  * Failures within a single check do not abort the whole probe.
  */
@@ -812,6 +872,7 @@ async function runAnomalyProbe() {
     checkUnstagedPickups(),
     checkHbCalendarRunway(),
     checkUndeliverableCustomerEmails(),
+    checkPhantomSeats(),
   ]);
 
   const findings = [];
@@ -830,4 +891,4 @@ async function runAnomalyProbe() {
   return findings;
 }
 
-module.exports = { runAnomalyProbe, checkUndeliverableCustomerEmails, undeliverableFindings, checkHbCalendarRunway, hbRunwayFinding, checkUnstagedPickups, checkCohortStartDateDrift, checkCohortOverCapacity, checkStaleContinuationOffers, checkFinishingStudentNoCohort, checkOverAllocated, checkStaleUnassigned10Class, checkUnlinkedUpcomingBookings, checkRecentPurchaseWithoutEnrollment, checkDuplicateSpotEnrollments, findDuplicateSpots };
+module.exports = { runAnomalyProbe, checkPhantomSeats, checkUndeliverableCustomerEmails, undeliverableFindings, checkHbCalendarRunway, hbRunwayFinding, checkUnstagedPickups, checkCohortStartDateDrift, checkCohortOverCapacity, checkStaleContinuationOffers, checkFinishingStudentNoCohort, checkOverAllocated, checkStaleUnassigned10Class, checkUnlinkedUpcomingBookings, checkRecentPurchaseWithoutEnrollment, checkDuplicateSpotEnrollments, findDuplicateSpots };

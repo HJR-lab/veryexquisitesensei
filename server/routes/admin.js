@@ -7419,6 +7419,8 @@ app.post('/api/admin/course-emails/:courseId/send', authenticateToken, requireAd
   const sends = [];
   const failures = [];
   for (const { templateType: type, emails, subject, html } of groups) {
+    // One message per student, no studio BCC — the confirmation greets a student
+    // by name, so the To line has to be that student.
     const result = await sendAndLogEmail({
       emailType: 'course_details',
       courseIdentifier: courseId,
@@ -7426,11 +7428,17 @@ app.post('/api/admin/course-emails/:courseId/send', authenticateToken, requireAd
       html,
       recipientEmails: emails,
       sentBy: req.user.email,
+      perRecipient: true,
     });
 
     if (result.success) {
-      sends.push({ templateType: type, count: emails.length, messageId: result.messageId });
-    } else {
+      sends.push({ templateType: type, count: result.sentCount ?? emails.length, messageId: result.messageId });
+    }
+    // Individual sends can fail one student at a time, so a partial failure has
+    // to be reported alongside the successes rather than instead of them.
+    if (result.failedRecipients?.length) {
+      failures.push({ templateType: type, count: result.failedRecipients.length, error: result.error });
+    } else if (!result.success) {
       failures.push({ templateType: type, count: emails.length, error: result.error });
     }
   }

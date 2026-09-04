@@ -259,7 +259,10 @@ export default function AdminEmails() {
       const failNote = (sendResult?.failures || []).length
         ? ` — ${sendResult.failures.map(f => `${f.count}× ${f.templateType} FAILED`).join(', ')}`
         : '';
-      showStatus(failNote ? 'error' : 'success', `Email sent to ${recipientEmails.length} student${recipientEmails.length !== 1 ? 's' : ''}${breakdown ? ` (${breakdown})` : ''}${failNote}`);
+      // Each student now gets their own message, so a send can partly fail.
+      // Count who was actually written to, not who was selected.
+      const sentCount = (sendResult?.sends || []).reduce((n, s) => n + (s.count || 0), 0) || recipientEmails.length;
+      showStatus(failNote ? 'error' : 'success', `Email sent to ${sentCount} student${sentCount !== 1 ? 's' : ''}${breakdown ? ` (${breakdown})` : ''}${failNote}`);
       setDraft(null);
       setComposeCourse(null);
       setView('settings');

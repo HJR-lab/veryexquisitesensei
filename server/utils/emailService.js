@@ -137,10 +137,86 @@ async function sendEmail({ to, cc, bcc, subject, html, replyTo }) {
   }
 }
 
+/** Resend accepts up to 100 distinct messages in one batch request. */
+const BATCH_LIMIT = 100;
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 /**
- * Send and log a course-related email
+ * One message per student — no shared BCC, no studio copy.
+ *
+ * resolveAddressing hides a cohort's addresses from each other by putting the
+ * students in BCC, which means the message reads as addressed to VES: wrong for
+ * a "Dear Doreen" confirmation, and it lands a duplicate in the studio inbox for
+ * every send. Writing to each student individually is the only way to have the
+ * To line say what the greeting says. Resend's batch endpoint sends the whole
+ * cohort in a single request, so this costs one API call rather than N and stays
+ * clear of the 2 req/s rate limit; only the billed recipient count goes up.
+ *
+ * @returns {Promise<Array<{email: string, success: boolean, messageId?: string, error?: string}>>}
  */
-async function sendAndLogEmail({ emailType, courseIdentifier, subject, html, recipientEmails, sentBy }) {
+async function sendPerRecipient({ subject, html, recipients, replyTo }) {
+  const resend = getResend();
+  if (!resend) {
+    console.warn(`[Email] Skipping "${subject}" — no API key configured`);
+    return recipients.map(email => ({ email, success: false, error: 'RESEND_API_KEY not configured' }));
+  }
+
+  const { html: safeHtml, rewritten } = rewriteLocalLinks(html);
+  if (rewritten.length > 0) {
+    console.warn(
+      `[Email] Rewrote ${rewritten.length} local link(s) in "${subject}" before sending:\n  ` +
+      rewritten.join('\n  ')
+    );
+  }
+
+  const results = [];
+  for (let i = 0; i < recipients.length; i += BATCH_LIMIT) {
+    const chunk = recipients.slice(i, i + BATCH_LIMIT);
+    let sent = null;
+
+    try {
+      const payloads = chunk.map(email => ({
+        ...buildEnvelope({ to: email, subject, replyTo }),
+        html: safeHtml,
+      }));
+      const { data, error } = await resend.batch.send(payloads);
+      if (error) throw new Error(error.message);
+      sent = data?.data || [];
+    } catch (err) {
+      // A batch is all-or-nothing, so one bad address would drop the whole
+      // cohort. Fall back to sending them one at a time instead.
+      console.warn(`[Email] Batch send failed (${err.message}) — retrying one request per recipient`);
+      sent = null;
+    }
+
+    if (sent && sent.length === chunk.length) {
+      chunk.forEach((email, idx) => results.push({ email, success: true, messageId: sent[idx].id }));
+      console.log(`[Email] Sent "${subject}" individually to ${chunk.length} recipient(s)`);
+      continue;
+    }
+
+    for (const [idx, email] of chunk.entries()) {
+      const result = await sendEmail({ to: email, subject, html: safeHtml, replyTo });
+      results.push({ email, success: result.success, messageId: result.messageId, error: result.error });
+      if (idx < chunk.length - 1) await sleep(600); // Resend allows 2 requests/second
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Send and log a course-related email.
+ *
+ * @param {boolean} [perRecipient] Send each student their own copy, with no
+ *   studio BCC, and log one history row per student.
+ */
+async function sendAndLogEmail({ emailType, courseIdentifier, subject, html, recipientEmails, sentBy, perRecipient = false }) {
+  if (perRecipient) {
+    return sendAndLogPerRecipient({ emailType, courseIdentifier, subject, html, recipientEmails, sentBy });
+  }
+
   const { recipients, to, bcc } = resolveAddressing(recipientEmails);
 
   const result = await sendEmail({ to, bcc, subject, html });
@@ -159,6 +235,43 @@ async function sendAndLogEmail({ emailType, courseIdentifier, subject, html, rec
   }
 
   return result;
+}
+
+/**
+ * Send one copy per student and record each send separately, so the history
+ * carries a real per-student Resend message id to chase a bounce with.
+ */
+async function sendAndLogPerRecipient({ emailType, courseIdentifier, subject, html, recipientEmails, sentBy }) {
+  const recipients = (Array.isArray(recipientEmails) ? recipientEmails : [recipientEmails]).filter(Boolean);
+  const results = await sendPerRecipient({ subject, html, recipients });
+
+  const delivered = results.filter(r => r.success);
+  const failedRecipients = results
+    .filter(r => !r.success)
+    .map(r => ({ email: r.email, error: r.error }));
+
+  if (delivered.length > 0) {
+    const { supabase } = require('./supabaseDb');
+    await supabase.from('sent_emails').insert(delivered.map(r => ({
+      email_type: emailType,
+      course_identifier: courseIdentifier,
+      subject,
+      recipient_count: 1,
+      recipient_emails: [r.email],
+      sent_by: sentBy || 'system',
+      resend_message_id: r.messageId,
+    })));
+  }
+
+  return {
+    success: delivered.length > 0,
+    messageId: delivered[0]?.messageId,
+    sentCount: delivered.length,
+    failedRecipients,
+    error: failedRecipients.length > 0
+      ? failedRecipients.map(f => `${f.email}: ${f.error}`).join('; ')
+      : undefined,
+  };
 }
 
 /**
@@ -196,4 +309,4 @@ function detectStudentTemplate(enrollment) {
   return detectCourseTemplate(enrollment);
 }
 
-module.exports = { sendEmail, sendAndLogEmail, detectCourseTemplate, detectStudentTemplate, isEmailCategoryPaused, buildEnvelope, resolveAddressing, FROM_ADDRESS, INBOX_ADDRESS, INBOX_EMAIL, REPLY_TO_ADDRESS };
+module.exports = { sendEmail, sendAndLogEmail, sendPerRecipient, detectCourseTemplate, detectStudentTemplate, isEmailCategoryPaused, buildEnvelope, resolveAddressing, FROM_ADDRESS, INBOX_ADDRESS, INBOX_EMAIL, REPLY_TO_ADDRESS };

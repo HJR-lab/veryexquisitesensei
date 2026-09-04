@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from '../utils/api';
 import AdminPage from '../components/AdminPage';
 const TC       = '#C4622D';
@@ -26,6 +26,8 @@ export default function AdminStudioPolicy() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [focusIndex, setFocusIndex] = useState(null);
+  const titleRefs = useRef({});
 
   useEffect(() => {
     api.get('/admin/settings/studio-policy')
@@ -33,6 +35,18 @@ export default function AdminStudioPolicy() {
       .catch(() => setSections(DEFAULT_SECTIONS))
       .finally(() => setLoading(false));
   }, []);
+
+  // A new section lands at the bottom of a long page — bring it into view
+  useEffect(() => {
+    if (focusIndex === null) return;
+    const el = titleRefs.current[focusIndex];
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.focus();
+      el.select();
+    }
+    setFocusIndex(null);
+  }, [focusIndex]);
 
   const save = async () => {
     setSaving(true);
@@ -78,6 +92,8 @@ export default function AdminStudioPolicy() {
 
   const addSection = () => {
     setSections([...sections, { title: 'New Section', rules: [''] }]);
+    setFocusIndex(sections.length);
+    setSaved(false);
   };
 
   const removeSection = (i) => {
@@ -123,6 +139,7 @@ export default function AdminStudioPolicy() {
                   <button onClick={() => moveSection(si, 1)} disabled={si === sections.length - 1} style={{ border: 'none', background: 'none', cursor: si === sections.length - 1 ? 'default' : 'pointer', color: si === sections.length - 1 ? '#DDD' : MUTED, fontSize: '14px', padding: 0, lineHeight: 1 }}>▼</button>
                 </div>
                 <input
+                  ref={el => { titleRefs.current[si] = el; }}
                   value={section.title}
                   onChange={e => updateSection(si, 'title', e.target.value)}
                   style={{ flex: 1, fontSize: '15px', fontWeight: 700, border: 'none', borderBottom: `1px solid ${RULE}`, padding: '4px 0', outline: 'none', fontFamily: 'inherit' }}

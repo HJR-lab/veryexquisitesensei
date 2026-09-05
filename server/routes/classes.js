@@ -1,7 +1,8 @@
 const supabaseDb = require('../utils/supabaseDb');
 const FEES = require('../config/fees');
 const { getPackageProgress } = require('../utils/packageProgress');
-const { isGlazingClass, isMarkedGlazing, GLAZING_DRYING_GAP_DAYS } = require('../utils/glazing');
+const { isGlazingClass, isMarkedGlazing, GLAZING_DRYING_GAP_DAYS,
+        packageGlazingPositions } = require('../utils/glazing');
 const { getEnrollmentCredits } = require('../utils/bookingDb');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler }) {
@@ -137,12 +138,18 @@ async function checkGlazingDryingGap(studentId, classInstance) {
  * the student has, so a student who also holds a separate course is not pushed
  * over the line by bookings that belong to that other course.
  *
+ * `enrollmentId` narrows it further, to the enrollment this booking will
+ * actually be charged to. Without it, a returning student whose package sits at
+ * class 10 is refused week 1 of the NEW course they just bought — a class their
+ * package is not paying for and has no say over.
+ *
  * @returns {{blocked: boolean, enrollment?: object, booked?: number}}
  */
-async function checkTenthClassMustBeGlazing(studentId, classInstance) {
+async function checkTenthClassMustBeGlazing(studentId, classInstance, enrollmentId = null) {
   if (isGlazingClass(classInstance)) return { blocked: false };
 
-  const packages = await findTenClassPackages(studentId);
+  const all = await findTenClassPackages(studentId);
+  const packages = enrollmentId ? all.filter(p => p.id === enrollmentId) : all;
   if (packages.length === 0) return { blocked: false };
 
   for (const pkg of packages) {
@@ -204,6 +211,56 @@ async function checkPackageKeepsGlazing(enrollment, movedBookingId) {
   return {
     blocked: true,
     reason: `This is the only glazing class in your ${total}-class package, and all ${total} classes are booked — moving it to a regular class would leave you with nothing to glaze your pieces in. Pick another glazing class, or cancel a booking first so you have a class left to glaze in.`,
+  };
+}
+
+// Where a 10-class package's glazing classes sit — class 6 (the cohort's own
+// 6.6) and class 10 (the flex glazing that closes the package). The rule itself
+// lives in utils/glazing.js so the gate below and the verification script read
+// the same definition instead of each keeping a copy.
+
+/**
+ * Would this glazing booking land on one of those two positions?
+ *
+ * Position is counted the way the booking gate already counts it — off the credit
+ * ledger, so this booking is class `committed + 1` of the package, the same
+ * number checkTenthClassMustBeGlazing quotes back to the student. Counting rows
+ * by hand instead would read a 'rescheduled' row (the vacated origin of a move,
+ * whose destination is counted in its own right) as a spent class and push every
+ * position along by one per reschedule.
+ *
+ * Scoped to the enrollment the booking charges to, not to the student: someone
+ * holding a package AND a separate 6-week course must not have that course's own
+ * glazing week refused because their package happens to sit at class 8.
+ *
+ * Admin booking endpoints carry none of this, deliberately — that is the studio's
+ * override mechanism when a student has to glaze somewhere else.
+ *
+ * @returns {{blocked: boolean, reason?: string, position?: number}}
+ */
+async function checkGlazingPositionAllowed(enrollmentId, classInstance) {
+  if (!enrollmentId || !isGlazingClass(classInstance)) return { blocked: false };
+
+  const { data: enrollment } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('id, number_of_weeks, package_total_classes, course_title, status')
+    .eq('id', enrollmentId)
+    .single();
+
+  if (!enrollment || !isTenClassPackage(enrollment)) return { blocked: false };
+
+  const total = enrollment.package_total_classes || enrollment.number_of_weeks || 10;
+  const allowed = packageGlazingPositions(total);
+  const { committed } = await getEnrollmentCredits(enrollment.id);
+  const position = committed + 1;
+
+  if (allowed.includes(position)) return { blocked: false };
+
+  const next = allowed.find(p => p > position) || total;
+  return {
+    blocked: true,
+    position,
+    reason: `Glazing is class ${allowed.join(' and class ')} of your ${total}-class package. This would be class ${position}, so please pick a regular class — your next glazing class is class ${next}.`,
   };
 }
 
@@ -612,11 +669,17 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
   // booking paths agree — this one previously ran its own chain of three
   // lookups, every one filtered to status 'active', which silently skipped a
   // completed 10-class package still holding flex credits.
+  //
+  // Resolved BEFORE the glazing gates, not after, so both can be scoped to the
+  // enrollment actually being charged. It is a read, so nothing is committed by
+  // running it ahead of a refusal.
+  const enrollmentId = await supabaseDb.resolveBookingEnrollment(dbCustomerId, classInstance);
+
   // The package's final class is always its glazing class, so it may only ever be
   // a glazing one. Enforced on the booking path only: the reschedule path is
   // deliberately unrestricted for package students (no cohort, no expiry, no
   // fees), so a package student who needs to move their glazing can.
-  const tenth = await checkTenthClassMustBeGlazing(dbCustomerId, classInstance);
+  const tenth = await checkTenthClassMustBeGlazing(dbCustomerId, classInstance, enrollmentId);
   if (tenth.blocked) {
     const total = tenth.enrollment.package_total_classes || tenth.enrollment.number_of_weeks || 10;
     return res.status(400).json({
@@ -624,13 +687,18 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
     });
   }
 
+  // ...and the mirror of it: glazing is class 6 and class 10 of the package and
+  // nowhere else in the ten.
+  const glazingPosition = await checkGlazingPositionAllowed(enrollmentId, classInstance);
+  if (glazingPosition.blocked) {
+    return res.status(400).json({ error: glazingPosition.reason });
+  }
+
   // Kiln schedule: the class before glazing must leave time to dry and bisque fire.
   const dryingGap = await checkGlazingDryingGap(dbCustomerId, classInstance);
   if (dryingGap.blocked) {
     return res.status(400).json({ error: dryingGap.reason });
   }
-
-  const enrollmentId = await supabaseDb.resolveBookingEnrollment(dbCustomerId, classInstance);
 
   // A class marked as glazing (the only way an HB drop-in can be one) doubles as
   // the glazing class for a package student who still owes theirs. Everyone else
@@ -890,6 +958,23 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   let enrollmentId = creditEnrollment ? creditEnrollment.id : null;
   if (!enrollmentId) {
     enrollmentId = await supabaseDb.resolveBookingEnrollment(dbCustomerId, classInstance);
+  }
+
+  // The package's glazing rules bind here too. This is the route the class
+  // schedule actually books through — /api/classes/book carried both gates while
+  // the screen students use called this one, so neither rule ever reached a
+  // student. Both are scoped to the enrollment being charged.
+  const makeupTenth = await checkTenthClassMustBeGlazing(dbCustomerId, classInstance, enrollmentId);
+  if (makeupTenth.blocked) {
+    const total = makeupTenth.enrollment.package_total_classes || makeupTenth.enrollment.number_of_weeks || 10;
+    return res.status(400).json({
+      error: `This would be class ${makeupTenth.booked + 1} of ${total} — your final class, which must be a glazing class. Pick a Week 6 wheelthrowing glazing, or a handbuilding class marked as glazing.`
+    });
+  }
+
+  const makeupGlazingPosition = await checkGlazingPositionAllowed(enrollmentId, classInstance);
+  if (makeupGlazingPosition.blocked) {
+    return res.status(400).json({ error: makeupGlazingPosition.reason });
   }
 
   if (cancelledBooking) {
@@ -1595,6 +1680,23 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
     if (keeps.blocked) {
       return res.status(400).json({ error: keeps.reason });
     }
+  }
+
+  // The other direction: a regular class may not be moved INTO a glazing one.
+  // Glazing is class 6 and class 10 of the package (see packageGlazingPositions),
+  // and a reschedule is the one way a third glazing — sitting at a position the
+  // package never sold — could get in behind the booking gate.
+  //
+  // Checked as a direction rather than a position because a reschedule closes the
+  // old booking row and opens a new one, so a moved class no longer holds its
+  // place in the package's order and its position cannot be recovered afterwards.
+  // Glazing → glazing stays open, so the glazing class itself can still move to
+  // any other glazing date; glazing → regular is judged above on its own terms.
+  if (has10ClassPackage && packageEnrollment && !isOldClassGlazing && isNewClassGlazing) {
+    const pkgTotal = packageEnrollment.package_total_classes || packageEnrollment.number_of_weeks || 10;
+    return res.status(400).json({
+      error: `Glazing is class ${packageGlazingPositions(pkgTotal).join(' and class ')} of your ${pkgTotal}-class package, so a regular class cannot be moved into a glazing class. Cancel this booking and book your glazing class instead.`
+    });
   }
 
   // Block rescheduling to a date after glazing or within 5 days of glazing

@@ -49,6 +49,44 @@ const GLAZING_SUBCAP = 4;
 const GLAZING_DRYING_GAP_DAYS = 6;
 
 /**
+ * Where a 10-class package's glazing classes sit.
+ *
+ * The package is sold as a 6-week WT cohort plus 4 flex classes, and it pays for
+ * exactly two glazing classes, at fixed places in the ten:
+ *
+ *   class 6    the cohort's own final week (6.6) — booked with the cohort, so it
+ *              never passes through a booking gate at all
+ *   class 10   the flex glazing that closes the package, which
+ *              checkTenthClassMustBeGlazing requires to be a glazing class
+ *
+ * Nothing else in the ten may be one. A glazing session booked as class 3 or
+ * class 8 spends a flex credit firing work that has not been made yet, and takes
+ * one of the capped glazing seats from a student whose turn it actually is.
+ *
+ * The cohort position is fixed at 6 rather than read off the course, because the
+ * package is only ever sold with the 6-week beginner cohort; the closing one is
+ * the package total, so a package sold at another length still ends on glazing.
+ *
+ * Lives here rather than in routes/classes.js so the rule has ONE definition.
+ * The gate enforces it, the verification script imports it, and neither can
+ * drift from a second copy written out by hand — which is the exact failure this
+ * module was created to end.
+ */
+const PACKAGE_COHORT_GLAZING_POSITION = 6;
+
+function packageGlazingPositions(total) {
+  const closing = Number(total) > 0 ? Number(total) : 10;
+  return closing === PACKAGE_COHORT_GLAZING_POSITION
+    ? [closing]
+    : [PACKAGE_COHORT_GLAZING_POSITION, closing];
+}
+
+/** May the package's class at `position` be a glazing class? */
+function isAllowedGlazingPosition(position, total) {
+  return packageGlazingPositions(total).includes(position);
+}
+
+/**
  * Is this class code a WT cohort's final (glazing) week?
  * e.g. WT0206NT_JL6.6 → true, WT1104AM_DL7.7 → true, WT0206NT_JL6.3 → false
  */
@@ -145,6 +183,9 @@ async function setClassGlazing(classId, { isGlazing, glazingCapacity }) {
 module.exports = {
   GLAZING_SUBCAP,
   GLAZING_DRYING_GAP_DAYS,
+  PACKAGE_COHORT_GLAZING_POSITION,
+  packageGlazingPositions,
+  isAllowedGlazingPosition,
   isFinalWeekClassType,
   isGlazingClass,
   isMarkedGlazing,

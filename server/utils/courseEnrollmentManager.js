@@ -1007,8 +1007,8 @@ async function activateDraftClasses(enrollment) {
     // Backstop only. Credits are now granted at order time (routes/shopify.js,
     // both the webhook and the batch sync), so by the time a cohort activates
     // every enrollment in it should already hold its credit. This sweep catches
-    // anything that failed there; awardCoursePurchaseCredit dedups per
-    // enrollment, so re-running it grants nothing twice.
+    // anything that failed there; awardCoursePurchaseCredit dedups per order,
+    // so re-running it grants nothing twice.
     try {
       const { awardCoursePurchaseCredit } = require('./creditManager');
 

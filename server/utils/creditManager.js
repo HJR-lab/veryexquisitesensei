@@ -159,16 +159,24 @@ async function spendCredits({ customerId, maxAmount, source, referenceId, descri
   return { spent, transaction: data };
 }
 
+// The enrollment statuses that mean "this person has actually taken, or is
+// taking, a course here". Cancelled and paused don't count.
+const ENROLLMENT_COUNTS_AS_STUDIED = ['active', 'upcoming', 'completed'];
+
 /**
  * Check if a customer is a returning student.
  * Returns true if customer has more than 1 enrollment (active/upcoming/completed).
+ *
+ * Counts rows, so it turns true partway through a single multi-course order.
+ * For crediting a purchase use awardCoursePurchaseCredit, which asks the
+ * sharper question: did they have a course before THIS order?
  */
 async function isReturningStudent(customerId) {
   const { data, error } = await supabase
     .from('course_enrollments')
     .select('id')
     .eq('student_id', customerId)
-    .in('status', ['active', 'upcoming', 'completed']);
+    .in('status', ENROLLMENT_COUNTS_AS_STUDIED);
 
   if (error) throw error;
 
@@ -177,6 +185,14 @@ async function isReturningStudent(customerId) {
 
 const COURSE_PURCHASE_CREDIT = 20;
 
+// Shopify order ids are numeric. 'MANUAL', 'VOUCHER-4' and null all appear in
+// course_enrollments and none of them identify a single purchase, so they can't
+// be used to group enrollments into one order.
+function orderKeyOf(enrollment) {
+  const raw = enrollment?.shopify_order_id;
+  return raw != null && /^\d+$/.test(String(raw)) ? String(raw) : null;
+}
+
 /**
  * Award the $20 "Ves is 10" credit for one course purchase.
  *
@@ -184,26 +200,67 @@ const COURSE_PURCHASE_CREDIT = 20;
  * batch order sync, and once more on cohort activation as a backstop. It used
  * to be deferred until a cohort's draft classes went active, which quietly
  * dropped the credit for anyone joining a cohort that was already active.
- * Granting at order time removes that window; the (customer, source,
- * reference_id) check below keeps the repeat calls idempotent.
+ * Granting at order time removes that window.
  *
- * $20 per order — a multi-course package is one enrollment row and earns once.
- * Returning students only, matching the Credits page copy.
+ * Both the eligibility test and the dedup key are the ORDER, not the enrollment
+ * row, because one order does not mean one row. A 3-course package is a single
+ * purchase that unrolls into an enrollment per course as the student redeems
+ * them, months apart, sharing one shopify_order_id (customer 1186 bought one in
+ * Feb 2026 and redeemed it through May). Keying on the row would pay that
+ * package $20 three times, and would hand a first-time buyer a credit on their
+ * second row because isReturningStudent — "more than one enrollment" — turns
+ * true halfway through their own first order.
+ *
+ * So: $20 per order, only if the student already had a course from an EARLIER
+ * order. Returning students only, matching the Credits page copy.
  */
-async function awardCoursePurchaseCredit({ customerId, enrollmentId, courseTitle }) {
+async function awardCoursePurchaseCredit({ customerId, enrollmentId, courseTitle, dryRun = false }) {
   if (!customerId || !enrollmentId) return { granted: false, reason: 'missing_ids' };
 
-  const returning = await isReturningStudent(customerId);
-  if (!returning) return { granted: false, reason: 'first_time_student' };
+  const { data: enrollments, error: enrErr } = await supabase
+    .from('course_enrollments')
+    .select('id, shopify_order_id, created_at')
+    .eq('student_id', customerId)
+    .in('status', ENROLLMENT_COUNTS_AS_STUDIED);
+  if (enrErr) throw enrErr;
 
+  const self = (enrollments || []).find(e => String(e.id) === String(enrollmentId));
+  // Cancelled and paused enrollments don't earn — same as they never counted
+  // toward returning-student status.
+  if (!self) return { granted: false, reason: 'enrollment_not_creditable' };
+
+  const key = orderKeyOf(self);
+  const thisOrder = key
+    ? (enrollments || []).filter(e => orderKeyOf(e) === key)
+    : [self];
+  const thisOrderIds = new Set(thisOrder.map(e => String(e.id)));
+
+  // Returning as of THIS purchase, not as of today — so "earlier" has to mean
+  // earlier in time, not merely "some other order". A student who buys a second
+  // course while their first cohort is still in draft would otherwise see that
+  // first course turn creditable the moment the cohort activates, and their
+  // first-ever course must never earn.
+  const purchasedAt = Math.min(...thisOrder.map(e => new Date(e.created_at).getTime()));
+  const earlierOrders = (enrollments || []).filter(e =>
+    !thisOrderIds.has(String(e.id)) && new Date(e.created_at).getTime() < purchasedAt
+  );
+  if (earlierOrders.length === 0) return { granted: false, reason: 'first_time_student' };
+
+  // Already paid for any row on this order? Then this order is settled.
   const { data: existing } = await supabase
     .from('credit_transactions')
     .select('id')
     .eq('customer_id', customerId)
     .eq('source', 'course_purchase')
-    .eq('reference_id', enrollmentId.toString())
-    .maybeSingle();
-  if (existing) return { granted: false, reason: 'already_credited', transactionId: existing.id };
+    .in('reference_id', [...thisOrderIds])
+    .limit(1);
+  if (existing && existing.length) {
+    return { granted: false, reason: 'already_credited', transactionId: existing[0].id };
+  }
+
+  // dryRun answers "would this earn?" without touching the ledger — how you
+  // audit a cohort or a backfill before letting it write.
+  if (dryRun) return { granted: true, reason: 'would_grant', dryRun: true };
 
   const transaction = await earnCredits({
     customerId,
@@ -252,5 +309,6 @@ module.exports = {
   spendCredits,
   isReturningStudent,
   awardCoursePurchaseCredit,
-  COURSE_PURCHASE_CREDIT
+  COURSE_PURCHASE_CREDIT,
+  ENROLLMENT_COUNTS_AS_STUDIED
 };

@@ -881,7 +881,7 @@ async function orderSyncPass({ sinceDate } = {}) {
 
                 // Same $20 VES Credit the order webhook grants — this path had
                 // none, so any enrollment the sync created (rather than the live
-                // webhook) never earned one. Idempotent per enrollment, so a
+                // webhook) never earned one. The helper settles per order, so a
                 // re-sync cannot double-grant. Extra pax are not the purchaser,
                 // matching the webhook, which credits the buyer's spot only.
                 if (!isExtraPax && result.enrollment?.student_id) {
@@ -1334,7 +1334,8 @@ async function processOrderWebhook(orderData) {
             // It used to be deferred whenever the cohort still needed a threshold,
             // and the only settlement point was the draft -> active transition —
             // so anyone joining an already-active cohort never got it. The helper
-            // is idempotent per enrollment, so granting here is safe.
+            // settles once per order, so calling it for every course line item on
+            // a multi-course order still pays exactly $20.
             // Credit the enrollment's own student_id, not dbCustomer: a locked
             // email makes processCoursePurchase resolve the buyer by Shopify ID,
             // and the credit must land on whoever actually holds the enrollment.

@@ -163,6 +163,7 @@ async function spendCredits({ customerId, maxAmount, source, referenceId, descri
 // taking, a course here". Cancelled and paused don't count.
 const ENROLLMENT_COUNTS_AS_STUDIED = ['active', 'upcoming', 'completed'];
 
+
 /**
  * Check if a customer is a returning student.
  * Returns true if customer has more than 1 enrollment (active/upcoming/completed).
@@ -217,17 +218,23 @@ function orderKeyOf(enrollment) {
 async function awardCoursePurchaseCredit({ customerId, enrollmentId, courseTitle, dryRun = false }) {
   if (!customerId || !enrollmentId) return { granted: false, reason: 'missing_ids' };
 
+  // Fetched at every status so that grouping rows into their order below sees
+  // the whole order, cancelled siblings included — otherwise a cancelled row
+  // reads as an order of its own and the dedup misses it. The status test is
+  // applied where it belongs, to earning and to the earlier-course check.
   const { data: enrollments, error: enrErr } = await supabase
     .from('course_enrollments')
-    .select('id, shopify_order_id, created_at')
-    .eq('student_id', customerId)
-    .in('status', ENROLLMENT_COUNTS_AS_STUDIED);
+    .select('id, shopify_order_id, created_at, status')
+    .eq('student_id', customerId);
   if (enrErr) throw enrErr;
 
   const self = (enrollments || []).find(e => String(e.id) === String(enrollmentId));
-  // Cancelled and paused enrollments don't earn — same as they never counted
-  // toward returning-student status.
-  if (!self) return { granted: false, reason: 'enrollment_not_creditable' };
+  if (!self) return { granted: false, reason: 'enrollment_not_found' };
+  // A cancelled or paused course neither earns a credit nor counts as the
+  // earlier course that makes the next order a returning purchase.
+  if (!ENROLLMENT_COUNTS_AS_STUDIED.includes(self.status)) {
+    return { granted: false, reason: 'enrollment_not_creditable' };
+  }
 
   const key = orderKeyOf(self);
   const thisOrder = key
@@ -240,9 +247,14 @@ async function awardCoursePurchaseCredit({ customerId, enrollmentId, courseTitle
   // course while their first cohort is still in draft would otherwise see that
   // first course turn creditable the moment the cohort activates, and their
   // first-ever course must never earn.
+  //
+  // Only a real course proves they are returning: a cancelled or paused earlier
+  // enrollment does not, so their next order is still treated as their first.
   const purchasedAt = Math.min(...thisOrder.map(e => new Date(e.created_at).getTime()));
   const earlierOrders = (enrollments || []).filter(e =>
-    !thisOrderIds.has(String(e.id)) && new Date(e.created_at).getTime() < purchasedAt
+    !thisOrderIds.has(String(e.id)) &&
+    ENROLLMENT_COUNTS_AS_STUDIED.includes(e.status) &&
+    new Date(e.created_at).getTime() < purchasedAt
   );
   if (earlierOrders.length === 0) return { granted: false, reason: 'first_time_student' };
 

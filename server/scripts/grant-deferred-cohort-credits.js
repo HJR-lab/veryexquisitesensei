@@ -14,13 +14,16 @@
  *   sees that transition again, so the deferred credit is dropped on the floor.
  *   WT2908PM_DL6 lost three that way (Charmaine Ng, Mitchell Chan, Sarah Ong).
  *
- * Mirrors the production guards exactly: returning-student check, plus the same
- * (customer_id, source='course_purchase', reference_id=<enrollment id>) dedup key
- * — so this is idempotent and cannot double-grant.
+ * Delegates every decision to awardCoursePurchaseCredit, the same helper the
+ * order webhook and the batch sync call, so a backfill can never drift from
+ * production policy: $20 per ORDER, and only for a student who already held a
+ * course from an EARLIER order. That second rule matters most here — asked as
+ * of today rather than as of the purchase, a backfill would wrongly credit a
+ * first-ever course to anyone who has since bought again.
  *
- * Sends NO email. The 'credits' category is paused (see PAUSED_EMAIL_CATEGORIES)
- * and a backfill should not surprise students months later; tell them by hand if
- * you want them told.
+ * Sends no email while the 'credits' category stays paused (see
+ * PAUSED_EMAIL_CATEGORIES) — and it should stay paused for a backfill, which
+ * has no business surprising students months later. Tell them by hand instead.
  *
  * Usage:
  *   cd server && node scripts/grant-deferred-cohort-credits.js --dry-run
@@ -29,7 +32,7 @@
  */
 require('dotenv').config();
 const { supabase } = require('../utils/supabaseDb');
-const { isReturningStudent, earnCredits, getCreditBalance } = require('../utils/creditManager');
+const { awardCoursePurchaseCredit, getCreditBalance } = require('../utils/creditManager');
 
 const DRY = process.argv.includes('--dry-run');
 const COHORT = process.argv.find(a => !a.startsWith('-') && /^[A-Z]{2}\d/.test(a)) || 'WT2908PM_DL6';
@@ -40,7 +43,7 @@ const AMOUNT = 20;
 
   const { data: enrollments, error } = await supabase
     .from('course_enrollments')
-    .select('id, student_id, course_title, course_type, status, customers!course_enrollments_student_id_fkey(first_name, last_name, email)')
+    .select('id, student_id, shopify_order_id, course_title, course_type, status, customers!course_enrollments_student_id_fkey(first_name, last_name, email)')
     .eq('course_identifier', COHORT)
     .order('created_at');
   if (error) throw error;
@@ -52,37 +55,43 @@ const AMOUNT = 20;
     const c = e.customers || {};
     const who = `${c.first_name} ${c.last_name}`.trim();
 
-    const returning = await isReturningStudent(e.student_id);
-    if (!returning) { console.log(`  skip  enr#${e.id} ${who} — first-time student`); continue; }
+    const verdict = await awardCoursePurchaseCredit({
+      customerId: e.student_id,
+      enrollmentId: e.id,
+      courseTitle: e.course_title || e.course_type,
+      dryRun: true,
+    });
 
-    const { data: existing } = await supabase
-      .from('credit_transactions')
-      .select('id')
-      .eq('customer_id', e.student_id)
-      .eq('source', 'course_purchase')
-      .eq('reference_id', e.id.toString())
-      .maybeSingle();
-    if (existing) { console.log(`  skip  enr#${e.id} ${who} — already credited (txn #${existing.id})`); continue; }
+    if (!verdict.granted) {
+      console.log(`  skip  enr#${e.id} ${who} — ${verdict.reason}${verdict.transactionId ? ` (txn #${verdict.transactionId})` : ''}`);
+      continue;
+    }
 
     console.log(`  GRANT enr#${e.id} ${who} <${c.email}> — $${AMOUNT}`);
     toGrant.push({ e, who, email: c.email });
   }
 
-  console.log(`\n${toGrant.length} credit(s) to grant.`);
+  // The dry pass writes nothing, so every row of a multi-course order still
+  // reads as grantable. Count orders, not rows, or the money looks 3x too big.
+  const orders = new Set(toGrant.map(({ e }) =>
+    `${e.student_id}|${/^\d+$/.test(String(e.shopify_order_id)) ? e.shopify_order_id : 'enr' + e.id}`
+  ));
+  console.log(`\n${orders.size} credit(s) to grant — $${orders.size * AMOUNT} across ${toGrant.length} enrollment row(s).`);
   if (!toGrant.length) { console.log('Nothing to do.'); process.exit(0); }
   if (DRY) { console.log('\n[DRY RUN] No rows written.'); process.exit(0); }
 
   console.log('');
   for (const { e, who, email } of toGrant) {
-    const txn = await earnCredits({
+    // Re-checked for real here, not just in the pass above: an earlier grant in
+    // this same run can settle a later row that shares its order.
+    const res = await awardCoursePurchaseCredit({
       customerId: e.student_id,
-      amount: AMOUNT,
-      source: 'course_purchase',
-      referenceId: e.id.toString(),
-      description: `Ves is 10 — $${AMOUNT} credit for ${e.course_title || e.course_type || 'course'}`,
+      enrollmentId: e.id,
+      courseTitle: e.course_title || e.course_type,
     });
+    if (!res.granted) { console.log(`  skip  enr#${e.id} ${who} — ${res.reason}`); continue; }
     const balance = await getCreditBalance(e.student_id);
-    console.log(`  granted txn#${txn.id} → ${who} <${email}>  new balance $${balance}  (no email sent)`);
+    console.log(`  granted txn#${res.transaction.id} → ${who} <${email}>  new balance $${balance}`);
   }
 
   console.log('\nDone.');

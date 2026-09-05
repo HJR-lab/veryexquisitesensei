@@ -175,11 +175,82 @@ async function isReturningStudent(customerId) {
   return (data || []).length > 1;
 }
 
+const COURSE_PURCHASE_CREDIT = 20;
+
+/**
+ * Award the $20 "Ves is 10" credit for one course purchase.
+ *
+ * Called the moment an enrollment is created — by the order webhook, by the
+ * batch order sync, and once more on cohort activation as a backstop. It used
+ * to be deferred until a cohort's draft classes went active, which quietly
+ * dropped the credit for anyone joining a cohort that was already active.
+ * Granting at order time removes that window; the (customer, source,
+ * reference_id) check below keeps the repeat calls idempotent.
+ *
+ * $20 per order — a multi-course package is one enrollment row and earns once.
+ * Returning students only, matching the Credits page copy.
+ */
+async function awardCoursePurchaseCredit({ customerId, enrollmentId, courseTitle }) {
+  if (!customerId || !enrollmentId) return { granted: false, reason: 'missing_ids' };
+
+  const returning = await isReturningStudent(customerId);
+  if (!returning) return { granted: false, reason: 'first_time_student' };
+
+  const { data: existing } = await supabase
+    .from('credit_transactions')
+    .select('id')
+    .eq('customer_id', customerId)
+    .eq('source', 'course_purchase')
+    .eq('reference_id', enrollmentId.toString())
+    .maybeSingle();
+  if (existing) return { granted: false, reason: 'already_credited', transactionId: existing.id };
+
+  const transaction = await earnCredits({
+    customerId,
+    amount: COURSE_PURCHASE_CREDIT,
+    source: 'course_purchase',
+    referenceId: enrollmentId.toString(),
+    description: `Ves is 10 — $${COURSE_PURCHASE_CREDIT} credit for ${courseTitle || 'course'}`,
+  });
+  console.log(`[Credits] Awarded $${COURSE_PURCHASE_CREDIT} to customer ${customerId} for enrollment ${enrollmentId}`);
+
+  // Email is best-effort and never blocks the grant.
+  try {
+    const { isEmailCategoryPaused, sendEmail } = require('./emailService');
+    if (isEmailCategoryPaused('credits')) {
+      console.log('[Credits] Email paused — skipping credit earned email');
+      return { granted: true, transaction };
+    }
+    const { data: student } = await supabase
+      .from('customers')
+      .select('email, first_name')
+      .eq('id', customerId)
+      .single();
+    if (student?.email) {
+      const { generate: generateCreditEarned } = require('../email-templates/credits-earned');
+      const newBalance = await getCreditBalance(customerId);
+      const { subject, html } = generateCreditEarned({
+        firstName: student.first_name,
+        amountEarned: COURSE_PURCHASE_CREDIT,
+        courseName: courseTitle || 'your course',
+        newBalance,
+      });
+      await sendEmail({ to: student.email, subject, html });
+    }
+  } catch (emailErr) {
+    console.error('[Credits] Failed to send credit earned email:', emailErr);
+  }
+
+  return { granted: true, transaction };
+}
+
 module.exports = {
   CREDIT_EXPIRY,
   getCreditBalance,
   getCreditHistory,
   earnCredits,
   spendCredits,
-  isReturningStudent
+  isReturningStudent,
+  awardCoursePurchaseCredit,
+  COURSE_PURCHASE_CREDIT
 };

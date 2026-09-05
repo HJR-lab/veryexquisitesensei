@@ -879,6 +879,24 @@ async function orderSyncPass({ sinceDate } = {}) {
               } else {
                 enrollmentsCreated++;
 
+                // Same $20 VES Credit the order webhook grants — this path had
+                // none, so any enrollment the sync created (rather than the live
+                // webhook) never earned one. Idempotent per enrollment, so a
+                // re-sync cannot double-grant. Extra pax are not the purchaser,
+                // matching the webhook, which credits the buyer's spot only.
+                if (!isExtraPax && result.enrollment?.student_id) {
+                  try {
+                    const { awardCoursePurchaseCredit } = require('../utils/creditManager');
+                    await awardCoursePurchaseCredit({
+                      customerId: result.enrollment.student_id,
+                      enrollmentId: result.enrollment.id,
+                      courseTitle: productTitle,
+                    });
+                  } catch (creditErr) {
+                    console.error('[Credits] Failed to award credit during order sync:', creditErr);
+                  }
+                }
+
                 // Auto-send course details email for new HB enrollments
                 if (result.isHandbuilding && result.enrollment) {
                   try {
@@ -1312,49 +1330,23 @@ async function processOrderWebhook(orderData) {
           if (result.success) {
             console.log(`✅ Course enrollment processed successfully`);
 
-            // Award VES Credit for returning students
-            // For WT courses awaiting threshold: defer credit until course is confirmed
-            const shouldDeferCredit = result.requiresThreshold && !result.thresholdMet;
-            if (shouldDeferCredit) {
-              console.log(`⏳ Deferring VES Credit for ${customer.email} — course awaiting confirmation`);
-            } else {
-              try {
-                const { isReturningStudent, earnCredits, getCreditBalance } = require('../utils/creditManager');
-                const { sendEmail } = require('../utils/emailService');
-                const returning = await isReturningStudent(dbCustomer.id);
-                if (returning) {
-                  const creditTxn = await earnCredits({
-                    customerId: dbCustomer.id,
-                    amount: 20,
-                    source: 'course_purchase',
-                    referenceId: result.enrollment?.id?.toString(),
-                    description: `Ves is 10 — $20 credit for ${productTitle}`,
-                  });
-                  console.log(`💰 Awarded $20 VES Credit to ${customer.email}`);
-
-                  // Send credit earned email (credits category may be paused)
-                  try {
-                    const { isEmailCategoryPaused } = require('../utils/emailService');
-                    if (isEmailCategoryPaused('credits')) {
-                      console.log('[Credits] Email paused — skipping credit earned email');
-                    } else {
-                      const { generate: generateCreditEarned } = require('../email-templates/credits-earned');
-                      const newBalance = await getCreditBalance(dbCustomer.id);
-                      const { subject, html } = generateCreditEarned({
-                        firstName: customer.first_name,
-                        amountEarned: 20,
-                        courseName: productTitle,
-                        newBalance,
-                      });
-                      await sendEmail({ to: customer.email, subject, html });
-                    }
-                  } catch (emailErr) {
-                    console.error('[Credits] Failed to send credit earned email:', emailErr);
-                  }
-                }
-              } catch (creditErr) {
-                console.error('[Credits] Failed to award credit:', creditErr);
-              }
+            // Award the $20 VES Credit for this order, right now.
+            // It used to be deferred whenever the cohort still needed a threshold,
+            // and the only settlement point was the draft -> active transition —
+            // so anyone joining an already-active cohort never got it. The helper
+            // is idempotent per enrollment, so granting here is safe.
+            // Credit the enrollment's own student_id, not dbCustomer: a locked
+            // email makes processCoursePurchase resolve the buyer by Shopify ID,
+            // and the credit must land on whoever actually holds the enrollment.
+            try {
+              const { awardCoursePurchaseCredit } = require('../utils/creditManager');
+              await awardCoursePurchaseCredit({
+                customerId: result.enrollment?.student_id || dbCustomer.id,
+                enrollmentId: result.enrollment?.id,
+                courseTitle: productTitle,
+              });
+            } catch (creditErr) {
+              console.error('[Credits] Failed to award credit:', creditErr);
             }
 
             // Auto-send course details email for HB enrollments immediately

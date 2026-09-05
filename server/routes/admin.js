@@ -2,7 +2,8 @@ const supabaseDb = require('../utils/supabaseDb');
 const { generateICS, generateMultipleICS } = require('../utils/calendarGenerator');
 const courseConfig = require('../utils/courseConfig');
 const { getPackageProgress } = require('../utils/packageProgress');
-const { setClassGlazing } = require('../utils/glazing');
+const { setClassGlazing, resolveGlazingConsumption,
+        spendGlazingEntitlement } = require('../utils/glazing');
 const { roomCapacity } = require('../config/capacity');
 
 // In-memory cache for admin stats summary (30s TTL)
@@ -4928,33 +4929,63 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
     enrollmentId = await supabaseDb.resolveBookingEnrollment(studentId, classInstance);
   }
 
-  // Check if class is full. This previously read classInstance.current_capacity,
-  // a column that does not exist — so the gate never fired and this path could
-  // seat an 11th student silently. Now it counts booked rows like every other
-  // path, and an admin-granted capacity override is the only way past.
-  const seat = await supabaseDb.checkSeatAvailability(classInstance, parseInt(studentId), { checkWheels: true });
-  if (!seat.allowed) {
-    return res.status(400).json({
-      error: seat.reason === 'STUDIO_FULL'
-        ? `Studio is full — all ${seat.counts.studioWheels} places are taken for this timeslot`
-        : 'Class is full'
-    });
-  }
-
-  // Check for existing cancelled booking — reactivate instead of creating duplicate
+  // Check for an existing cancelled booking — reactivate instead of creating a
+  // duplicate. Read BEFORE the seat gate, for two reasons: a student who already
+  // holds a booked row here is counted by the gate, so "class is full" was the
+  // wrong answer to give them; and a cancelled row that was already the glazing
+  // booking still decides whether this is a glazing seat.
   const { data: existingBooking } = await supabaseDb.supabase
     .from('bookings')
-    .select('id, status')
+    .select('id, status, counts_as_glazing')
     .eq('student_id', studentId)
     .eq('class_instance_id', classInstanceId)
     .single();
 
+  if (existingBooking && existingBooking.status !== 'cancelled') {
+    return res.status(409).json({ error: 'Student is already booked for this class.' });
+  }
+
+  // Does seating them here consume their package glazing class? Asked with the
+  // same helper the student booking path uses, because the answer has to be the
+  // same one: this endpoint used to never ask, so an admin booking a package
+  // student onto a marked HB glazing session recorded an ordinary booking. That
+  // took a capped glazing seat without counting against GLAZING_SUBCAP, and left
+  // the student's glazing entitlement unspent to be taken a second time.
+  const { countsAsGlazing, enrollment: glazingEnrollment } =
+    await resolveGlazingConsumption(parseInt(studentId), classInstance);
+
+  // Re-booking a cancelled glazing booking is still a glazing booking, even
+  // though there is no entitlement left to resolve: cancelling frees the capped
+  // seat but does not give glazing_class_used back. Reading the row's own flag
+  // keeps the seat counted instead of quietly restoring the bypass.
+  const seatsGlazing = countsAsGlazing || existingBooking?.counts_as_glazing === true;
+
+  // Check if class is full. This previously read classInstance.current_capacity,
+  // a column that does not exist — so the gate never fired and this path could
+  // seat an 11th student silently. Now it counts booked rows like every other
+  // path, and an admin-granted capacity override is the only way past.
+  //
+  // asGlazing brings the third gate with it: a marked class keeps its own
+  // max_capacity but only a slice of those seats may be glazing students. An
+  // admin who genuinely needs to exceed it grants a capacity override first,
+  // exactly as for the class and studio caps.
+  const seat = await supabaseDb.checkSeatAvailability(classInstance, parseInt(studentId), { checkWheels: true, asGlazing: seatsGlazing });
+  if (!seat.allowed) {
+    return res.status(400).json({
+      error: seat.reason === 'STUDIO_FULL'
+        ? `Studio is full — all ${seat.counts.studioWheels} places are taken for this timeslot`
+        : seat.reason === 'GLAZING_FULL'
+          ? `This class already has its ${seat.counts.glazingCap} glazing places taken (${seat.counts.glazingBooked}/${seat.counts.glazingCap}). The class itself still has room for regular bookings.`
+          : 'Class is full'
+    });
+  }
+
   let booking;
-  if (existingBooking && existingBooking.status === 'cancelled') {
+  if (existingBooking) {
     // Reactivate the cancelled booking
     const { data: reactivated, error: reactError } = await supabaseDb.supabase
       .from('bookings')
-      .update({ status: status || 'booked', booking_type: bookingType || 'regular', course_enrollment_id: enrollmentId, updated_at: new Date().toISOString() })
+      .update({ status: status || 'booked', booking_type: bookingType || 'regular', course_enrollment_id: enrollmentId, counts_as_glazing: seatsGlazing, updated_at: new Date().toISOString() })
       .eq('id', existingBooking.id)
       .select()
       .single();
@@ -4963,8 +4994,6 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
       return res.status(500).json({ error: reactError.message || 'Failed to reactivate booking' });
     }
     booking = reactivated;
-  } else if (existingBooking) {
-    return res.status(409).json({ error: 'Student is already booked for this class.' });
   } else {
     // Create new booking
     const { data: newBooking, error: bookingError } = await supabaseDb.supabase
@@ -4975,6 +5004,7 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
         booking_type: bookingType || 'regular',
         status: status || 'booked',
         course_enrollment_id: enrollmentId,
+        counts_as_glazing: seatsGlazing,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       }])
@@ -4990,6 +5020,13 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
 
   // Update class enrollment count
   await supabaseDb.updateClassEnrollment(parseInt(classInstanceId), 1);
+
+  // Spend the glazing entitlement only once the booking exists, so a refused
+  // booking never marks it used.
+  if (countsAsGlazing) {
+    await spendGlazingEntitlement(glazingEnrollment.id);
+    console.log(`[glazing] ${req.user.email} booked student ${studentId} into marked class ${classInstanceId} as their package glazing (enrollment ${glazingEnrollment.id})`);
+  }
 
   // Spend the grant if this seat only existed because of one.
   if (seat.override) {

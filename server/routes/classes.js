@@ -2,46 +2,16 @@ const supabaseDb = require('../utils/supabaseDb');
 const FEES = require('../config/fees');
 const { getPackageProgress } = require('../utils/packageProgress');
 const { isGlazingClass, isMarkedGlazing, GLAZING_DRYING_GAP_DAYS,
-        packageGlazingPositions } = require('../utils/glazing');
+        packageGlazingPositions, isTenClassPackage, findTenClassPackages,
+        resolveGlazingConsumption, spendGlazingEntitlement } = require('../utils/glazing');
 const { getEnrollmentCredits } = require('../utils/bookingDb');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler }) {
 
-/**
- * The package enrollment that still owes its FLEX glazing class, if any.
- *
- * A 10-class package student gets two glazing classes, tracked two different ways:
- *
- *   week 6.6   the WT cohort's own glazing — structural, part of the booked
- *              6-week block, derived from the class code. Nothing records it here.
- *   class 10   the flex glazing, taken as a marked HB session. THIS is what
- *              glazing_class_used tracks, so having attended 6.6 never blocks it.
- *
- * Not filtered to status 'active': a 10-class package is routinely marked
- * completed once its 6-week cohort ends while the 4 flex classes — glazing among
- * them — are still unspent. Filtering on 'active' is what has repeatedly hidden
- * these students from code paths that should serve them.
- */
-function isTenClassPackage(e) {
-  return e.package_total_classes === 10 ||
-         e.number_of_weeks === 10 ||
-         (e.course_title || '').toLowerCase().includes('10 class');
-}
-
-async function findTenClassPackages(studentId) {
-  const { data } = await supabaseDb.supabase
-    .from('course_enrollments')
-    .select('id, glazing_class_used, number_of_weeks, package_total_classes, course_title, status')
-    .eq('student_id', studentId)
-    .neq('status', 'cancelled');
-
-  return (data || []).filter(isTenClassPackage);
-}
-
-async function findPendingGlazingEnrollment(studentId) {
-  const packages = await findTenClassPackages(studentId);
-  return packages.find(e => !e.glazing_class_used) || null;
-}
+// The package-glazing helpers (findTenClassPackages, findPendingGlazingEnrollment,
+// resolveGlazingConsumption, spendGlazingEntitlement) live in utils/glazing.js.
+// They were local to this file, which is why the admin booking path had no way to
+// ask the same question and answered it by not asking.
 
 // Statuses that mean a class of the package has been taken up — mirrors
 // bookingDb's own list. A forfeited or absent class is still spent.
@@ -700,14 +670,10 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
     return res.status(400).json({ error: dryingGap.reason });
   }
 
-  // A class marked as glazing (the only way an HB drop-in can be one) doubles as
-  // the glazing class for a package student who still owes theirs. Everyone else
-  // books it as an ordinary class, which is why the marker alone does not decide
-  // this — the student's own enrollment does.
-  const glazingEnrollment = isMarkedGlazing(classInstance)
-    ? await findPendingGlazingEnrollment(dbCustomerId)
-    : null;
-  const countsAsGlazing = !!glazingEnrollment;
+  // Does this booking consume the student's package glazing class? Shared with the
+  // admin booking path so both record the booking the same way.
+  const { countsAsGlazing, enrollment: glazingEnrollment } =
+    await resolveGlazingConsumption(dbCustomerId, classInstance);
 
   let booking;
   try {
@@ -730,10 +696,7 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
   // Spend the glazing entitlement only once the booking exists, so a refused
   // booking never marks it used.
   if (countsAsGlazing) {
-    await supabaseDb.supabase
-      .from('course_enrollments')
-      .update({ glazing_class_used: true, updated_at: new Date().toISOString() })
-      .eq('id', glazingEnrollment.id);
+    await spendGlazingEntitlement(glazingEnrollment.id);
   }
 
   await supabaseDb.updateClassEnrollment(parseInt(classInstanceId), 1);

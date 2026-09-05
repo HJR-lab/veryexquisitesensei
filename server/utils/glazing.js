@@ -125,6 +125,81 @@ function glazingSubCap(classInstance) {
 }
 
 /**
+ * The 10-class package enrollments a student holds.
+ *
+ * A 10-class package student gets two glazing classes, tracked two different ways:
+ *
+ *   class 6    the WT cohort's own glazing (6.6) — structural, part of the booked
+ *              6-week block, derived from the class code. Nothing records it here.
+ *   class 10   the flex glazing, taken as a marked HB session. THIS is what
+ *              glazing_class_used tracks, so having attended 6.6 never blocks it.
+ *
+ * Not filtered to status 'active': a 10-class package is routinely marked
+ * completed once its 6-week cohort ends while the 4 flex classes — glazing among
+ * them — are still unspent. Filtering on 'active' is what has repeatedly hidden
+ * these students from code paths that should serve them.
+ *
+ * Lives here rather than in routes/classes.js because the ADMIN booking path
+ * needs the same answer. It did not have it, and so booked package students onto
+ * marked glazing sessions as ordinary bookings: the sub-cap never counted them
+ * and their glazing entitlement was never spent.
+ */
+function isTenClassPackage(e) {
+  return e.package_total_classes === 10 ||
+         e.number_of_weeks === 10 ||
+         (e.course_title || '').toLowerCase().includes('10 class');
+}
+
+async function findTenClassPackages(studentId) {
+  const { supabase } = require('./supabaseClient');
+  const { data } = await supabase
+    .from('course_enrollments')
+    .select('id, glazing_class_used, number_of_weeks, package_total_classes, course_title, status')
+    .eq('student_id', studentId)
+    .neq('status', 'cancelled');
+
+  return (data || []).filter(isTenClassPackage);
+}
+
+/** The package enrollment that still owes its FLEX glazing class, if any. */
+async function findPendingGlazingEnrollment(studentId) {
+  const packages = await findTenClassPackages(studentId);
+  return packages.find(e => !e.glazing_class_used) || null;
+}
+
+/**
+ * Does booking `classInstance` consume this student's package glazing class?
+ *
+ * A class marked as glazing (the only way an HB drop-in can be one) doubles as
+ * the glazing class for a package student who still owes theirs. Everyone else
+ * books it as an ordinary class, which is why the marker alone does not decide
+ * this — the student's own enrollment does.
+ *
+ * Both booking paths (student and admin) ask this one question, so an admin
+ * seating a student cannot record the booking differently from the student
+ * booking it themselves.
+ *
+ * @returns {{countsAsGlazing: boolean, enrollment: object|null}}
+ */
+async function resolveGlazingConsumption(studentId, classInstance) {
+  if (!isMarkedGlazing(classInstance)) return { countsAsGlazing: false, enrollment: null };
+  const enrollment = await findPendingGlazingEnrollment(studentId);
+  return { countsAsGlazing: !!enrollment, enrollment };
+}
+
+/**
+ * Spend the package's glazing entitlement. Call only once the booking exists, so
+ * a refused booking never marks it used.
+ */
+async function spendGlazingEntitlement(enrollmentId) {
+  const { supabase } = require('./supabaseClient');
+  await supabase
+    .from('course_enrollments')
+    .update({ glazing_class_used: true, updated_at: new Date().toISOString() })
+    .eq('id', enrollmentId);
+}
+
+/**
  * Set or clear a class's glazing marker. Shared by the instructor and admin
  * endpoints, which differ only in who they let through — the rules about what a
  * valid change looks like belong here, once.
@@ -190,5 +265,10 @@ module.exports = {
   isGlazingClass,
   isMarkedGlazing,
   glazingSubCap,
+  isTenClassPackage,
+  findTenClassPackages,
+  findPendingGlazingEnrollment,
+  resolveGlazingConsumption,
+  spendGlazingEntitlement,
   setClassGlazing,
 };

@@ -27,13 +27,17 @@ const check = (ok, label) => {
   if (!ok) failures++;
 };
 
-const routeBody = (src, name) => {
-  const start = src.indexOf(`app.post('/api/classes/${name}'`);
+// One route handler's source, bounded at the next route declaration. Bounding by
+// a character count instead reports a write that IS there as missing.
+const bodyFrom = (src, marker) => {
+  const start = src.indexOf(marker);
   if (start === -1) return '';
   const rest = src.slice(start);
-  const next = rest.indexOf("app.post('", 10);
+  const next = rest.search(/\napp\.(post|get|put|patch|delete)\(/);
   return next === -1 ? rest : rest.slice(0, next);
 };
+
+const routeBody = (src, name) => bodyFrom(src, `app.post('/api/classes/${name}'`);
 
 (async () => {
   console.log('\n— the position rule (from utils/glazing.js) —');
@@ -63,7 +67,28 @@ const routeBody = (src, name) => {
 
   const adminSrc = fs.readFileSync(path.join(__dirname, '../routes/admin.js'), 'utf8');
   check(!/checkGlazingPositionAllowed|checkTenthClassMustBeGlazing/.test(adminSrc),
-    'admin routes carry no glazing gate (the sanctioned override)');
+    'admin routes carry no glazing POSITION gate (the sanctioned override)');
+
+  console.log('\n— the glazing seat is counted —');
+  // GLAZING_SUBCAP is a physical limit: only so many people can glaze at once.
+  // Every path that writes a booking row by hand, instead of going through
+  // createBooking(), has to record counts_as_glazing itself — otherwise its
+  // students are invisible to the count and the next booker is waved in over
+  // the cap. This is what made the cap real only on paper.
+  const writesOwnRow = [
+    ['student makeup booking', routeBody(src, 'book-makeup')],
+    ['admin booking', bodyFrom(adminSrc, "app.post('/api/admin/bookings'")],
+  ];
+  for (const [label, body] of writesOwnRow) {
+    check(/resolveGlazingConsumption\(/.test(body),
+      `${label} asks whether the seat is a glazing one`);
+    check(/counts_as_glazing:/.test(body),
+      `${label} records counts_as_glazing on the booking row`);
+    check(/asGlazing: /.test(body),
+      `${label} checks the seat against GLAZING_SUBCAP`);
+  }
+  check(/spendGlazingEntitlement\(/.test(routeBody(src, 'book-makeup')),
+    'student makeup booking spends the glazing entitlement');
 
   console.log('\n— class 10 is always glazing —');
   const gateStart = src.indexOf('async function checkTenthClassMustBeGlazing');

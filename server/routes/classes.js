@@ -940,6 +940,38 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
     return res.status(400).json({ error: makeupGlazingPosition.reason });
   }
 
+  // Does this seat consume the student's package glazing class? Asked with the
+  // same helper /api/classes/book and the admin path use, so a student booking
+  // themselves cannot record the booking differently from an admin seating them.
+  //
+  // This route never asked. It writes its booking row directly rather than
+  // through createBooking(), so a student booking onto a marked HB glazing
+  // session recorded an ordinary booking: it took one of the capped glazing
+  // seats without counting against GLAZING_SUBCAP, and left the glazing
+  // entitlement unspent to be taken a second time. Since this is the route the
+  // class schedule actually books through, that covered nearly every glazing
+  // booking the studio has taken — the cap was real only on paper.
+  const { countsAsGlazing: makeupCountsAsGlazing, enrollment: makeupGlazingEnrollment } =
+    await resolveGlazingConsumption(dbCustomerId, classInstance);
+
+  // Re-booking a cancelled glazing booking is still a glazing booking, even
+  // though there is no entitlement left to resolve: cancelling frees the capped
+  // seat but does not give glazing_class_used back.
+  const makeupSeatsGlazing = makeupCountsAsGlazing || cancelledBooking?.counts_as_glazing === true;
+
+  // The glazing sub-cap: a marked class keeps its own max_capacity (HB is 8) but
+  // only a slice of those seats may be glazing students, so the session still
+  // serves ordinary handbuilding bookings. The seat check further up could not
+  // ask this — whether this booking is a glazing one is only known here.
+  if (makeupSeatsGlazing) {
+    const glazingSeat = await supabaseDb.checkSeatAvailability(classInstance, dbCustomerId, { asGlazing: true });
+    if (!glazingSeat.allowed && glazingSeat.reason === 'GLAZING_FULL') {
+      return res.status(400).json({
+        error: `This class already has its ${glazingSeat.counts.glazingCap} glazing places taken (${glazingSeat.counts.glazingBooked}/${glazingSeat.counts.glazingCap}). The class itself still has room for regular bookings.`
+      });
+    }
+  }
+
   if (cancelledBooking) {
     // Reactivate the cancelled booking
     const { data: updatedBooking, error: updateError } = await supabaseDb.supabase
@@ -948,6 +980,7 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
         status: 'booked',
         booking_type: 'makeup',
         course_enrollment_id: enrollmentId,
+        counts_as_glazing: makeupSeatsGlazing,
         booking_date: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })
@@ -967,6 +1000,7 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
         status: 'booked',
         booking_type: 'makeup',
         course_enrollment_id: enrollmentId,
+        counts_as_glazing: makeupSeatsGlazing,
         booking_date: new Date().toISOString(),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
@@ -981,6 +1015,12 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   if (bookingError) {
     console.error('Error creating makeup booking:', bookingError);
     return res.status(500).json({ error: 'Failed to create booking' });
+  }
+
+  // Spend the glazing entitlement only once the booking exists, so a refused
+  // booking never marks it used.
+  if (makeupCountsAsGlazing) {
+    await spendGlazingEntitlement(makeupGlazingEnrollment.id);
   }
 
   // Update class enrollment count

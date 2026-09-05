@@ -97,36 +97,58 @@ async function deleteImageFromSupabase(filePath) {
   }
 }
 
+const IMAGE_BUCKET = 'pottery-gallery';
+
 /**
- * Check if storage bucket exists, create if not
+ * Make sure the image bucket exists — quietly, and with a key that can actually tell.
+ *
+ * Enumerating and creating buckets are administrative operations, but this module's
+ * client runs on the anon key, and RLS hides storage.buckets from it. listBuckets()
+ * comes back empty and getBucket() answers 'Bucket not found' for a bucket that
+ * plainly works. The old check read that empty list as 'missing', tried to create a
+ * bucket that has existed for years, and had the create refused by the same RLS — so
+ * every restart logged a red 'Error creating bucket' stack about nothing at all. It
+ * never reproduced locally, where the service key makes the list visible.
+ *
+ * Reading through the bucket is no substitute: from(bucket).list() answers OK with an
+ * empty array for a bucket that does not exist, so it cannot detect absence at all.
+ * Probing that way would have silenced the noise by silencing a genuine outage too.
+ *
+ * So do the administrative check with the administrative key. Without one there is no
+ * way to answer the question — and guessing loudly is exactly what caused the noise,
+ * so we skip rather than guess.
  */
 async function ensureBucketExists() {
+  const serviceKey = process.env.SUPABASE_SERVICE_KEY;
+  if (!serviceKey) return;
+
   try {
-    const { data: buckets, error } = await supabase.storage.listBuckets();
+    const admin = createClient(process.env.SUPABASE_URL, serviceKey);
+    const { data: buckets, error } = await admin.storage.listBuckets();
 
     if (error) {
-      console.error('Error listing buckets:', error);
+      console.error('Could not check storage buckets:', error.message);
       return;
     }
 
-    const bucketExists = buckets.some(bucket => bucket.name === 'pottery-gallery');
+    if (buckets.some(bucket => bucket.name === IMAGE_BUCKET)) return;
 
-    if (!bucketExists) {
-      console.log('Creating pottery-gallery bucket...');
-      const { data, error: createError } = await supabase.storage.createBucket('pottery-gallery', {
-        public: true,
-        fileSizeLimit: 5242880, // 5MB
-        allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp']
-      });
+    console.log(`Creating ${IMAGE_BUCKET} bucket...`);
+    const { error: createError } = await admin.storage.createBucket(IMAGE_BUCKET, {
+      public: true,
+      fileSizeLimit: 5242880, // 5MB
+      allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp']
+    });
 
-      if (createError) {
-        console.error('Error creating bucket:', createError);
-      } else {
-        console.log('✅ pottery-gallery bucket created');
-      }
+    // Something else won the race between the check and the create. The bucket is
+    // there, which is all we wanted.
+    if (createError && !/already exists/i.test(createError.message || '')) {
+      console.error(`Error creating ${IMAGE_BUCKET} bucket:`, createError.message);
+    } else if (!createError) {
+      console.log(`✅ ${IMAGE_BUCKET} bucket created`);
     }
   } catch (error) {
-    console.error('Error ensuring bucket exists:', error);
+    console.error('Error ensuring bucket exists:', error.message);
   }
 }
 

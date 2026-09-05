@@ -3,8 +3,13 @@ const FEES = require('../config/fees');
 const { getPackageProgress } = require('../utils/packageProgress');
 const { isGlazingClass, isMarkedGlazing, GLAZING_DRYING_GAP_DAYS,
         packageGlazingPositions, isTenClassPackage, findTenClassPackages,
-        resolveGlazingConsumption, spendGlazingEntitlement } = require('../utils/glazing');
+        hasTenClassPackage, resolveGlazingConsumption,
+        spendGlazingEntitlement } = require('../utils/glazing');
 const { getEnrollmentCredits } = require('../utils/bookingDb');
+// The cross-type gate lives in utils/bookingGates.js: both booking paths here ran
+// a byte-identical copy of it, and scripts/verify-hb-bookability.js ran a third
+// that had already drifted.
+const { crossTypeRefusal } = require('../utils/bookingGates');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler }) {
 
@@ -587,32 +592,14 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
     return res.status(400).json({ error: 'You are already booked for this class' });
   }
 
-  // Enforce cross-type booking restriction (HB can't book WT, WT can't book HB)
-  // Exception: 10-class package students can book both
-  const classIsHB = (classInstance.class_type || '').startsWith('HB');
+  // Enforce cross-type booking restriction (HB can't book WT, WT can't book HB).
+  // Both booking paths share one definition of it, and the 10-class package
+  // exemption inside it reads the shared package rule — not a copy filtered to
+  // status 'active', which refused package students their own flex glazing.
   const classIsWT = (classInstance.class_type || '').startsWith('WT');
-  if (classIsHB || classIsWT) {
-    const { data: activeEnrollments } = await supabaseDb.supabase
-      .from('course_enrollments')
-      .select('id, course_type, course_identifier, number_of_weeks')
-      .eq('student_id', dbCustomerId)
-      .eq('status', 'active');
-
-    const has10ClassPackage = (activeEnrollments || []).some(e =>
-      e.number_of_weeks >= 10 || (e.course_type || '').includes('10 Classes')
-    );
-
-    if (!has10ClassPackage && activeEnrollments && activeEnrollments.length > 0) {
-      const hasHBEnrollment = activeEnrollments.some(e => (e.course_type || '').toLowerCase().includes('handbuilding') || (e.course_identifier || '').startsWith('HB'));
-      const hasWTEnrollment = activeEnrollments.some(e => (e.course_type || '').toLowerCase().includes('wheelthrowing') || (e.course_identifier || '').startsWith('WT'));
-
-      if (classIsWT && hasHBEnrollment && !hasWTEnrollment) {
-        return res.status(400).json({ error: 'Your enrollment is for Handbuilding classes only. You cannot book Wheelthrowing classes.' });
-      }
-      if (classIsHB && hasWTEnrollment && !hasHBEnrollment) {
-        return res.status(400).json({ error: 'Your enrollment is for Wheelthrowing classes only. You cannot book Handbuilding classes.' });
-      }
-    }
+  const crossType = await crossTypeRefusal(dbCustomerId, classInstance);
+  if (crossType) {
+    return res.status(400).json({ error: crossType });
   }
 
   // Block beginner students from booking intermediate WT classes (7-week courses)
@@ -800,32 +787,14 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
     return res.status(400).json({ error: 'You are already booked for this class' });
   }
 
-  // Enforce cross-type booking restriction (HB can't book WT, WT can't book HB)
-  // Exception: 10-class package students can book both
-  const classIsHB = (classInstance.class_type || '').startsWith('HB');
+  // Enforce cross-type booking restriction (HB can't book WT, WT can't book HB).
+  // Both booking paths share one definition of it, and the 10-class package
+  // exemption inside it reads the shared package rule — not a copy filtered to
+  // status 'active', which refused package students their own flex glazing.
   const classIsWT = (classInstance.class_type || '').startsWith('WT');
-  if (classIsHB || classIsWT) {
-    const { data: activeEnrollments } = await supabaseDb.supabase
-      .from('course_enrollments')
-      .select('id, course_type, course_identifier, number_of_weeks')
-      .eq('student_id', dbCustomerId)
-      .eq('status', 'active');
-
-    const has10ClassPackage = (activeEnrollments || []).some(e =>
-      e.number_of_weeks >= 10 || (e.course_type || '').includes('10 Classes')
-    );
-
-    if (!has10ClassPackage && activeEnrollments && activeEnrollments.length > 0) {
-      const hasHBEnrollment = activeEnrollments.some(e => (e.course_type || '').toLowerCase().includes('handbuilding') || (e.course_identifier || '').startsWith('HB'));
-      const hasWTEnrollment = activeEnrollments.some(e => (e.course_type || '').toLowerCase().includes('wheelthrowing') || (e.course_identifier || '').startsWith('WT'));
-
-      if (classIsWT && hasHBEnrollment && !hasWTEnrollment) {
-        return res.status(400).json({ error: 'Your enrollment is for Handbuilding classes only. You cannot book Wheelthrowing classes.' });
-      }
-      if (classIsHB && hasWTEnrollment && !hasHBEnrollment) {
-        return res.status(400).json({ error: 'Your enrollment is for Wheelthrowing classes only. You cannot book Handbuilding classes.' });
-      }
-    }
+  const crossType = await crossTypeRefusal(dbCustomerId, classInstance);
+  if (crossType) {
+    return res.status(400).json({ error: crossType });
   }
 
   // Block beginner students from booking intermediate WT classes (7-week courses)
@@ -850,15 +819,11 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   // Block bookings after glazing date or within 5 days of glazing
   // Exception: 10-class package students can book after glazing (flex credits)
   {
-    const { data: studentEnrollments } = await supabaseDb.supabase
-      .from('course_enrollments')
-      .select('id, number_of_weeks, course_type')
-      .eq('student_id', dbCustomerId)
-      .eq('status', 'active');
-
-    const has10ClassPackage = (studentEnrollments || []).some(e =>
-      e.number_of_weeks >= 10 || (e.course_type || '').includes('10 Classes')
-    );
+    // Same shared definition as the cross-type gate above. A package marked
+    // completed with flex classes still unspent is still a package, and its
+    // holder is still exempt from the after-glazing block — that is the whole
+    // point of flex classes.
+    const has10ClassPackage = await hasTenClassPackage(dbCustomerId);
 
     if (!has10ClassPackage) {
       const { data: glazingBookings } = await supabaseDb.supabase

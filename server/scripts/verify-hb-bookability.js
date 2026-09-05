@@ -38,7 +38,12 @@ require('dotenv').config();
 
 const supabaseDb = require('../utils/supabaseDb');
 const { supabase } = supabaseDb;
-const { isGlazingClass } = require('../utils/glazing');
+const { isGlazingClass, hasTenClassPackage, GLAZING_DRYING_GAP_DAYS } = require('../utils/glazing');
+// The real gate, not a copy of it. This script's own copy read enrollments
+// filtered to status 'active', so it reported package students whose package had
+// been marked completed as unable to book handbuilding — the very false alarm the
+// route was fixed to stop producing.
+const { crossTypeRefusal } = require('../utils/bookingGates');
 const { todaySGT } = require('../utils/sgtDate');
 
 const VERBOSE = process.argv.includes('--verbose');
@@ -136,26 +141,10 @@ async function simulateMakeup(studentId, classInstance) {
     return 'You are already booked for this class';
   }
 
-  const { data: active } = await supabase
-    .from('course_enrollments')
-    .select('id, course_type, course_identifier, number_of_weeks')
-    .eq('student_id', studentId)
-    .eq('status', 'active');
+  const crossType = await crossTypeRefusal(studentId, classInstance);
+  if (crossType) return crossType;
 
-  const has10 = (active || []).some(e =>
-    e.number_of_weeks >= 10 || (e.course_type || '').includes('10 Classes'));
-
-  if (!has10 && active && active.length > 0) {
-    const hasHB = active.some(e =>
-      (e.course_type || '').toLowerCase().includes('handbuilding') ||
-      (e.course_identifier || '').startsWith('HB'));
-    const hasWT = active.some(e =>
-      (e.course_type || '').toLowerCase().includes('wheelthrowing') ||
-      (e.course_identifier || '').startsWith('WT'));
-    if (hasWT && !hasHB) {
-      return 'Your enrollment is for Wheelthrowing classes only. You cannot book Handbuilding classes.';
-    }
-  }
+  const has10 = await hasTenClassPackage(studentId);
 
   if (!has10) {
     const { data: booked } = await supabase
@@ -179,8 +168,12 @@ async function simulateMakeup(studentId, classInstance) {
       const cDate = new Date(classInstance.class_date);
       cDate.setHours(0, 0, 0, 0);
       if (cDate > gDate) return 'Blocked: after the glazing class';
+      // The route's own gap is GLAZING_DRYING_GAP_DAYS. Hardcoding 5 here meant
+      // the report understated the block by a day.
       const gap = (gDate - cDate) / 86400000;
-      if (gap > 0 && gap < 5) return 'Blocked: within 5 days before glazing';
+      if (gap > 0 && gap < GLAZING_DRYING_GAP_DAYS) {
+        return `Blocked: within ${GLAZING_DRYING_GAP_DAYS} days before glazing`;
+      }
     }
   }
   return null;
@@ -201,10 +194,14 @@ async function studentsWithHbCredit() {
   }
 
   // 10-class package students may spend flex credits on handbuilding.
+  // Same status rule as the gate itself: everything but cancelled. The old
+  // ['active','completed'] list was a fourth hand-written copy, and it left the
+  // paused package out of the sweep entirely — a student the gate now admits but
+  // this monitor would never have looked at.
   const { data: pkg } = await supabase
     .from('course_enrollments')
     .select('student_id')
-    .in('status', ['active', 'completed'])
+    .neq('status', 'cancelled')
     .gte('number_of_weeks', 10);
   for (const e of pkg || []) {
     const b = await supabaseDb.getBookableCredits(e.student_id);

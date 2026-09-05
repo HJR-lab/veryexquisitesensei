@@ -22,6 +22,12 @@
  *      whether the booking consumed a glazing class, so it neither counted the
  *      seat against the sub-cap nor spent the entitlement — an admin seating a
  *      package student on a marked HB session bypassed GLAZING_SUBCAP outright.
+ *   7. A package that is not status 'active' is still a package. The cross-type
+ *      gate read enrollments filtered to 'active', so a package marked completed
+ *      with its flex classes unspent made its holder look like a wheelthrowing-
+ *      only booker and refused them handbuilding outright — they could never
+ *      spend the glazing class they were still owed. A cancelled one, though, is
+ *      genuinely not a package.
  *
  * Run from server/:  node scripts/verify-glazing-class.js
  */
@@ -30,7 +36,8 @@ require('dotenv').config();
 const express = require('express');
 const supabaseDb = require('../utils/supabaseDb');
 const { supabase } = supabaseDb;
-const { GLAZING_SUBCAP, GLAZING_DRYING_GAP_DAYS, isGlazingClass, glazingSubCap } = require('../utils/glazing');
+const { GLAZING_SUBCAP, GLAZING_DRYING_GAP_DAYS, isGlazingClass, glazingSubCap,
+        findTenClassPackages } = require('../utils/glazing');
 
 let failures = 0;
 const cleanup = [];
@@ -136,41 +143,15 @@ async function put(port, path, body) {
     .order('id', { ascending: true })
     .limit(25);
 
-  // Only students the cross-type gate will actually let into an HB class can
-  // exercise the glazing rules. That gate reads ACTIVE enrollments only, so a
-  // package marked completed (routine once its 6-week cohort ends, while the
-  // flex classes including glazing are still unspent) leaves the student looking
-  // like a wheelthrowing-only booker and refuses them the marked HB class.
-  //
-  // Picking blindly made this script report five failures that were one
-  // student's enrollment status, not a glazing defect — so it selects a student
-  // the gate admits, and says plainly when the refusal is that gate.
-  async function crossTypeAdmits(studentId) {
-    const { data: active } = await supabase
-      .from('course_enrollments')
-      .select('course_type, course_identifier, number_of_weeks')
-      .eq('student_id', studentId)
-      .eq('status', 'active');
-    if (!active || active.length === 0) return true;
-    const has10 = active.some(e => e.number_of_weeks >= 10 || (e.course_type || '').includes('10 Classes'));
-    if (has10) return true;
-    const hasHB = active.some(e => (e.course_type || '').toLowerCase().includes('handbuilding') || (e.course_identifier || '').startsWith('HB'));
-    const hasWT = active.some(e => (e.course_type || '').toLowerCase().includes('wheelthrowing') || (e.course_identifier || '').startsWith('WT'));
-    return !(hasWT && !hasHB);
-  }
-
-  const withStudent = (pkgEnrollments || []).filter(e => e.student_id);
-  const admitted = [];
-  for (const e of withStudent) {
-    if (await crossTypeAdmits(e.student_id)) admitted.push(e);
-  }
-  const blockedByType = withStudent.length - admitted.length;
-  if (blockedByType > 0) {
-    console.log(`   \u26a0\ufe0f  ${blockedByType} package student(s) with an unspent glazing are refused HB by the cross-type gate`);
-    console.log('      (their package is not status "active", so the 10-class exemption does not fire — separate defect)');
-  }
-
-  const candidates = admitted;
+  // Every package holder is a candidate now. This used to pre-filter them through
+  // a hand-written copy of the cross-type gate and warn about the ones it refused:
+  // that gate read ACTIVE enrollments only, so a package marked completed (routine
+  // once its 6-week cohort ends, while the flex classes including glazing are
+  // still unspent) made the student look like a wheelthrowing-only booker and was
+  // refused the marked HB class. The gate now asks utils/glazing.js instead, which
+  // excludes only cancelled — so holding a package is enough, whatever its status.
+  // Pinned live further down ("a package marked completed can still book...").
+  const candidates = (pkgEnrollments || []).filter(e => e.student_id);
   if (candidates.length < 1) {
     console.log('⚠️  no package enrollment with an unspent glazing found — skipping the booking checks');
     console.log(`\n${failures === 0 ? '✅ rule checks passed' : `❌ ${failures} check(s) failed`}`);
@@ -234,6 +215,54 @@ async function put(port, path, body) {
     const { data: enrollAfter } = await supabase
       .from('course_enrollments').select('glazing_class_used').eq('id', student.id).single();
     assert('the glazing entitlement is spent', enrollAfter?.glazing_class_used, true);
+
+    // ── A package that is not status 'active' is still a package ──────────────
+    // The booking that just succeeded, run again with NOTHING changed but the
+    // enrollment's status, must still succeed. It did not: the cross-type gate
+    // read enrollments filtered to status 'active', and a 10-class package is
+    // routinely marked completed once its 6-week cohort ends while the 4 flex
+    // classes — glazing among them — are still unspent. Those students were
+    // refused handbuilding outright and could never spend a glazing class they
+    // legitimately held.
+    const { data: statusRow } = await supabase
+      .from('course_enrollments').select('status').eq('id', student.id).single();
+    const originalStatus = statusRow?.status;
+    cleanup.push(async () => {
+      await supabase.from('course_enrollments').update({ status: originalStatus }).eq('id', student.id);
+    });
+
+    await supabase.from('bookings').delete().eq('id', booked.body.booking.id);
+    await supabase.from('course_enrollments')
+      .update({ glazing_class_used: false, status: 'completed' }).eq('id', student.id);
+
+    const asCompleted = await post(port, '/api/classes/book', { classInstanceId: hb.id }, student.student_id);
+    if (asCompleted.status === 200) {
+      cleanup.push(async () => {
+        await supabase.from('bookings').delete().eq('id', asCompleted.body.booking.id);
+        await supabase.from('class_instances').update({ current_enrollment: hb.current_enrollment }).eq('id', hb.id);
+        await supabase.from('course_enrollments').update({ glazing_class_used: false }).eq('id', student.id);
+      });
+    }
+    assert('a package marked completed can still book the marked HB class', asCompleted.status, 200);
+    assert('and is not refused by the cross-type gate',
+           /Handbuilding classes only|Wheelthrowing classes only/i.test(asCompleted.body?.error || ''), false);
+
+    const { data: completedRow } = await supabase
+      .from('bookings').select('counts_as_glazing').eq('id', asCompleted.body?.booking?.id || 0).maybeSingle();
+    assert('and it still spends the glazing on that booking', completedRow?.counts_as_glazing, true);
+
+    const { data: completedEnroll } = await supabase
+      .from('course_enrollments').select('glazing_class_used').eq('id', student.id).single();
+    assert('and the entitlement is marked used', completedEnroll?.glazing_class_used, true);
+
+    // The other half of the rule: a genuinely cancelled enrollment is NOT a
+    // package. Asked of the shared helper itself, and scoped to this row, since
+    // the student may hold more than one.
+    await supabase.from('course_enrollments').update({ status: 'cancelled' }).eq('id', student.id);
+    const cancelledStillCounts =
+      (await findTenClassPackages(student.student_id)).some(e => e.id === student.id);
+    assert('a cancelled package is not a package', cancelledStillCounts, false);
+    await supabase.from('course_enrollments').update({ status: 'completed' }).eq('id', student.id);
 
     // The sub-cap is 1 and it is now taken, so a second GLAZING booking must be
     // refused even though the class itself has seats left.
@@ -427,7 +456,7 @@ async function put(port, path, body) {
     for (const undo of cleanup.reverse()) {
       try { await undo(); } catch (e) { console.error('cleanup failed:', e.message); }
     }
-    console.log('   (restored: bookings removed, glazing marker and entitlements reset)');
+    console.log('   (restored: bookings removed, glazing marker, entitlements and enrollment statuses reset)');
   }
 
   console.log(`\n${failures === 0 ? '✅ all checks passed' : `❌ ${failures} check(s) failed`}`);

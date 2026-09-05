@@ -161,6 +161,20 @@ async function findTenClassPackages(studentId) {
   return (data || []).filter(isTenClassPackage);
 }
 
+/**
+ * Does this student hold a 10-class package at all — spent glazing or not?
+ *
+ * The cross-type booking gate and the after-glazing block both need this exact
+ * question answered, and both used to answer it themselves off a list of
+ * enrollments filtered to status 'active'. That is the failure this module
+ * exists to end: a package is routinely marked completed once its 6-week cohort
+ * ends while the 4 flex classes are still unspent, so those hand-written tests
+ * said "no package" about students who were holding one.
+ */
+async function hasTenClassPackage(studentId) {
+  return (await findTenClassPackages(studentId)).length > 0;
+}
+
 /** The package enrollment that still owes its FLEX glazing class, if any. */
 async function findPendingGlazingEnrollment(studentId) {
   const packages = await findTenClassPackages(studentId);
@@ -267,6 +281,7 @@ module.exports = {
   glazingSubCap,
   isTenClassPackage,
   findTenClassPackages,
+  hasTenClassPackage,
   findPendingGlazingEnrollment,
   resolveGlazingConsumption,
   spendGlazingEntitlement,

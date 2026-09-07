@@ -31,15 +31,18 @@ function rules() {
   t('marked HB ceiling is its 8',  cap.wheelCapFor({ class_type: 'HBFRINT_LT', max_capacity: 8, is_glazing: true }), 8);
 
   // Everything that is not glazing is untouched.
-  t('6.3 still held to 10',        cap.wheelCapFor({ class_type: 'WT2507AM_DL6.3', max_capacity: 10 }), 10);
-  t('6.4 still holds 11',          cap.wheelCapFor({ class_type: 'WT2507AM_DL6.4', max_capacity: 10 }), 11);
-  t('6.5 still holds 11',          cap.wheelCapFor({ class_type: 'WT2507AM_DL6.5', max_capacity: 10 }), 11);
+  // Fixtures use JL, which is on the studio's general rules. DL has its own
+  // room sizes (INSTRUCTOR_WEEK_CAPS) and would answer these differently by
+  // design — see verify-trimming-week-room-cap.js.
+  t('6.3 still held to 10',        cap.wheelCapFor({ class_type: 'WT2507AM_JL6.3', max_capacity: 10 }), 10);
+  t('6.4 still holds 11',          cap.wheelCapFor({ class_type: 'WT2507AM_JL6.4', max_capacity: 10 }), 11);
+  t('6.5 still holds 11',          cap.wheelCapFor({ class_type: 'WT2507AM_JL6.5', max_capacity: 10 }), 11);
   t('plain HB still held to 10',   cap.wheelCapFor({ class_type: 'HBFRINT_LT', max_capacity: 8 }), 10);
   t('unnumbered code held to 10',  cap.wheelCapFor({ class_type: 'N/A' }), 10);
 
   // A glazing row with no stored capacity falls back to the ordinary room cap
   // rather than to nothing — the exemption widens nothing on its own.
-  t('glazing with no stored cap',  cap.wheelCapFor({ class_type: 'WT2507AM_DL6.6' }), cap.WT_ROOM_CAP);
+  t('glazing with no stored cap',  cap.wheelCapFor({ class_type: 'WT2507AM_JL6.6' }), cap.WT_ROOM_CAP);
 
   t('ceiling constant unchanged',  cap.STUDIO_WHEELS, 10);
 }
@@ -95,7 +98,10 @@ async function nonGlazingUntouched() {
     .order('class_date')
     .limit(400);
 
-  const plain = (upcoming || []).filter(c => !isGlazingClass(c) && !cap.hasWideRoom(c));
+  // Instructor-capped classes are excluded: they answer to their own stored
+  // room size, not to STUDIO_WHEELS. A mid-run DL 6.5 sold at 11 is one.
+  const plain = (upcoming || []).filter(c =>
+    !isGlazingClass(c) && !cap.hasWideRoom(c) && cap.instructorRoomCap(c) === null);
   const wrong = [];
   for (const c of plain) {
     const seat = await checkSeatAvailability(c, 0, { checkWheels: true });

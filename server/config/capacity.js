@@ -74,6 +74,28 @@ const WT_ROOM_CAP = 10;
 const WT_WIDE_WEEKS = Object.freeze({ 6: [4, 5] });
 const WT_WIDE_ROOM_CAP = 11;
 
+// Per-instructor room sizes, by course length and week.
+//
+// The numbers above are the studio's general rules. An instructor whose classes
+// run at a different number gets it here, and here only — one entry per week
+// that differs from what the general rules would give.
+//
+// DL runs the trimming weeks at the ordinary 10 rather than taking the wide
+// room's 11, and closes at 12 rather than the glazing default of 14.
+//
+// This is the number a NEW class is CREATED at — initialRoomCapacity(). It is
+// deliberately not applied to class_instances that already exist: a cohort part
+// way through was sold and staffed at the number stored on its rows, and
+// shrinking a room a student is already booked into is not a config change. So
+// roomCapacity() keeps reading the stored value, and mid-run cohorts finish on
+// the numbers they started with while the next cohort starts on these.
+//
+// A week not listed here follows the general rules untouched, and 7-week
+// intermediate courses are excluded exactly as they are from WT_WIDE_WEEKS.
+const INSTRUCTOR_WEEK_CAPS = Object.freeze({
+  DL: Object.freeze({ 6: Object.freeze({ 4: 10, 5: 10, 6: 12 }) }),
+});
+
 /**
  * Read the week indicator off a class code.
  * WT0507AM_DL6.4 → { total: 6, week: 4 }. Non-WT or unnumbered codes → null.
@@ -89,6 +111,33 @@ function parseWtWeek(classType) {
 }
 
 /**
+ * The instructor code carried by a class code.
+ * WT0507AM_DL6.4 → 'DL'. Anything unnumbered or non-WT → null.
+ * @param {string} classType
+ * @returns {string|null}
+ */
+function parseInstructorCode(classType) {
+  const m = String(classType || '').match(/_([A-Za-z]+)\d+\.\d+$/);
+  return m ? m[1].toUpperCase() : null;
+}
+
+/**
+ * The room size this instructor runs this week at, if it differs from the
+ * general rules. Read off the class code, so it answers for a row that does not
+ * exist yet.
+ * @param {object|string} classInstance  a class_instances row, or its class_type
+ * @returns {number|null} null when the general rules apply
+ */
+function instructorRoomCap(classInstance) {
+  const classType = typeof classInstance === 'string' ? classInstance : classInstance?.class_type;
+  const wk = parseWtWeek(classType);
+  if (!wk) return null;
+  const code = parseInstructorCode(classType);
+  const cap = code && INSTRUCTOR_WEEK_CAPS[code]?.[wk.total]?.[wk.week];
+  return Number.isInteger(cap) ? cap : null;
+}
+
+/**
  * Is this one of the weeks that holds the wider room?
  * @param {object|string} classInstance  a class_instances row, or its class_type
  */
@@ -96,6 +145,10 @@ function hasWideRoom(classInstance) {
   const classType = typeof classInstance === 'string' ? classInstance : classInstance?.class_type;
   const wk = parseWtWeek(classType);
   if (!wk) return false;
+  // An instructor with their own number for this week is not on the wide-room
+  // rule at all — otherwise a DL 6.4 created at 10 would be widened straight
+  // back to 11 by the very function that is meant to leave it alone.
+  if (instructorRoomCap(classType) !== null) return false;
   return (WT_WIDE_WEEKS[wk.total] || []).includes(wk.week);
 }
 
@@ -106,12 +159,38 @@ function hasWideRoom(classInstance) {
  * already been widened to 11 — and a class an admin deliberately opened wider
  * still keeps its own number.
  *
+ * A class whose instructor has their own number for the week is read straight
+ * off its stored value and never adjusted — that number was decided when the
+ * class was created (see initialRoomCapacity), and a cohort already running
+ * keeps the room it was sold.
+ *
  * @param {object} classInstance  needs class_type and max_capacity
  */
 function roomCapacity(classInstance) {
   const stored = Number.isInteger(classInstance?.max_capacity) ? classInstance.max_capacity : null;
+  const instructorCap = instructorRoomCap(classInstance);
+  if (instructorCap !== null) return stored ?? instructorCap;
   if (hasWideRoom(classInstance)) return Math.max(stored || 0, WT_WIDE_ROOM_CAP);
   return stored || WT_ROOM_CAP;
+}
+
+/**
+ * The max_capacity a class should be CREATED at.
+ *
+ * The only place INSTRUCTOR_WEEK_CAPS actually bites. Every other reader — the
+ * booking gate, the roster, the calendar — goes through roomCapacity() and sees
+ * whatever was stored here, so changing a number below moves the next cohort
+ * without touching one that is already running.
+ *
+ * @param {string} classType  e.g. 'WT1209AM_DL6.6'
+ * @param {number} proposed   what the caller would otherwise have stored
+ */
+function initialRoomCapacity(classType, proposed) {
+  const instructorCap = instructorRoomCap(classType);
+  if (instructorCap !== null) {
+    return Number.isInteger(proposed) ? Math.min(proposed, instructorCap) : instructorCap;
+  }
+  return roomCapacity({ class_type: classType, max_capacity: proposed });
 }
 
 /**
@@ -132,6 +211,13 @@ function roomCapacity(classInstance) {
  */
 function wheelCapFor(classInstance) {
   if (isGlazingClass(classInstance)) return roomCapacity(classInstance);
+  // An instructor running their own room size is never blocked by the general
+  // ceiling from filling it — the same relationship the wide weeks already have
+  // with STUDIO_WHEELS. It cannot lower the ceiling below 10 either, so a DL
+  // class sharing a timeslot is still counted like any other.
+  if (instructorRoomCap(classInstance) !== null) {
+    return Math.max(STUDIO_WHEELS, roomCapacity(classInstance));
+  }
   return hasWideRoom(classInstance) ? WT_WIDE_ROOM_CAP : STUDIO_WHEELS;
 }
 
@@ -155,7 +241,11 @@ module.exports = {
   WT_ROOM_CAP,
   WT_WIDE_WEEKS,
   WT_WIDE_ROOM_CAP,
+  INSTRUCTOR_WEEK_CAPS,
   parseWtWeek,
+  parseInstructorCode,
+  instructorRoomCap,
+  initialRoomCapacity,
   hasWideRoom,
   roomCapacity,
   wheelCapFor,

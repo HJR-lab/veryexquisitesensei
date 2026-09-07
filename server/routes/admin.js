@@ -4,7 +4,7 @@ const courseConfig = require('../utils/courseConfig');
 const { getPackageProgress } = require('../utils/packageProgress');
 const { setClassGlazing, resolveGlazingConsumption,
         spendGlazingEntitlement } = require('../utils/glazing');
-const { roomCapacity } = require('../config/capacity');
+const { initialRoomCapacity } = require('../config/capacity');
 
 // In-memory cache for admin stats summary (30s TTL)
 let adminStatsSummaryCache = null;
@@ -5352,12 +5352,12 @@ app.post('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asy
     const classTypeWithWeek = `${classType}.${weekNumber}`;
 
     // Use glazing capacity for the last class, regular capacity for others —
-    // then let roomCapacity() widen a 6-week WT's weeks 4 and 5, which is the
-    // one place that rule lives.
-    const classCapacity = roomCapacity({
-      class_type: classTypeWithWeek,
-      max_capacity: isLastClass ? finalGlazingCapacity : regularCapacity,
-    });
+    // then let initialRoomCapacity() widen a 6-week WT's weeks 4 and 5 and apply
+    // any per-instructor room size, which is the one place those rules live.
+    const classCapacity = initialRoomCapacity(
+      classTypeWithWeek,
+      isLastClass ? finalGlazingCapacity : regularCapacity
+    );
 
     const { data, error} = await supabaseDb.supabase
       .from('class_instances')

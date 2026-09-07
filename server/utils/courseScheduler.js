@@ -3,7 +3,7 @@
  * Handles parsing of Shopify course variant titles and generation of class instance dates
  */
 
-const { roomCapacity } = require('../config/capacity');
+const { initialRoomCapacity } = require('../config/capacity');
 
 /**
  * Parse course information from Shopify product title and variant
@@ -395,13 +395,15 @@ function createClassInstances(courseInfo, options = {}) {
       class_type: courseIdentifier || `${courseInfo.courseType} (Week ${weekNumber}/${classDates.length})`,
       instructor: courseInfo.instructor || instructorName,
       room: courseInfo.room || room,
-      // roomCapacity() widens weeks 4 and 5 of a 6-week WT to 11. Storing it
-      // (rather than leaving the gate to derive it) keeps every roster and
-      // capacity readout agreeing with the gate.
-      max_capacity: roomCapacity({
-        class_type: courseIdentifier,
-        max_capacity: isLastClass ? glazingCapacity : maxCapacity,
-      }),
+      // initialRoomCapacity() widens weeks 4 and 5 of a 6-week WT to 11 and
+      // applies any per-instructor room size. Storing it (rather than leaving
+      // the gate to derive it) keeps every roster and capacity readout agreeing
+      // with the gate, and means a later change to those numbers moves the next
+      // cohort rather than one already running.
+      max_capacity: initialRoomCapacity(
+        courseIdentifier,
+        isLastClass ? glazingCapacity : maxCapacity
+      ),
       current_enrollment: 0,
       status: 'active',
       updated_at: new Date().toISOString()

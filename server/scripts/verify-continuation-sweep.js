@@ -10,7 +10,7 @@
 require('dotenv').config();
 const { supabase } = require('../utils/supabaseDb');
 const { assertDisplayDate } = require('../utils/packageContinuation');
-const { lapseExpiredOffers, findDuePackageStudents, createDueOffers } = require('../utils/continuationSweep');
+const { lapseExpiredOffers, findDuePackageStudents, createDueOffers, closeFulfilledOffers } = require('../utils/continuationSweep');
 const { autosendStatus } = require('../utils/continuationOffer');
 
 let failures = 0;
@@ -102,6 +102,79 @@ async function main() {
     const run3 = await createDueOffers();
     run3.created.forEach(c => created.push(c.offer.id));
     assert(run3.created.length >= 1, 'a student whose offer lapsed can be offered again');
+  }
+
+  // ---- 5. An offer the student has already taken up is closed, not chased ----
+  //
+  // The regression this guards: student 2625 was enrolled into WT1009NT_JL6 on
+  // 27/08 by another route while offer 27 sat pending, was then emailed "your
+  // place closes tomorrow" for a place already booked, and the offer lapsed
+  // reporting a seat released that was never free.
+  //
+  // Writes ONLY into continuation_offers — never an enrollment — and points a
+  // synthetic offer at a cohort key an existing enrollment already satisfies.
+  console.log('\nalready-enrolled offers:');
+  const { data: livePending } = await supabase
+    .from('continuation_offers').select('student_id').eq('status', 'pending');
+  const busy = new Set((livePending || []).map(o => o.student_id));
+
+  const { data: candidates } = await supabase
+    .from('course_enrollments')
+    .select('id, student_id, course_start_date, class_time')
+    .neq('status', 'cancelled')
+    .not('course_start_date', 'is', null)
+    .not('class_time', 'is', null)
+    .limit(200);
+
+  const seed = (candidates || []).find(e => !busy.has(e.student_id));
+  // source_enrollment_id is NOT NULL, and must not be the row we are matching
+  // against or the offer would match itself.
+  const source = (candidates || []).find(e => seed && e.id !== seed.id);
+  if (!seed || !source) {
+    console.log('  (no enrollment free of a pending offer — skipped)');
+  } else {
+    const future = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+    const mk = async (overrides) => {
+      const { data, error } = await supabase.from('continuation_offers').insert({
+        token: require('crypto').randomBytes(24).toString('hex'),
+        student_id: seed.student_id,
+        source_enrollment_id: source.id,
+        cohort_start_date: seed.course_start_date,
+        class_time: seed.class_time,
+        schedule_pattern: 'VERIFY',
+        status: 'pending',
+        expires_at: future,
+        ...overrides,
+      }).select().single();
+      if (error) throw error;
+      created.push(data.id);
+      return data;
+    };
+
+    // (a) matches an enrollment the student already holds
+    const held = await mk({});
+    // (b) same student, a cohort date nobody is enrolled in
+    const notHeld = await mk({ cohort_start_date: '2099-01-05' });
+
+    const closed = await closeFulfilledOffers();
+    assert(closed.some(o => o.id === held.id), 'an offer the student already holds a place in is closed');
+    assert(!closed.some(o => o.id === notHeld.id), 'an offer with no matching enrollment is left pending');
+
+    const { data: heldAfter } = await supabase
+      .from('continuation_offers').select('status, created_enrollment_id').eq('id', held.id).single();
+    assert(heldAfter?.status === 'fulfilled', `status is fulfilled, not confirmed (got ${heldAfter?.status})`);
+    assert(heldAfter?.created_enrollment_id === seed.id, 'it points at the enrollment that satisfied it');
+
+    const { data: notHeldAfter } = await supabase
+      .from('continuation_offers').select('status').eq('id', notHeld.id).single();
+    assert(notHeldAfter?.status === 'pending', `the unmatched offer is untouched (got ${notHeldAfter?.status})`);
+
+    const again = await closeFulfilledOffers();
+    assert(!again.some(o => o.id === held.id), 'closing is idempotent — not closed twice');
+
+    // The seat maths: a closed offer must never be counted as released.
+    const lapsedNow = await lapseExpiredOffers();
+    assert(!lapsedNow.some(l => l.id === held.id), 'a fulfilled offer is not also lapsed');
   }
 
   console.log(`\n${failures === 0 ? 'PASS' : `FAIL — ${failures} assertion(s)`}`);

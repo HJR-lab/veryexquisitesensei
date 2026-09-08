@@ -87,6 +87,9 @@ export default function ContinuationOffer() {
       pass: { h: 'No problem.', p: 'We have released this one. Your remaining courses stay yours — we will offer you the next available date.' },
       passed: { h: 'You passed on this course.', p: 'Your remaining courses stay yours — we will be in touch about the next date.' },
       lapsed: { h: 'This offer has closed.', p: 'The place has been released, but your remaining courses stay yours. Email info@ves.sg and we will find you the next date.' },
+      // Booked some other way — an admin pressed Continue, or the cohort formed
+      // around them — while this link was still open. Not something they did.
+      fulfilled: { h: 'Your place is already booked.', p: `You are down for ${fmtDate(offer.startDate)}. Nothing more to do — email info@ves.sg if that is not what you expected.` },
     }[settled] || { h: 'This offer is no longer open.', p: 'Email info@ves.sg and we will help.' };
 
     return page(

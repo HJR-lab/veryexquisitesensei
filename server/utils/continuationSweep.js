@@ -21,6 +21,85 @@ const { resolveNextCourse } = require('./packageContinuation');
 const { createContinuationOffer } = require('./continuationOffer');
 
 /**
+ * Close offers the student has already taken up by another route.
+ *
+ * An offer was only ever ended two ways: the student taps an answer, or it
+ * expires. Nothing watched for the third — the place gets booked some other
+ * way while the offer sits pending, because an admin pressed Continue or the
+ * cohort formed around them. The offer then chases a seat the student already
+ * holds: a "your place closes tomorrow" reminder for a booked place, and a
+ * lapse that reports the seat released while the enrollment stands. Student
+ * 2625 was enrolled into WT1009NT_JL6 on 27/08, reminded about it on 04/09,
+ * and the offer lapsed on 05/09.
+ *
+ * Closed as 'fulfilled', never 'confirmed' — the student did not answer, and
+ * the record must not claim they did. created_enrollment_id points at the
+ * enrollment that satisfied it, so the trail still leads somewhere.
+ *
+ * Matched on (student, cohort start date, class time): a student cannot hold
+ * two cohorts at the same date and time, and course_identifier is unreliable
+ * here because the offer stores it with any '.suffix' stripped.
+ *
+ * Runs FIRST, before lapsing, so a fulfilled offer is never counted as a
+ * released seat.
+ *
+ * @returns {Promise<Array>} the offers closed
+ */
+async function closeFulfilledOffers() {
+  const { data: pending, error } = await supabase
+    .from('continuation_offers')
+    .select('id, student_id, cohort_start_date, class_time, source_enrollment_id')
+    .eq('status', 'pending');
+
+  if (error) {
+    console.error('[ContinuationSweep] fulfilled query failed:', error.message);
+    return [];
+  }
+  if (!pending?.length) return [];
+
+  const closed = [];
+  for (const offer of pending) {
+    try {
+      let q = supabase
+        .from('course_enrollments')
+        .select('id')
+        .eq('student_id', offer.student_id)
+        .eq('course_start_date', offer.cohort_start_date)
+        .eq('class_time', offer.class_time)
+        .neq('status', 'cancelled')
+        .limit(1);
+      if (offer.source_enrollment_id) q = q.neq('id', offer.source_enrollment_id);
+
+      const { data: held } = await q;
+      if (!held?.length) continue;
+
+      const { data: updated, error: updateError } = await supabase
+        .from('continuation_offers')
+        .update({
+          status: 'fulfilled',
+          responded_at: new Date().toISOString(),
+          created_enrollment_id: held[0].id,
+        })
+        .eq('id', offer.id)
+        .eq('status', 'pending')
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error(`[ContinuationSweep] closing offer ${offer.id} failed:`, updateError.message);
+        continue;
+      }
+      closed.push(updated);
+      console.log(`[ContinuationSweep] offer ${offer.id} closed — student ${offer.student_id} is already enrolled (${held[0].id})`);
+    } catch (err) {
+      // One bad row must never stop the sweep.
+      console.error(`[ContinuationSweep] fulfilled check for offer ${offer.id} failed:`, err.message);
+    }
+  }
+  return closed;
+}
+
+/**
  * Close offers past their deadline. Idempotent — an already-lapsed row is not
  * matched again.
  * @returns {Promise<Array>} the offers that were lapsed
@@ -216,7 +295,7 @@ async function createDueOffers() {
  * system would have written to, for Justin to send by hand and to check the
  * picks against what he would have done.
  */
-function buildSweepReport({ created, skipped, examined, lapsed, caughtUp = [], paused, pausedReason, base }) {
+function buildSweepReport({ created, skipped, examined, lapsed, caughtUp = [], fulfilled = [], paused, pausedReason, base }) {
   const esc = s => String(s ?? '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -257,9 +336,15 @@ function buildSweepReport({ created, skipped, examined, lapsed, caughtUp = [], p
     ? `<p style="color:#888;font-size:13px;">${caughtUp.length} offer(s) that had never been sent were emailed today.</p>`
     : '';
 
+  // A closed-as-fulfilled offer is the one case where the automation stops
+  // itself, so it is worth saying out loud rather than folding into the skips.
+  const fulfilledLine = fulfilled.length
+    ? `<p style="color:#888;font-size:13px;">${fulfilled.length} offer(s) closed — those students are already booked into the cohort, so nothing was chased.</p>`
+    : '';
+
   const html = `${header}${
     created.length ? `<table style="border-collapse:collapse;font-size:14px;">${rows}</table>` : ''
-  }${skipLine}${caughtUpLine}${lapsedLine}`;
+  }${skipLine}${caughtUpLine}${fulfilledLine}${lapsedLine}`;
 
   return {
     subject: `VES: ${created.length} continuation offer(s)${paused ? ' ready to send' : ' sent'}`,
@@ -267,8 +352,8 @@ function buildSweepReport({ created, skipped, examined, lapsed, caughtUp = [], p
   };
 }
 
-async function reportSweep({ created, skipped, examined, lapsed, caughtUp = [] }) {
-  if (created.length === 0 && lapsed.length === 0 && caughtUp.length === 0) return;
+async function reportSweep({ created, skipped, examined, lapsed, caughtUp = [], fulfilled = [] }) {
+  if (created.length === 0 && lapsed.length === 0 && caughtUp.length === 0 && fulfilled.length === 0) return;
 
   const { sendEmail } = require('./emailService');
   const { publicBaseUrl } = require('./publicUrl');
@@ -276,7 +361,7 @@ async function reportSweep({ created, skipped, examined, lapsed, caughtUp = [] }
 
   const gate = autosendStatus();
   const { subject, html } = buildSweepReport({
-    created, skipped, examined, lapsed, caughtUp,
+    created, skipped, examined, lapsed, caughtUp, fulfilled,
     paused: !gate.enabled,
     pausedReason: gate.reason,
     base: publicBaseUrl(),
@@ -367,15 +452,18 @@ async function remindExtendedOffers() {
  */
 async function runContinuationSweep() {
   try {
+    // Before lapsing: a student who is already booked into the cohort must not
+    // have their offer counted as a released seat.
+    const fulfilled = await closeFulfilledOffers();
     const lapsed = await lapseExpiredOffers();
     // After lapsing, so an offer past its deadline is released rather than
     // emailed; before creating, so a caught-up offer is not also re-minted.
     const caughtUp = await sendUnsentOffers();
     const reminded = await remindExtendedOffers();
     const { created, skipped, examined } = await createDueOffers();
-    console.log(`[ContinuationSweep] examined ${examined}, created ${created.length}, lapsed ${lapsed.length}, caught up ${caughtUp.length}, reminded ${reminded.length}`);
-    await reportSweep({ created, skipped, examined, lapsed, caughtUp });
-    return { created, skipped, examined, lapsed, caughtUp };
+    console.log(`[ContinuationSweep] examined ${examined}, created ${created.length}, fulfilled ${fulfilled.length}, lapsed ${lapsed.length}, caught up ${caughtUp.length}, reminded ${reminded.length}`);
+    await reportSweep({ created, skipped, examined, lapsed, caughtUp, fulfilled });
+    return { created, skipped, examined, lapsed, caughtUp, fulfilled };
   } catch (err) {
     console.error('[ContinuationSweep] failed:', err);
     return null;
@@ -384,6 +472,7 @@ async function runContinuationSweep() {
 
 module.exports = {
   buildSweepReport,
+  closeFulfilledOffers,
   lapseExpiredOffers,
   sendUnsentOffers,
   remindExtendedOffers,

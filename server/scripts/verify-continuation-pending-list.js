@@ -69,14 +69,40 @@ async function main() {
   let ok = true;
   const assert = (c, m) => { console.log(`  ${c ? 'PASS' : 'FAIL'}: ${m}`); ok = ok && c; };
   console.log('\n--- Assertions ---');
-  const ivy = added.find(a => a.sid === 1186);
-  assert(!!ivy, 'Ivy Tan (1186) now appears in the admin list (was missing → "No users found")');
-  if (ivy) {
-    assert(ivy.email === 'ironyv@yahoo.com.sg', `Ivy email = ${ivy.email}`);
-    assert(ivy.packageCoursesRemaining === 1, `Ivy packageCoursesRemaining === 1 (got ${ivy.packageCoursesRemaining})`);
-    assert(ivy.continuationPending === true && ivy.isWT === true && ivy.enrollmentStatus === 'active',
-      'Ivy flagged continuationPending + isWT + enrollmentStatus=active (flows through WT-active filter → searchable)');
+  // The original bug was found on one student (1186), but pinning the assertion
+  // to that student rotted: she has since finished her third course, so
+  // remaining is 0 and excluding her is now the CORRECT answer. A verification
+  // that fails because live data moved on is a false alarm, and a false alarm
+  // that fires every run teaches people to ignore the suite.
+  //
+  // So assert the INVARIANT the fix actually guarantees — every completed-package
+  // student with courses left who is not already listed must appear — and check
+  // the original student against whichever branch her current state belongs in.
+  const orig = added.find(a => a.sid === 1186);
+  const origExcluded = excludedRemainingZero.find(e => e.sid === 1186);
+  if (orig) {
+    assert(orig.packageCoursesRemaining > 0, `student 1186 appears with courses left (${orig.packageCoursesRemaining})`);
+    assert(orig.continuationPending === true && orig.isWT === true && orig.enrollmentStatus === 'active',
+      'student 1186 flagged continuationPending + isWT + enrollmentStatus=active (flows through WT-active filter → searchable)');
+  } else if (origExcluded) {
+    assert(origExcluded.remaining <= 0,
+      `student 1186 has consumed her package (remaining ${origExcluded.remaining}) — correctly excluded, original fixture has aged out`);
+  } else {
+    assert(false, 'student 1186 is neither listed nor excluded — she has dropped out of the query entirely');
   }
+
+  // The invariant, stated independently of any one student: nobody with a
+  // part-used package is silently missing from the admin list.
+  const missing = [];
+  for (const enr of (completedPkgAll || [])) {
+    const sid = enr.student_id;
+    if (!enr.customers) continue;
+    if (emailSet.has(enr.customers.email)) continue;
+    if (added.some(a => a.sid === sid) || excludedRemainingZero.some(e => e.sid === sid)) continue;
+    missing.push(sid);
+  }
+  assert(missing.length === 0,
+    `every completed-package student is either listed or explicitly excluded (unaccounted: ${missing.length})`);
   // No student added who already has an active/paused/upcoming enrollment (no duplicates)
   const dupes = added.filter(a => emailSet.has(a.email));
   assert(dupes.length === 0, `No duplicates with active/paused/upcoming students (found ${dupes.length})`);

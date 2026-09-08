@@ -1,5 +1,5 @@
 const supabaseDb = require('../utils/supabaseDb');
-const { getStudioAccessPasses } = require('../utils/studioAccess');
+const { getStudioAccessPasses, refundStudioAccessCredit } = require('../utils/studioAccess');
 const { uploadImageToSupabase, deleteImageFromSupabase } = require('../utils/imageUpload');
 const { readMembershipSettings, writeMembershipSettings } = require('../utils/membershipSettings');
 const { readStudioAccessHours, writeStudioAccessHours, resolveHoursForDate, weeklySummary, isOpen, DAY_NAMES } = require('../utils/studioAccessHours');
@@ -1201,6 +1201,7 @@ const STUDIO_ACCESS_RATE = 20; // $20/hr
 const STUDIO_ACCESS_MIN_HOURS = 2;
 const STUDIO_ACCESS_MAX_PER_DATE = 10;
 
+
 async function checkStudioAccessEligibility(customerId) {
   // Check active/paused course enrollment
   const { data: enrollments } = await supabaseDb.supabase
@@ -1533,13 +1534,18 @@ app.put('/api/studio-access/bookings/:id/cancel', authenticateToken, asyncHandle
 
   if (error) throw error;
 
+  // Always refunded on this path: the 2-hour window above is the whole test for
+  // whether a student may cancel, so anything that gets past it is cancelled in
+  // good time and the session never happened.
+  const refunded = await refundStudioAccessCredit(booking, 'cancelled by student');
+
   // Remove from Google Calendar
   try {
     const calendarSync = require('../utils/calendarSync');
     calendarSync.deleteStudioAccess(parseInt(id)).catch(() => {});
   } catch (e) { /* ignore */ }
 
-  res.json({ booking: data });
+  res.json({ booking: { ...data, credit_applied: 0 }, creditRefunded: refunded });
 }));
 
 // ── Admin: List bookings ────────────────────────────────────────────────────
@@ -1752,6 +1758,11 @@ app.put('/api/admin/studio-access/bookings/:id/attended', authenticateToken, req
 app.put('/api/admin/studio-access/bookings/:id/cancel', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin only' });
 
+  // Refunding is the default, because the ordinary reason an admin cancels is
+  // that the session is not happening. Passing refundCredit: false keeps the
+  // charge — for a late no-show the studio held the slot and the credit stands.
+  const refundCredit = req.body?.refundCredit !== false;
+
   const { data, error } = await supabaseDb.supabase
     .from('studio_access_bookings')
     .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), updated_at: new Date().toISOString() })
@@ -1762,18 +1773,37 @@ app.put('/api/admin/studio-access/bookings/:id/cancel', authenticateToken, requi
   if (error) throw error;
   if (!data) return res.status(404).json({ error: 'Booking not found' });
 
+  const refunded = refundCredit
+    ? await refundStudioAccessCredit(data, 'cancelled by admin')
+    : 0;
+
   // Remove from Google Calendar
   try {
     const calendarSync = require('../utils/calendarSync');
     calendarSync.deleteStudioAccess(parseInt(req.params.id)).catch(() => {});
   } catch (e) { /* ignore */ }
 
-  res.json({ booking: data });
+  res.json({
+    booking: refunded > 0 ? { ...data, credit_applied: 0 } : data,
+    creditRefunded: refunded,
+    creditKept: refundCredit ? 0 : (Number(data.credit_applied) || 0),
+  });
 }));
 
 // ── Admin: Hard delete booking ──────────────────────────────────────────────
 app.delete('/api/admin/studio-access/bookings/:id', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin only' });
+
+  // Refund before the row goes, not after. Once the booking is deleted the
+  // spend transaction points at nothing and the credit is unrecoverable
+  // without reading the ledger by hand.
+  const { data: booking } = await supabaseDb.supabase
+    .from('studio_access_bookings')
+    .select('*')
+    .eq('id', req.params.id)
+    .maybeSingle();
+
+  const refunded = booking ? await refundStudioAccessCredit(booking, 'booking deleted') : 0;
 
   const { error } = await supabaseDb.supabase
     .from('studio_access_bookings')
@@ -1781,6 +1811,6 @@ app.delete('/api/admin/studio-access/bookings/:id', authenticateToken, requireAd
     .eq('id', req.params.id);
 
   if (error) throw error;
-  res.json({ success: true });
+  res.json({ success: true, creditRefunded: refunded });
 }));
 };

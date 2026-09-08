@@ -639,6 +639,11 @@ function startAutomaticProcessing() {
       // Keep the handbuilding calendar filled to its rolling horizon. Idempotent
       // — on an ordinary night this creates one class, or none.
       require('./hbScheduleGenerator').topUpHbSchedule().catch(console.error);
+      // Close out studio access bookings whose date passed with nobody marking
+      // them attended or cancelled — they hold the student's credit until
+      // someone does. Auto-refunds only the never-confirmed ones; a confirmed
+      // booking might have been attended, so that only gets reported.
+      require('./studioAccess').sweepStaleStudioAccess().catch(console.error);
     }
 
     // Run anomaly probe at 2:15 AM — after the 2:00 AM batch so any

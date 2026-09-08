@@ -1606,7 +1606,19 @@ export default function AdminStudentDetail() {
                               <button onClick={async () => { await api.put(`/admin/studio-access/bookings/${b.id}/attended`); loadStudentData(); }} style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 700, border: 'none', cursor: 'pointer', backgroundColor: '#1565C0', color: '#FFF', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Attended</button>
                             )}
                             {b.status !== 'cancelled' && b.status !== 'attended' && (
-                              <button onClick={async () => { await api.put(`/admin/studio-access/bookings/${b.id}/cancel`); loadStudentData(); }} style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 700, border: 'none', cursor: 'pointer', backgroundColor: '#EEE', color: '#C62828', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Cancel</button>
+                              <button onClick={async () => {
+                                // The booking spent VES credit when it was made. Refunding is
+                                // the default, but a late no-show held the slot and the charge
+                                // should stand — so ask, and only when there is money at stake.
+                                const held = Number(b.credit_applied) || 0;
+                                const refundCredit = held === 0 || window.confirm(
+                                  `Cancel this booking and return $${held} credit to the student?\n\n`
+                                  + `OK — cancel and refund the $${held}.\n`
+                                  + `Cancel — cancel but keep the $${held} charge (late no-show).`
+                                );
+                                await api.put(`/admin/studio-access/bookings/${b.id}/cancel`, { refundCredit });
+                                loadStudentData();
+                              }} style={{ padding: '3px 8px', fontSize: '9px', fontWeight: 700, border: 'none', cursor: 'pointer', backgroundColor: '#EEE', color: '#C62828', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Cancel</button>
                             )}
                           </div>
                         </div>

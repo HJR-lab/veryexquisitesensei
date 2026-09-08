@@ -159,6 +159,60 @@ async function spendCredits({ customerId, maxAmount, source, referenceId, descri
   return { spent, transaction: data };
 }
 
+/**
+ * Return credits that were spent against a reference.
+ *
+ * Posts an 'earn' reversal rather than deleting the original spend, so the
+ * ledger keeps both halves and the student can see what happened. The reversal
+ * carries the standard expiry, restoring the credit on the same terms it was
+ * held under before.
+ *
+ * Idempotent on (customerId, source, referenceId). That matters: for a studio
+ * access booking the student cancel, the admin cancel, the hard delete and the
+ * nightly stale sweep can all reach the same booking, and a second refund would
+ * mint credit out of nothing.
+ */
+async function refundCredits({ customerId, amount, source, referenceId, description }) {
+  if (!(amount > 0)) return { refunded: 0, transaction: null, alreadyRefunded: false };
+  if (referenceId == null) {
+    throw new Error('refundCredits requires a referenceId — it is what makes the refund idempotent');
+  }
+
+  const ref = String(referenceId);
+
+  const { data: existing, error: existingError } = await supabase
+    .from('credit_transactions')
+    .select('id')
+    .eq('customer_id', customerId)
+    .eq('type', 'earn')
+    .eq('source', source)
+    .eq('reference_id', ref);
+
+  if (existingError) throw existingError;
+  if ((existing || []).length > 0) {
+    return { refunded: 0, transaction: null, alreadyRefunded: true };
+  }
+
+  const { data, error } = await supabase
+    .from('credit_transactions')
+    .insert([{
+      customer_id: customerId,
+      type: 'earn',
+      amount,
+      source,
+      reference_id: ref,
+      description: description || null,
+      expires_at: CREDIT_EXPIRY,
+      created_at: new Date().toISOString()
+    }])
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return { refunded: amount, transaction: data, alreadyRefunded: false };
+}
+
 // The enrollment statuses that mean "this person has actually taken, or is
 // taking, a course here". Cancelled and paused don't count.
 const ENROLLMENT_COUNTS_AS_STUDIED = ['active', 'upcoming', 'completed'];
@@ -319,6 +373,7 @@ module.exports = {
   getCreditHistory,
   earnCredits,
   spendCredits,
+  refundCredits,
   isReturningStudent,
   awardCoursePurchaseCredit,
   COURSE_PURCHASE_CREDIT,

@@ -30,6 +30,13 @@ const BOOKING_STYLE = {
   unbooked:  { bg: '#FFFBEA', text: '#9E6200'  },
 };
 
+// A booking in one of these has nothing left to happen to it. The server
+// normalises forfeited/absent to 'missed' for display but raw_status keeps the
+// original, so both spellings belong here.
+const TERMINAL_BOOKING_STATUSES = new Set([
+  'attended', 'completed', 'missed', 'forfeited', 'absent'
+]);
+
 const FEE_STYLE = {
   paid:    { bg: TC_LIGHT,  text: TC_DARK  },
   pending: { bg: '#FFF7E6', text: '#9E6200' },
@@ -863,9 +870,15 @@ export default function AdminStudentDetail() {
     const groupEnrollmentId = group[0]?.course_enrollment_id;
     if (enrollment?.id && groupEnrollmentId === enrollment.id
         && (enrollment.class_credits_remaining || 0) > 0) return false;
+    // A finished course is finished even when the student missed a class. Requiring
+    // every row to be 'attended' pinned a settled course open forever on a single
+    // missed one, so Rosel Tan's history showed May–June and September but hid the
+    // July course in between and read like a two-month gap. Terminal-and-past is the
+    // test; only a still-open 'booked' row means the course is live. 19 enrollments
+    // across 17 students were being held open this way.
     return group.every(b => {
       const d = new Date(b.class_date); d.setHours(0,0,0,0);
-      return (b.status === 'attended' || b.status === 'completed') && d < today;
+      return TERMINAL_BOOKING_STATUSES.has(b.status) && d < today;
     });
   };
   const [showCompletedCourses, setShowCompletedCourses] = useState(false);

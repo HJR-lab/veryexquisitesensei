@@ -1,0 +1,331 @@
+{
+  "takenAt": "2026-09-09T02:16:23.654Z",
+  "note": "stored values BEFORE sync-drifted-credit-columns.js --apply",
+  "rows": [
+    {
+      "id": 5419,
+      "student_id": 2402,
+      "ident": "WT1107PM_DL6",
+      "before": {
+        "used": 4,
+        "remaining": 0
+      },
+      "after": {
+        "used": 10,
+        "remaining": 0
+      }
+    },
+    {
+      "id": 5496,
+      "student_id": 2231,
+      "ident": "WT0809NT_JL6",
+      "before": {
+        "used": 7,
+        "remaining": 3
+      },
+      "after": {
+        "used": 6,
+        "remaining": 4
+      }
+    },
+    {
+      "id": 5380,
+      "student_id": 2919,
+      "ident": "WT2307NT_JL6",
+      "before": {
+        "used": 0,
+        "remaining": 4
+      },
+      "after": {
+        "used": 6,
+        "remaining": 4
+      }
+    },
+    {
+      "id": 5483,
+      "student_id": 2952,
+      "ident": "WT1109AM_JL6",
+      "before": {
+        "used": 0,
+        "remaining": 4
+      },
+      "after": {
+        "used": 6,
+        "remaining": 4
+      }
+    },
+    {
+      "id": 5370,
+      "student_id": 2872,
+      "ident": "WT2805NT_JL6",
+      "before": {
+        "used": 0,
+        "remaining": 4
+      },
+      "after": {
+        "used": 6,
+        "remaining": 4
+      }
+    },
+    {
+      "id": 4782,
+      "student_id": 1209,
+      "ident": "WT2301AM_JL6",
+      "before": {
+        "used": 1,
+        "remaining": 1
+      },
+      "after": {
+        "used": 5,
+        "remaining": 1
+      }
+    },
+    {
+      "id": 5441,
+      "student_id": 2406,
+      "ident": "WT3008AM_DL6",
+      "before": {
+        "used": 0,
+        "remaining": 4
+      },
+      "after": {
+        "used": 6,
+        "remaining": 4
+      }
+    },
+    {
+      "id": 5459,
+      "student_id": 2658,
+      "ident": "WT2908PM_DL6",
+      "before": {
+        "used": 0,
+        "remaining": 4
+      },
+      "after": {
+        "used": 6,
+        "remaining": 4
+      }
+    },
+    {
+      "id": 5497,
+      "student_id": 1132,
+      "ident": "WT1009AM_JL6",
+      "before": {
+        "used": 0,
+        "remaining": 4
+      },
+      "after": {
+        "used": 6,
+        "remaining": 4
+      }
+    },
+    {
+      "id": 5376,
+      "student_id": 2910,
+      "ident": "HBWEDNT_LT",
+      "before": {
+        "used": 5,
+        "remaining": 0
+      },
+      "after": {
+        "used": 4,
+        "remaining": 0
+      }
+    },
+    {
+      "id": 5090,
+      "student_id": 1684,
+      "ident": "HBWEDNT_LT",
+      "before": {
+        "used": 0,
+        "remaining": 8
+      },
+      "after": {
+        "used": 0,
+        "remaining": 5
+      }
+    },
+    {
+      "id": 5342,
+      "student_id": 2792,
+      "ident": "HBMONNT_LT",
+      "before": {
+        "used": 5,
+        "remaining": 0
+      },
+      "after": {
+        "used": 4,
+        "remaining": 0
+      }
+    },
+    {
+      "id": 5406,
+      "student_id": 2977,
+      "ident": "WT2107NT_JL6",
+      "before": {
+        "used": 0,
+        "remaining": 4
+      },
+      "after": {
+        "used": 6,
+        "remaining": 4
+      }
+    },
+    {
+      "id": 5103,
+      "student_id": 1136,
+      "ident": "WT0503NT_JL6",
+      "before": {
+        "used": 5,
+        "remaining": 0
+      },
+      "after": {
+        "used": 10,
+        "remaining": 0
+      }
+    },
+    {
+      "id": 5408,
+      "student_id": 2980,
+      "ident": "WT0507AM_DL6",
+      "before": {
+        "used": 0,
+        "remaining": 4
+      },
+      "after": {
+        "used": 6,
+        "remaining": 4
+      }
+    },
+    {
+      "id": 5428,
+      "student_id": 3035,
+      "ident": "WT2307NT_JL6",
+      "before": {
+        "used": 0,
+        "remaining": 4
+      },
+      "after": {
+        "used": 6,
+        "remaining": 4
+      }
+    },
+    {
+      "id": 5469,
+      "student_id": 3144,
+      "ident": "WT1209AM_DL6",
+      "before": {
+        "used": 0,
+        "remaining": 4
+      },
+      "after": {
+        "used": 6,
+        "remaining": 4
+      }
+    },
+    {
+      "id": 5464,
+      "student_id": 3142,
+      "ident": "WT1209AM_DL6",
+      "before": {
+        "used": 0,
+        "remaining": 4
+      },
+      "after": {
+        "used": 6,
+        "remaining": 4
+      }
+    },
+    {
+      "id": 5488,
+      "student_id": 2944,
+      "ident": "WT1009NT_JL6",
+      "before": {
+        "used": 0,
+        "remaining": 4
+      },
+      "after": {
+        "used": 6,
+        "remaining": 4
+      }
+    },
+    {
+      "id": 5494,
+      "student_id": 3259,
+      "ident": "WT0809NT_JL6",
+      "before": {
+        "used": 0,
+        "remaining": 4
+      },
+      "after": {
+        "used": 6,
+        "remaining": 4
+      }
+    },
+    {
+      "id": 5486,
+      "student_id": 3213,
+      "ident": "WT1209AM_DL6",
+      "before": {
+        "used": 0,
+        "remaining": 4
+      },
+      "after": {
+        "used": 6,
+        "remaining": 4
+      }
+    },
+    {
+      "id": 5455,
+      "student_id": 3120,
+      "ident": "WT1109AM_JL6",
+      "before": {
+        "used": 0,
+        "remaining": 4
+      },
+      "after": {
+        "used": 6,
+        "remaining": 4
+      }
+    },
+    {
+      "id": 5495,
+      "student_id": 2978,
+      "ident": "WT1009AM_JL6",
+      "before": {
+        "used": 0,
+        "remaining": 4
+      },
+      "after": {
+        "used": 6,
+        "remaining": 4
+      }
+    },
+    {
+      "id": 5490,
+      "student_id": 2929,
+      "ident": "WT1109AM_JL6",
+      "before": {
+        "used": 0,
+        "remaining": 4
+      },
+      "after": {
+        "used": 6,
+        "remaining": 4
+      }
+    },
+    {
+      "id": 5461,
+      "student_id": 3140,
+      "ident": "WT1209AM_DL6",
+      "before": {
+        "used": 0,
+        "remaining": 4
+      },
+      "after": {
+        "used": 6,
+        "remaining": 4
+      }
+    }
+  ]
+}

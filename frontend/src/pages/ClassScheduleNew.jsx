@@ -560,7 +560,13 @@ export default function ClassScheduleNew() {
   const tenClassEnrollment = allEnrollments.find(e => e.number_of_weeks === 10);
   const is10ClassPackage = !!tenClassEnrollment;
   const extraCreditsTotal = is10ClassPackage ? 4 : 0;
-  const tenClassBookings = is10ClassPackage ? (tenClassEnrollment.bookings || []).filter(b => b.status === 'booked' || b.status === 'attended').length : 0;
+  // One counter for every "how many of your classes are spent" question on this
+  // page, so the package card and the unbooked banner can never disagree again.
+  // 'rescheduled' is deliberately absent: that row is a vacated origin whose
+  // replacement booking also exists, so counting it spends the credit twice.
+  const CONSUMED_STATUSES = ['booked', 'attended', 'completed', 'absent', 'forfeited'];
+  const countConsumed = (e) => (e?.bookings || []).filter(b => CONSUMED_STATUSES.includes(b.status)).length;
+  const tenClassBookings = is10ClassPackage ? countConsumed(tenClassEnrollment) : 0;
   const extraCreditsUsed = is10ClassPackage ? Math.max(0, tenClassBookings - 6) : 0;
 
   // Detect last HB booking as glazing (when all credits are booked)
@@ -955,7 +961,7 @@ export default function ClassScheduleNew() {
           {(() => {
             const activeEnrollments = [...(dashboardData?.enrollments?.active || []), ...(dashboardData?.enrollments?.upcoming || [])];
             const regularCourse = activeEnrollments.find(e => e.number_of_weeks && e.number_of_weeks !== 10 && !(e.course_type || '').toLowerCase().includes('handbuilding'));
-            const countBooked = (e) => (e?.bookings || []).filter(b => b.status === 'booked' || b.status === 'attended' || b.status === 'completed' || b.status === 'rescheduled' || b.status === 'absent' || b.status === 'forfeited').length;
+            const countBooked = countConsumed;
             const waitlisted = myWaitlistEntries.filter(w => !w.claimed && w.class).length;
 
             let unbooked = 0;

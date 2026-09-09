@@ -309,19 +309,49 @@ async function checkCourseEmailReminders() {
 }
 
 /**
+ * How many times a cohort may be pushed back automatically before the studio
+ * has to look at it.
+ *
+ * The email promises to keep postponing "week by week until we have enough
+ * students", and that is the intent — but a cohort that never fills would
+ * otherwise walk forward forever, mailing the same two people every week and
+ * dragging classes across term breaks and public holidays with no one watching.
+ * After this many rounds the automation stops and escalates to info@ves.sg
+ * instead, so a human decides whether to keep waiting, merge the students into
+ * another timeslot, or refund.
+ */
+const MAX_AUTO_POSTPONEMENTS = 4;
+
+/** Don't re-tell a cohort the same news twice inside this many days. */
+const UNCONFIRMED_EMAIL_COOLDOWN_DAYS = 5;
+
+/**
  * Check for WT courses starting in 3 days that haven't met the threshold,
- * and send students an unconfirmed/postponement email.
+ * postpone them by a week, and tell the students.
+ *
+ * The postponement and the email have to happen together. When they were split
+ * — the email here, the date shift behind a button in AdminClasses — the two
+ * drifted apart and eventually the email half was switched off entirely
+ * (43ce3eea), leaving this as an admin-only notice that nobody was obliged to
+ * act on. A Thursday cohort of two reached the night before its first class in
+ * September 2026 with both students still expecting to turn up.
+ *
+ * There is no separate weekly re-check. Postponing moves course_start_date
+ * forward, so the cohort simply becomes "starting in 3 days" again a week later
+ * and this function picks it up on its own.
  */
 async function checkUnconfirmedCourses() {
   try {
     const { sendAndLogEmail } = require('./emailService');
+    const { postponeCourse } = require('./coursePostponement');
+    const { generateCourseUnconfirmedEmail } = require('../email-templates/course-unconfirmed');
+    const { todaySGT, addDays, toYmd, weekdayName } = require('./sgtDate');
 
-    const threeDaysFromNow = new Date();
-    threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3);
-    const targetDate = threeDaysFromNow.toISOString().split('T')[0];
+    // The studio's "in 3 days" is a Singapore calendar date. Deriving it from
+    // the runtime clock puts it a day out whenever Railway's UTC date and the
+    // Singapore date disagree, which is every day after 4pm UTC.
+    const targetDate = addDays(todaySGT(), 3);
 
-    // Find WT enrollments with course_start_date = 3 days from now
-    // that haven't met threshold (no bookings_created_at means no classes created as active)
     const { data: enrollments } = await supabase
       .from('course_enrollments')
       .select('*, customers!inner(email, first_name, last_name)')
@@ -331,141 +361,166 @@ async function checkUnconfirmedCourses() {
 
     if (!enrollments || enrollments.length === 0) return;
 
-    // Group by cohort (course_type + schedule_pattern + class_time + start_date)
+    // Group by the cohort's own identifier. The old synthetic key
+    // (`courseType_schedule_time_startDate`) named a cohort in a format nothing
+    // else in the system used, so its sent_emails rows never lined up with the
+    // manual sends or the admin UI's "last sent" column.
     const cohortMap = {};
     for (const enrollment of enrollments) {
-      const key = `${enrollment.course_type}_${enrollment.schedule_pattern}_${enrollment.class_time}_${enrollment.course_start_date}`;
-      if (!cohortMap[key]) {
-        cohortMap[key] = {
+      const courseIdentifier = enrollment.course_identifier;
+      if (!courseIdentifier) {
+        console.warn(`[Auto-Processor] Enrollment ${enrollment.id} starts ${targetDate} but has no course_identifier — skipping`);
+        continue;
+      }
+      if (!cohortMap[courseIdentifier]) {
+        cohortMap[courseIdentifier] = {
+          courseIdentifier,
           courseType: enrollment.course_type,
           schedulePattern: enrollment.schedule_pattern,
           classTime: enrollment.class_time,
-          startDate: enrollment.course_start_date,
+          startDate: toYmd(enrollment.course_start_date),
           enrollments: [],
         };
       }
-      cohortMap[key].enrollments.push(enrollment);
+      cohortMap[courseIdentifier].enrollments.push(enrollment);
     }
 
-    for (const [key, cohort] of Object.entries(cohortMap)) {
+    for (const cohort of Object.values(cohortMap)) {
       const studentCount = cohort.enrollments.length;
 
-      // Skip if threshold is already met (read from config, fallback to MINIMUM_STUDENTS_THRESHOLD)
-      let unconfirmedMinStudents = MINIMUM_STUDENTS_THRESHOLD;
+      let minStudents = MINIMUM_STUDENTS_THRESHOLD;
       try {
         const wtConfigs = courseConfig.getConfigByCategory('wheelthrowing');
         if (wtConfigs && wtConfigs.length > 0) {
-          unconfirmedMinStudents = wtConfigs[0].min_students_to_activate || MINIMUM_STUDENTS_THRESHOLD;
+          minStudents = wtConfigs[0].min_students_to_activate || MINIMUM_STUDENTS_THRESHOLD;
         }
       } catch (e) { /* config not loaded, use fallback */ }
-      if (studentCount >= unconfirmedMinStudents) continue;
 
-      // Check if we already sent an unconfirmed email for this cohort + date
-      const cohortId = `${cohort.courseType}_${cohort.schedulePattern}_${cohort.startDate}`;
-      const { data: alreadySent } = await supabase
+      if (studentCount >= minStudents) continue;
+
+      // A cohort's classes are created 'draft' under threshold and flipped to
+      // 'active' when it fills (courseEnrollmentManager.activateDraftClasses).
+      // An active class means someone decided to run this cohort short-handed,
+      // and moving it out from under them would be worse than doing nothing.
+      const { data: classes } = await supabase
+        .from('class_instances')
+        .select('id, status')
+        .like('class_type', `${cohort.courseIdentifier}.%`);
+
+      if (!classes || classes.length === 0) {
+        console.warn(`[Auto-Processor] ${cohort.courseIdentifier} is under threshold but has no classes — skipping`);
+        continue;
+      }
+      if (classes.some(c => c.status === 'active')) {
+        console.log(`[Auto-Processor] ${cohort.courseIdentifier} has active classes — confirmed by hand, not postponing`);
+        continue;
+      }
+
+      // Everything already said to these students about this cohort, manual
+      // sends included, so an admin who wrote to them this morning isn't
+      // immediately contradicted by the cron.
+      const { data: priorSends } = await supabase
         .from('sent_emails')
-        .select('id')
+        .select('id, sent_at')
         .eq('email_type', 'course_unconfirmed')
-        .eq('course_identifier', cohortId)
-        .limit(1)
-        .maybeSingle();
+        .eq('course_identifier', cohort.courseIdentifier)
+        .order('sent_at', { ascending: false });
 
-      if (alreadySent) continue;
+      const lastSent = priorSends?.[0]?.sent_at;
+      if (lastSent) {
+        const daysSince = Math.floor((Date.now() - new Date(lastSent).getTime()) / 86400000);
+        if (daysSince < UNCONFIRMED_EMAIL_COOLDOWN_DAYS) {
+          console.log(`[Auto-Processor] ${cohort.courseIdentifier} was told ${daysSince} day(s) ago — holding off`);
+          continue;
+        }
+      }
 
-      // Get student emails
-      const studentEmails = cohort.enrollments
-        .map(e => e.customers?.email)
-        .filter(Boolean);
+      const studentEmails = cohort.enrollments.map(e => e.customers?.email).filter(Boolean);
+      const dayOfWeek = weekdayName(cohort.startDate)
+        ? weekdayName(cohort.startDate).charAt(0) + weekdayName(cohort.startDate).slice(1).toLowerCase()
+        : (cohort.schedulePattern || '');
+      const formatDate = (ymd) => new Date(`${ymd}T12:00:00Z`)
+        .toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' });
 
-      if (studentEmails.length === 0) continue;
+      // Out of automatic road. Hand it to the studio rather than walking the
+      // cohort forward another week on our own.
+      if ((priorSends?.length || 0) >= MAX_AUTO_POSTPONEMENTS) {
+        await sendAndLogEmail({
+          emailType: 'course_unconfirmed_escalation',
+          courseIdentifier: cohort.courseIdentifier,
+          subject: `VES Admin: ${cohort.courseIdentifier} postponed ${priorSends.length}x — needs a decision`,
+          html: `<p><strong>${cohort.courseIdentifier}</strong> (${cohort.courseType} — ${dayOfWeek}s, ${cohort.classTime}) has been postponed ${priorSends.length} times and still has only ${studentCount} of ${minStudents} students.</p>
+            <p>Automatic postponement has stopped. The next class is ${formatDate(cohort.startDate)} and the students have NOT been emailed this round.</p>
+            <p>Students: ${studentEmails.join(', ')}</p>
+            <p><a href="https://club.ves.sg/admin/classes">Open admin classes</a></p>`,
+          recipientEmails: ['info@ves.sg'],
+          sentBy: 'system',
+        });
+        console.log(`[Auto-Processor] ${cohort.courseIdentifier} hit the postponement cap (${priorSends.length}) — escalated to admin`);
+        continue;
+      }
 
-      // Format day of week and time for the email
-      const dayOfWeek = (cohort.schedulePattern || '').charAt(0).toUpperCase() +
-        (cohort.schedulePattern || '').slice(1).toLowerCase();
-      const formattedStart = new Date(cohort.startDate + 'T00:00:00')
-        .toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+      // Move the dates FIRST. If this throws, no one is told about a
+      // postponement that did not happen; the cohort is simply picked up again
+      // on tomorrow's run.
+      let result;
+      try {
+        result = await postponeCourse({ courseIdentifier: cohort.courseIdentifier, weeks: 1 });
+      } catch (err) {
+        console.error(`[Auto-Processor] Could not postpone ${cohort.courseIdentifier}:`, err.message);
+        await sendAndLogEmail({
+          emailType: 'course_unconfirmed_escalation',
+          courseIdentifier: cohort.courseIdentifier,
+          subject: `VES Admin: FAILED to postpone ${cohort.courseIdentifier}`,
+          html: `<p><strong>${cohort.courseIdentifier}</strong> starts in 3 days with ${studentCount}/${minStudents} students, but the automatic postponement failed:</p>
+            <p><code>${err.message}</code></p>
+            <p>No email was sent to the students. This cohort needs handling by hand today.</p>`,
+          recipientEmails: ['info@ves.sg'],
+          sentBy: 'system',
+        });
+        continue;
+      }
 
-      // Student-facing unconfirmed/postponement emails are DISABLED.
-      // Only notify admin internally so they can decide what to do.
-      // Sent via sendAndLogEmail (email_type 'course_unconfirmed') so the
-      // alreadySent dedup check above stops this re-firing every day.
+      if (studentEmails.length > 0) {
+        const { subject, html } = generateCourseUnconfirmedEmail({
+          courseType: cohort.courseType || 'Wheelthrowing',
+          dayOfWeek,
+          startDate: formatDate(cohort.startDate),
+          newStartDate: formatDate(result.newStartDate),
+          timeSlot: cohort.classTime || '',
+        });
+
+        // perRecipient: two students in the same cohort must not learn each
+        // other's addresses, and a per-student Resend id is what a bounce is
+        // chased with later.
+        await sendAndLogEmail({
+          emailType: 'course_unconfirmed',
+          courseIdentifier: cohort.courseIdentifier,
+          subject,
+          html,
+          recipientEmails: studentEmails,
+          sentBy: 'system',
+          perRecipient: true,
+        });
+
+        console.log(`[Auto-Processor] Postponed ${cohort.courseIdentifier} to ${result.newStartDate} and told ${studentEmails.length} student(s)`);
+      } else {
+        console.warn(`[Auto-Processor] Postponed ${cohort.courseIdentifier} but found no student email addresses`);
+      }
+
       await sendAndLogEmail({
-        emailType: 'course_unconfirmed',
-        courseIdentifier: cohortId,
-        subject: `VES Admin: Course unconfirmed — ${cohortId} (${studentCount} students)`,
-        html: `<p>The following course starts in 3 days but only has ${studentCount} student(s) (minimum ${unconfirmedMinStudents} required):</p>
-          <p><strong>${cohort.courseType}</strong> — ${dayOfWeek}s, ${formattedStart} (${cohort.classTime})</p>
-          <p>No email was sent to the enrolled students — handle this cohort manually.</p>`,
+        emailType: 'course_unconfirmed_admin',
+        courseIdentifier: cohort.courseIdentifier,
+        subject: `VES Admin: ${cohort.courseIdentifier} postponed to ${result.newStartDate} (${studentCount} students)`,
+        html: `<p><strong>${cohort.courseIdentifier}</strong> (${cohort.courseType} — ${dayOfWeek}s, ${cohort.classTime}) had ${studentCount} of ${minStudents} students three days out.</p>
+          <p>All ${result.movedClasses.length} classes moved a week: now <strong>${result.newStartDate}</strong> to <strong>${result.newEndDate}</strong>. ${studentEmails.length} student(s) emailed.</p>
+          <p>Postponement ${(priorSends?.length || 0) + 1} of ${MAX_AUTO_POSTPONEMENTS}. Note the Shopify variant may still advertise the original ${result.originalStartDate} start date.</p>`,
         recipientEmails: ['info@ves.sg'],
         sentBy: 'system',
       });
-
-      console.log(`[Auto-Processor] Course unconfirmed (admin-only notice) for ${cohortId} — ${studentCount} students, NO student email sent`);
     }
   } catch (error) {
     console.error('[Auto-Processor] Unconfirmed course check failed:', error);
-  }
-}
-
-/**
- * Weekly recheck of unconfirmed courses:
- * For courses that received an 'unconfirmed' email but no confirmation yet,
- * resend the unconfirmed email (or confirmation if threshold now met) every 7 days.
- */
-async function checkWeeklyUnconfirmedRecheck() {
-  const wtConfigs = courseConfig.getConfigByCategory('wheelthrowing');
-
-  for (const config of wtConfigs) {
-    // Find courses that have had unconfirmed emails sent but no confirmation yet
-    const { data: unconfirmedSends } = await supabase
-      .from('sent_emails')
-      .select('*')
-      .eq('email_type', 'course_unconfirmed')
-      .order('sent_at', { ascending: false });
-
-    if (!unconfirmedSends) continue;
-
-    // Group by course_identifier, get latest send per course
-    const latestByIdentifier = {};
-    for (const send of unconfirmedSends) {
-      if (!latestByIdentifier[send.course_identifier]) {
-        latestByIdentifier[send.course_identifier] = send;
-      }
-    }
-
-    for (const [courseId, lastSend] of Object.entries(latestByIdentifier)) {
-      // Check if confirmation was already sent
-      const { data: confirmationSent } = await supabase
-        .from('sent_emails')
-        .select('id')
-        .eq('email_type', 'course_details')
-        .eq('course_identifier', courseId)
-        .limit(1);
-
-      if (confirmationSent && confirmationSent.length > 0) continue;
-
-      // Check if 7 days since last unconfirmed email
-      const daysSinceLastSend = Math.floor((Date.now() - new Date(lastSend.sent_at).getTime()) / (1000 * 60 * 60 * 24));
-      if (daysSinceLastSend < 7) continue;
-
-      // Check current enrollment count
-      const { data: enrollments } = await supabase
-        .from('course_enrollments')
-        .select('id')
-        .like('course_identifier', `${courseId}%`)
-        .in('status', ['active', 'pending', 'upcoming']);
-
-      const enrollmentCount = enrollments ? enrollments.length : 0;
-      const minStudents = config.min_students_to_activate;
-
-      if (enrollmentCount >= minStudents) {
-        console.log(`[AutoProcessor] Course ${courseId} reached ${enrollmentCount} pax — sending confirmation`);
-        // TODO: Trigger confirmation email (uses existing course email send logic)
-      } else {
-        console.log(`[AutoProcessor] Course ${courseId} still at ${enrollmentCount}/${minStudents} pax — resending unconfirmed`);
-        // TODO: Trigger unconfirmed email resend (uses existing unconfirmed email logic)
-      }
-    }
   }
 }
 
@@ -625,8 +680,10 @@ function startAutomaticProcessing() {
         .then(() => calendarSync.resyncMemberships())
         .catch(console.error);
       checkCourseEmailReminders().catch(console.error);
+      // Postpones under-threshold cohorts three days out and tells the
+      // students. No separate weekly recheck: postponing moves
+      // course_start_date, so a still-empty cohort resurfaces here in a week.
       checkUnconfirmedCourses().catch(console.error);
-      checkWeeklyUnconfirmedRecheck().catch(console.error);
       checkPieceReminders().catch(console.error);
       autoRecycleExpiredBatches().catch(console.error);
       cleanupExpiredWaitlist().catch(console.error);
@@ -1016,7 +1073,6 @@ module.exports = {
   autoRelinkUnlinkedBookings,
   checkCourseEmailReminders,
   checkUnconfirmedCourses,
-  checkWeeklyUnconfirmedRecheck,
   checkPieceReminders,
   autoRecycleExpiredBatches,
   cleanupExpiredWaitlist,

@@ -581,7 +581,24 @@ async function findCopyablePeer(newEnrollment, cohortEnrollments) {
       .limit(1);
 
     const firstDate = toYmd(firstClass?.[0]?.class_date);
-    const startsRight = !wantStart || firstDate === wantStart;
+
+    // The peer must be booked into the cohort its own enrollment claims, and
+    // that cohort must be the one this buyer paid for.
+    //
+    // Those are the same date until the cohort is postponed. Afterwards the
+    // peer sits in classes starting 17 Sep while a new buyer of the same
+    // Shopify variant still arrives holding 10 Sep, so comparing the peer's
+    // classes directly against wantStart would reject a perfectly good peer and
+    // strand the buyer in a duplicate cohort. Comparing against the peer's
+    // ORIGINAL sold date instead keeps the guard that matters — the one that
+    // caught three Thursday buyers being copied into Tuesday classes — because
+    // a peer an admin moved to another day fails on both the weekday and the
+    // original date.
+    const peerCurrentStart = toYmd(peer.course_start_date);
+    const peerOriginalStart = toYmd(peer.start_date) || peerCurrentStart;
+    const startsRight = !wantStart ||
+      firstDate === wantStart ||
+      (firstDate === peerCurrentStart && peerOriginalStart === wantStart);
     const fallsRight = !wantDay || isWeekday(firstDate, wantDay);
 
     if (!firstDate || !startsRight || !fallsRight) {
@@ -600,6 +617,8 @@ async function findCopyablePeer(newEnrollment, cohortEnrollments) {
  * Handles format differences like "1:00 PM" vs "1:00pm"
  */
 async function findCohortEnrollmentsFlexible(courseType, startDate, schedulePattern, classTime) {
+  const normTarget = normalizeTime(classTime);
+
   // First try exact match
   const exact = await findCohortEnrollments(courseType, startDate, schedulePattern, classTime);
   if (exact.length > 0) return exact;
@@ -615,8 +634,35 @@ async function findCohortEnrollmentsFlexible(courseType, startDate, schedulePatt
 
   if (error) throw error;
 
-  const normTarget = normalizeTime(classTime);
-  return (data || []).filter(e => normalizeTime(e.class_time) === normTarget);
+  const byCurrentStart = (data || []).filter(e => normalizeTime(e.class_time) === normTarget);
+  if (byCurrentStart.length > 0) return byCurrentStart;
+
+  // Last resort: a cohort that has been POSTPONED away from this date.
+  //
+  // Shopify keeps selling the variant under its original date long after the
+  // studio has pushed the cohort back a week, so a buyer arrives holding
+  // 10 Sep for a cohort whose course_start_date now reads 17 Sep. Matching on
+  // the current date alone would miss it and mint a second set of classes on
+  // a day that has already passed. course_enrollments.start_date holds the
+  // date the cohort was originally sold for — see utils/coursePostponement.js.
+  const { data: postponed, error: postponedErr } = await supabase
+    .from('course_enrollments')
+    .select('*')
+    .eq('course_type', courseType)
+    .eq('start_date', startDate)
+    .eq('schedule_pattern', schedulePattern)
+    .eq('status', 'active');
+
+  if (postponedErr) throw postponedErr;
+
+  const matches = (postponed || []).filter(e => normalizeTime(e.class_time) === normTarget);
+  if (matches.length > 0) {
+    console.log(
+      `[Cohort] ${courseType} ${schedulePattern} ${classTime} sold for ${startDate} was postponed to ` +
+      `${toYmd(matches[0].course_start_date)} — matching the new buyer into it`
+    );
+  }
+  return matches;
 }
 
 /**

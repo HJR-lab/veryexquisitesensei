@@ -14,11 +14,36 @@ const {
   findCustomerByEmail,
   findCustomerByShopifyId,
   createDuplicatePaxCustomer,
-  updateCustomer
+  updateCustomer,
+  syncStoredCredits
 } = require('./supabaseDb');
 const courseConfig = require('./courseConfig');
 const { roomCapacity } = require('../config/capacity');
 const { toYmd, isWeekday, ymdFromInstant } = require('./sgtDate');
+
+/**
+ * Refresh the stored credit cache after this file has written booking rows.
+ *
+ * Every path here creates bookings with a bulk insert and then updates the
+ * enrollment status, but none of them used to call syncStoredCredits — so
+ * class_credits_used stayed at the 0 written at enrollment creation while six
+ * real bookings existed. That is where the 23 cache-only drifted rows found on
+ * 09/09/26 came from, one per cohort formed, and it regenerated with every new
+ * cohort. See project_credit_single_writer: syncStoredCredits is the only
+ * sanctioned writer, and it is meant to be called once the rows are written.
+ *
+ * Never allowed to throw. A stale cache is recoverable; a cohort that failed to
+ * form because a cache write blew up is not.
+ */
+async function refreshStoredCredits(enrollmentIds) {
+  for (const id of enrollmentIds) {
+    try {
+      await syncStoredCredits(id);
+    } catch (e) {
+      console.error(`[credits] post-booking cache sync failed for enrollment ${id}:`, e.message);
+    }
+  }
+}
 
 const MINIMUM_STUDENTS_THRESHOLD = 4; // legacy export kept for backward compatibility
 
@@ -702,6 +727,7 @@ async function linkStudentsToExistingClasses(cohortEnrollments, classInstances) 
       status: 'active',
       bookingsCreatedAt: now
     });
+    await refreshStoredCredits([enrollment.id]);
 
     console.log(`✅ Created ${(created || []).length} bookings for student ${enrollment.student_id}`);
   }
@@ -850,6 +876,7 @@ async function createClassesAndBookings(cohortEnrollments, classStatus = 'active
       if (baseCourseId) updateData.course_identifier = baseCourseId;
       await updateCourseEnrollment(enrollment.id, updateData);
     }
+    await refreshStoredCredits(cohortEnrollments.map(e => e.id));
 
     return {
       thresholdMet: true,
@@ -944,6 +971,7 @@ async function addStudentToExistingCohort(newEnrollment, existingEnrollment) {
     };
     if (baseCourseId) enrollUpdate.course_identifier = baseCourseId;
     await updateCourseEnrollment(newEnrollment.id, enrollUpdate);
+    await refreshStoredCredits([newEnrollment.id]);
 
     console.log(`✅ Added student to existing cohort with ${createdBookings.length} bookings (${baseCourseId})`);
 

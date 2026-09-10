@@ -61,8 +61,10 @@ test('AD-5: recipient_count logs the students, not the studio copy', () => {
 });
 
 test('RT-1: every send carries a Reply-To at a mailbox that exists', () => {
-  // FROM_ADDRESS is info@mail.ves.sg — the Resend sending subdomain, which has
-  // no MX record. Without Reply-To, a student hitting Reply writes into a void.
+  // FROM_ADDRESS is now info@ves.sg, a real mailbox, but Reply-To stays
+  // asserted: callers may override From, and replies must still reach the
+  // studio. It also guards the old info@mail.ves.sg regression, which had no
+  // MX record and sent every reply into a void.
   const envelope = buildEnvelope({ to: STUDENT, subject: 'x' });
   assert.equal(envelope.replyTo, REPLY_TO_ADDRESS);
   assert.equal(envelope.replyTo, INBOX_EMAIL);

@@ -1,20 +1,22 @@
 const { Resend } = require('resend');
 const { rewriteLocalLinks } = require('./publicUrl');
 
-const FROM_ADDRESS = 'VES Studio <info@mail.ves.sg>';
-
-// mail.ves.sg is the Resend SENDING subdomain — correct in From, but nothing
-// accepts mail there. Addressing the studio copy to it made every bulk send
-// (course details, membership, reschedules — anything routed through
-// sendAndLogEmail, which puts recipients in BCC) report as bounced even though
-// the BCC recipients received it. That inflates the bounce rate, erodes domain
-// reputation, and buries the bounces that actually mean something. The studio
-// copy goes to the real inbox instead.
 const INBOX_EMAIL = 'info@ves.sg';
 const INBOX_ADDRESS = `VES Studio <${INBOX_EMAIL}>`;
 
-// Nothing accepts mail at FROM_ADDRESS, so without this every student who hit
-// Reply was writing to a mailbox that does not exist.
+// Sends as the studio's real inbox. Until 2026-09-10 this was
+// info@mail.ves.sg — the Resend SENDING subdomain, which nothing accepts mail
+// at. That made every bulk send (course details, membership, reschedules —
+// anything routed through sendAndLogEmail, which puts recipients in BCC)
+// report as bounced even though the BCC recipients received it, inflating the
+// bounce rate and burying the bounces that actually mean something. The root
+// domain is now verified in Resend (DKIM at resend._domainkey.ves.sg, SPF and
+// return-path at send.ves.sg), so From, the studio copy and Reply-To are all
+// the one mailbox that really exists.
+const FROM_ADDRESS = INBOX_ADDRESS;
+
+// Explicit rather than dropped: callers may pass their own From, and a reply
+// must still land in the studio inbox when they do.
 const REPLY_TO_ADDRESS = INBOX_EMAIL;
 
 /** Bare address out of either `a@b.com` or `Name <a@b.com>`. */

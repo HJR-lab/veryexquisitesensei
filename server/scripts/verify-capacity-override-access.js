@@ -1,7 +1,28 @@
-const { supabase, findCapacityOverride, getInstanceCapacityOverrides } = require('../utils/supabaseDb');
+// Live, self-cleaning verification that the admin capacity-override routes can
+// still use the service-role-only table. Run from server/ with production DB env.
+require('dotenv').config();
+
+const express = require('express');
+const supabaseDb = require('../utils/supabaseDb');
+const { supabase } = supabaseDb;
+
+function buildApp() {
+  const app = express();
+  app.use(express.json());
+  const authenticateToken = (req, _res, next) => {
+    req.user = { email: 'deus-security-verification', isAdmin: true };
+    next();
+  };
+  const requireAdmin = (_req, _res, next) => next();
+  const asyncHandler = (fn) => (req, res, next) =>
+    Promise.resolve(fn(req, res, next)).catch(next);
+  require('../routes/admin')(app, { authenticateToken, requireAdmin, asyncHandler });
+  return app;
+}
 
 (async () => {
   let createdId;
+  let server;
   try {
     const today = new Date().toISOString().slice(0, 10);
     const { data: classes, error: classError } = await supabase
@@ -22,28 +43,38 @@ const { supabase, findCapacityOverride, getInstanceCapacityOverrides } = require
     }
     if (!pair) throw new Error('no unused class/student pair found');
 
-    const { data: created, error: insertError } = await supabase.from('capacity_overrides').insert({
-      class_instance_id: pair.cls.id,
-      student_id: pair.student.id,
+    const app = buildApp();
+    server = app.listen(0);
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const call = async (method, route, body) => {
+      const response = await fetch(`${base}${route}`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      return { status: response.status, body: await response.json() };
+    };
+
+    const created = await call('POST', `/api/admin/classes/${pair.cls.id}/capacity-override`, {
+      studentId: pair.student.id,
       reason: 'RLS SERVICE-ROLE VERIFICATION — SAFE TO DELETE',
-      created_by: 'deus-security-verification',
-    }).select().single();
-    if (insertError) throw insertError;
-    createdId = created.id;
+    });
+    if (created.status !== 200) throw new Error(`grant route returned ${created.status}: ${JSON.stringify(created.body)}`);
+    createdId = created.body.override.id;
 
-    const found = await findCapacityOverride(pair.cls.id, pair.student.id);
-    if (found?.id !== createdId) throw new Error('findCapacityOverride did not return created grant');
-    const listed = await getInstanceCapacityOverrides(pair.cls.id);
-    if (!listed.some((row) => row.id === createdId)) throw new Error('getInstanceCapacityOverrides omitted created grant');
+    const listed = await call('GET', `/api/admin/classes/${pair.cls.id}/capacity-overrides`);
+    if (listed.status !== 200 || !listed.body.overrides.some((row) => row.id === createdId)) {
+      throw new Error(`list route omitted created grant ${createdId}`);
+    }
 
-    const { error: updateError } = await supabase.from('capacity_overrides')
-      .update({ revoked_at: new Date().toISOString(), revoked_by: 'deus-security-verification' }).eq('id', createdId);
-    if (updateError) throw updateError;
-    const activeAfter = await findCapacityOverride(pair.cls.id, pair.student.id);
-    if (activeAfter) throw new Error('revoked grant remained active');
+    const withdrawn = await call('DELETE', `/api/admin/capacity-overrides/${createdId}`);
+    if (withdrawn.status !== 200) throw new Error(`withdraw route returned ${withdrawn.status}`);
+    const activeAfter = await supabaseDb.findCapacityOverride(pair.cls.id, pair.student.id);
+    if (activeAfter) throw new Error('withdrawn grant remained active');
 
-    console.log(`PASS capacity override service flow: inserted, read, listed, revoked id ${createdId}`);
+    console.log(`PASS capacity override admin flow: granted, listed, withdrew id ${createdId}`);
   } finally {
+    if (server) server.close();
     if (createdId) {
       const { error } = await supabase.from('capacity_overrides').delete().eq('id', createdId);
       if (error) throw error;

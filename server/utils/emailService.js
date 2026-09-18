@@ -100,6 +100,97 @@ function resolveAddressing(recipientEmails) {
 /**
  * Send an email via Resend
  */
+// A hard bounce puts an address on Resend's suppression list permanently.
+// Every later message to it is discarded inside Resend, which still answers
+// success — so the app wrote a sent_emails row claiming a customer had been
+// mailed when nothing left the building. The daily anomaly probe reports the
+// dead address once a day, but until this guard nothing stopped the next send:
+// Sheena Lim (#3299) lost her class-reschedule email three hours after the
+// probe had already flagged her.
+//
+// Pure, so the decision is testable without touching Resend. `suppressed` is a
+// Set of lowercased addresses, or null when the list could not be fetched —
+// null means send anyway. Blocking all studio mail because an auxiliary
+// endpoint is down would be far worse than the problem this guards against.
+//
+// Returns the envelope minus any dead addresses, plus `blocked`: true when
+// every customer-facing recipient is suppressed and the send would reach
+// nobody. The studio's own inbox never counts as customer-facing, so a
+// studio-only notice is never blocked and a suppressed studio address cannot
+// block real student mail.
+function partitionSuppressed({ to, cc, bcc, suppressed }) {
+  if (!suppressed) return { to, cc, bcc, dropped: [], blocked: false };
+
+  const isSuppressed = (addr) => suppressed.has(bareAddress(addr));
+  const isStudio = (addr) => bareAddress(addr) === INBOX_EMAIL;
+
+  const dropped = [];
+  const keep = (list) => {
+    if (!list) return list;
+    const kept = [];
+    for (const addr of list) {
+      if (isSuppressed(addr)) dropped.push(bareAddress(addr));
+      else kept.push(addr);
+    }
+    return kept;
+  };
+
+  const toIsSuppressed = Boolean(to) && isSuppressed(to);
+  if (toIsSuppressed) dropped.push(bareAddress(to));
+
+  const nextCc = keep(cc);
+  const nextBcc = keep(bcc);
+
+  const everyone = [to, ...(cc || []), ...(bcc || [])].filter(Boolean);
+  const customers = everyone.filter(addr => !isStudio(addr));
+  const reachable = customers.filter(addr => !isSuppressed(addr));
+
+  return {
+    // Dropping a dead To leaves buildEnvelope to fall back to the studio inbox,
+    // which is right when other recipients survive on cc/bcc.
+    to: toIsSuppressed ? undefined : to,
+    cc: nextCc,
+    bcc: nextBcc,
+    dropped,
+    blocked: customers.length > 0 && reachable.length === 0,
+  };
+}
+
+// Resend's suppression list, cached briefly so the guard costs one call per
+// few minutes rather than one per message. Returns null on any failure, which
+// partitionSuppressed reads as "send anyway".
+const SUPPRESSION_TTL_MS = 5 * 60 * 1000;
+const SUPPRESSION_PAGE = 100;
+let _suppressionCache = { addresses: null, fetchedAt: 0 };
+
+async function getSuppressedAddresses() {
+  if (_suppressionCache.addresses && Date.now() - _suppressionCache.fetchedAt < SUPPRESSION_TTL_MS) {
+    return _suppressionCache.addresses;
+  }
+  if (!process.env.RESEND_API_KEY) return null;
+
+  try {
+    const res = await fetch(`https://api.resend.com/suppressions?limit=${SUPPRESSION_PAGE}`, {
+      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
+      signal: AbortSignal.timeout(5000), // never let this stall a send
+    });
+    if (!res.ok) {
+      console.warn(`[Email] Suppression list unavailable (HTTP ${res.status}) — sending without the check`);
+      return null;
+    }
+    const rows = (await res.json()).data || [];
+    if (rows.length >= SUPPRESSION_PAGE) {
+      console.warn(`[Email] Suppression list hit the ${SUPPRESSION_PAGE}-row page limit — paginate this before it under-reports`);
+    }
+    const addresses = new Set(rows.map(r => String(r.email).toLowerCase()));
+    _suppressionCache = { addresses, fetchedAt: Date.now() };
+    return addresses;
+  } catch (err) {
+    console.warn(`[Email] Suppression list fetch failed (${err.message}) — sending without the check`);
+    return null;
+  }
+}
+
 async function sendEmail({ to, cc, bcc, subject, html, replyTo }) {
   try {
     const resend = getResend();
@@ -119,7 +210,25 @@ async function sendEmail({ to, cc, bcc, subject, html, replyTo }) {
       );
     }
 
-    const payload = { ...buildEnvelope({ to, cc, bcc, subject, replyTo }), html: safeHtml };
+    // Never spend a send on an address Resend will discard, and never let that
+    // discard be recorded as a delivery: returning success:false here keeps
+    // sendAndLogEmail from writing a sent_emails row that claims otherwise.
+    const guard = partitionSuppressed({ to, cc, bcc, suppressed: await getSuppressedAddresses() });
+    if (guard.dropped.length > 0) {
+      console.warn(`[Email] Dropped suppressed recipient(s) from "${subject}": ${guard.dropped.join(', ')}`);
+    }
+    if (guard.blocked) {
+      console.warn(
+        `[Email] NOT SENDING "${subject}" — every recipient is suppressed: ${guard.dropped.join(', ')}. ` +
+        'Correct the address with scripts/fix-undeliverable-email.js. Lifting the suppression just bounces again.'
+      );
+      return { success: false, error: 'suppressed', suppressed: true, suppressedRecipients: guard.dropped };
+    }
+
+    const payload = {
+      ...buildEnvelope({ to: guard.to, cc: guard.cc, bcc: guard.bcc, subject, replyTo }),
+      html: safeHtml,
+    };
 
     const { data, error } = await resend.emails.send(payload);
 
@@ -311,4 +420,4 @@ function detectStudentTemplate(enrollment) {
   return detectCourseTemplate(enrollment);
 }
 
-module.exports = { sendEmail, sendAndLogEmail, sendPerRecipient, detectCourseTemplate, detectStudentTemplate, isEmailCategoryPaused, buildEnvelope, resolveAddressing, FROM_ADDRESS, INBOX_ADDRESS, INBOX_EMAIL, REPLY_TO_ADDRESS };
+module.exports = { sendEmail, sendAndLogEmail, sendPerRecipient, detectCourseTemplate, detectStudentTemplate, isEmailCategoryPaused, buildEnvelope, resolveAddressing, partitionSuppressed, getSuppressedAddresses, FROM_ADDRESS, INBOX_ADDRESS, INBOX_EMAIL, REPLY_TO_ADDRESS };

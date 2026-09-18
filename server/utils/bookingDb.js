@@ -93,6 +93,7 @@ async function getAvailableClasses() {
       classType: classInstance.class_type,
       classTitle: classInstance.class_title,
       classDescription: classInstance.class_description,
+      isGlazing: classInstance.is_glazing === true,
       instructor: classInstance.instructor,
       room: classInstance.room,
       maxCapacity: totalCapacity,

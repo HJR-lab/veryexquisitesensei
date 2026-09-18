@@ -63,6 +63,7 @@ export default function ClassScheduleNew() {
   // minus locally-counted bookings, and told 444 students they had classes
   // they had not bought.
   const [bookableCredits, setBookableCredits] = useState(null);
+  const [glazingOnlyCredits, setGlazingOnlyCredits] = useState(0);
   const myWaitlistEntries = []; // waitlist disabled
   const [studentData, setStudentData] = useState(null);
   const [dashboardData, setDashboardData] = useState(null);
@@ -176,6 +177,7 @@ export default function ClassScheduleNew() {
           max_capacity: cls.maxCapacity || 10,
           bookingCount: cls.currentEnrollment || 0,
           course_identifier: cls.classType,
+          is_glazing: cls.isGlazing ?? cls.is_glazing ?? false,
         });
       });
       setClasses(Object.values(courseGroups));
@@ -191,10 +193,12 @@ export default function ClassScheduleNew() {
       try {
         const creditsRes = await api.get('/classes/my-credits');
         setBookableCredits(creditsRes.data?.remaining ?? 0);
+        setGlazingOnlyCredits(creditsRes.data?.glazingOnly ?? 0);
       } catch {
         // Unknown is not zero: leave it null so the UI stays neutral rather
         // than either promising credits or wrongly claiming there are none.
         setBookableCredits(null);
+        setGlazingOnlyCredits(0);
       }
     } catch (error) {
       console.error('Error fetching bookings:', error);
@@ -485,12 +489,22 @@ export default function ClassScheduleNew() {
 
   // ── Booking action for a class card ────────────────────────────────────────
   const handleBookClass = (classItem) => {
+    const onlyGlazing = (bookableCredits ?? 0) > 0 && glazingOnlyCredits >= (bookableCredits ?? 0);
+    if (onlyGlazing && !isGlazing(classItem)) {
+      alert('Your remaining class credit is for a glazing class only. Please choose a class labelled Glazing.');
+      return;
+    }
     setShowBookSheet(classItem);
   };
 
   const confirmBook = async () => {
     if (!showBookSheet) return;
     const classItem = showBookSheet;
+    const onlyGlazingCredit = (bookableCredits ?? 0) > 0 && glazingOnlyCredits >= (bookableCredits ?? 0);
+    if (onlyGlazingCredit && !isGlazing(classItem)) {
+      alert('Your remaining class credit is for a glazing class only. Please choose a Week 6.6 or 7.7 wheelthrowing class, or a handbuilding class marked as glazing.');
+      return;
+    }
     setBookingLoading(true);
     try {
       const isHB = getClassCategory(classItem.classType) === 'handbuilding';
@@ -511,7 +525,7 @@ export default function ClassScheduleNew() {
         const hasHBEnrollment = allEnrollments.some(e => getCT(e).includes('handbuilding'));
         const hasWTEnrollment = allEnrollments.some(e => getCT(e).includes('wheelthrowing'));
 
-        if (!has10ClassPkg) {
+        if (!has10ClassPkg && !(onlyGlazingCredit && isGlazing(classItem))) {
           if (cat === 'wheelthrowing' && hasHBEnrollment && !hasWTEnrollment) {
             alert('Your enrollment is for Handbuilding classes only. Please book a Handbuilding class.');
             setBookingLoading(false);
@@ -554,6 +568,7 @@ export default function ClassScheduleNew() {
 
   // ── Remaining credits helper ────────────────────────────────────────────────
   const remainingCredits = bookableCredits ?? 0;
+  const onlyGlazingCredit = remainingCredits > 0 && glazingOnlyCredits >= remainingCredits;
 
   // ── 10-class package: extra credits beyond the 6 scheduled classes ────────
   const allEnrollments = [...(dashboardData?.enrollments?.active || []), ...(dashboardData?.enrollments?.upcoming || []), ...(dashboardData?.enrollments?.pending || [])];
@@ -650,6 +665,7 @@ export default function ClassScheduleNew() {
     if (isEnrolled(classItem.id)) return 'booked';
     if (classItem.isFull)         return 'full';
     if (isBlockedByGlazing(classItem.classDate)) return 'blocked';
+    if (onlyGlazingCredit && !isGlazing(classItem)) return 'blocked';
     if (remainingCredits > 0)     return 'book';
     return 'purchase';
   };
@@ -872,7 +888,8 @@ export default function ClassScheduleNew() {
                   const cat = getClassCategory(cls.classType);
 
                   // Grey out classes the student can't book due to enrollment type mismatch
-                  const crossTypeBlocked = hasEnrollments && !has10ClassPkg && (
+                  const restrictedGlazingTarget = onlyGlazingCredit && isGlazing(cls);
+                  const crossTypeBlocked = !restrictedGlazingTarget && hasEnrollments && !has10ClassPkg && (
                     (cat === 'wheelthrowing' && hasHBEnroll && !hasWTEnroll) ||
                     (cat === 'handbuilding' && hasWTEnroll && !hasHBEnroll)
                   );
@@ -880,7 +897,7 @@ export default function ClassScheduleNew() {
                   // Grey out intermediate WT classes for students with < 3 course purchases
                   const weekMatch = cls.classType?.match(/_\w+(\d)\.\d+$/);
                   const isIntermediate = cat === 'wheelthrowing' && weekMatch && parseInt(weekMatch[1]) === 7;
-                  const intermediateBlocked = isIntermediate && (studentData?.course_purchase_count || 0) < 3;
+                  const intermediateBlocked = !restrictedGlazingTarget && isIntermediate && (studentData?.course_purchase_count || 0) < 3;
 
                   // Grey out classes after glazing or within 5 days of glazing
                   const glazingBlocked = !enrolled && isBlockedByGlazing(cls.classDate);
@@ -1224,7 +1241,8 @@ export default function ClassScheduleNew() {
             {!isEnrolled(showDetailSheet.id) && !showDetailSheet.isFull && (() => {
               const detailWeekMatch = showDetailSheet.classType?.match(/_\w+(\d)\.\d+$/);
               const detailIsInter = getClassCategory(showDetailSheet.classType) === 'wheelthrowing' && detailWeekMatch && parseInt(detailWeekMatch[1]) === 7;
-              return !(detailIsInter && (studentData?.course_purchase_count || 0) < 3);
+              const restrictedGlazingTarget = onlyGlazingCredit && isGlazing(showDetailSheet);
+              return !(detailIsInter && !restrictedGlazingTarget && (studentData?.course_purchase_count || 0) < 3);
             })() && (
               showDetailSheet.isFull ? (
                 <button
@@ -1343,6 +1361,8 @@ export default function ClassScheduleNew() {
               <span style={{ fontSize: '12px', color: MUTED }}>
                 {getClassCategory(showBookSheet.classType) === 'handbuilding' && hbEnrollment && hbEnrollment.creditsRemaining > 0
                   ? `This will use 1 credit. You have ${hbEnrollment.creditsRemaining} remaining.`
+                  : onlyGlazingCredit
+                    ? `This will use your glazing-only class credit. You have ${remainingCredits} remaining.`
                   : remainingCredits > 0
                     ? `This will use 1 class credit. You currently have ${remainingCredits} remaining.`
                     : `You have no credits. You will need to purchase a class.`}

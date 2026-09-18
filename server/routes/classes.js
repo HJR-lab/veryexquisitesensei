@@ -10,6 +10,11 @@ const { getEnrollmentCredits } = require('../utils/bookingDb');
 // a byte-identical copy of it, and scripts/verify-hb-bookability.js ran a third
 // that had already drifted.
 const { crossTypeRefusal } = require('../utils/bookingGates');
+const {
+  evaluateRestrictedCreditBooking,
+  getGlazingOnlyCredits,
+  consumeGlazingOnlyCredit,
+} = require('../utils/restrictedClassCredits');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler }) {
 
@@ -597,14 +602,43 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
   // exemption inside it reads the shared package rule — not a copy filtered to
   // status 'active', which refused package students their own flex glazing.
   const classIsWT = (classInstance.class_type || '').startsWith('WT');
+
+  // Charge the booking to an enrollment. Resolved centrally so all three
+  // booking paths agree — this one previously ran its own chain of three
+  // lookups, every one filtered to status 'active', which silently skipped a
+  // completed 10-class package still holding flex credits.
+  //
+  // Resolved BEFORE the glazing gates, not after, so both can be scoped to the
+  // enrollment actually being charged. It is a read, so nothing is committed by
+  // running it ahead of a refusal.
+  const enrollmentId = await supabaseDb.resolveBookingEnrollment(dbCustomerId, classInstance);
+
+  const directGlazingCredits = enrollmentId
+    ? await getGlazingOnlyCredits(supabaseDb.supabase, dbCustomerId, enrollmentId)
+    : [];
+  let directRestrictedCredit = { allowed: true, consumeGlazingOnly: false };
+  if (directGlazingCredits.length > 0) {
+    const enrollmentCredits = await getEnrollmentCredits(enrollmentId);
+    directRestrictedCredit = evaluateRestrictedCreditBooking({
+      remaining: enrollmentCredits.remaining,
+      glazingOnly: directGlazingCredits.length,
+      classInstance,
+    });
+    if (!directRestrictedCredit.allowed) {
+      return res.status(400).json({
+        error: 'Your remaining class credit is for a glazing class only. Please choose a Week 6.6 or 7.7 wheelthrowing class, or a handbuilding class marked as glazing.'
+      });
+    }
+  }
+
   const crossType = await crossTypeRefusal(dbCustomerId, classInstance);
-  if (crossType) {
+  if (crossType && !directRestrictedCredit.consumeGlazingOnly) {
     return res.status(400).json({ error: crossType });
   }
 
-  // Block beginner students from booking intermediate WT classes (7-week courses)
-  // Must have purchased at least 3 WT courses to book intermediate
-  if (classIsWT) {
+  // A glazing-only replacement is about firing existing work, not taking an
+  // intermediate lesson, so a 7.7 glazing seat is valid for a beginner too.
+  if (classIsWT && !directRestrictedCredit.consumeGlazingOnly) {
     const weekMatch = classInstance.class_type?.match(/_\w+(\d)\.\d+$/);
     const isIntermediate = weekMatch && parseInt(weekMatch[1]) === 7;
     if (isIntermediate) {
@@ -621,16 +655,6 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
       }
     }
   }
-
-  // Charge the booking to an enrollment. Resolved centrally so all three
-  // booking paths agree — this one previously ran its own chain of three
-  // lookups, every one filtered to status 'active', which silently skipped a
-  // completed 10-class package still holding flex credits.
-  //
-  // Resolved BEFORE the glazing gates, not after, so both can be scoped to the
-  // enrollment actually being charged. It is a read, so nothing is committed by
-  // running it ahead of a refusal.
-  const enrollmentId = await supabaseDb.resolveBookingEnrollment(dbCustomerId, classInstance);
 
   // The package's final class is always its glazing class, so it may only ever be
   // a glazing one. Enforced on the booking path only: the reschedule path is
@@ -661,6 +685,7 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
   // admin booking path so both record the booking the same way.
   const { countsAsGlazing, enrollment: glazingEnrollment } =
     await resolveGlazingConsumption(dbCustomerId, classInstance);
+  const seatsGlazing = directRestrictedCredit.consumeGlazingOnly || countsAsGlazing;
 
   let booking;
   try {
@@ -669,7 +694,7 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
       classInstanceId: parseInt(classInstanceId),
       status: 'booked',
       courseEnrollmentId: enrollmentId,
-      countsAsGlazing
+      countsAsGlazing: seatsGlazing
     });
   } catch (err) {
     // The glazing sub-capacity is a distinct refusal from the class being full:
@@ -684,6 +709,20 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
   // booking never marks it used.
   if (countsAsGlazing) {
     await spendGlazingEntitlement(glazingEnrollment.id);
+  }
+
+  if (directRestrictedCredit.consumeGlazingOnly) {
+    const consumed = await consumeGlazingOnlyCredit(supabaseDb.supabase, {
+      studentId: dbCustomerId,
+      enrollmentId,
+      bookingId: booking.id,
+    });
+    if (!consumed) {
+      await supabaseDb.supabase.from('bookings')
+        .update({ status: 'cancelled', attended: null, updated_at: new Date().toISOString() })
+        .eq('id', booking.id);
+      return res.status(409).json({ error: 'That glazing-only credit was just used elsewhere. Please refresh and try again.' });
+    }
   }
 
   await supabaseDb.updateClassEnrollment(parseInt(classInstanceId), 1);
@@ -721,8 +760,13 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
 app.get('/api/classes/my-credits', authenticateToken, asyncHandler(async (req, res) => {
   const { dbCustomerId } = req.user;
   const bookable = await supabaseDb.getBookableCredits(dbCustomerId);
+  const glazingOnly = bookable.enrollment
+    ? (await getGlazingOnlyCredits(supabaseDb.supabase, dbCustomerId, bookable.enrollment.id)).length
+    : 0;
   res.json({
     remaining: bookable.remaining,
+    glazingOnly: Math.min(glazingOnly, bookable.remaining),
+    unrestricted: Math.max(0, bookable.remaining - glazingOnly),
     reason: bookable.reason,
     enrollmentId: bookable.enrollment?.id || null,
   });
@@ -773,6 +817,20 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
     return res.status(404).json({ error: 'Class not found' });
   }
 
+  const glazingOnlyCredits = creditEnrollment
+    ? await getGlazingOnlyCredits(supabaseDb.supabase, dbCustomerId, creditEnrollment.id)
+    : [];
+  const restrictedCredit = evaluateRestrictedCreditBooking({
+    remaining: bookable.remaining,
+    glazingOnly: glazingOnlyCredits.length,
+    classInstance,
+  });
+  if (!restrictedCredit.allowed) {
+    return res.status(400).json({
+      error: 'Your remaining class credit is for a glazing class only. Please choose a Week 6.6 or 7.7 wheelthrowing class, or a handbuilding class marked as glazing.'
+    });
+  }
+
   // Counts actual booked rows, not the cached current_enrollment. An
   // admin-granted capacity override for this exact student is the only way past.
   const makeupSeat = await supabaseDb.checkSeatAvailability(classInstance, dbCustomerId);
@@ -793,12 +851,12 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   // status 'active', which refused package students their own flex glazing.
   const classIsWT = (classInstance.class_type || '').startsWith('WT');
   const crossType = await crossTypeRefusal(dbCustomerId, classInstance);
-  if (crossType) {
+  if (crossType && !restrictedCredit.consumeGlazingOnly) {
     return res.status(400).json({ error: crossType });
   }
 
   // Block beginner students from booking intermediate WT classes (7-week courses)
-  if (classIsWT) {
+  if (classIsWT && !restrictedCredit.consumeGlazingOnly) {
     const weekMatch = classInstance.class_type?.match(/_\w+(\d)\.\d+$/);
     const isIntermediate = weekMatch && parseInt(weekMatch[1]) === 7;
     if (isIntermediate) {
@@ -922,7 +980,7 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   // Re-booking a cancelled glazing booking is still a glazing booking, even
   // though there is no entitlement left to resolve: cancelling frees the capped
   // seat but does not give glazing_class_used back.
-  const makeupSeatsGlazing = makeupCountsAsGlazing || cancelledBooking?.counts_as_glazing === true;
+  const makeupSeatsGlazing = restrictedCredit.consumeGlazingOnly || makeupCountsAsGlazing || cancelledBooking?.counts_as_glazing === true;
 
   // The glazing sub-cap: a marked class keeps its own max_capacity (HB is 8) but
   // only a slice of those seats may be glazing students, so the session still
@@ -980,6 +1038,20 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   if (bookingError) {
     console.error('Error creating makeup booking:', bookingError);
     return res.status(500).json({ error: 'Failed to create booking' });
+  }
+
+  if (restrictedCredit.consumeGlazingOnly) {
+    const consumed = await consumeGlazingOnlyCredit(supabaseDb.supabase, {
+      studentId: dbCustomerId,
+      enrollmentId,
+      bookingId: booking.id,
+    });
+    if (!consumed) {
+      await supabaseDb.supabase.from('bookings')
+        .update({ status: 'cancelled', attended: null, updated_at: new Date().toISOString() })
+        .eq('id', booking.id);
+      return res.status(409).json({ error: 'That glazing-only credit was just used elsewhere. Please refresh and try again.' });
+    }
   }
 
   // Spend the glazing entitlement only once the booking exists, so a refused

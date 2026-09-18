@@ -2,9 +2,14 @@ const supabaseDb = require('../utils/supabaseDb');
 const { generateICS, generateMultipleICS } = require('../utils/calendarGenerator');
 const courseConfig = require('../utils/courseConfig');
 const { getPackageProgress } = require('../utils/packageProgress');
-const { setClassGlazing, resolveGlazingConsumption,
+const { isGlazingClass, setClassGlazing, resolveGlazingConsumption,
         spendGlazingEntitlement } = require('../utils/glazing');
 const { initialRoomCapacity } = require('../config/capacity');
+const {
+  evaluateRestrictedCreditBooking,
+  getGlazingOnlyCredits,
+  consumeGlazingOnlyCredit,
+} = require('../utils/restrictedClassCredits');
 
 // In-memory cache for admin stats summary (30s TTL)
 let adminStatsSummaryCache = null;
@@ -4521,7 +4526,7 @@ app.post('/api/admin/bookings/:bookingId/convert-to-credit', authenticateToken, 
   // Get the booking
   const { data: booking, error: bookingErr } = await supabase
     .from('bookings')
-    .select('id, student_id, class_instance_id, status, course_enrollment_id')
+    .select('id, student_id, class_instance_id, status, course_enrollment_id, class_instances!bookings_class_instance_id_fkey(class_type, is_glazing)')
     .eq('id', bookingId)
     .single();
 
@@ -4583,6 +4588,25 @@ app.post('/api/admin/bookings/:bookingId/convert-to-credit', authenticateToken, 
   // which returns its credit.
   const credits = await supabaseDb.syncStoredCredits(enrollment.id);
 
+  const convertedGlazing = isGlazingClass(booking.class_instances);
+  const { error: adjustmentError } = await supabase
+    .from('booking_credit_adjustments')
+    .insert({
+      booking_id: booking.id,
+      student_id: booking.student_id,
+      course_enrollment_id: booking.course_enrollment_id,
+      action: 'convert_to_credit',
+      previous_status: booking.status,
+      new_status: 'cancelled',
+      reason: convertedGlazing
+        ? 'Admin converted a glazing booking to a glazing-only replacement credit'
+        : 'Admin converted booking to a replacement class credit',
+      restriction_type: convertedGlazing ? 'glazing' : null,
+      admin_id: req.user.dbCustomerId || null,
+      admin_email: req.user.email || null,
+    });
+  if (adjustmentError) throw adjustmentError;
+
   console.log(`🔄 Converted booking ${bookingId} to class credit for enrollment ${enrollment.id}`);
 
   res.json({
@@ -4618,7 +4642,7 @@ app.post('/api/admin/bookings/:bookingId/unforfeit', authenticateToken, requireA
 
   const { data: booking, error: bookingErr } = await supabase
     .from('bookings')
-    .select('id, student_id, class_instance_id, status, course_enrollment_id')
+    .select('id, student_id, class_instance_id, status, course_enrollment_id, class_instances!bookings_class_instance_id_fkey(class_type, is_glazing)')
     .eq('id', bookingId)
     .single();
 
@@ -4697,6 +4721,7 @@ app.post('/api/admin/bookings/:bookingId/unforfeit', authenticateToken, requireA
       previous_status: booking.status,
       new_status: 'cancelled',
       reason: trimmedReason,
+      restriction_type: isGlazingClass(booking.class_instances) ? 'glazing' : null,
       admin_id: req.user.dbCustomerId || null,
       admin_email: req.user.email || null,
     });
@@ -4929,6 +4954,24 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
     enrollmentId = await supabaseDb.resolveBookingEnrollment(studentId, classInstance);
   }
 
+  const adminGlazingCredits = enrollmentId
+    ? await getGlazingOnlyCredits(supabaseDb.supabase, parseInt(studentId), enrollmentId)
+    : [];
+  let adminRestrictedCredit = { allowed: true, consumeGlazingOnly: false };
+  if (adminGlazingCredits.length > 0) {
+    const enrollmentCredits = await supabaseDb.getEnrollmentCredits(enrollmentId);
+    adminRestrictedCredit = evaluateRestrictedCreditBooking({
+      remaining: enrollmentCredits.remaining,
+      glazingOnly: adminGlazingCredits.length,
+      classInstance,
+    });
+    if (!adminRestrictedCredit.allowed) {
+      return res.status(400).json({
+        error: 'This student only has a glazing-only credit remaining. Choose a Week 6.6 or 7.7 wheelthrowing class, or a handbuilding class marked as glazing.'
+      });
+    }
+  }
+
   // Check for an existing cancelled booking — reactivate instead of creating a
   // duplicate. Read BEFORE the seat gate, for two reasons: a student who already
   // holds a booked row here is counted by the gate, so "class is full" was the
@@ -4958,7 +5001,7 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
   // though there is no entitlement left to resolve: cancelling frees the capped
   // seat but does not give glazing_class_used back. Reading the row's own flag
   // keeps the seat counted instead of quietly restoring the bypass.
-  const seatsGlazing = countsAsGlazing || existingBooking?.counts_as_glazing === true;
+  const seatsGlazing = adminRestrictedCredit.consumeGlazingOnly || countsAsGlazing || existingBooking?.counts_as_glazing === true;
 
   // Check if class is full. This previously read classInstance.current_capacity,
   // a column that does not exist — so the gate never fired and this path could
@@ -5016,6 +5059,20 @@ app.post('/api/admin/bookings', authenticateToken, requireAdmin, asyncHandler(as
       return res.status(500).json({ error: bookingError.message || 'Failed to create booking' });
     }
     booking = newBooking;
+  }
+
+  if (adminRestrictedCredit.consumeGlazingOnly) {
+    const consumed = await consumeGlazingOnlyCredit(supabaseDb.supabase, {
+      studentId: parseInt(studentId),
+      enrollmentId,
+      bookingId: booking.id,
+    });
+    if (!consumed) {
+      await supabaseDb.supabase.from('bookings')
+        .update({ status: 'cancelled', attended: null, updated_at: new Date().toISOString() })
+        .eq('id', booking.id);
+      return res.status(409).json({ error: 'That glazing-only credit was just used elsewhere. Refresh the student and try again.' });
+    }
   }
 
   // Update class enrollment count

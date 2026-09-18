@@ -281,9 +281,36 @@ async function sendPerRecipient({ subject, html, recipients, replyTo }) {
     );
   }
 
+  // The same guard sendEmail applies, repeated here because the batch endpoint
+  // is called directly and never passes through it. Every customer class email
+  // (course_details, course_unconfirmed) takes this path, so leaving it out left
+  // the exact bug this was written for wide open. Each recipient is its own
+  // message, so a dead address is simply dropped from the batch and reported as
+  // failed; sendAndLogPerRecipient only writes a sent_emails row for a success,
+  // which is what stops a discarded send being recorded as a delivery.
+  const suppressed = await getSuppressedAddresses();
   const results = [];
-  for (let i = 0; i < recipients.length; i += BATCH_LIMIT) {
-    const chunk = recipients.slice(i, i + BATCH_LIMIT);
+  let deliverable = recipients;
+
+  if (suppressed) {
+    deliverable = [];
+    for (const email of recipients) {
+      if (suppressed.has(bareAddress(email))) {
+        results.push({ email, success: false, error: 'suppressed', suppressed: true });
+      } else {
+        deliverable.push(email);
+      }
+    }
+    if (results.length > 0) {
+      console.warn(
+        `[Email] Dropped suppressed recipient(s) from "${subject}": ${results.map(r => r.email).join(', ')}. ` +
+        'Correct the address with scripts/fix-undeliverable-email.js. Lifting the suppression just bounces again.'
+      );
+    }
+  }
+
+  for (let i = 0; i < deliverable.length; i += BATCH_LIMIT) {
+    const chunk = deliverable.slice(i, i + BATCH_LIMIT);
     let sent = null;
 
     try {

@@ -124,3 +124,102 @@ test('SG-10: an empty suppression list is not the same as an unknown one', () =>
   assert.equal(r.blocked, false);
   assert.deepEqual(r.dropped, []);
 });
+
+// ---------------------------------------------------------------------------
+// The batch path.
+//
+// Everything above tests the pure decision. None of it touches sendPerRecipient,
+// which calls Resend's batch endpoint directly instead of going through
+// sendEmail — so the guard was absent there while all ten tests above passed.
+// That is the path every customer class email takes (course_details from the
+// admin route, course_unconfirmed from the cohort auto-processor and the
+// postpone script), including the class reschedule Sheena Lim never received.
+// These exercise it end to end, with Resend stubbed at the fetch layer.
+
+const path = require('node:path');
+
+// A fresh copy of the module per test: the suppression list is cached for five
+// minutes inside it, so one test's stubbed answer would otherwise be reused by
+// the next.
+function freshService({ suppressed }) {
+  process.env.RESEND_API_KEY = 're_test_key';
+  const wire = [];
+  const realFetch = global.fetch;
+
+  global.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('/suppressions')) {
+      if (suppressed === null) return { ok: false, status: 500, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({ data: suppressed.map(email => ({ email })) }) };
+    }
+    if (u.includes('/emails/batch')) {
+      const body = JSON.parse(opts.body);
+      wire.push(...body.map(p => p.to));
+      return {
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ data: body.map((_, i) => ({ id: 'bmsg_' + i })) }),
+      };
+    }
+    if (u.includes('/emails')) {
+      const body = JSON.parse(opts.body);
+      wire.push(body.to);
+      return {
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ id: 'msg_1' }),
+      };
+    }
+    return realFetch(url, opts);
+  };
+
+  delete require.cache[require.resolve(path.join(__dirname, '../utils/emailService.js'))];
+  const svc = require('../utils/emailService');
+  return { svc, wire, restore: () => { global.fetch = realFetch; } };
+}
+
+const flat = (wire) => wire.flat().map(a => String(a).toLowerCase());
+
+test('SG-11: the batch path drops a suppressed recipient and still mails the rest', async () => {
+  // The regression. A cohort postponement addressed to two students, one of
+  // whom has hard-bounced: the live student must still be told, and the dead
+  // address must never reach the wire.
+  const { svc, wire, restore } = freshService({ suppressed: [DEAD] });
+  try {
+    const results = await svc.sendPerRecipient({
+      subject: 'Your class has moved', html: '<p>hi</p>', recipients: [LIVE, DEAD],
+    });
+
+    assert.deepEqual(flat(wire), [LIVE]);
+    assert.equal(results.find(r => r.email === LIVE).success, true);
+    assert.equal(results.find(r => r.email === DEAD).success, false);
+    assert.equal(results.find(r => r.email === DEAD).error, 'suppressed');
+  } finally { restore(); }
+});
+
+test('SG-12: the batch path sends nothing when every recipient is suppressed', async () => {
+  const { svc, wire, restore } = freshService({ suppressed: [DEAD, OTHER] });
+  try {
+    const results = await svc.sendPerRecipient({
+      subject: 'Your class has moved', html: '<p>hi</p>', recipients: [DEAD, OTHER],
+    });
+
+    assert.deepEqual(flat(wire), []);
+    assert.equal(results.every(r => r.success === false), true);
+    assert.equal(results.every(r => r.error === 'suppressed'), true);
+  } finally { restore(); }
+});
+
+test('SG-13: the batch path fails open when the suppression list is unavailable', async () => {
+  // Same rule as SG-6: an auxiliary endpoint being down must not stop the
+  // studio mailing its students.
+  const { svc, wire, restore } = freshService({ suppressed: null });
+  try {
+    const results = await svc.sendPerRecipient({
+      subject: 'Your class has moved', html: '<p>hi</p>', recipients: [LIVE, DEAD],
+    });
+
+    assert.deepEqual(flat(wire).sort(), [LIVE, DEAD].sort());
+    assert.equal(results.every(r => r.success === true), true);
+  } finally { restore(); }
+});

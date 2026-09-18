@@ -337,12 +337,26 @@ async function awardCoursePurchaseCredit({ customerId, enrollmentId, courseTitle
   });
   console.log(`[Credits] Awarded $${COURSE_PURCHASE_CREDIT} to customer ${customerId} for enrollment ${enrollmentId}`);
 
-  // Email is best-effort and never blocks the grant.
+  await sendCreditEarnedEmail({
+    customerId,
+    amountEarned: COURSE_PURCHASE_CREDIT,
+    earnedFor: courseTitle || 'your course',
+  });
+
+  return { granted: true, transaction };
+}
+
+/**
+ * Best-effort "you've earned VES Credits" email. Never throws and never blocks
+ * the grant it follows: the ledger row is already written by the time this
+ * runs, and a mail failure must not make the caller think the grant failed.
+ */
+async function sendCreditEarnedEmail({ customerId, amountEarned, earnedFor }) {
   try {
     const { isEmailCategoryPaused, sendEmail } = require('./emailService');
     if (isEmailCategoryPaused('credits')) {
       console.log('[Credits] Email paused — skipping credit earned email');
-      return { granted: true, transaction };
+      return;
     }
     const { data: student } = await supabase
       .from('customers')
@@ -354,8 +368,8 @@ async function awardCoursePurchaseCredit({ customerId, enrollmentId, courseTitle
       const newBalance = await getCreditBalance(customerId);
       const { subject, html } = generateCreditEarned({
         firstName: student.first_name,
-        amountEarned: COURSE_PURCHASE_CREDIT,
-        courseName: courseTitle || 'your course',
+        amountEarned,
+        courseName: earnedFor,
         newBalance,
       });
       await sendEmail({ to: student.email, subject, html });
@@ -363,6 +377,60 @@ async function awardCoursePurchaseCredit({ customerId, enrollmentId, courseTitle
   } catch (emailErr) {
     console.error('[Credits] Failed to send credit earned email:', emailErr);
   }
+}
+
+const MEMBERSHIP_PURCHASE_CREDIT = COURSE_PURCHASE_CREDIT;
+
+/**
+ * Award the $20 "Ves is 10" credit for one Clay Club membership purchase.
+ *
+ * Every new order earns the credit, and a membership is an order like any
+ * other — before this, only course orders paid out, so a member renewing for
+ * six months walked away with nothing. Called by the order sync the moment it
+ * records the membership row (the webhook does not create that row, the sweep
+ * does), and by scripts/grant-membership-credit.js for anything bought before
+ * this went live.
+ *
+ * No "returning student" test here. Clay Club is studio access for people who
+ * have already learned with us, so the buyer is returning by construction, and
+ * a membership has no enrollment history to compare against anyway.
+ *
+ * Keyed on the membership row: one grant per membership, however many times
+ * the sweep re-reads the same order.
+ */
+async function awardMembershipPurchaseCredit({ customerId, membershipId, membershipType, dryRun = false }) {
+  if (!customerId || !membershipId) return { granted: false, reason: 'missing_ids' };
+
+  const ref = String(membershipId);
+  const { data: existing, error: existingErr } = await supabase
+    .from('credit_transactions')
+    .select('id')
+    .eq('customer_id', customerId)
+    .eq('source', 'membership_purchase')
+    .eq('reference_id', ref)
+    .limit(1);
+  if (existingErr) throw existingErr;
+  if (existing && existing.length) {
+    return { granted: false, reason: 'already_credited', transactionId: existing[0].id };
+  }
+
+  if (dryRun) return { granted: true, reason: 'would_grant', dryRun: true };
+
+  const label = membershipType ? `${membershipType} membership` : 'Clay Club membership';
+  const transaction = await earnCredits({
+    customerId,
+    amount: MEMBERSHIP_PURCHASE_CREDIT,
+    source: 'membership_purchase',
+    referenceId: ref,
+    description: `Ves is 10 — $${MEMBERSHIP_PURCHASE_CREDIT} credit for ${label}`,
+  });
+  console.log(`[Credits] Awarded $${MEMBERSHIP_PURCHASE_CREDIT} to customer ${customerId} for membership ${membershipId}`);
+
+  await sendCreditEarnedEmail({
+    customerId,
+    amountEarned: MEMBERSHIP_PURCHASE_CREDIT,
+    earnedFor: label,
+  });
 
   return { granted: true, transaction };
 }
@@ -376,6 +444,8 @@ module.exports = {
   refundCredits,
   isReturningStudent,
   awardCoursePurchaseCredit,
+  awardMembershipPurchaseCredit,
   COURSE_PURCHASE_CREDIT,
+  MEMBERSHIP_PURCHASE_CREDIT,
   ENROLLMENT_COUNTS_AS_STUDIED
 };

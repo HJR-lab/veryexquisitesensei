@@ -307,3 +307,110 @@ test('dryRun reports what would happen and writes nothing', async () => {
   assert.strictEqual(refused.granted, false);
   assert.strictEqual(purchaseCredits(tables).length, 0);
 });
+
+// ---------------------------------------------------------------------------
+// Membership purchases — every new order earns the credit, not only courses.
+// ---------------------------------------------------------------------------
+
+const membershipSeed = (txns = []) => ({
+  course_enrollments: [],
+  credit_transactions: txns,
+  customers: [{ id: 1, email: 'member@example.com', first_name: 'Celine' }],
+});
+
+const membershipCredits = (tables) =>
+  (tables.credit_transactions || []).filter(t => t.source === 'membership_purchase');
+
+test('a Clay Club membership purchase earns $20', async () => {
+  const { creditManager, tables } = load(membershipSeed());
+
+  const res = await creditManager.awardMembershipPurchaseCredit({
+    customerId: 1, membershipId: 77, membershipType: 'Clay Club 6 Months',
+  });
+
+  assert.strictEqual(res.granted, true);
+  const txns = membershipCredits(tables);
+  assert.strictEqual(txns.length, 1);
+  assert.strictEqual(txns[0].amount, 20);
+  assert.strictEqual(txns[0].type, 'earn');
+  assert.strictEqual(txns[0].reference_id, '77');
+  assert.match(txns[0].description, /Clay Club 6 Months membership/);
+});
+
+test('a membership earns even with no course history', async () => {
+  // No enrollments at all — the returning-student rule is a course rule.
+  const { creditManager, tables } = load(membershipSeed());
+  const res = await creditManager.awardMembershipPurchaseCredit({ customerId: 1, membershipId: 78 });
+  assert.strictEqual(res.granted, true);
+  assert.strictEqual(membershipCredits(tables).length, 1);
+});
+
+test('re-syncing the same membership grants once', async () => {
+  const { creditManager, tables } = load(membershipSeed());
+
+  await creditManager.awardMembershipPurchaseCredit({ customerId: 1, membershipId: 77 });
+  const again = await creditManager.awardMembershipPurchaseCredit({ customerId: 1, membershipId: 77 });
+
+  assert.strictEqual(again.granted, false);
+  assert.strictEqual(again.reason, 'already_credited');
+  assert.strictEqual(membershipCredits(tables).length, 1);
+});
+
+test('two memberships each earn their own $20', async () => {
+  const { creditManager, tables } = load(membershipSeed());
+  await creditManager.awardMembershipPurchaseCredit({ customerId: 1, membershipId: 77 });
+  await creditManager.awardMembershipPurchaseCredit({ customerId: 1, membershipId: 78 });
+  assert.strictEqual(membershipCredits(tables).length, 2);
+});
+
+test('a membership credit does not settle a course order, or vice versa', async () => {
+  const { creditManager, tables } = load({
+    course_enrollments: [
+      enr(1, { shopify_order_id: '500000', status: 'completed' }),
+      enr(2, { shopify_order_id: '600001' }),
+    ],
+    credit_transactions: [],
+    customers: [{ id: 1, email: 'member@example.com', first_name: 'Celine' }],
+  });
+
+  await creditManager.awardMembershipPurchaseCredit({ customerId: 1, membershipId: 2 });
+  const course = await creditManager.awardCoursePurchaseCredit({ customerId: 1, enrollmentId: 2 });
+
+  assert.strictEqual(course.granted, true);
+  assert.strictEqual(membershipCredits(tables).length, 1);
+  assert.strictEqual(purchaseCredits(tables).length, 1);
+});
+
+test('membership: missing ids are refused rather than guessed at', async () => {
+  const { creditManager, tables } = load(membershipSeed());
+  assert.strictEqual((await creditManager.awardMembershipPurchaseCredit({ customerId: 1 })).reason, 'missing_ids');
+  assert.strictEqual((await creditManager.awardMembershipPurchaseCredit({ membershipId: 77 })).reason, 'missing_ids');
+  assert.strictEqual(membershipCredits(tables).length, 0);
+});
+
+test('membership: dryRun reports what would happen and writes nothing', async () => {
+  const { creditManager, tables } = load(membershipSeed());
+  const would = await creditManager.awardMembershipPurchaseCredit({ customerId: 1, membershipId: 77, dryRun: true });
+  assert.deepStrictEqual(would, { granted: true, reason: 'would_grant', dryRun: true });
+  assert.strictEqual(membershipCredits(tables).length, 0);
+});
+
+test('membership: the credit email goes out when the category is live', async () => {
+  const { creditManager, sent } = load(membershipSeed(), { emailPaused: false });
+  await creditManager.awardMembershipPurchaseCredit({
+    customerId: 1, membershipId: 77, membershipType: 'Clay Club 6 Months',
+  });
+  assert.strictEqual(sent.length, 1);
+  assert.strictEqual(sent[0].to, 'member@example.com');
+  assert.match(sent[0].html, /Clay Club 6 Months membership/);
+});
+
+test('membership: the grant stands even if the credit email throws', async () => {
+  const { creditManager, tables } = load(membershipSeed(), {
+    emailPaused: false,
+    sendEmail: async () => { throw new Error('smtp down'); },
+  });
+  const res = await creditManager.awardMembershipPurchaseCredit({ customerId: 1, membershipId: 77 });
+  assert.strictEqual(res.granted, true);
+  assert.strictEqual(membershipCredits(tables).length, 1);
+});

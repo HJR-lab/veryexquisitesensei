@@ -1021,7 +1021,7 @@ async function orderSyncPass({ sinceDate } = {}) {
               // New purchase → create as PENDING (reserved). The term does NOT
               // start now; it begins on the member's first studio visit, when
               // the studio manager activates it (sets start/end dates).
-              await createMembership({
+              const membership = await createMembership({
                 customerId: memberCustomer.id,
                 membershipType,
                 status: 'pending',
@@ -1032,6 +1032,20 @@ async function orderSyncPass({ sinceDate } = {}) {
               });
               console.log(`🎫 Reserved (pending) membership for ${customer.email}: ${membershipType} (purchased ${purchaseDate})`);
               enrollmentsCreated++;
+
+              // Every new order earns the $20 "Ves is 10" credit, memberships
+              // included. Keyed on the membership row, so a re-sync of the
+              // same order cannot pay twice.
+              try {
+                const { awardMembershipPurchaseCredit } = require('../utils/creditManager');
+                await awardMembershipPurchaseCredit({
+                  customerId: memberCustomer.id,
+                  membershipId: membership?.id,
+                  membershipType,
+                });
+              } catch (creditErr) {
+                console.error('[Credits] Failed to award membership credit during order sync:', creditErr);
+              }
 
               // Send the confirmation email from this reliable sync path (the
               // Shopify order webhook is not a guaranteed delivery channel).

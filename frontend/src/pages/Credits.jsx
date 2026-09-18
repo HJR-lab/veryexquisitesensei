@@ -268,7 +268,7 @@ export default function Credits() {
             Ves is 10 Credits
           </div>
           <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)', lineHeight: 1.5 }}>
-            To celebrate 10 years of Ves, every returning student earns <span style={{ color: '#FFFFFF', fontWeight: 600 }}>$20 Ves Credits</span> with each new course. Use them for studio access, firing, delivery and more.
+            To celebrate 10 years of Ves, every returning student earns <span style={{ color: '#FFFFFF', fontWeight: 600 }}>$20 Ves Credits</span> with each new order — every course and every Clay Club membership. Use them for studio access, firing, delivery and more.
           </div>
         </div>
 
@@ -331,9 +331,9 @@ export default function Credits() {
                   <span className="material-symbols-outlined" style={{ fontSize: '20px', color: TC }}>school</span>
                 </div>
                 <div>
-                  <div style={{ fontSize: '14px', fontWeight: 600, color: INK, marginBottom: '2px' }}>$20 for every course you take</div>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: INK, marginBottom: '2px' }}>$20 for every new order</div>
                   <div style={{ fontSize: '12px', color: MUTED, lineHeight: 1.5 }}>
-                    From your second course onwards, you automatically receive $20 in Ves Credits each time you sign up. Our way of saying thank you for being part of the Ves family.
+                    From your second course onwards, you automatically receive $20 in Ves Credits each time you sign up for a course, and $20 with every Clay Club membership. Our way of saying thank you for being part of the Ves family.
                   </div>
                 </div>
               </div>

@@ -29,6 +29,10 @@ const HB_HORIZON_DAYS = 122;
 // One entry per weekly slot. `weekday` and the times are the identity of the
 // slot; everything else is the shape of the row it creates.
 //
+// `lastDate` (optional, YYYY-MM-DD) retires a slot: nothing is created after it.
+// Deleting a slot from this table would do the same, but a slot with a
+// lastDate says when and why it stopped instead of silently vanishing.
+//
 // `room` is null for the evening slots because that is what the live rows hold —
 // the studio has never assigned them a room, and writing one now would change
 // what the calendar displays. Friday carries 'Studio A' for the same reason.
@@ -52,6 +56,8 @@ const HB_SLOTS = [
     instructor: 'Lynette Ting',
     room: null,
     maxCapacity: 8,
+    // Wednesday HB stops after 21/10/26 — removed from 28/10/26 on (23/09/26).
+    lastDate: '2026-10-21',
   },
   {
     classType: 'HBFRINT_LT',

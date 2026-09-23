@@ -50,7 +50,9 @@ const { toYmd, addDays, daysUntilWeekday, todaySGT } = require('./sgtDate');
  */
 function plannedDates(slot, firstDate, lastDate) {
   const from = toYmd(firstDate);
-  const to = toYmd(lastDate);
+  let to = toYmd(lastDate);
+  // A retired slot stops at its own lastDate, whatever window was asked for.
+  if (slot.lastDate && toYmd(slot.lastDate) < to) to = toYmd(slot.lastDate);
   if (!from || !to || from > to) return [];
 
   const dates = [];

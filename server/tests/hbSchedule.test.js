@@ -60,7 +60,7 @@ test('HB-05: an empty or inverted window plans nothing', () => {
 test('HB-06: the horizon covers every slot at least a dozen times over', () => {
   // If someone shortens the horizon to the point where a weekly slot barely
   // gets scheduled, the calendar is one missed run away from empty again.
-  for (const slot of HB_SLOTS) {
+  for (const slot of HB_SLOTS.filter(s => !s.lastDate)) {
     const dates = plannedDates(slot, '2026-09-01', addDays('2026-09-01', HB_HORIZON_DAYS));
     assert.ok(dates.length >= 12, `${slot.classType} only gets ${dates.length} classes inside the horizon`);
   }
@@ -120,4 +120,13 @@ test('HB-13: closureOn matches only the exact date', () => {
   assert.ok(closureOn('2026-12-25'), 'Christmas Day should be a closure');
   assert.equal(closureOn('2026-12-24'), null, 'Christmas Eve is not listed');
   assert.equal(closureOn('2026-12-25T00:00:00'), null, 'closureOn takes a bare YYYY-MM-DD');
+});
+
+test('HB-RETIRE: Wednesday HB stops after 21/10/26 and never plans 28/10/26 on', () => {
+  const wed = slotFor('HBWEDNT_LT');
+  const dates = plannedDates(wed, '2026-10-01', '2027-03-31');
+  assert.deepEqual(dates, ['2026-10-07', '2026-10-14', '2026-10-21']);
+  assert.deepEqual(plannedDates(wed, '2026-10-28', '2027-03-31'), []);
+  // the other slots are untouched
+  assert.ok(plannedDates(slotFor('HBMONNT_LT'), '2026-10-28', '2026-12-31').length > 0);
 });

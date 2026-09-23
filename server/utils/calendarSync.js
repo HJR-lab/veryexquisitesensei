@@ -208,6 +208,26 @@ async function syncClassInstance(classInstanceId) {
       const classDate = (classInstance.class_date || '').split('T')[0];
       if (classDate < today) return { status: 'skipped', classInstanceId, reason: 'past_class' };
 
+      // A draft class belongs to a cohort still under the minimum — it is not
+      // running yet, so it must not sit on the studio calendar looking booked.
+      // Pull any event an earlier sync created; activation re-syncs it back on.
+      if (classInstance.status === 'draft') {
+        if (classInstance.google_calendar_event_id) {
+          try {
+            await cal.events.delete({ calendarId: CALENDAR_ID, eventId: classInstance.google_calendar_event_id });
+          } catch (err) {
+            // 404/410: already gone from Google — still clear our pointer.
+            const code = err.code || err.response?.status;
+            if (code !== 404 && code !== 410) throw err;
+          }
+          await supabaseDb.supabase
+            .from('class_instances')
+            .update({ google_calendar_event_id: null })
+            .eq('id', classInstanceId);
+        }
+        return { status: 'skipped', classInstanceId, reason: 'draft' };
+      }
+
       const description = await buildClassDescription(classInstance);
       const payload = buildEventPayload(classInstance, description);
 

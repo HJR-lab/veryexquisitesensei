@@ -289,6 +289,9 @@ export default function AdminStudentDetail() {
     const flatClasses = [];
     allClasses.forEach(course => {
       course.classes?.forEach(cls => {
+        // Draft (cohort under minimum) and cancelled classes are not running,
+        // so they are never a place to move a student into.
+        if (cls.status !== 'active') return;
         flatClasses.push({
           id: cls.id,
           classDate: cls.class_date,
@@ -528,6 +531,7 @@ export default function AdminStudentDetail() {
       const flatClasses = [];
       loadedCourses.forEach(course => {
         course.classes?.forEach(cls => {
+          if (cls.status !== 'active') return;
           flatClasses.push({
             id: cls.id,
             classDate: cls.class_date,

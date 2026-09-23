@@ -817,6 +817,12 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
     return res.status(404).json({ error: 'Class not found' });
   }
 
+  // Draft = a cohort still under the minimum; cancelled = not running. Neither
+  // is a class anyone can be seated in, whatever the page happened to offer.
+  if (classInstance.status !== 'active') {
+    return res.status(400).json({ error: 'This class is not confirmed yet and cannot be booked.' });
+  }
+
   const glazingOnlyCredits = creditEnrollment
     ? await getGlazingOnlyCredits(supabaseDb.supabase, dbCustomerId, creditEnrollment.id)
     : [];
@@ -1580,6 +1586,12 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
 
   if (!oldClass || !newClass) {
     return res.status(404).json({ error: 'Class not found' });
+  }
+
+  // Only a running class is a reschedule target. A draft cohort has not met its
+  // minimum and may be postponed or never run at all.
+  if (newClass.status !== 'active') {
+    return res.status(400).json({ error: 'That class is not confirmed yet. Please choose another date.' });
   }
 
   // Parse class start datetime (combine date + start_time)

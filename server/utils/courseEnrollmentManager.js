@@ -1078,6 +1078,13 @@ async function activateDraftClasses(enrollment) {
     const activatedCount = updatedClasses ? updatedClasses.length : 0;
     console.log(`✅ Activated ${activatedCount} draft classes to ACTIVE status`);
 
+    // Draft classes are kept off the studio calendar, so a confirmed cohort
+    // has to be pushed onto it now rather than waiting for the nightly resync.
+    if (activatedCount > 0) {
+      const calendarSync = require('./calendarSync');
+      updatedClasses.forEach(c => calendarSync.syncClassInstance(c.id).catch(() => {}));
+    }
+
     // Backstop only. Credits are now granted at order time (routes/shopify.js,
     // both the webhook and the batch sync), so by the time a cohort activates
     // every enrollment in it should already hold its credit. This sweep catches

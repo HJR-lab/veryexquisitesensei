@@ -297,9 +297,15 @@ async function processCoursePurchase(order, lineItem) {
       console.log(`📦 Package enrollment: ${classesFromThisPurchase} classes from this purchase`);
     }
 
+    // Always record the WT cohort length. total_weeks has a DB default of 6 and
+    // createClassesAndBookings sizes the cohort from it, so leaving it unset
+    // built the 7-week Intermediate WT2410AM as a 6-class _DL6 cohort.
+    if (!isHandbuilding) {
+      enrollmentData.totalWeeks = weeksPerCourse;
+    }
+
     // For 10-class packages (6 WT + 4 flex), set flex credits at creation time
     if (extraFlexClasses > 0 && !isHandbuilding) {
-      enrollmentData.totalWeeks = weeksPerCourse; // base WT course weeks (6)
       enrollmentData.classCreditsAllocated = extraFlexClasses; // flex credits (4)
       enrollmentData.classCreditsUsed = 0;
       enrollmentData.classCreditsRemaining = extraFlexClasses;

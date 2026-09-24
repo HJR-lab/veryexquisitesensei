@@ -242,6 +242,13 @@ async function enrollInNextCourse(enrollment, studentId) {
     courseType,
     schedulePattern,
     numberOfWeeks: 6,
+    // Written explicitly, not left to the column default. total_weeks defaults
+    // to 6 in the DB and createClassesAndBookings sizes AND labels the cohort
+    // from it (total_weeks || number_of_weeks), so an unset value is a silent
+    // dependency on that default — which is what built the 7-week Intermediate
+    // WT2410AM as a 6-class _DL6 cohort on the order path. Same 6 as
+    // numberOfWeeks above: a continuation course is always a 6-week block.
+    totalWeeks: 6,
     courseStartDate: nextCourse.course_start_date,
     courseEndDate: nextCourse.course_end_date,
     classTime,

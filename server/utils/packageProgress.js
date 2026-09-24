@@ -26,10 +26,30 @@ async function getPackageProgress(supabase, studentId, enrollment) {
   if (!total || total <= 1) return null;
 
   if (enrollment.package_courses_remaining != null) {
-    const remaining = Math.max(0, Math.min(total - 1, enrollment.package_courses_remaining));
-    const current = total - remaining;
+    const remainingAfterThis = Math.max(0, Math.min(total - 1, enrollment.package_courses_remaining));
+    const current = total - remainingAfterThis;
     // The current course only counts as completed once its own status says so.
     const completed = enrollment.status === 'completed' ? current : current - 1;
+
+    // "Remaining" means courses still to be PLACED. A later course of this same
+    // package that already exists is placed, even when it sits in a different
+    // slot — Mitchell Chan and Sarah Ong moved course 3 to the Sat AM
+    // Intermediate while course 2 ran Sat PM, and their course-2 card kept
+    // offering "Enroll in Next Course → WT1010PM_DL6", which would have made a
+    // fourth course. current/completed stay tied to THIS row.
+    let placedLater = 0;
+    if (remainingAfterThis > 0 && enrollment.shopify_order_id && enrollment.course_start_date) {
+      const { data: later } = await supabase
+        .from('course_enrollments')
+        .select('id')
+        .eq('student_id', studentId)
+        .eq('shopify_order_id', enrollment.shopify_order_id)
+        .eq('package_total_courses', total)
+        .neq('status', 'cancelled')
+        .gt('course_start_date', enrollment.course_start_date);
+      placedLater = (later || []).length;
+    }
+    const remaining = Math.max(0, remainingAfterThis - placedLater);
     return { total, current, completed, remaining };
   }
 

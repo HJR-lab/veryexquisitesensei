@@ -25,6 +25,17 @@ function bareAddress(address) {
   return (match ? match[1] : String(address || '')).trim().toLowerCase();
 }
 
+// A multi-spot order gives each extra student a placeholder account whose
+// address is the purchaser's with "+dup" (or "+dup2", "+dup3"…) spliced in,
+// until the purchaser fills in the student-details form. That address is not
+// the student's: mail to it lands with the purchaser, or bounces at providers
+// without plus-addressing (and a bounce suppresses it for good). So nothing is
+// ever sent to one. The student gets their own onboarding email once their
+// real address is known (utils/studentOnboarding.js).
+function isPlaceholderAddress(address) {
+  return /\+dup\d*@/i.test(bareAddress(address));
+}
+
 // Temporarily paused automated email categories. Override via the
 // PAUSED_EMAIL_CATEGORIES env var (comma-separated) or set it to an empty
 // string to resume all. Only gates AUTOMATED sends — admin-initiated
@@ -118,10 +129,18 @@ function resolveAddressing(recipientEmails) {
 // nobody. The studio's own inbox never counts as customer-facing, so a
 // studio-only notice is never blocked and a suppressed studio address cannot
 // block real student mail.
+//
+// Multi-spot placeholders ("buyer+dup@…") are dropped the same way, whether or
+// not the suppression list could be fetched: they are not the student's
+// address, and they are reported separately in `placeholders`.
 function partitionSuppressed({ to, cc, bcc, suppressed }) {
-  if (!suppressed) return { to, cc, bcc, dropped: [], blocked: false };
+  const everyoneIn = [to, ...(cc || []), ...(bcc || [])].filter(Boolean);
+  if (!suppressed && !everyoneIn.some(isPlaceholderAddress)) {
+    return { to, cc, bcc, dropped: [], placeholders: [], blocked: false };
+  }
 
-  const isSuppressed = (addr) => suppressed.has(bareAddress(addr));
+  const isSuppressed = (addr) =>
+    isPlaceholderAddress(addr) || Boolean(suppressed && suppressed.has(bareAddress(addr)));
   const isStudio = (addr) => bareAddress(addr) === INBOX_EMAIL;
 
   const dropped = [];
@@ -152,6 +171,7 @@ function partitionSuppressed({ to, cc, bcc, suppressed }) {
     cc: nextCc,
     bcc: nextBcc,
     dropped,
+    placeholders: dropped.filter(isPlaceholderAddress),
     blocked: customers.length > 0 && reachable.length === 0,
   };
 }
@@ -214,8 +234,15 @@ async function sendEmail({ to, cc, bcc, subject, html, replyTo }) {
     // discard be recorded as a delivery: returning success:false here keeps
     // sendAndLogEmail from writing a sent_emails row that claims otherwise.
     const guard = partitionSuppressed({ to, cc, bcc, suppressed: await getSuppressedAddresses() });
-    if (guard.dropped.length > 0) {
-      console.warn(`[Email] Dropped suppressed recipient(s) from "${subject}": ${guard.dropped.join(', ')}`);
+    const deadDropped = guard.dropped.filter(a => !guard.placeholders.includes(a));
+    if (guard.placeholders.length > 0) {
+      console.log(`[Email] Skipped multi-spot placeholder recipient(s) on "${subject}": ${guard.placeholders.join(', ')}`);
+    }
+    if (deadDropped.length > 0) {
+      console.warn(`[Email] Dropped suppressed recipient(s) from "${subject}": ${deadDropped.join(', ')}`);
+    }
+    if (guard.blocked && deadDropped.length === 0) {
+      return { success: false, error: 'placeholder', placeholder: true };
     }
     if (guard.blocked) {
       console.warn(
@@ -292,18 +319,27 @@ async function sendPerRecipient({ subject, html, recipients, replyTo }) {
   const results = [];
   let deliverable = recipients;
 
+  const placeholders = deliverable.filter(isPlaceholderAddress);
+  if (placeholders.length > 0) {
+    for (const email of placeholders) results.push({ email, success: false, error: 'placeholder', placeholder: true });
+    deliverable = deliverable.filter(email => !isPlaceholderAddress(email));
+    console.log(`[Email] Skipped multi-spot placeholder recipient(s) on "${subject}": ${placeholders.join(', ')}`);
+  }
+
   if (suppressed) {
+    const before = results.length;
+    const remaining = deliverable;
     deliverable = [];
-    for (const email of recipients) {
+    for (const email of remaining) {
       if (suppressed.has(bareAddress(email))) {
         results.push({ email, success: false, error: 'suppressed', suppressed: true });
       } else {
         deliverable.push(email);
       }
     }
-    if (results.length > 0) {
+    if (results.length > before) {
       console.warn(
-        `[Email] Dropped suppressed recipient(s) from "${subject}": ${results.map(r => r.email).join(', ')}. ` +
+        `[Email] Dropped suppressed recipient(s) from "${subject}": ${results.slice(before).map(r => r.email).join(', ')}. ` +
         'Correct the address with scripts/fix-undeliverable-email.js. Lifting the suppression just bounces again.'
       );
     }
@@ -447,4 +483,4 @@ function detectStudentTemplate(enrollment) {
   return detectCourseTemplate(enrollment);
 }
 
-module.exports = { sendEmail, sendAndLogEmail, sendPerRecipient, detectCourseTemplate, detectStudentTemplate, isEmailCategoryPaused, buildEnvelope, resolveAddressing, partitionSuppressed, getSuppressedAddresses, FROM_ADDRESS, INBOX_ADDRESS, INBOX_EMAIL, REPLY_TO_ADDRESS };
+module.exports = { sendEmail, sendAndLogEmail, sendPerRecipient, detectCourseTemplate, detectStudentTemplate, isEmailCategoryPaused, buildEnvelope, resolveAddressing, partitionSuppressed, getSuppressedAddresses, isPlaceholderAddress, FROM_ADDRESS, INBOX_ADDRESS, INBOX_EMAIL, REPLY_TO_ADDRESS };

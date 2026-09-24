@@ -136,6 +136,15 @@ app.post('/api/student-details/:token', asyncHandler(async (req, res) => {
     .eq('id', request.id);
 
   console.log(`[StudentDetails] Placeholder ${request.placeholder_customer_id} completed: ${firstName} ${lastName} <${email}>`);
+
+  // The student has heard nothing from VES until now: every earlier send to
+  // the +dup placeholder address was skipped. Fire-and-forget; never throws.
+  const { sendPlusOneOnboarding } = require('../utils/studentOnboarding');
+  sendPlusOneOnboarding({
+    customerId: request.placeholder_customer_id,
+    purchaserEmail: request.purchaser_email,
+  });
+
   res.json({ success: true });
 }));
 

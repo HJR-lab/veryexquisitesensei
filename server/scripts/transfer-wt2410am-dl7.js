@@ -154,7 +154,9 @@ async function main() {
       studentId: m.studentId,
       shopifyOrderId: cur.shopify_order_id,
       shopifyLineItemId: `${cur.shopify_line_item_id}-C3`,
-      courseTitle: cur.course_title,
+      // The course they are actually taking, not the package they bought —
+      // a "6 Weeks" title also switches on the 6-week glazing reschedule rules.
+      courseTitle: peer.course_title,
       courseVariantTitle: peer.course_variant_title,
       courseType: 'Wheelthrowing Intermediate',
       schedulePattern: peer.schedule_pattern,

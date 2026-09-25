@@ -175,6 +175,7 @@ export default function AdminPiecePipeline({ embedded = false }) {
       fetchPipeline();
     } catch (err) {
       console.error('Failed to place in cabinet:', err);
+      alert(err?.response?.data?.error || 'Failed to place in cabinet');
     }
   };
 
@@ -914,7 +915,7 @@ function BatchCard({ batch, daysSince, onStatusUpdate, onComplete, onPlaceInCabi
       padding: '14px 16px',
       borderLeft: selected ? `3px solid ${TC}` : isUnmatched ? '3px solid #C03030' : '3px solid transparent',
     }}>
-      <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
         {showCheckbox && (
           <input type="checkbox" checked={selected} onChange={onToggleSelect} style={{ cursor: 'pointer', flexShrink: 0 }} />
         )}
@@ -928,7 +929,7 @@ function BatchCard({ batch, daysSince, onStatusUpdate, onComplete, onPlaceInCabi
           />
         )}
 
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flex: '1 1 160px', minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: '13px', marginBottom: '2px' }}>
             {isUnmatched
               ? <span style={{ color: '#C03030' }}>Unmatched — {batch.initials}</span>
@@ -948,7 +949,7 @@ function BatchCard({ batch, daysSince, onStatusUpdate, onComplete, onPlaceInCabi
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: '6px', flexShrink: 0, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '6px', flex: '0 1 auto', flexWrap: 'wrap', marginLeft: 'auto' }}>
           {isUnmatched && (
             <button onClick={() => showAssign ? setShowAssign(false) : openAssignPanel()} style={{ ...btnSt, color: '#C03030', borderColor: '#C03030' }}>
               Assign Student

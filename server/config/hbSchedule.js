@@ -60,6 +60,16 @@ const HB_SLOTS = [
     lastDate: '2026-10-21',
   },
   {
+    // Thursday morning HB added 29/09/26; first class 01/10/26.
+    classType: 'HBTHUAM_LT',
+    weekday: 'THURSDAY',
+    startTime: '10:30am',
+    endTime: '12:30pm',
+    instructor: 'Lynette Ting',
+    room: null,
+    maxCapacity: 8,
+  },
+  {
     classType: 'HBFRINT_LT',
     weekday: 'FRIDAY',
     startTime: '7:00pm',

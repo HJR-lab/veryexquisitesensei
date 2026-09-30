@@ -1520,6 +1520,69 @@ app.post('/api/classes/cancel', authenticateToken, asyncHandler(async (req, res)
 }));
 
 // NEW: Reschedule to a make-up class
+/**
+ * May this glazing booking only move to another glazing class?
+ *
+ * A glazing class is glazing only — no wheelthrowing — so by default it can only
+ * be moved to another glazing class. Two package exceptions allow glazing → regular:
+ *   - 10-class package, when the package still keeps a glazing class
+ *     (checkPackageKeepsGlazing)
+ *   - 3-course package, on course 1 or 2 (the final course's glazing is fixed)
+ *
+ * Shared by the reschedule route (the enforcer) and the reschedule-glazing-rule
+ * endpoint (which shapes what the student is offered), so the two cannot drift.
+ *
+ * @returns {Promise<{locked: boolean, reason?: string}>}
+ */
+async function glazingLockedToGlazing(dbCustomerId, booking) {
+  const defaultReason = 'Glazing classes are for glazing only, so this class can only be rescheduled to another glazing class.';
+  if (!booking.course_enrollment_id) return { locked: true, reason: defaultReason };
+
+  const { data: enrollment } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('*')
+    .eq('id', booking.course_enrollment_id)
+    .single();
+  if (!enrollment) return { locked: true, reason: defaultReason };
+
+  const is10ClassPackage = enrollment.number_of_weeks >= 10 ||
+    (enrollment.course_title?.includes('10 Classes') ?? false);
+  if (is10ClassPackage) {
+    const keeps = await checkPackageKeepsGlazing(enrollment, booking.id);
+    return { locked: keeps.blocked, reason: keeps.reason };
+  }
+
+  if (enrollment.package_total_courses === 3) {
+    // Position within THIS package — a repeat purchase restarts at course 1.
+    const progress = await getPackageProgress(supabaseDb.supabase, dbCustomerId, enrollment);
+    if (progress && progress.current < progress.total) return { locked: false };
+    return { locked: true, reason: 'Your final course glazing class cannot be rescheduled to a regular class.' };
+  }
+
+  return { locked: true, reason: defaultReason };
+}
+
+// Tells the reschedule sheet whether a glazing booking may only move to another
+// glazing class, so it can hide everything else. The route below enforces it.
+app.get('/api/classes/reschedule-glazing-rule', authenticateToken, asyncHandler(async (req, res) => {
+  const { dbCustomerId } = req.user;
+  const classId = parseInt(req.query.classId);
+  if (!classId) return res.status(400).json({ error: 'classId required' });
+
+  const booking = await supabaseDb.findBooking(dbCustomerId, classId, 'booked');
+  if (!booking) return res.json({ glazingOnly: false });
+
+  const { data: cls } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('class_type, is_glazing')
+    .eq('id', classId)
+    .single();
+  if (!isGlazingClass(cls)) return res.json({ glazingOnly: false });
+
+  const { locked } = await glazingLockedToGlazing(dbCustomerId, booking);
+  res.json({ glazingOnly: locked });
+}));
+
 app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, res) => {
   const { dbCustomerId } = req.user;
   const { oldClassId, newClassId } = req.body;
@@ -1749,6 +1812,17 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
     return res.status(400).json({
       error: `Glazing is class ${packageGlazingPositions(pkgTotal).join(' and class ')} of your ${pkgTotal}-class package, so a regular class cannot be moved into a glazing class. Cancel this booking and book your glazing class instead.`
     });
+  }
+
+  // Every other student: a glazing class is glazing only, so it moves to another
+  // glazing class — except a 3-course package on course 1 or 2. (10-class is judged
+  // above by checkPackageKeepsGlazing.) Before this, only the 6-week WT branch below
+  // refused it, so a 7-week or HB glazing class could be moved onto a regular class.
+  if (!has10ClassPackage && isOldClassGlazing && !isNewClassGlazing) {
+    const lock = await glazingLockedToGlazing(dbCustomerId, currentBooking);
+    if (lock.locked) {
+      return res.status(400).json({ error: lock.reason });
+    }
   }
 
   // Block rescheduling to a date after glazing or within 5 days of glazing

@@ -73,6 +73,9 @@ export default function ClassScheduleNew() {
   const [courseWeeks, setCourseWeeks] = useState(null);
   const [selectedClass, setSelectedClass] = useState(null);
   const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+  // Whether the glazing class being moved may only go to another glazing class.
+  // Starts true (the strict case) until the server says a package exception applies.
+  const [rescheduleGlazingOnly, setRescheduleGlazingOnly] = useState(true);
   const [rescheduleSelectedDate, setRescheduleSelectedDate] = useState(new Date());
   const [rescheduleCurrentMonth, setRescheduleCurrentMonth] = useState(new Date());
   const [showPauseModal, setShowPauseModal] = useState(false);
@@ -136,6 +139,16 @@ export default function ClassScheduleNew() {
       console.error('Error fetching dashboard data:', error);
     }
   };
+
+  // When moving a glazing class, ask the server whether a package exception
+  // (10-class with glazing to spare, or 3-course on course 1-2) lets it go to a regular class.
+  useEffect(() => {
+    if (!showRescheduleModal || !selectedClass || !isGlazing(selectedClass)) return;
+    setRescheduleGlazingOnly(true);
+    api.get('/classes/reschedule-glazing-rule', { params: { classId: selectedClass.id } })
+      .then(r => setRescheduleGlazingOnly(r.data.glazingOnly !== false))
+      .catch(() => {});
+  }, [showRescheduleModal, selectedClass]);
 
   // When reschedule modal opens, auto-select first available date
   useEffect(() => {
@@ -367,6 +380,9 @@ export default function ClassScheduleNew() {
   const getAvailableMakeupClasses = () => {
     if (!selectedClass) return [];
     const classCategory = getClassCategory(selectedClass.classType);
+    // A glazing class can only move to another glazing class, so nothing else is
+    // offered — unless a package exception applies (see reschedule-glazing-rule).
+    const glazingOnly = isGlazing(selectedClass) && rescheduleGlazingOnly;
     const twentyFourHoursFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
     const allClasses = [];
     classes.forEach(course => {
@@ -389,7 +405,7 @@ export default function ClassScheduleNew() {
       });
     });
 
-    // Simple filter: future classes with space, same category (or any for 10-class), not glazing unless glazing
+    // Simple filter: future classes with space, same category (or any for 10-class), glazing only if moving a glazing class
     // Server validates all complex rules on submit
     return allClasses.filter(c => {
       const isDifferentClass = c.id !== selectedClass.id;
@@ -399,7 +415,8 @@ export default function ClassScheduleNew() {
       const isValidTime = !isNaN(classDateTime.getTime());
       const sameCategory = getClassCategory(c.classType) === classCategory;
       const categoryOK = is10ClassPackage || sameCategory;
-      return isDifferentClass && hasSpace && isAtLeast24HoursAway && isValidTime && categoryOK;
+      const glazingOK = !glazingOnly || isGlazing(c);
+      return isDifferentClass && hasSpace && isAtLeast24HoursAway && isValidTime && categoryOK && glazingOK;
     });
   };
 
@@ -1027,6 +1044,7 @@ export default function ClassScheduleNew() {
                     instructor: f.instructor,
                     fullCourseIdentifier: f.courseIdentifier,
                     courseIdentifier: f.courseIdentifier,
+                    isGlazing: f.isGlazingClass,
                   };
                   const startDT  = parseClassDateTime(f.classDate, f.startTime);
                   const twentyFourHoursFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
@@ -1415,6 +1433,15 @@ export default function ClassScheduleNew() {
               Select an available date below. Classes must start at least 24 hours from now.
             </div>
 
+            {isGlazing(selectedClass) && (
+              <div style={{ padding: '10px 12px', backgroundColor: '#FFFBEA', border: '1px solid #D4A800', marginBottom: '16px', fontSize: '12px', color: '#6B5500', lineHeight: 1.5 }}>
+                <strong>Glazing classes are for glazing only.</strong> There's no wheelthrowing in this session — the whole class is spent glazing your bisque-fired pieces.{' '}
+                {rescheduleGlazingOnly
+                  ? 'So it can only be moved to another glazing class, and those are the only classes shown below.'
+                  : 'You can move it to another glazing class, or to a regular class if you\'d rather keep throwing — your package still leaves room to glaze later.'}
+              </div>
+            )}
+
             {/* Date strip for reschedule */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '4px', marginBottom: '6px' }}>
               <button
@@ -1466,7 +1493,7 @@ export default function ClassScheduleNew() {
                 return <div style={{ fontSize: '13px', color: MUTED, textAlign: 'center', padding: '16px 0' }}>No available classes on this date.</div>;
               }
               // Check if student is rescheduling their glazing class
-              const isReschedulingGlazing = selectedClass && (selectedClass.classType || '').match(/\.(6|7)$/);
+              const isReschedulingGlazing = isGlazing(selectedClass);
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {cls.map(classItem => {
@@ -1491,6 +1518,9 @@ export default function ClassScheduleNew() {
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: '13px', fontWeight: 700 }}>{displayClassType(classItem.classType, classItem.classTitle)}</div>
                         <div style={{ fontSize: '11px', color: MUTED }}>{classItem.startTime} – {classItem.endTime} · {classItem.instructor}</div>
+                        {isGlazing(classItem) && (
+                          <div style={{ fontSize: '10px', fontWeight: 700, color: '#9E7F00', marginTop: '2px' }}>Glazing only · no wheelthrowing</div>
+                        )}
                       </div>
                       {reschBlocked ? (
                         <span style={{ fontSize: '10px', color: MUTED, flexShrink: 0 }}>Unavailable</span>

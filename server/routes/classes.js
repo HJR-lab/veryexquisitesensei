@@ -1825,6 +1825,16 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
     }
   }
 
+  // And the mirror: a wheelthrowing class moves to another wheelthrowing class,
+  // never into a glazing one — glazing has no wheelthrowing. (10-class is refused
+  // above with its own package-position message.)
+  if (!has10ClassPackage && !isOldClassGlazing && isNewClassGlazing &&
+      (oldClass.class_type || '').toUpperCase().startsWith('WT')) {
+    return res.status(400).json({
+      error: 'A wheelthrowing class can only be rescheduled to another wheelthrowing class. Glazing classes are for glazing only — there is no wheelthrowing in them.'
+    });
+  }
+
   // Block rescheduling to a date after glazing or within 5 days of glazing
   // Exception: 10-class package students can book after glazing (flex credits)
   if (!has10ClassPackage) {

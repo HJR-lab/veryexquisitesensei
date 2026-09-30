@@ -383,6 +383,9 @@ export default function ClassScheduleNew() {
     // A glazing class can only move to another glazing class, so nothing else is
     // offered — unless a package exception applies (see reschedule-glazing-rule).
     const glazingOnly = isGlazing(selectedClass) && rescheduleGlazingOnly;
+    // And the mirror: a wheelthrowing class only moves to another wheelthrowing
+    // class — glazing has no wheel, so glazing classes are left out.
+    const noGlazing = !isGlazing(selectedClass) && classCategory === 'wheelthrowing';
     const twentyFourHoursFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
     const allClasses = [];
     classes.forEach(course => {
@@ -415,7 +418,7 @@ export default function ClassScheduleNew() {
       const isValidTime = !isNaN(classDateTime.getTime());
       const sameCategory = getClassCategory(c.classType) === classCategory;
       const categoryOK = is10ClassPackage || sameCategory;
-      const glazingOK = !glazingOnly || isGlazing(c);
+      const glazingOK = glazingOnly ? isGlazing(c) : !(noGlazing && isGlazing(c));
       return isDifferentClass && hasSpace && isAtLeast24HoursAway && isValidTime && categoryOK && glazingOK;
     });
   };
@@ -1439,6 +1442,12 @@ export default function ClassScheduleNew() {
                 {rescheduleGlazingOnly
                   ? 'So it can only be moved to another glazing class, and those are the only classes shown below.'
                   : 'You can move it to another glazing class, or to a regular class if you\'d rather keep throwing — your package still leaves room to glaze later.'}
+              </div>
+            )}
+
+            {!isGlazing(selectedClass) && getClassCategory(selectedClass.classType) === 'wheelthrowing' && (
+              <div style={{ padding: '10px 12px', border: `1px solid ${RULE}`, marginBottom: '16px', fontSize: '12px', color: MUTED, lineHeight: 1.5 }}>
+                This is a wheelthrowing class, so it can only be moved to another wheelthrowing class. Glazing classes aren't shown — they're for glazing only, with no wheelthrowing.
               </div>
             )}
 

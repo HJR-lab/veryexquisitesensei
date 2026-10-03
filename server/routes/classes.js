@@ -926,13 +926,18 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
     }
   }
 
-  // Check if there's a cancelled booking for this class - if so, reactivate it instead of creating new
+  // A vacated row for this class (cancelled, or the origin of a reschedule) is
+  // reactivated instead of inserting: bookings is unique on (student_id,
+  // class_instance_id), so inserting beside one fails with a bare "Failed to
+  // create booking". Only 'cancelled' used to be looked for, which locked every
+  // student out of a class they had once rescheduled away from (Gabrielle Teo,
+  // booking 30135, rebooking her own 6.6 glazing, 03/10/26).
   const { data: cancelledBooking } = await supabaseDb.supabase
     .from('bookings')
     .select('*')
     .eq('student_id', dbCustomerId)
     .eq('class_instance_id', parseInt(classInstanceId))
-    .eq('status', 'cancelled')
+    .in('status', ['cancelled', 'rescheduled'])
     .maybeSingle();
 
   let booking;
@@ -1313,7 +1318,7 @@ app.post('/api/classes/book-hb-schedule', authenticateToken, asyncHandler(async 
   }
 
   // Create bookings for all weeks, linked to existing enrollment
-  // Reactivate cancelled bookings if they exist (unique constraint on student_id + class_instance_id)
+  // Reactivate cancelled or rescheduled-away bookings if they exist (unique constraint on student_id + class_instance_id)
   const bookings = [];
   for (const cls of hbClasses) {
     const { data: cancelled } = await supabaseDb.supabase
@@ -1321,7 +1326,7 @@ app.post('/api/classes/book-hb-schedule', authenticateToken, asyncHandler(async 
       .select('id')
       .eq('student_id', dbCustomerId)
       .eq('class_instance_id', cls.id)
-      .eq('status', 'cancelled')
+      .in('status', ['cancelled', 'rescheduled'])
       .maybeSingle();
 
     let booking;

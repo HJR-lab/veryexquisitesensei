@@ -51,9 +51,11 @@ const WT_SIGNUP_CRITICAL = 10;
 const STUDIO_WHEELS = 10;
 
 // Room cap for an ordinary WT class instance. It usually fills as 8 signups plus
-// 2 make-ups, but that split is DESCRIPTIVE, not a rule: make-ups have no
-// allowance of their own and compete for the same seats as everyone else. The
-// only question a booking asks is whether the room is under its cap.
+// 2 make-ups. Enrolled students come first: while a cohort has fewer than
+// WT_SIGNUP_CAP signups, the unsold places are held for it and an outsider
+// (make-up, 10-class package) only gets the seats above them — see
+// signupSeatsHeld() in utils/bookingDb.js. Once the course is sold out, any
+// seat under this cap is open to anyone.
 const WT_ROOM_CAP = 10;
 
 // Weeks 4 and 5 of a 6-week WT course hold 11 instead.

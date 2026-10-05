@@ -189,6 +189,10 @@ export default function ClassScheduleNew() {
           room: cls.room,
           max_capacity: cls.maxCapacity || 10,
           bookingCount: cls.currentEnrollment || 0,
+          // The server's count of seats this student could actually book — it
+          // already holds back a cohort's unsold signup seats and applies the
+          // timeslot ceiling, which maxCapacity alone cannot see.
+          spots_available: Number.isFinite(cls.spotsAvailable) ? cls.spotsAvailable : null,
           course_identifier: cls.classType,
           is_glazing: cls.isGlazing ?? cls.is_glazing ?? false,
         });
@@ -265,12 +269,27 @@ export default function ClassScheduleNew() {
   const formatDate = (date) =>
     new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'long', day: 'numeric' }).format(date);
 
+  // No seat left that this student could book. Prefer the server's number;
+  // fall back to the raw room count only if an older payload lacks it.
+  const noSeatFor = (cls) => (cls.spots_available != null
+    ? cls.spots_available <= 0
+    : (cls.bookingCount || 0) >= (cls.max_capacity || 10));
+
+  // A 10-class package student books individual classes, never a cohort of
+  // their own, so a class with no seat for them is simply not on their calendar.
+  const isTenClassStudent = [
+    ...(dashboardData?.enrollments?.active || []),
+    ...(dashboardData?.enrollments?.upcoming || []),
+    ...(dashboardData?.enrollments?.pending || []),
+  ].some(e => e.number_of_weeks === 10);
+
   // Flatten all class instances for a given date string
   const getClassesForDate = (date) => {
     const dateStr = fmtKey(date);
     const all = [];
     classes.forEach(course => {
       course.classes?.forEach(cls => {
+        if (isTenClassStudent && !isEnrolled(cls.id) && noSeatFor(cls)) return;
         if (cls.class_date?.startsWith(dateStr)) {
           all.push({
             ...cls,
@@ -285,7 +304,8 @@ export default function ClassScheduleNew() {
             room: cls.room,
             maxCapacity: cls.max_capacity,
             currentEnrollment: cls.bookingCount,
-            isFull: cls.bookingCount >= cls.max_capacity,
+            spotsAvailable: cls.spots_available,
+            isFull: noSeatFor(cls),
             baseCourseIdentifier: course.identifier,
             fullCourseIdentifier: cls.course_identifier,
             courseIdentifier: cls.course_identifier,
@@ -412,7 +432,7 @@ export default function ClassScheduleNew() {
     // Server validates all complex rules on submit
     return allClasses.filter(c => {
       const isDifferentClass = c.id !== selectedClass.id;
-      const hasSpace = (c.currentEnrollment || 0) < (c.maxCapacity || 10);
+      const hasSpace = !noSeatFor(c);
       const classDateTime = parseClassDateTime(c.classDate, c.startTime);
       const isAtLeast24HoursAway = classDateTime >= twentyFourHoursFromNow;
       const isValidTime = !isNaN(classDateTime.getTime());

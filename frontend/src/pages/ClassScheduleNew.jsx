@@ -64,6 +64,11 @@ export default function ClassScheduleNew() {
   // they had not bought.
   const [bookableCredits, setBookableCredits] = useState(null);
   const [glazingOnlyCredits, setGlazingOnlyCredits] = useState(0);
+  // Dates an HB student's final (glazing) class may not fall on: too close to the
+  // class before it for the work to dry and be bisque fired. Server-computed from
+  // the same rule the booking gate enforces.
+  const [hbGlazingWindow, setHbGlazingWindow] = useState(null);
+  const [rescheduleHbWindow, setRescheduleHbWindow] = useState(null);
   const myWaitlistEntries = []; // waitlist disabled
   const [studentData, setStudentData] = useState(null);
   const [dashboardData, setDashboardData] = useState(null);
@@ -150,6 +155,16 @@ export default function ClassScheduleNew() {
       .catch(() => {});
   }, [showRescheduleModal, selectedClass]);
 
+  // Moving an HB class can make it, or the class it now follows, the final
+  // glazing class — ask which dates that would put too close together.
+  useEffect(() => {
+    setRescheduleHbWindow(null);
+    if (!showRescheduleModal || !selectedClass) return;
+    api.get('/classes/hb-glazing-window', { params: { rescheduleClassId: selectedClass.id } })
+      .then(r => setRescheduleHbWindow(r.data?.window || null))
+      .catch(() => {});
+  }, [showRescheduleModal, selectedClass]);
+
   // When reschedule modal opens, auto-select first available date
   useEffect(() => {
     if (showRescheduleModal && selectedClass) {
@@ -217,6 +232,9 @@ export default function ClassScheduleNew() {
         setBookableCredits(null);
         setGlazingOnlyCredits(0);
       }
+      api.get('/classes/hb-glazing-window')
+        .then(r => setHbGlazingWindow(r.data?.window || null))
+        .catch(() => setHbGlazingWindow(null));
     } catch (error) {
       console.error('Error fetching bookings:', error);
     }
@@ -283,6 +301,13 @@ export default function ClassScheduleNew() {
     ...(dashboardData?.enrollments?.pending || []),
   ].some(e => e.number_of_weeks === 10);
 
+  // Is this an HB class on a date the student's final glazing class can't take?
+  const inHbGlazingWindow = (cls, win) => {
+    if (!win || getClassCategory(cls.class_type || cls.classType) !== 'handbuilding') return false;
+    const d = String(cls.class_date || cls.classDate || '').split('T')[0];
+    return d >= win.from && d <= win.to;
+  };
+
   // Flatten all class instances for a given date string
   const getClassesForDate = (date) => {
     const dateStr = fmtKey(date);
@@ -290,6 +315,7 @@ export default function ClassScheduleNew() {
     classes.forEach(course => {
       course.classes?.forEach(cls => {
         if (isTenClassStudent && !isEnrolled(cls.id) && noSeatFor(cls)) return;
+        if (!isEnrolled(cls.id) && inHbGlazingWindow(cls, hbGlazingWindow)) return;
         if (cls.class_date?.startsWith(dateStr)) {
           all.push({
             ...cls,
@@ -439,7 +465,8 @@ export default function ClassScheduleNew() {
       const sameCategory = getClassCategory(c.classType) === classCategory;
       const categoryOK = is10ClassPackage || sameCategory;
       const glazingOK = glazingOnly ? isGlazing(c) : !(noGlazing && isGlazing(c));
-      return isDifferentClass && hasSpace && isAtLeast24HoursAway && isValidTime && categoryOK && glazingOK;
+      const hbGapOK = !inHbGlazingWindow(c, rescheduleHbWindow);
+      return isDifferentClass && hasSpace && isAtLeast24HoursAway && isValidTime && categoryOK && glazingOK && hbGapOK;
     });
   };
 

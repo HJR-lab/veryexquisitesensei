@@ -4,7 +4,8 @@ const { getPackageProgress } = require('../utils/packageProgress');
 const { isGlazingClass, isMarkedGlazing, GLAZING_DRYING_GAP_DAYS,
         packageGlazingPositions, isTenClassPackage, findTenClassPackages,
         hasTenClassPackage, resolveGlazingConsumption,
-        spendGlazingEntitlement } = require('../utils/glazing');
+        spendGlazingEntitlement, checkHbFinalGlazingGap,
+        hbFinalGlazingWindow } = require('../utils/glazing');
 const { getEnrollmentCredits } = require('../utils/bookingDb');
 // The cross-type gate lives in utils/bookingGates.js: both booking paths here ran
 // a byte-identical copy of it, and scripts/verify-hb-bookability.js ran a third
@@ -705,6 +706,12 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
     return res.status(400).json({ error: dryingGap.reason });
   }
 
+  // Handbuilding's own kiln rule: the final class (4/4, 8/8) is its glazing.
+  const hbGap = await checkHbFinalGlazingGap({ enrollmentId, targetDate: classInstance.class_date });
+  if (hbGap.blocked) {
+    return res.status(400).json({ error: hbGap.reason });
+  }
+
   // Does this booking consume the student's package glazing class? Shared with the
   // admin booking path so both record the booking the same way.
   const { countsAsGlazing, enrollment: glazingEnrollment } =
@@ -982,6 +989,13 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   const makeupGlazingPosition = await checkGlazingPositionAllowed(enrollmentId, classInstance);
   if (makeupGlazingPosition.blocked) {
     return res.status(400).json({ error: makeupGlazingPosition.reason });
+  }
+
+  // An HB student's final class (4/4, 8/8) is their glazing, so it has to leave
+  // the second-last class time to dry and be bisque fired.
+  const makeupHbGap = await checkHbFinalGlazingGap({ enrollmentId, targetDate: classInstance.class_date });
+  if (makeupHbGap.blocked) {
+    return res.status(400).json({ error: makeupHbGap.reason });
   }
 
   // Does this seat consume the student's package glazing class? Asked with the
@@ -1309,6 +1323,18 @@ app.post('/api/classes/book-hb-schedule', authenticateToken, asyncHandler(async 
     });
   }
 
+  // Same-weekday classes are a week apart, but the schedule can complete an
+  // enrollment that already holds bookings, so its last class is still checked
+  // as the glazing class it may be.
+  const scheduleGap = await checkHbFinalGlazingGap({
+    enrollmentId: enrollment.id,
+    targetDate: hbClasses[hbClasses.length - 1].classDate,
+    extraDates: hbClasses.slice(0, -1).map(c => c.classDate),
+  });
+  if (scheduleGap.blocked) {
+    return res.status(400).json({ error: scheduleGap.reason });
+  }
+
   // Check student isn't already booked into these classes
   for (const cls of hbClasses) {
     const existing = await supabaseDb.findBooking(dbCustomerId, cls.id, 'booked');
@@ -1598,6 +1624,24 @@ app.get('/api/classes/reschedule-glazing-rule', authenticateToken, asyncHandler(
   res.json({ glazingOnly: locked });
 }));
 
+// Which dates the calendar should leave off for an HB student's final (glazing)
+// class. With rescheduleClassId, answers for moving that booking; otherwise for
+// the next booking, charged to the enrollment the booking gate would pick. The
+// gates above enforce the same rule — this only shapes what is offered.
+app.get('/api/classes/hb-glazing-window', authenticateToken, asyncHandler(async (req, res) => {
+  const { dbCustomerId } = req.user;
+  const rescheduleClassId = parseInt(req.query.rescheduleClassId);
+
+  if (rescheduleClassId) {
+    const booking = await supabaseDb.findBooking(dbCustomerId, rescheduleClassId, 'booked');
+    if (!booking?.course_enrollment_id) return res.json({ window: null });
+    return res.json({ window: await hbFinalGlazingWindow(booking.course_enrollment_id, booking.id) });
+  }
+
+  const enrollmentId = await supabaseDb.resolveBookingEnrollment(dbCustomerId, { class_type: 'HB' });
+  res.json({ window: enrollmentId ? await hbFinalGlazingWindow(enrollmentId) : null });
+}));
+
 app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, res) => {
   const { dbCustomerId } = req.user;
   const { oldClassId, newClassId } = req.body;
@@ -1878,6 +1922,17 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
         }
       }
     }
+  }
+
+  // Handbuilding: moving a class must not leave the final (glazing) class within
+  // GLAZING_DRYING_GAP_DAYS of the class before it — whichever of the two moved.
+  const rescheduleHbGap = await checkHbFinalGlazingGap({
+    enrollmentId: currentBooking.course_enrollment_id,
+    targetDate: newClass.class_date,
+    excludeBookingId: currentBooking.id,
+  });
+  if (rescheduleHbGap.blocked) {
+    return res.status(400).json({ error: rescheduleHbGap.reason });
   }
 
   // Apply cohort restrictions for standard 6-week WT courses (not 10-class package)

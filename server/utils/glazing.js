@@ -269,6 +269,149 @@ async function setClassGlazing(classId, { isGlazing, glazingCapacity }) {
   return { class: data };
 }
 
+/**
+ * Handbuilding: the final class of an HB enrollment (4/4, or 8/8) is its glazing
+ * class — HB has no week numbering and its glazing is not a marked session, it is
+ * simply the last class the credits buy. The same kiln schedule binds it as binds
+ * a WT cohort's 6.6: work made in the second-last class has to dry and be bisque
+ * fired first, so the final class must sit at least GLAZING_DRYING_GAP_DAYS after
+ * the second-last one.
+ *
+ * Positions are read off the enrollment's own credit-consuming bookings, sorted by
+ * date, so the rule holds whichever order the classes were booked in: booking the
+ * 4th class earlier than the 3rd makes the 3rd the final one, and it is that pair
+ * that has to be far enough apart.
+ */
+const DAY_MS = 24 * 60 * 60 * 1000;
+const ymdOf = (v) => { const s = String(v || '').split(/[T ]/)[0]; return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null; };
+const dayGap = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / DAY_MS);
+const shiftYmd = (v, n) => new Date(Date.parse(`${v}T00:00:00Z`) + n * DAY_MS).toISOString().split('T')[0];
+
+function isHandbuildingEnrollment(e) {
+  return !!e && String(e.course_type || '').toLowerCase().includes('handbuilding') && !isTenClassPackage(e);
+}
+
+/** How many classes an HB enrollment buys — mirrors getEnrollmentCredits. */
+function hbEnrollmentTotal(e) {
+  return e?.class_credits_allocated || e?.number_of_weeks || 4;
+}
+
+/**
+ * Would adding a class on `target` leave the enrollment's final (glazing) class
+ * too close to its second-last class?
+ *
+ * Only refuses when the new class is itself one of the last two — a pair that
+ * was already too close before this booking is not this booking's doing.
+ *
+ * @param {{total: number, dates: string[], target: string}} args
+ *   dates: the enrollment's other class dates (YYYY-MM-DD), excluding any
+ *   booking being moved away
+ * @returns {null|{secondLast: string, final: string, gap: number}}
+ */
+function hbFinalGlazingGapProblem({ total, dates, target }) {
+  const t = ymdOf(target);
+  if (!t || !(total > 1)) return null;
+  const others = (dates || []).map(ymdOf).filter(Boolean);
+  if (others.length + 1 < total) return null; // the final class is not booked yet
+
+  // The new class sorts after any existing class on the same day.
+  const all = [...others.map(d => ({ d, isTarget: false })), { d: t, isTarget: true }]
+    .sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : (a.isTarget ? 1 : 0) - (b.isTarget ? 1 : 0)));
+  const final = all[all.length - 1];
+  const secondLast = all[all.length - 2];
+  if (!final.isTarget && !secondLast.isTarget) return null;
+
+  const gap = dayGap(secondLast.d, final.d);
+  if (gap >= GLAZING_DRYING_GAP_DAYS) return null;
+  return { secondLast: secondLast.d, final: final.d, gap };
+}
+
+/**
+ * The dates the calendar should not offer for this enrollment's next class,
+ * because that class would be the final (glazing) one and land too close to the
+ * class before it. The exact inverse of hbFinalGlazingGapProblem, so the screen
+ * never offers a date the booking gate then refuses.
+ *
+ * @returns {null|{from: string, to: string}} inclusive YYYY-MM-DD range
+ */
+function hbFinalGlazingBlockedRange({ total, dates }) {
+  const sorted = (dates || []).map(ymdOf).filter(Boolean).sort();
+  if (!(total > 1) || sorted.length !== total - 1) return null;
+  const last = sorted[sorted.length - 1];
+  const prev = sorted.length >= 2 ? sorted[sorted.length - 2] : null;
+  const window = GLAZING_DRYING_GAP_DAYS - 1;
+  let from = shiftYmd(last, -window);
+  if (prev && prev > from) from = prev;
+  return { from, to: shiftYmd(last, window) };
+}
+
+/** The enrollment's credit-consuming class dates, optionally leaving one booking out. */
+async function hbEnrollmentClassDates(enrollmentId, excludeBookingId = null) {
+  const { supabase } = require('./supabaseClient');
+  const { data, error } = await supabase
+    .from('bookings')
+    .select('id, class_instances!bookings_class_instance_id_fkey(class_date)')
+    .eq('course_enrollment_id', enrollmentId)
+    .in('status', ['attended', 'completed', 'booked', 'forfeited', 'absent']);
+  // An unchecked error reads as "no bookings" and waves everything through.
+  if (error) throw error;
+  return (data || [])
+    .filter(b => b.id !== excludeBookingId)
+    .map(b => ymdOf(b.class_instances?.class_date))
+    .filter(Boolean);
+}
+
+async function loadHbEnrollment(enrollmentId) {
+  if (!enrollmentId) return null;
+  const { supabase } = require('./supabaseClient');
+  const { data } = await supabase
+    .from('course_enrollments')
+    .select('id, course_type, course_title, number_of_weeks, package_total_classes, class_credits_allocated')
+    .eq('id', enrollmentId)
+    .maybeSingle();
+  return isHandbuildingEnrollment(data) ? data : null;
+}
+
+/**
+ * Booking-gate form of the HB rule, for the enrollment a booking is charged to.
+ *
+ * @param {object} args
+ * @param {number} args.enrollmentId     the enrollment being charged
+ * @param {string} args.targetDate       the new class's date
+ * @param {number} [args.excludeBookingId] a booking being moved away (reschedule)
+ * @param {string[]} [args.extraDates]   other classes being booked in the same request
+ * @returns {Promise<{blocked: boolean, reason?: string}>}
+ */
+async function checkHbFinalGlazingGap({ enrollmentId, targetDate, excludeBookingId = null, extraDates = [] }) {
+  const enrollment = await loadHbEnrollment(enrollmentId);
+  if (!enrollment) return { blocked: false };
+
+  const total = hbEnrollmentTotal(enrollment);
+  const dates = [...await hbEnrollmentClassDates(enrollment.id, excludeBookingId), ...extraDates];
+  const problem = hbFinalGlazingGapProblem({ total, dates, target: targetDate });
+  if (!problem) return { blocked: false };
+
+  return {
+    blocked: true,
+    reason: `Your final handbuilding class (${total}/${total}) is your glazing class, so it needs to be at least ${GLAZING_DRYING_GAP_DAYS} days after your previous class for your pieces to dry and be bisque fired. Your classes on ${problem.secondLast} and ${problem.final} are only ${problem.gap} day${problem.gap === 1 ? '' : 's'} apart — please pick ${problem.final === ymdOf(targetDate) ? 'a later' : 'an earlier'} date.`,
+  };
+}
+
+/**
+ * The calendar form: which dates to leave off for the HB enrollment's final class.
+ * @returns {Promise<null|{enrollmentId: number, total: number, from: string, to: string}>}
+ */
+async function hbFinalGlazingWindow(enrollmentId, excludeBookingId = null) {
+  const enrollment = await loadHbEnrollment(enrollmentId);
+  if (!enrollment) return null;
+  const total = hbEnrollmentTotal(enrollment);
+  const range = hbFinalGlazingBlockedRange({
+    total,
+    dates: await hbEnrollmentClassDates(enrollment.id, excludeBookingId),
+  });
+  return range ? { enrollmentId: enrollment.id, total, ...range } : null;
+}
+
 module.exports = {
   GLAZING_SUBCAP,
   GLAZING_DRYING_GAP_DAYS,
@@ -286,4 +429,10 @@ module.exports = {
   resolveGlazingConsumption,
   spendGlazingEntitlement,
   setClassGlazing,
+  isHandbuildingEnrollment,
+  hbEnrollmentTotal,
+  hbFinalGlazingGapProblem,
+  hbFinalGlazingBlockedRange,
+  checkHbFinalGlazingGap,
+  hbFinalGlazingWindow,
 };

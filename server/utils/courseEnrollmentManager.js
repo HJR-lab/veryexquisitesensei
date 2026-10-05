@@ -108,6 +108,71 @@ function samePerson(localCustomer, orderCustomer) {
 }
 
 /**
+ * A buyer who already holds this course paid for it again in a separate order,
+ * so the new order is someone else's seat. Enroll it on a "+dup" placeholder
+ * (the next one not already sitting in this course), exactly as enrollAllPax
+ * does for an extra spot on a single order, and ask the buyer for the details.
+ *
+ * Idempotent: the enrollment carries this order's real order + line item id, so
+ * the next sync stops at processCoursePurchase's order/line-item check.
+ */
+async function enrollSecondOrderAsExtraPax(order, lineItem, student, startStr) {
+  // Already seated by hand (an admin enrolled the second person under their own
+  // account against this order) — nothing left to create.
+  const { data: seated } = await supabase
+    .from('course_enrollments')
+    .select('id')
+    .eq('shopify_order_id', String(order.id))
+    .eq('course_start_date', startStr)
+    .limit(1)
+    .maybeSingle();
+  if (seated) {
+    console.log(`⏭️  Order ${order.id} is already seated on enrollment ${seated.id}, skipping`);
+    return { success: true, skipped: true, reason: 'second_order_already_seated' };
+  }
+
+  const baseEmail = student.email;
+  for (let paxIndex = 1; paxIndex < 10; paxIndex++) {
+    const paxEmail = baseEmail.replace('@', `+dup${paxIndex > 1 ? paxIndex : ''}@`);
+    const existing = await findCustomerByEmail(paxEmail);
+    if (existing) {
+      const { data: busy } = await supabase
+        .from('course_enrollments')
+        .select('id')
+        .eq('student_id', existing.id)
+        .eq('course_start_date', startStr)
+        .in('status', ['active', 'completed'])
+        .limit(1)
+        .maybeSingle();
+      if (busy) continue;
+    }
+
+    const firstName = student.first_name || '';
+    const lastName = `${student.last_name || ''} (${paxIndex + 1})`;
+    const placeholder = await createDuplicatePaxCustomer({ baseEmail, paxEmail, firstName, lastName, paxIndex });
+
+    console.log(`👥 ${baseEmail} already holds this course — order ${order.id} seats a second person as ${paxEmail}`);
+    const result = await processCoursePurchase(
+      { ...order, customer: { ...order.customer, email: paxEmail, isExtraPax: true, first_name: firstName, last_name: lastName } },
+      lineItem
+    );
+
+    const { createStudentDetailsRequests } = require('./studentDetailsRequest');
+    createStudentDetailsRequests({
+      placeholders: [placeholder],
+      purchaserEmail: baseEmail,
+      purchaserFirstName: student.first_name || '',
+      courseTitle: lineItem.title,
+      orderId: order.id,
+    }).catch(err => console.error('[StudentDetails] request failed:', err.message));
+
+    return result;
+  }
+
+  return { success: false, error: `No free extra-pax slot for ${baseEmail}` };
+}
+
+/**
  * Process a course purchase from Shopify order
  * @param {Object} order - Shopify order object
  * @param {Object} lineItem - Shopify line item (course product)
@@ -195,12 +260,22 @@ async function processCoursePurchase(order, lineItem) {
       const startStr = ymdFromInstant(courseInfo.startDate);
       const { data: dateMatch } = await supabase
         .from('course_enrollments')
-        .select('id, status, course_title')
+        .select('id, status, course_title, shopify_order_id')
         .eq('student_id', student.id)
         .eq('course_start_date', startStr)
         .in('status', ['active', 'completed'])
         .limit(1)
         .maybeSingle();
+
+      // A match from a DIFFERENT Shopify order is not a duplicate: it is a second
+      // paid seat — e.g. Amy Long bought this course for herself (#2768), then
+      // again for her daughter in a separate checkout (#2776). Skipping it here
+      // silently dropped the daughter. Seat it as an extra pax instead, the same
+      // way a quantity-2 line item is handled.
+      if (dateMatch && dateMatch.shopify_order_id && dateMatch.shopify_order_id !== String(order.id)
+          && !order.customer.isExtraPax) {
+        return await enrollSecondOrderAsExtraPax(order, lineItem, student, startStr);
+      }
 
       if (dateMatch) {
         console.log(`⏭️  Student ${student.email} already has enrollment ${dateMatch.id} (${dateMatch.status}) starting ${startStr}, skipping order ${order.id}`);

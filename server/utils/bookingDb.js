@@ -9,7 +9,45 @@
 
 const { supabase, fetchAllRows } = require('./supabaseClient');
 const { glazingSubCap } = require('./glazing');
-const { STUDIO_WHEELS, roomCapacity, wheelCapFor } = require('../config/capacity');
+const { STUDIO_WHEELS, WT_SIGNUP_CAP, roomCapacity, wheelCapFor } = require('../config/capacity');
+
+/**
+ * The cohort a WT class belongs to: WT1010PM_DL6.4 → 'WT1010PM_DL6'.
+ * Anything that is not a numbered WT class has no cohort, and so no held seats.
+ */
+function cohortBase(classType) {
+  const code = String(classType || '');
+  if (!/^WT/i.test(code)) return null;
+  const m = code.match(/^(.+)\.\d+$/);
+  return m ? m[1] : null;
+}
+
+/**
+ * Seats in a cohort class that only the cohort's own students may take.
+ *
+ * Enrolled students always come first. A cohort sells WT_SIGNUP_CAP (8) places,
+ * and until all of them are sold, the unsold ones are held for the people who
+ * will buy them. Anyone outside the cohort (a 10-class package student, a
+ * make-up from another cohort) only gets what is left above that — the make-up
+ * wheels. Without this, a cohort that went live at 4 signups filled up with
+ * outside bookings before its own course sold out.
+ *
+ * A signup who reschedules away still frees their own seat: held seats are
+ * counted from signups, not bookings, so the vacated chair is open to anyone.
+ */
+function signupSeatsHeld(signups) {
+  return Math.max(0, WT_SIGNUP_CAP - (signups || 0));
+}
+
+/** Distinct, non-cancelled students enrolled in a cohort. */
+async function cohortMemberIds(base) {
+  const { data, error } = await supabase
+    .from('course_enrollments')
+    .select('student_id, status')
+    .eq('course_identifier', base);
+  if (error) throw new Error(`Could not read cohort ${base}: ${error.message}`);
+  return [...new Set((data || []).filter(e => e.status !== 'cancelled').map(e => e.student_id))];
+}
 
 /**
  * Get available classes (all classes including past ones for course viewing)
@@ -66,6 +104,21 @@ async function getAvailableClasses() {
 
   const REGULAR_CAPACITY = 8;
 
+  // Signups per cohort, so the page offers outsiders only the seats the booking
+  // gate would give them (see signupSeatsHeld). Anyone browsing to book is an
+  // outsider to that class — the cohort's own students are already in it.
+  const bases = [...new Set(classes.map(c => cohortBase(c.class_type)).filter(Boolean))];
+  const signupRows = bases.length ? await fetchAllRows((from, to) => supabase
+    .from('course_enrollments')
+    .select('course_identifier, student_id, status')
+    .in('course_identifier', bases)
+    .order('id', { ascending: true })
+    .range(from, to)) : [];
+  const membersByBase = {};
+  signupRows.filter(e => e.status !== 'cancelled').forEach(e => {
+    (membersByBase[e.course_identifier] = membersByBase[e.course_identifier] || new Set()).add(e.student_id);
+  });
+
   // The timeslot ceiling the booking gate enforces, mirrored here so the page
   // cannot advertise a seat the server would refuse with STUDIO_FULL. Two
   // cohorts sharing Studio A at the same hour each look half-empty on their own;
@@ -83,6 +136,9 @@ async function getAvailableClasses() {
     const totalCapacity = roomCapacity(classInstance);
     const slotBooked = slotUsage[`${classInstance.class_date}|${normalizeSlotTime(classInstance.start_time)}`] || 0;
     const slotFull = slotBooked >= wheelCapFor(classInstance);
+    const base = cohortBase(classInstance.class_type);
+    const signupSeatsHeldHere = base ? signupSeatsHeld(membersByBase[base]?.size || 0) : 0;
+    const openToBook = Math.max(0, totalCapacity - signupSeatsHeldHere - actualEnrollment);
 
     return {
       id: classInstance.id,
@@ -105,16 +161,17 @@ async function getAvailableClasses() {
       updatedAt: classInstance.updated_at,
       waitlistCount,
       makeupBookings: makeupCount,
-      // Make-ups have no allowance of their own — they compete for the same
-      // seats as everyone else, so what is left for one is simply what is left.
-      makeupSpotsAvailable: Math.max(0, totalCapacity - actualEnrollment),
-      spotsAvailable: slotFull ? 0 : totalCapacity - actualEnrollment,
+      // Seats still held for the cohort's own unsold signups — never offered to
+      // a make-up or 10-class booking (see signupSeatsHeld).
+      signupSeatsHeld: signupSeatsHeldHere,
+      makeupSpotsAvailable: openToBook,
+      spotsAvailable: slotFull ? 0 : openToBook,
       regularSpotsAvailable: slotFull ? 0 : REGULAR_CAPACITY - actualEnrollment,
       // Full means "the server will refuse the next booking", not one particular
       // reason for refusing. Anything short of that lets the page offer a seat
       // that checkSeatAvailability() then denies.
-      isFull: actualEnrollment >= REGULAR_CAPACITY || actualEnrollment >= totalCapacity || slotFull,
-      isCompletelyFull: actualEnrollment >= totalCapacity || slotFull
+      isFull: actualEnrollment >= REGULAR_CAPACITY || openToBook === 0 || slotFull,
+      isCompletelyFull: openToBook === 0 || slotFull
     };
   });
 }
@@ -444,8 +501,23 @@ async function checkSeatAvailability(classInstance, studentId, opts = {}) {
     glazingBooked = count || 0;
   }
 
-  const counts = { booked, cap, wheels, studioWheels: wheelCap, glazingBooked, glazingCap: subCap };
-  const classFull   = booked >= cap;
+  // Seats held for the cohort's unsold signups. Only an outsider is held back
+  // by them; studentId null (a probe asking about the room itself) is not.
+  let held = 0;
+  let classType = classInstance.class_type;
+  if (classType === undefined && classInstance.id) {
+    const { data: row } = await supabase.from('class_instances').select('class_type').eq('id', classInstance.id).maybeSingle();
+    classType = row?.class_type;
+  }
+  const base = cohortBase(classType);
+  if (base && studentId != null && booked < cap) {
+    const members = await cohortMemberIds(base);
+    if (!members.map(String).includes(String(studentId))) held = signupSeatsHeld(members.length);
+  }
+
+  const counts = { booked, cap, held, wheels, studioWheels: wheelCap, glazingBooked, glazingCap: subCap };
+  const roomFull    = booked >= cap;
+  const classFull   = booked >= cap - held;
   const studioFull  = wheels !== null && wheels >= wheelCap;
   const glazingFull = glazingBooked !== null && glazingBooked >= subCap;
 
@@ -458,7 +530,9 @@ async function checkSeatAvailability(classInstance, studentId, opts = {}) {
     return { allowed: true, reason: null, counts, override };
   }
 
-  const reason = classFull ? 'CLASS_FULL' : studioFull ? 'STUDIO_FULL' : 'GLAZING_FULL';
+  const reason = roomFull ? 'CLASS_FULL'
+    : classFull ? 'SIGNUP_SEATS_HELD'
+    : studioFull ? 'STUDIO_FULL' : 'GLAZING_FULL';
   return { allowed: false, reason, counts, override: null };
 }
 
@@ -488,6 +562,8 @@ async function createBooking(bookingData) {
       let err;
       if (seat.reason === 'STUDIO_FULL') {
         err = new Error(`Studio is full — all ${seat.counts.studioWheels} places are taken for this timeslot (${seat.counts.wheels}/${seat.counts.studioWheels})`);
+      } else if (seat.reason === 'SIGNUP_SEATS_HELD') {
+        err = new Error(`The remaining places in this class are held for students enrolled in the course (${seat.counts.booked}/${seat.counts.cap} booked, ${seat.counts.held} still held)`);
       } else if (seat.reason === 'GLAZING_FULL') {
         err = new Error(`This class already has its ${seat.counts.glazingCap} glazing places taken (${seat.counts.glazingBooked}/${seat.counts.glazingCap}). The class itself still has room for regular bookings.`);
       } else {

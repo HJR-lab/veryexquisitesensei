@@ -254,6 +254,44 @@ app.get('/api/policy/fees', (req, res) => {
   res.json({ ...FEES, PAYNOW });
 });
 
+// Beginner → intermediate level lock. A beginner may take an intermediate
+// (7-week) WT class only once they have COMPLETED 3 wheelthrowing courses.
+// This used to read customers.course_purchase_count, which counts purchases
+// (the course in progress included) and jumps by 3 the moment a 3-course
+// package is bought — so a brand-new package beginner already qualified.
+// Completed enrollment rows (each package course is its own row) plus the
+// pre-system historical_completed figure is what "completed" actually means.
+const INTERMEDIATE_MIN_COMPLETED_COURSES = 3;
+const INTERMEDIATE_LOCK_ERROR = `Intermediate classes require at least ${INTERMEDIATE_MIN_COMPLETED_COURSES} completed wheelthrowing courses. Please continue with beginner classes.`;
+
+function isIntermediateWTClass(classInstance) {
+  const type = classInstance?.class_type || '';
+  if (!type.startsWith('WT')) return false;
+  const m = type.match(/(\d+)\.\d+$/);
+  return !!m && parseInt(m[1]) === 7;
+}
+
+async function countCompletedWTCourses(studentId) {
+  const [{ count }, { data: customer }] = await Promise.all([
+    supabaseDb.supabase
+      .from('course_enrollments')
+      .select('id', { count: 'exact', head: true })
+      .eq('student_id', studentId)
+      .eq('status', 'completed')
+      .ilike('course_type', 'wheel%'),
+    supabaseDb.supabase
+      .from('customers')
+      .select('historical_completed')
+      .eq('id', studentId)
+      .maybeSingle(),
+  ]);
+  return (count || 0) + (customer?.historical_completed || 0);
+}
+
+async function meetsIntermediateRequirement(studentId) {
+  return (await countCompletedWTCourses(studentId)) >= INTERMEDIATE_MIN_COMPLETED_COURSES;
+}
+
 // Auto-cancel waitlist entries when student has no remaining credits
 async function cancelWaitlistIfNoCredits(studentId) {
   try {
@@ -601,7 +639,6 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
   // Both booking paths share one definition of it, and the 10-class package
   // exemption inside it reads the shared package rule — not a copy filtered to
   // status 'active', which refused package students their own flex glazing.
-  const classIsWT = (classInstance.class_type || '').startsWith('WT');
 
   // Charge the booking to an enrollment. Resolved centrally so all three
   // booking paths agree — this one previously ran its own chain of three
@@ -638,22 +675,9 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
 
   // A glazing-only replacement is about firing existing work, not taking an
   // intermediate lesson, so a 7.7 glazing seat is valid for a beginner too.
-  if (classIsWT && !directRestrictedCredit.consumeGlazingOnly) {
-    const weekMatch = classInstance.class_type?.match(/_\w+(\d)\.\d+$/);
-    const isIntermediate = weekMatch && parseInt(weekMatch[1]) === 7;
-    if (isIntermediate) {
-      const { data: customerRow } = await supabaseDb.supabase
-        .from('customers')
-        .select('course_purchase_count')
-        .eq('id', dbCustomerId)
-        .single();
-      const purchaseCount = customerRow?.course_purchase_count || 0;
-      if (purchaseCount < 3) {
-        return res.status(400).json({
-          error: 'Intermediate classes require at least 3 completed wheelthrowing courses. Please continue with beginner classes.'
-        });
-      }
-    }
+  if (isIntermediateWTClass(classInstance) && !directRestrictedCredit.consumeGlazingOnly
+      && !(await meetsIntermediateRequirement(dbCustomerId))) {
+    return res.status(400).json({ error: INTERMEDIATE_LOCK_ERROR });
   }
 
   // The package's final class is always its glazing class, so it may only ever be
@@ -855,29 +879,15 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   // Both booking paths share one definition of it, and the 10-class package
   // exemption inside it reads the shared package rule — not a copy filtered to
   // status 'active', which refused package students their own flex glazing.
-  const classIsWT = (classInstance.class_type || '').startsWith('WT');
   const crossType = await crossTypeRefusal(dbCustomerId, classInstance);
   if (crossType && !restrictedCredit.consumeGlazingOnly) {
     return res.status(400).json({ error: crossType });
   }
 
   // Block beginner students from booking intermediate WT classes (7-week courses)
-  if (classIsWT && !restrictedCredit.consumeGlazingOnly) {
-    const weekMatch = classInstance.class_type?.match(/_\w+(\d)\.\d+$/);
-    const isIntermediate = weekMatch && parseInt(weekMatch[1]) === 7;
-    if (isIntermediate) {
-      const { data: customerRow } = await supabaseDb.supabase
-        .from('customers')
-        .select('course_purchase_count')
-        .eq('id', dbCustomerId)
-        .single();
-      const purchaseCount = customerRow?.course_purchase_count || 0;
-      if (purchaseCount < 3) {
-        return res.status(400).json({
-          error: 'Intermediate classes require at least 3 completed wheelthrowing courses. Please continue with beginner classes.'
-        });
-      }
-    }
+  if (isIntermediateWTClass(classInstance) && !restrictedCredit.consumeGlazingOnly
+      && !(await meetsIntermediateRequirement(dbCustomerId))) {
+    return res.status(400).json({ error: INTERMEDIATE_LOCK_ERROR });
   }
 
   // Block bookings after glazing date or within 5 days of glazing
@@ -1738,7 +1748,8 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
   //   Beginner WT: 6-week identifier (e.g. WT1104PM_DL6.x)
   //   Intermediate WT: 7-week identifier (e.g. WT1104AM_DL7.x)
   // Default: students cannot cross levels.
-  // Exception A: Beginner → Intermediate allowed if student has >2 course purchases.
+  // Exception A: Beginner → Intermediate allowed once the student has completed
+  //              3 wheelthrowing courses (meetsIntermediateRequirement).
   // Exception B: Intermediate cohort WT1104AM_DL → beginner cohort WT1204AM_DL is
   //              explicitly allowed (cohort-specific one-way pairing).
   const getWTLevel = (classType) => {
@@ -1755,17 +1766,8 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
   const newLevel = getWTLevel(newClass.class_type);
   if (oldLevel && newLevel && oldLevel !== newLevel) {
     if (oldLevel === 'beginner' && newLevel === 'intermediate') {
-      // Exception A: allow if customer has more than 2 course purchases
-      const { data: customerRow } = await supabaseDb.supabase
-        .from('customers')
-        .select('course_purchase_count')
-        .eq('id', dbCustomerId)
-        .single();
-      const purchaseCount = customerRow?.course_purchase_count || 0;
-      if (purchaseCount <= 2) {
-        return res.status(400).json({
-          error: 'Beginner students can only reschedule into an intermediate class after completing more than 2 courses.'
-        });
+      if (!(await meetsIntermediateRequirement(dbCustomerId))) {
+        return res.status(400).json({ error: INTERMEDIATE_LOCK_ERROR });
       }
     } else {
       // intermediate → beginner: only allowed for the WT1104AM_DL → WT1104PM_DL pairing

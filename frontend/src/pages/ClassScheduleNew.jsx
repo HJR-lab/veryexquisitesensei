@@ -16,6 +16,14 @@ const MUTED    = '#888888';
 const RULE     = 'rgba(40,40,40,0.09)';
 const ALT      = '#F5F3F0';
 
+// Class-type colours, so wheelthrowing and handbuilding read apart at a glance
+// on the date strip, the class cards and the type filter.
+const CLASS_TYPE_STYLE = {
+  wheelthrowing: { tag: 'Wheelthrowing', color: '#7A5233', light: '#F1E9E1' },
+  handbuilding:  { tag: 'Handbuilding', color: '#B47F86', light: '#F5EAEB' },
+  kids:          { tag: 'Kids',      color: '#9A6FB0', light: '#F2ECF6' },
+};
+
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 const DAY_LABELS   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -301,6 +309,30 @@ export default function ClassScheduleNew() {
     ...(dashboardData?.enrollments?.pending || []),
   ].some(e => e.number_of_weeks === 10);
 
+  // The class type a student can't take isn't on their calendar at all: an
+  // HB-only student never sees WT and vice versa. A 10-class package student,
+  // someone holding both, or someone with no course yet sees everything. A
+  // glazing-only credit may still go to a glazing class of the other type.
+  const hiddenCategory = (() => {
+    const list = [
+      ...(dashboardData?.enrollments?.active || []),
+      ...(dashboardData?.enrollments?.upcoming || []),
+      ...(dashboardData?.enrollments?.pending || []),
+    ];
+    const ct = (e) => (e.courseType || e.course_type || '').toLowerCase();
+    if (list.some(e => e.number_of_weeks === 10 || ct(e).includes('10 classes'))) return null;
+    const hasHB = list.some(e => ct(e).includes('handbuilding'));
+    const hasWT = list.some(e => ct(e).includes('wheelthrowing'));
+    if (hasHB && !hasWT) return 'wheelthrowing';
+    if (hasWT && !hasHB) return 'handbuilding';
+    return null;
+  })();
+  const hasGlazingOnlyCredit = (bookableCredits ?? 0) > 0 && glazingOnlyCredits >= (bookableCredits ?? 0);
+  const isHiddenType = (cls) =>
+    !!hiddenCategory &&
+    getClassCategory(cls.classType || cls.class_type) === hiddenCategory &&
+    !(hasGlazingOnlyCredit && isGlazing(cls));
+
   // Is this an HB class on a date the student's final glazing class can't take?
   const inHbGlazingWindow = (cls, win) => {
     if (!win || getClassCategory(cls.class_type || cls.classType) !== 'handbuilding') return false;
@@ -342,15 +374,19 @@ export default function ClassScheduleNew() {
     return all;
   };
 
+  const hasKidsClasses = classes.some(course =>
+    course.classes?.some(cls => getClassCategory(cls.class_type) === 'kids'));
+
+  const matchesFilters = (c) => !isHiddenType(c) &&
+    (filterType === 'all' || getClassCategory(c.classType) === filterType) &&
+    (filterInstructor === 'all' || c.instructor === filterInstructor);
+
   // Classes for the selected date, filtered by UI filters
   const classesForSelectedDate = (() => {
     const all = getClassesForDate(selectedDate);
     const now = new Date();
     return all.filter(c => {
-      const cat = getClassCategory(c.classType);
-      const typeMatch = filterType === 'all' || cat === filterType;
-      const instMatch = filterInstructor === 'all' || c.instructor === filterInstructor;
-      if (!typeMatch || !instMatch) return false;
+      if (!matchesFilters(c)) return false;
       // Hide today's classes that have already ended
       const classDate = new Date(c.classDate);
       classDate.setHours(0, 0, 0, 0);
@@ -365,9 +401,18 @@ export default function ClassScheduleNew() {
 
   const filtersActive = filterType !== 'all' || filterInstructor !== 'all';
 
-  // Check if a given date has any classes / any booked
-  const dateHasClasses  = (date) => getClassesForDate(date).length > 0;
-  const dateHasBooked   = (date) => getClassesForDate(date).some(c => isEnrolled(c.id));
+  // Class types on a given date (after the UI filters), each with whether the
+  // student is booked into one of them — drives the coloured dots on the strip.
+  const dateTypeMarks = (date) => {
+    const marks = {};
+    getClassesForDate(date).filter(matchesFilters).forEach(c => {
+      const cat = getClassCategory(c.classType);
+      marks[cat] = marks[cat] || isEnrolled(c.id);
+    });
+    return ['wheelthrowing', 'handbuilding', 'kids', 'other']
+      .filter(cat => cat in marks)
+      .map(cat => ({ cat, booked: marks[cat] }));
+  };
 
   // My upcoming bookings (booked status, future) + waitlisted entries
   const now = new Date();
@@ -860,6 +905,40 @@ export default function ClassScheduleNew() {
           </div>
         )}
 
+        {/* ── CLASS TYPE FILTER ─────────────────────────────────────────────── */}
+        {/* Shown whenever both types are on the calendar, so switching is one tap; its dots double
+            as the legend for the coloured dots on the date strip below. */}
+        {!hiddenCategory && <div style={{ padding: '10px 20px 4px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+          {[
+            { val: 'all', label: 'All' },
+            { val: 'wheelthrowing', label: CLASS_TYPE_STYLE.wheelthrowing.tag },
+            { val: 'handbuilding', label: CLASS_TYPE_STYLE.handbuilding.tag },
+            ...(hasKidsClasses || filterType === 'kids' ? [{ val: 'kids', label: CLASS_TYPE_STYLE.kids.tag }] : []),
+          ].map(opt => {
+            const active = filterType === opt.val;
+            const typeStyle = CLASS_TYPE_STYLE[opt.val];
+            return (
+              <button
+                key={opt.val}
+                onClick={() => setFilterType(opt.val)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  padding: '6px 12px', cursor: 'pointer',
+                  border: `1px solid ${active ? (typeStyle?.color || INK) : RULE}`,
+                  backgroundColor: active ? (typeStyle?.light || ALT) : 'transparent',
+                  fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em',
+                  color: active ? (typeStyle?.color || INK) : MUTED,
+                }}
+              >
+                {typeStyle && (
+                  <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: typeStyle.color }} />
+                )}
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>}
+
         {/* ── DATE STRIP ────────────────────────────────────────────────────── */}
         <div>
           {/* Month label + nav arrows */}
@@ -886,8 +965,7 @@ export default function ClassScheduleNew() {
           <div ref={stripRef} style={{ display: 'flex', overflowX: 'auto', padding: '0 20px 8px', gap: '6px', scrollbarWidth: 'none' }}>
             {strip.map((d, i) => {
               const isSelected = fmtKey(d) === fmtKey(selectedDate);
-              const hasClasses = dateHasClasses(d);
-              const hasBooked  = dateHasBooked(d);
+              const marks = dateTypeMarks(d);
               return (
                 <button
                   key={i}
@@ -908,17 +986,17 @@ export default function ClassScheduleNew() {
                   <span style={{ fontSize: '16px', fontWeight: 700, color: isSelected ? TC : INK }}>
                     {d.getDate()}
                   </span>
-                  <span style={{
-                    width:  hasBooked ? '6px' : '4px',
-                    height: hasBooked ? '6px' : '4px',
-                    borderRadius: '50%',
-                    backgroundColor: hasBooked
-                      ? TC
-                      : hasClasses
-                        ? 'rgba(40,40,40,0.18)'
-                        : 'transparent',
-                    boxShadow: hasBooked && !isSelected ? `0 0 0 2px ${TC_LIGHT}` : 'none',
-                  }} />
+                  {/* One dot per class type that day, in that type's colour; a
+                      type the student is booked into gets a terracotta ring. */}
+                  <span style={{ display: 'flex', gap: '3px', height: '8px', alignItems: 'center' }}>
+                    {marks.map(({ cat, booked }) => (
+                      <span key={cat} style={{
+                        width: '6px', height: '6px', borderRadius: '50%',
+                        backgroundColor: CLASS_TYPE_STYLE[cat]?.color || 'rgba(40,40,40,0.18)',
+                        boxShadow: booked ? `0 0 0 1.5px ${isSelected ? TC_LIGHT : '#FFF'}, 0 0 0 3px ${TC}` : 'none',
+                      }} />
+                    ))}
+                  </span>
                 </button>
               );
             })}
@@ -953,6 +1031,7 @@ export default function ClassScheduleNew() {
                   const typeLabel  = displayClassType(cls.classType, cls.classTitle);
                   const levelLabel = displayLevel(cls.classType);
                   const cat = getClassCategory(cls.classType);
+                  const typeStyle = CLASS_TYPE_STYLE[cat];
 
                   // Grey out classes the student can't book due to enrollment type mismatch
                   const restrictedGlazingTarget = onlyGlazingCredit && isGlazing(cls);
@@ -978,6 +1057,7 @@ export default function ClassScheduleNew() {
                       style={{
                         padding: '12px',
                         border: `1px solid ${enrolled ? TC : RULE}`,
+                        borderLeft: `4px solid ${typeStyle?.color || (enrolled ? TC : RULE)}`,
                         backgroundColor: blocked ? '#F5F5F5' : enrolled ? TC_LIGHT : ALT,
                         opacity: blocked ? 0.5 : 1,
                         display: 'flex', alignItems: 'center', gap: '14px',
@@ -1356,10 +1436,10 @@ export default function ClassScheduleNew() {
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 {[
                   { val: 'all',          label: 'All' },
-                  { val: 'wheelthrowing', label: 'Wheel' },
-                  { val: 'handbuilding', label: 'Handbuild' },
+                  { val: 'wheelthrowing', label: 'Wheelthrowing' },
+                  { val: 'handbuilding', label: 'Handbuilding' },
                   { val: 'kids',         label: 'Kids' },
-                ].map(opt => (
+                ].filter(opt => opt.val !== hiddenCategory).map(opt => (
                   <button
                     key={opt.val}
                     onClick={() => setFilterType(opt.val)}

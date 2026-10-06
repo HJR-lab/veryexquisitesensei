@@ -20,7 +20,7 @@ const ALT      = '#F5F3F0';
 // on the date strip, the class cards and the type filter.
 const CLASS_TYPE_STYLE = {
   wheelthrowing: { tag: 'Wheelthrowing', color: '#7A5233', light: '#F1E9E1' },
-  handbuilding:  { tag: 'Handbuilding', color: '#5C7F45', light: '#EBF1E5' },
+  handbuilding:  { tag: 'Handbuilding', color: '#B47F86', light: '#F5EAEB' },
   kids:          { tag: 'Kids',      color: '#9A6FB0', light: '#F2ECF6' },
 };
 

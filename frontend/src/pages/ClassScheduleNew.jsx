@@ -329,7 +329,7 @@ export default function ClassScheduleNew() {
   })();
   const hasGlazingOnlyCredit = (bookableCredits ?? 0) > 0 && glazingOnlyCredits >= (bookableCredits ?? 0);
   const isHiddenType = (cls) =>
-    !!hiddenCategory && !isEnrolled(cls.id) &&
+    !!hiddenCategory &&
     getClassCategory(cls.classType || cls.class_type) === hiddenCategory &&
     !(hasGlazingOnlyCredit && isGlazing(cls));
 

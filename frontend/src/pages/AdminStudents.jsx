@@ -781,6 +781,12 @@ export default function AdminStudents() {
         if (uiFilter === 'owed') return owedEnrollmentIds.has(s.enrollmentId);
         if (uiFilter === 'wt-all') return getPackageKey(s).startsWith('pkg-wt');
         if (uiFilter === 'hb-all') return getPackageKey(s).startsWith('pkg-hb');
+        // A student can hold more than one package at once. Lynn Sng is still in
+        // her 6-week x3 course with a 7-week intermediate booked next, and
+        // Mitchell Chan's 7-week enrollment carries the x3 package flag, so a
+        // single package key filed all of them under x3 only. "7 Weeks" means
+        // the current or next course is a 7-week one, whatever else they hold.
+        if (uiFilter === 'pkg-wt7') return s._cardType === 'student' && (s._wtTotal === 7 || s._upcomingCourse?.numberOfWeeks === 7);
         return getPackageKey(s) === uiFilter;
       })
       .filter(s =>

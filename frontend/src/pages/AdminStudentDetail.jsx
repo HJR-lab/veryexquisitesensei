@@ -940,10 +940,12 @@ export default function AdminStudentDetail() {
   const enrollmentAllocated = isHBEnrollment ? hbCreditsAllocated : (enrollment?.number_of_weeks || 0);
   const totalAllocated = Math.max(allBookedCount, enrollmentAllocated);
   const is10ClassPkg = enrollment?.number_of_weeks === 10;
-  // Count all bookings that consume a credit (booked, attended, completed, missed/absent, rescheduled)
+  // Count all bookings that consume a credit (booked, attended, completed, missed/absent, forfeited).
+  // 'rescheduled' is deliberately absent: that row is a vacated origin whose
+  // replacement booking also exists, so counting it spends the credit twice.
   const creditsUsedCount = currentEnrollmentBookings.filter(b =>
     b.status === 'booked' || b.status === 'attended' || b.status === 'completed' ||
-    b.status === 'absent' || b.status === 'missed' || b.status === 'rescheduled' || b.status === 'forfeited'
+    b.status === 'absent' || b.status === 'missed' || b.status === 'forfeited'
   ).length;
   const waitlistCredits = studentWaitlist.length;
 

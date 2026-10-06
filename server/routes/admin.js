@@ -773,9 +773,13 @@ app.get('/api/admin/students/list', authenticateToken, requireAdmin, asyncHandle
       if (filter === 'wt-all') return s.isWT;
       if (filter === 'hb-all') return s.isHB;
       if (filter === 'members') return !!s.membership;
-      if (filter === 'pkg-wt6') return s.isWT && (s.numberOfWeeks || 6) <= 6 && !s.packageTotalCourses;
-      if (filter === 'pkg-wt7') return s.isWT && (s.numberOfWeeks === 7 || s.upcomingCourse?.numberOfWeeks === 7);
-      if (filter === 'pkg-wt10') return s.isWT && s.packageTotalCourses !== 3 && (s.numberOfWeeks || 0) >= 8;
+      // A student is listed under every package they hold (owner's rule, 6 Oct):
+      // the current course and the next one are both checked, and an x3 buyer
+      // on a 7-week or 10-class course shows under that too.
+      const wtWeeks = [s.numberOfWeeks || 6, ...(s.upcomingCourse ? [s.upcomingCourse.numberOfWeeks || 6] : [])];
+      if (filter === 'pkg-wt6') return s.isWT && !s.packageTotalCourses && wtWeeks.some(w => w <= 6);
+      if (filter === 'pkg-wt7') return s.isWT && wtWeeks.includes(7);
+      if (filter === 'pkg-wt10') return s.isWT && wtWeeks.some(w => w >= 8);
       if (filter === 'pkg-wt18') return s.isWT && s.packageTotalCourses === 3;
       if (filter === 'pkg-hb4') return s.isHB && (s.creditsAllocated || 4) <= 4;
       if (filter === 'pkg-hb8') return s.isHB && (s.creditsAllocated || 0) > 4;

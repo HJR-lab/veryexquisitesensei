@@ -743,19 +743,25 @@ export default function AdminStudents() {
     'student-member': currentUsers.filter(s => s._type === 'student-member').length,
   };
 
-  // Package type filter helper
-  const getPackageKey = (s) => {
-    const isWT = s._cardType === 'hb' ? false : (s._wtTotal != null);
-    const isHB = s._cardType === 'hb';
-    // For WT: check package_total_courses first (3-course package = pkg-wt18)
-    if (isWT && s._packageTotalCourses === 3) return 'pkg-wt18';
-    const total = isWT ? (s._wtTotal || 6) : (s._hbTotal || 0);
-    if (isWT && total <= 6) return 'pkg-wt6';
-    if (isWT && total === 7) return 'pkg-wt7';
-    if (isWT && total > 7) return 'pkg-wt10';   // 8+ classes = class-pool package (e.g. 10-class); real 3-course bundle is caught above via _packageTotalCourses === 3
-    if (isHB && total <= 4) return 'pkg-hb4';
-    if (isHB) return 'pkg-hb8';
-    return 'pkg-other';
+  // Package filter keys. A student is listed under every package they hold
+  // (owner's rule, 6 Oct): Lynn Sng is in her 6-week x3 course with a 7-week
+  // intermediate booked next, so she belongs under both "x3" and "7 Weeks".
+  // The current course and the next one each contribute a key.
+  const wtLengthKey = (weeks, isPackage) => {
+    if (weeks > 7) return 'pkg-wt10';   // 8+ classes = class-pool package (e.g. 10-class)
+    if (weeks === 7) return 'pkg-wt7';
+    return isPackage ? null : 'pkg-wt6'; // a 6-week course inside an x3 package is already under x3
+  };
+  const getPackageKeys = (s) => {
+    if (s._cardType === 'hb') return [(s._hbTotal || 0) <= 4 ? 'pkg-hb4' : 'pkg-hb8'];
+    if (s._wtTotal == null) return ['pkg-other'];
+    const isPackage = s._packageTotalCourses === 3;
+    const keys = new Set();
+    if (isPackage) keys.add('pkg-wt18');
+    keys.add(wtLengthKey(s._wtTotal || 6, isPackage));
+    if (s._upcomingCourse) keys.add(wtLengthKey(s._upcomingCourse.numberOfWeeks || 6, isPackage));
+    keys.delete(null);
+    return [...keys];
   };
 
   const searchLower  = search.toLowerCase();
@@ -779,15 +785,10 @@ export default function AdminStudents() {
         // Owed classes with nothing booked ahead — Nicole Wong's case, where a
         // cancelled follow-on cohort left classes owed and nobody prompted.
         if (uiFilter === 'owed') return owedEnrollmentIds.has(s.enrollmentId);
-        if (uiFilter === 'wt-all') return getPackageKey(s).startsWith('pkg-wt');
-        if (uiFilter === 'hb-all') return getPackageKey(s).startsWith('pkg-hb');
-        // A student can hold more than one package at once. Lynn Sng is still in
-        // her 6-week x3 course with a 7-week intermediate booked next, and
-        // Mitchell Chan's 7-week enrollment carries the x3 package flag, so a
-        // single package key filed all of them under x3 only. "7 Weeks" means
-        // the current or next course is a 7-week one, whatever else they hold.
-        if (uiFilter === 'pkg-wt7') return s._cardType === 'student' && (s._wtTotal === 7 || s._upcomingCourse?.numberOfWeeks === 7);
-        return getPackageKey(s) === uiFilter;
+        const keys = getPackageKeys(s);
+        if (uiFilter === 'wt-all') return keys.some(k => k.startsWith('pkg-wt'));
+        if (uiFilter === 'hb-all') return keys.some(k => k.startsWith('pkg-hb'));
+        return keys.includes(uiFilter);
       })
       .filter(s =>
         (s.name  || '').toLowerCase().includes(searchLower) ||

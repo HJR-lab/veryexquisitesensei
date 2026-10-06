@@ -1042,7 +1042,9 @@ export default function ClassScheduleNew() {
 
                   // Grey out intermediate WT classes for students with < 3 course purchases
                   const weekMatch = cls.classType?.match(/_\w+(\d)\.\d+$/);
-                  const isIntermediate = cat === 'wheelthrowing' && weekMatch && parseInt(weekMatch[1]) === 7;
+                  // 7.7 is glazing, open to any student (owner, 6 Oct 2026)
+                  const isIntermediate = cat === 'wheelthrowing' && weekMatch && parseInt(weekMatch[1]) === 7
+                    && !isFinalWeekClassType(cls.classType);
                   const intermediateBlocked = !restrictedGlazingTarget && isIntermediate && (studentData?.course_purchase_count || 0) < 3;
 
                   // Grey out classes after glazing or within 5 days of glazing

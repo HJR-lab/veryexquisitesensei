@@ -16,6 +16,14 @@ const MUTED    = '#888888';
 const RULE     = 'rgba(40,40,40,0.09)';
 const ALT      = '#F5F3F0';
 
+// Class-type colours, so wheelthrowing and handbuilding read apart at a glance
+// on the date strip, the class cards and the type filter.
+const CLASS_TYPE_STYLE = {
+  wheelthrowing: { tag: 'Wheel',     color: '#3D6A8A', light: '#E7EEF4' },
+  handbuilding:  { tag: 'Handbuild', color: '#5C7F45', light: '#EBF1E5' },
+  kids:          { tag: 'Kids',      color: '#9A6FB0', light: '#F2ECF6' },
+};
+
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 const DAY_LABELS   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -342,15 +350,19 @@ export default function ClassScheduleNew() {
     return all;
   };
 
+  const hasKidsClasses = classes.some(course =>
+    course.classes?.some(cls => getClassCategory(cls.class_type) === 'kids'));
+
+  const matchesFilters = (c) =>
+    (filterType === 'all' || getClassCategory(c.classType) === filterType) &&
+    (filterInstructor === 'all' || c.instructor === filterInstructor);
+
   // Classes for the selected date, filtered by UI filters
   const classesForSelectedDate = (() => {
     const all = getClassesForDate(selectedDate);
     const now = new Date();
     return all.filter(c => {
-      const cat = getClassCategory(c.classType);
-      const typeMatch = filterType === 'all' || cat === filterType;
-      const instMatch = filterInstructor === 'all' || c.instructor === filterInstructor;
-      if (!typeMatch || !instMatch) return false;
+      if (!matchesFilters(c)) return false;
       // Hide today's classes that have already ended
       const classDate = new Date(c.classDate);
       classDate.setHours(0, 0, 0, 0);
@@ -365,9 +377,18 @@ export default function ClassScheduleNew() {
 
   const filtersActive = filterType !== 'all' || filterInstructor !== 'all';
 
-  // Check if a given date has any classes / any booked
-  const dateHasClasses  = (date) => getClassesForDate(date).length > 0;
-  const dateHasBooked   = (date) => getClassesForDate(date).some(c => isEnrolled(c.id));
+  // Class types on a given date (after the UI filters), each with whether the
+  // student is booked into one of them — drives the coloured dots on the strip.
+  const dateTypeMarks = (date) => {
+    const marks = {};
+    getClassesForDate(date).filter(matchesFilters).forEach(c => {
+      const cat = getClassCategory(c.classType);
+      marks[cat] = marks[cat] || isEnrolled(c.id);
+    });
+    return ['wheelthrowing', 'handbuilding', 'kids', 'other']
+      .filter(cat => cat in marks)
+      .map(cat => ({ cat, booked: marks[cat] }));
+  };
 
   // My upcoming bookings (booked status, future) + waitlisted entries
   const now = new Date();
@@ -860,6 +881,40 @@ export default function ClassScheduleNew() {
           </div>
         )}
 
+        {/* ── CLASS TYPE FILTER ─────────────────────────────────────────────── */}
+        {/* Always on screen so wheel vs handbuild is one tap, and its dots double
+            as the legend for the coloured dots on the date strip below. */}
+        <div style={{ padding: '10px 20px 4px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+          {[
+            { val: 'all', label: 'All' },
+            { val: 'wheelthrowing', label: CLASS_TYPE_STYLE.wheelthrowing.tag },
+            { val: 'handbuilding', label: CLASS_TYPE_STYLE.handbuilding.tag },
+            ...(hasKidsClasses || filterType === 'kids' ? [{ val: 'kids', label: CLASS_TYPE_STYLE.kids.tag }] : []),
+          ].map(opt => {
+            const active = filterType === opt.val;
+            const typeStyle = CLASS_TYPE_STYLE[opt.val];
+            return (
+              <button
+                key={opt.val}
+                onClick={() => setFilterType(opt.val)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  padding: '6px 12px', cursor: 'pointer',
+                  border: `1px solid ${active ? (typeStyle?.color || INK) : RULE}`,
+                  backgroundColor: active ? (typeStyle?.light || ALT) : 'transparent',
+                  fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em',
+                  color: active ? (typeStyle?.color || INK) : MUTED,
+                }}
+              >
+                {typeStyle && (
+                  <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: typeStyle.color }} />
+                )}
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+
         {/* ── DATE STRIP ────────────────────────────────────────────────────── */}
         <div>
           {/* Month label + nav arrows */}
@@ -886,8 +941,7 @@ export default function ClassScheduleNew() {
           <div ref={stripRef} style={{ display: 'flex', overflowX: 'auto', padding: '0 20px 8px', gap: '6px', scrollbarWidth: 'none' }}>
             {strip.map((d, i) => {
               const isSelected = fmtKey(d) === fmtKey(selectedDate);
-              const hasClasses = dateHasClasses(d);
-              const hasBooked  = dateHasBooked(d);
+              const marks = dateTypeMarks(d);
               return (
                 <button
                   key={i}
@@ -908,17 +962,17 @@ export default function ClassScheduleNew() {
                   <span style={{ fontSize: '16px', fontWeight: 700, color: isSelected ? TC : INK }}>
                     {d.getDate()}
                   </span>
-                  <span style={{
-                    width:  hasBooked ? '6px' : '4px',
-                    height: hasBooked ? '6px' : '4px',
-                    borderRadius: '50%',
-                    backgroundColor: hasBooked
-                      ? TC
-                      : hasClasses
-                        ? 'rgba(40,40,40,0.18)'
-                        : 'transparent',
-                    boxShadow: hasBooked && !isSelected ? `0 0 0 2px ${TC_LIGHT}` : 'none',
-                  }} />
+                  {/* One dot per class type that day, in that type's colour; a
+                      type the student is booked into gets a terracotta ring. */}
+                  <span style={{ display: 'flex', gap: '3px', height: '8px', alignItems: 'center' }}>
+                    {marks.map(({ cat, booked }) => (
+                      <span key={cat} style={{
+                        width: '6px', height: '6px', borderRadius: '50%',
+                        backgroundColor: CLASS_TYPE_STYLE[cat]?.color || 'rgba(40,40,40,0.18)',
+                        boxShadow: booked ? `0 0 0 1.5px ${isSelected ? TC_LIGHT : '#FFF'}, 0 0 0 3px ${TC}` : 'none',
+                      }} />
+                    ))}
+                  </span>
                 </button>
               );
             })}
@@ -953,6 +1007,7 @@ export default function ClassScheduleNew() {
                   const typeLabel  = displayClassType(cls.classType, cls.classTitle);
                   const levelLabel = displayLevel(cls.classType);
                   const cat = getClassCategory(cls.classType);
+                  const typeStyle = CLASS_TYPE_STYLE[cat];
 
                   // Grey out classes the student can't book due to enrollment type mismatch
                   const restrictedGlazingTarget = onlyGlazingCredit && isGlazing(cls);
@@ -978,6 +1033,7 @@ export default function ClassScheduleNew() {
                       style={{
                         padding: '12px',
                         border: `1px solid ${enrolled ? TC : RULE}`,
+                        borderLeft: `4px solid ${typeStyle?.color || (enrolled ? TC : RULE)}`,
                         backgroundColor: blocked ? '#F5F5F5' : enrolled ? TC_LIGHT : ALT,
                         opacity: blocked ? 0.5 : 1,
                         display: 'flex', alignItems: 'center', gap: '14px',
@@ -1000,6 +1056,11 @@ export default function ClassScheduleNew() {
 
                       {/* Detail */}
                       <div style={{ flex: 1 }}>
+                        {typeStyle && (
+                          <span style={{ display: 'inline-block', fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '2px 6px', marginBottom: '3px', backgroundColor: typeStyle.light, color: typeStyle.color }}>
+                            {typeStyle.tag}
+                          </span>
+                        )}
                         <div style={{ fontSize: '13px', fontWeight: 700 }}>{typeLabel}</div>
                         <div style={{ fontSize: '11px', color: MUTED }}>{cls.startTime} – {cls.endTime} · {cls.instructor}</div>
                       </div>

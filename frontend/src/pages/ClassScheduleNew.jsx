@@ -19,7 +19,7 @@ const ALT      = '#F5F3F0';
 // Class-type colours, so wheelthrowing and handbuilding read apart at a glance
 // on the date strip, the class cards and the type filter.
 const CLASS_TYPE_STYLE = {
-  wheelthrowing: { tag: 'Wheelthrowing', color: '#3D6A8A', light: '#E7EEF4' },
+  wheelthrowing: { tag: 'Wheelthrowing', color: '#7A5233', light: '#F1E9E1' },
   handbuilding:  { tag: 'Handbuilding', color: '#5C7F45', light: '#EBF1E5' },
   kids:          { tag: 'Kids',      color: '#9A6FB0', light: '#F2ECF6' },
 };

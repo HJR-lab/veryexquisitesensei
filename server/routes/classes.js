@@ -5,7 +5,7 @@ const { isGlazingClass, isMarkedGlazing, GLAZING_DRYING_GAP_DAYS,
         packageGlazingPositions, isTenClassPackage, findTenClassPackages,
         hasTenClassPackage, resolveGlazingConsumption,
         spendGlazingEntitlement, checkHbFinalGlazingGap,
-        hbFinalGlazingWindow } = require('../utils/glazing');
+        hbFinalGlazingWindow, isFinalWeekClassType } = require('../utils/glazing');
 const { getEnrollmentCredits } = require('../utils/bookingDb');
 // The cross-type gate lives in utils/bookingGates.js: both booking paths here ran
 // a byte-identical copy of it, and scripts/verify-hb-bookability.js ran a third
@@ -265,9 +265,13 @@ app.get('/api/policy/fees', (req, res) => {
 const INTERMEDIATE_MIN_COMPLETED_COURSES = 3;
 const INTERMEDIATE_LOCK_ERROR = `Intermediate classes require at least ${INTERMEDIATE_MIN_COMPLETED_COURSES} completed wheelthrowing courses. Please continue with beginner classes.`;
 
+// The intermediate final week (7.7) is a glazing session, not a throwing lesson,
+// so any student may join it to glaze (owner, 6 Oct 2026). Only weeks 7.1-7.6
+// are locked to intermediate students.
 function isIntermediateWTClass(classInstance) {
   const type = classInstance?.class_type || '';
   if (!type.startsWith('WT')) return false;
+  if (isFinalWeekClassType(type)) return false;
   const m = type.match(/(\d+)\.\d+$/);
   return !!m && parseInt(m[1]) === 7;
 }
@@ -1798,6 +1802,8 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
   //              explicitly allowed (cohort-specific one-way pairing).
   const getWTLevel = (classType) => {
     if (!classType || !classType.startsWith('WT')) return null;
+    // Glazing weeks (6.6, 7.7) belong to no level: any student may glaze in either.
+    if (isFinalWeekClassType(classType)) return null;
     const match = classType.match(/(\d+)\.\d+$/);
     if (!match) return null;
     return parseInt(match[1]) === 7 ? 'intermediate' : 'beginner';

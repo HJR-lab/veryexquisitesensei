@@ -540,7 +540,7 @@ export default function ClassScheduleNew() {
     );
     const rescheduleNotice = has10ClassPkg
       ? 'Are you sure you want to reschedule? You must reschedule more than 24 hours before class. Missed makeup classes incur a $20 no-show fee.'
-      : 'Are you sure you want to reschedule? You must reschedule more than 24 hours before class. Missed makeup classes incur a $20 no-show fee. Makeup classes outside your cohort schedule incur a $40 fee (glazing excluded).';
+      : 'Are you sure you want to reschedule? You must reschedule more than 24 hours before class. Missed makeup classes incur a $20 no-show fee. Makeup classes outside your cohort schedule incur a $40 fee (glazing and open classes excluded).';
     confirmAction('Confirm Reschedule', rescheduleNotice, async () => {
       try {
         await api.post('/classes/reschedule', { oldClassId: selectedClass.id, newClassId });

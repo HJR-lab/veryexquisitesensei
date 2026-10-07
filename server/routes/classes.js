@@ -2090,7 +2090,10 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
   // so the out-of-cohort fee must never apply to them.
   let rescheduleFee = 0;
   const isHBCourse = oldClass.class_type?.startsWith('HB') || newClass.class_type?.startsWith('HB');
-  if (!isOldClassGlazing && !isHBCourse && !has10ClassPackage) {
+  // Open classes (no ".N" week suffix) belong to no cohort and are free to move
+  // into (owner, 7 Oct 2026).
+  const isOpenClassTarget = !/\.\d+$/.test(newClass.class_type || '');
+  if (!isOldClassGlazing && !isHBCourse && !has10ClassPackage && !isOpenClassTarget) {
     // Check if the new class date falls within any admin-defined cohort period
     let isSameCohort = false;
     const newClassDate = new Date(newClass.class_date);

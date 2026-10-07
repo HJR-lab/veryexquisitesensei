@@ -1661,7 +1661,11 @@ export default function ClassScheduleNew() {
                         )}
                       </div>
                       {reschBlocked ? (
-                        <span style={{ fontSize: '10px', color: MUTED, flexShrink: 0 }}>Unavailable</span>
+                        <span style={{ fontSize: '10px', color: MUTED, flexShrink: 0, textAlign: 'right', maxWidth: '110px' }}>
+                          {glazingDate && new Date(classItem.classDate) > glazingDate
+                            ? 'After your glazing. Move your glazing later first.'
+                            : 'Unavailable'}
+                        </span>
                       ) : (
                       <button
                         onClick={() => handleReschedule(classItem.id)}

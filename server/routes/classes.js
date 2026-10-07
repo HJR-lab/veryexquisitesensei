@@ -1920,7 +1920,9 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
       const isReschedulingGlazing = (oldClass.class_type || '').match(/\.(6|7)$/);
       if (!isReschedulingGlazing) {
         if (targetDate > glazingDate) {
-          return res.status(400).json({ error: 'Cannot reschedule to a date after your glazing class. Glazing is your final class.' });
+          // Self-serve way out: glazing → glazing moves have no date limit, so
+          // the student can push their glazing later and then come back.
+          return res.status(400).json({ error: `This class is after your glazing class. To take it, first reschedule your glazing class to a later glazing date (at least ${GLAZING_DRYING_GAP_DAYS} days after this class), then reschedule this one.` });
         }
         const daysBefore = (glazingDate - targetDate) / (1000 * 60 * 60 * 24);
         if (daysBefore > 0 && daysBefore < GLAZING_DRYING_GAP_DAYS) {
@@ -2003,8 +2005,12 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
           ? new Date(cohortPeriod.end_date)
           : new Date(enrollment.course_end_date);
         const newClassDate = new Date(newClass.class_date);
+        // A class that belongs to no course (no ".N" week suffix, e.g. the
+        // studio's open Saturday classes) is open to anyone with a credit, so
+        // the cohort window doesn't apply to it (owner, 7 Oct 2026).
+        const isCourselessClass = !/\.\d+$/.test(newClass.class_type || '');
 
-        if (newClassDate < cohortStartDate || newClassDate > cohortEndDate) {
+        if (!isCourselessClass && (newClassDate < cohortStartDate || newClassDate > cohortEndDate)) {
           const periodName = cohortPeriod ? cohortPeriod.name : 'your cohort';
           const startStr = cohortStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
           const endStr = cohortEndDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });

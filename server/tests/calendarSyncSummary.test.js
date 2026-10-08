@@ -40,3 +40,12 @@ test('WR-06: empty batch is trivially all-ok', () => {
   assert.equal(s.total, 0);
   assert.equal(s.allOk, true);
 });
+
+const { isOffCalendar } = require('../utils/calendarSync');
+
+test('cancelled WT classes and drafts have no calendar event; cancelled HB keeps one', () => {
+  assert.equal(isOffCalendar({ status: 'cancelled', class_type: 'WT1009AM_JL6.4' }), true);
+  assert.equal(isOffCalendar({ status: 'draft', class_type: 'WT1009AM_JL6.1' }), true);
+  assert.equal(isOffCalendar({ status: 'active', class_type: 'WT1009AM_JL6.1' }), false);
+  assert.equal(isOffCalendar({ status: 'cancelled', class_type: 'HBSATEV_LT' }), false);
+});

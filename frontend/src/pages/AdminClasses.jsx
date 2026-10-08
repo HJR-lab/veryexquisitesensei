@@ -291,6 +291,9 @@ export default function AdminClasses() {
   };
 
   // ── Classes for a given Date object ──────────────────────────────────────────
+  // Cancelled WT classes belong to withdrawn cohorts and are left off the calendar.
+  const isCancelledWT = (cls) => cls.status === 'cancelled' && (cls.class_type || '').startsWith('WT');
+
   const getClassesForDate = (date) => {
     const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     const all = [];
@@ -306,6 +309,7 @@ export default function AdminClasses() {
       });
     });
     return all.filter(c => {
+      if (isCancelledWT(c)) return false;
       if (classTypeFilter !== 'all' && getClassCategory(c.class_type) !== classTypeFilter) return false;
       if (cohortFilter !== 'all') {
         const parentCourse = courses.find(co => co.classes?.some(cl => cl.id === c.id));
@@ -403,9 +407,10 @@ export default function AdminClasses() {
     const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     const evs = [];
 
-    // WT courses: check if any class in the course falls on this date
+    // WT courses: check if any class in the course falls on this date.
+    // Cancelled WT classes (withdrawn cohorts) are left off the calendar.
     wtCourses.forEach((c, idx) => {
-      c.classes.forEach((cls, clsIdx) => {
+      c.classes.filter(cls => !isCancelledWT(cls)).forEach((cls, clsIdx) => {
         if (cls.class_date?.startsWith(dateStr)) {
           evs.push({ kind: 'WT', course: c, courseIdx: idx, cls, weekNum: clsIdx + 1, cancelled: cls.status === 'cancelled' || cls.instructorUnavailable });
         }

@@ -409,7 +409,8 @@ app.get('/api/instructor/dashboard', authenticateToken, asyncHandler(async (req,
     .order('class_date', { ascending: false })
     .limit(20);
 
-  // Get ALL classes for calendar view (-1 month to +3 months, including cancelled)
+  // Get ALL classes for calendar view (-1 month to +3 months, including cancelled
+  // HB classes; cancelled WT classes belong to withdrawn cohorts and are left off)
   const calStart = new Date();
   calStart.setMonth(calStart.getMonth() - 1);
   calStart.setDate(1);
@@ -572,7 +573,7 @@ app.get('/api/instructor/dashboard', authenticateToken, asyncHandler(async (req,
     },
     upcomingClasses: upcomingClasses || [],
     recentClasses: recentClasses || [],
-    allClasses: allClasses || [],
+    allClasses: (allClasses || []).filter(c => !(c.status === 'cancelled' && (c.class_type || '').startsWith('WT'))),
     studentsByClass,
     recentStudentsByClass,
     portfolio: portfolio || [],

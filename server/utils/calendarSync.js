@@ -170,6 +170,15 @@ async function buildClassDescription(classInstance) {
   return desc;
 }
 
+// Classes that must not have a studio calendar event: drafts (cohort under the
+// minimum) and cancelled wheelthrowing classes. Cancelled HB classes keep their
+// event, marked [CANCELLED], so the slot still reads as called off.
+function isOffCalendar(classInstance) {
+  if (!classInstance) return false;
+  if (classInstance.status === 'draft') return true;
+  return classInstance.status === 'cancelled' && (classInstance.class_type || '').startsWith('WT');
+}
+
 function buildEventPayload(classInstance, description) {
   const date = (classInstance.class_date || '').split('T')[0];
   const start = parseTime(classInstance.start_time);
@@ -203,15 +212,13 @@ async function syncClassInstance(classInstanceId) {
         .single();
       if (!classInstance) return { status: 'skipped', classInstanceId, reason: 'not_found' };
 
-      // Skip past classes
-      const today = new Date().toISOString().split('T')[0];
-      const classDate = (classInstance.class_date || '').split('T')[0];
-      if (classDate < today) return { status: 'skipped', classInstanceId, reason: 'past_class' };
-
       // A draft class belongs to a cohort still under the minimum — it is not
       // running yet, so it must not sit on the studio calendar looking booked.
-      // Pull any event an earlier sync created; activation re-syncs it back on.
-      if (classInstance.status === 'draft') {
+      // A cancelled WT class belongs to a withdrawn cohort and is gone for good.
+      // Pull any event an earlier sync created; activation re-syncs a draft back on.
+      // Checked before the past-class skip so a stale event on a past date is
+      // removed too.
+      if (isOffCalendar(classInstance)) {
         if (classInstance.google_calendar_event_id) {
           try {
             await cal.events.delete({ calendarId: CALENDAR_ID, eventId: classInstance.google_calendar_event_id });
@@ -225,8 +232,13 @@ async function syncClassInstance(classInstanceId) {
             .update({ google_calendar_event_id: null })
             .eq('id', classInstanceId);
         }
-        return { status: 'skipped', classInstanceId, reason: 'draft' };
+        return { status: 'skipped', classInstanceId, reason: classInstance.status };
       }
+
+      // Skip past classes
+      const today = new Date().toISOString().split('T')[0];
+      const classDate = (classInstance.class_date || '').split('T')[0];
+      if (classDate < today) return { status: 'skipped', classInstanceId, reason: 'past_class' };
 
       const description = await buildClassDescription(classInstance);
       const payload = buildEventPayload(classInstance, description);
@@ -669,8 +681,17 @@ async function resyncUpcoming() {
     console.error('[CalendarSync] resyncUpcoming query failed:', error.message);
     return { synced: 0, error: error.message };
   }
+  // Cancelled WT classes on past dates still holding an event: the loop above
+  // only covers upcoming dates, so pick these up here for removal.
+  const { data: staleCancelled } = await supabaseDb.supabase
+    .from('class_instances')
+    .select('id')
+    .eq('status', 'cancelled')
+    .like('class_type', 'WT%')
+    .lt('class_date', today)
+    .not('google_calendar_event_id', 'is', null);
   let synced = 0;
-  for (const ci of (classes || [])) {
+  for (const ci of [...(classes || []), ...(staleCancelled || [])]) {
     // await sequentially so we respect the per-instance lock and don't burst
     // the Google API; syncClassInstance swallows its own errors.
     await syncClassInstance(ci.id);
@@ -682,6 +703,7 @@ async function resyncUpcoming() {
 
 module.exports = {
   isEnabled,
+  isOffCalendar,
   syncClassInstance,
   summarizeSyncResults,
   deleteClassInstance,

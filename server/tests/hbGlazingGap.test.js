@@ -81,3 +81,13 @@ test('HBG-8: only handbuilding enrollments carry the rule, and their size comes 
   assert.strictEqual(hbEnrollmentTotal({ class_credits_allocated: 8, number_of_weeks: 8 }), 8);
   assert.strictEqual(hbEnrollmentTotal({ class_credits_allocated: null, number_of_weeks: 4 }), 4);
 });
+
+test('HBG-M1: moving a glazing class must stay 6+ days after the last other class', () => {
+  const { glazingMoveGapProblem } = require('../utils/glazing');
+  const dates = ['2026-10-01', '2026-10-08', '2026-10-15'];
+  assert.deepStrictEqual(glazingMoveGapProblem({ dates, target: '2026-10-20' }), { lastClass: '2026-10-15', gap: 5 });
+  assert.strictEqual(glazingMoveGapProblem({ dates, target: '2026-10-21' }), null);
+  // Before the last class is refused too: there would be nothing fired to glaze.
+  assert.ok(glazingMoveGapProblem({ dates, target: '2026-10-10' }));
+  assert.strictEqual(glazingMoveGapProblem({ dates: [], target: '2026-10-10' }), null);
+});

@@ -328,10 +328,19 @@ export default function ClassScheduleNew() {
     return null;
   })();
   const hasGlazingOnlyCredit = (bookableCredits ?? 0) > 0 && glazingOnlyCredits >= (bookableCredits ?? 0);
+  // A wheelthrowing student may take a handbuilding glazing class as their final
+  // glazing, so while they still have a glazing class coming up (one they can move)
+  // the handbuilding glazing classes stay on their calendar. Other HB classes don't.
+  const upcomingGlazingBooking = myBookings.find(b => {
+    if (b.status !== 'booked' || !isGlazing(b)) return false;
+    const d = String(b.class?.classDate || '').split('T')[0];
+    return d >= fmtKey(new Date());
+  }) || null;
+  const canMoveGlazingToHB = hiddenCategory === 'handbuilding' && !!upcomingGlazingBooking;
   const isHiddenType = (cls) =>
     !!hiddenCategory &&
     getClassCategory(cls.classType || cls.class_type) === hiddenCategory &&
-    !(hasGlazingOnlyCredit && isGlazing(cls));
+    !((hasGlazingOnlyCredit || canMoveGlazingToHB) && isGlazing(cls));
 
   // Is this an HB class on a date the student's final glazing class can't take?
   const inHbGlazingWindow = (cls, win) => {
@@ -508,7 +517,8 @@ export default function ClassScheduleNew() {
       const isAtLeast24HoursAway = classDateTime >= twentyFourHoursFromNow;
       const isValidTime = !isNaN(classDateTime.getTime());
       const sameCategory = getClassCategory(c.classType) === classCategory;
-      const categoryOK = is10ClassPackage || sameCategory;
+      // Glazing → glazing may cross type: a WT glazing can move to an HB glazing class.
+      const categoryOK = is10ClassPackage || sameCategory || (isGlazing(selectedClass) && isGlazing(c));
       const glazingOK = glazingOnly ? isGlazing(c) : !(noGlazing && isGlazing(c));
       const hbGapOK = !inHbGlazingWindow(c, rescheduleHbWindow);
       return isDifferentClass && hasSpace && isAtLeast24HoursAway && isValidTime && categoryOK && glazingOK && hbGapOK;
@@ -554,6 +564,27 @@ export default function ClassScheduleNew() {
         alert(error.response?.data?.error || 'Failed to reschedule class');
       }
     });
+  };
+
+  // A WT student picking a handbuilding glazing class from the calendar: that is
+  // moving their upcoming glazing class there, not a new booking.
+  const moveGlazingTo = (cls) => {
+    if (!upcomingGlazingBooking) return;
+    const fromDate = new Date(upcomingGlazingBooking.class.classDate)
+      .toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    confirmAction('Move your glazing class',
+      `This moves your glazing class on ${fromDate} to this handbuilding glazing class. You must reschedule more than 24 hours before class.`,
+      async () => {
+        try {
+          await api.post('/classes/reschedule', { oldClassId: upcomingGlazingBooking.class.id, newClassId: cls.id });
+          alert('Your glazing class has been moved.');
+          fetchClasses();
+          fetchMyBookings();
+        } catch (error) {
+          console.error('Error moving glazing class:', error);
+          alert(error.response?.data?.error || 'Failed to move your glazing class');
+        }
+      });
   };
 
   const handlePauseRequest = async () => {
@@ -1035,7 +1066,10 @@ export default function ClassScheduleNew() {
 
                   // Grey out classes the student can't book due to enrollment type mismatch
                   const restrictedGlazingTarget = onlyGlazingCredit && isGlazing(cls);
-                  const crossTypeBlocked = !restrictedGlazingTarget && hasEnrollments && !has10ClassPkg && (
+                  // An HB glazing class a WT student can move their glazing to
+                  const glazingMoveTarget = !enrolled && !restrictedGlazingTarget && canMoveGlazingToHB &&
+                    cat === 'handbuilding' && isGlazing(cls);
+                  const crossTypeBlocked = !restrictedGlazingTarget && !glazingMoveTarget && hasEnrollments && !has10ClassPkg && (
                     (cat === 'wheelthrowing' && hasHBEnroll && !hasWTEnroll) ||
                     (cat === 'handbuilding' && hasWTEnroll && !hasHBEnroll)
                   );
@@ -1048,14 +1082,14 @@ export default function ClassScheduleNew() {
                   const intermediateBlocked = !restrictedGlazingTarget && isIntermediate && (studentData?.course_purchase_count || 0) < 3;
 
                   // Grey out classes after glazing or within 5 days of glazing
-                  const glazingBlocked = !enrolled && isBlockedByGlazing(cls.classDate);
+                  const glazingBlocked = !enrolled && !glazingMoveTarget && isBlockedByGlazing(cls.classDate);
 
                   const blocked = crossTypeBlocked || intermediateBlocked || glazingBlocked;
 
                   return (
                     <div
                       key={cls.id}
-                      onClick={() => !blocked && setShowDetailSheet(cls)}
+                      onClick={() => !blocked && (glazingMoveTarget ? moveGlazingTo(cls) : setShowDetailSheet(cls))}
                       style={{
                         padding: '12px',
                         border: `1px solid ${enrolled ? TC : RULE}`,
@@ -1100,6 +1134,16 @@ export default function ClassScheduleNew() {
                           >
                             Full
                           </span>
+                        ) : glazingMoveTarget ? (
+                          <>
+                            <button
+                              onClick={e => { e.stopPropagation(); moveGlazingTo(cls); }}
+                              style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '5px 12px', border: `1px solid ${TC}`, backgroundColor: 'transparent', color: TC, cursor: 'pointer', display: 'block', marginBottom: '3px' }}
+                            >
+                              Move glazing here
+                            </button>
+                            <div style={{ fontSize: '10px', color: MUTED }}>{spotsLeft(cls)} left</div>
+                          </>
                         ) : (
                           <>
                             <button

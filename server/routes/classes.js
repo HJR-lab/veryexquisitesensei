@@ -5,7 +5,8 @@ const { isGlazingClass, isMarkedGlazing, GLAZING_DRYING_GAP_DAYS,
         packageGlazingPositions, isTenClassPackage, findTenClassPackages,
         hasTenClassPackage, resolveGlazingConsumption,
         spendGlazingEntitlement, checkHbFinalGlazingGap,
-        hbFinalGlazingWindow, isFinalWeekClassType } = require('../utils/glazing');
+        hbFinalGlazingWindow, isFinalWeekClassType,
+        hbEnrollmentClassDates, glazingMoveGapProblem } = require('../utils/glazing');
 const { getEnrollmentCredits } = require('../utils/bookingDb');
 // The cross-type gate lives in utils/bookingGates.js: both booking paths here ran
 // a byte-identical copy of it, and scripts/verify-hb-bookability.js ran a third
@@ -1929,6 +1930,19 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
           return res.status(400).json({ error: `Classes must be at least ${GLAZING_DRYING_GAP_DAYS} days before your glazing class, so the work can dry and be bisque fired in time.` });
         }
       }
+    }
+  }
+
+  // Glazing → glazing (including a WT glazing moved onto a handbuilding glazing
+  // class): the new date must still leave the enrollment's last class time to dry
+  // and be bisque fired. HB enrollments are covered by the check just below.
+  if (!has10ClassPackage && isOldClassGlazing && isNewClassGlazing && currentBooking.course_enrollment_id) {
+    const others = await hbEnrollmentClassDates(currentBooking.course_enrollment_id, currentBooking.id);
+    const problem = glazingMoveGapProblem({ dates: others, target: newClass.class_date });
+    if (problem) {
+      return res.status(400).json({
+        error: `Your glazing class needs to be at least ${GLAZING_DRYING_GAP_DAYS} days after your last class (${problem.lastClass}) so your pieces can dry and be bisque fired. Please pick a later glazing date.`
+      });
     }
   }
 

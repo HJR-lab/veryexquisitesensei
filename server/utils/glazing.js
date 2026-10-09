@@ -412,6 +412,26 @@ async function hbFinalGlazingWindow(enrollmentId, excludeBookingId = null) {
   return range ? { enrollmentId: enrollment.id, total, ...range } : null;
 }
 
+/**
+ * Moving a glazing class to another glazing date: the new date must still sit at
+ * least GLAZING_DRYING_GAP_DAYS after the latest of the enrollment's other
+ * classes. A WT student may now pick a handbuilding glazing class, and those run
+ * on any date, so without this a glazing class could land right after (or even
+ * before) the class whose pieces it is meant to glaze.
+ *
+ * @param {{dates: string[], target: string}} args
+ *   dates: the enrollment's other class dates, excluding the glazing being moved
+ * @returns {null|{lastClass: string, gap: number}}
+ */
+function glazingMoveGapProblem({ dates, target }) {
+  const t = ymdOf(target);
+  const last = (dates || []).map(ymdOf).filter(Boolean).sort().pop();
+  if (!t || !last) return null;
+  const gap = dayGap(last, t);
+  if (gap >= GLAZING_DRYING_GAP_DAYS) return null;
+  return { lastClass: last, gap };
+}
+
 module.exports = {
   GLAZING_SUBCAP,
   GLAZING_DRYING_GAP_DAYS,
@@ -435,4 +455,6 @@ module.exports = {
   hbFinalGlazingBlockedRange,
   checkHbFinalGlazingGap,
   hbFinalGlazingWindow,
+  hbEnrollmentClassDates,
+  glazingMoveGapProblem,
 };

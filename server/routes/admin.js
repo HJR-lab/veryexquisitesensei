@@ -7122,6 +7122,9 @@ app.get('/api/admin/course-emails', authenticateToken, requireAdmin, asyncHandle
     const baseId = cls.class_type.split('.')[0];
     // Skip HB courses — their emails are sent automatically on enrollment
     if (baseId.startsWith('HB')) continue;
+    // Skip open classes (no .N week suffix, e.g. WTOPEN2811PM_DL) — they
+    // belong to no course, so there is no course-details email to send
+    if (!/\.\d+$/.test(cls.class_type)) continue;
     if (!courseMap[baseId]) {
       courseMap[baseId] = {
         courseIdentifier: baseId,

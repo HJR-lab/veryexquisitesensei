@@ -8,6 +8,7 @@ const { isGlazingClass, isMarkedGlazing, GLAZING_DRYING_GAP_DAYS,
         hbFinalGlazingWindow, isFinalWeekClassType,
         hbEnrollmentClassDates, glazingMoveGapProblem } = require('../utils/glazing');
 const { getEnrollmentCredits } = require('../utils/bookingDb');
+const { isWithinCohortWindow } = require('../utils/cohortWindow');
 // The cross-type gate lives in utils/bookingGates.js: both booking paths here ran
 // a byte-identical copy of it, and scripts/verify-hb-bookability.js ran a third
 // that had already drifted.
@@ -2012,24 +2013,20 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
           .limit(1)
           .maybeSingle();
 
-        const cohortStartDate = cohortPeriod
-          ? new Date(cohortPeriod.start_date)
-          : new Date(enrollment.course_start_date);
-        const cohortEndDate = cohortPeriod
-          ? new Date(cohortPeriod.end_date)
-          : new Date(enrollment.course_end_date);
-        const newClassDate = new Date(newClass.class_date);
         // A class that belongs to no course (no ".N" week suffix, e.g. the
         // studio's open Saturday classes) is open to anyone with a credit, so
         // the cohort window doesn't apply to it (owner, 7 Oct 2026).
         const isCourselessClass = !/\.\d+$/.test(newClass.class_type || '');
 
-        if (!isCourselessClass && (newClassDate < cohortStartDate || newClassDate > cohortEndDate)) {
-          const periodName = cohortPeriod ? cohortPeriod.name : 'your cohort';
-          const startStr = cohortStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-          const endStr = cohortEndDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        if (!isCourselessClass && !isWithinCohortWindow({ targetDate: newClass.class_date, enrollment, period: cohortPeriod })) {
+          // Show the widest window the student actually has: their own course,
+          // stretched by the admin period when that period is wider.
+          const day = (d) => String(d).split(/[T ]/)[0];
+          const starts = [day(enrollment.course_start_date), cohortPeriod && day(cohortPeriod.start_date)].filter(Boolean).sort();
+          const ends = [day(enrollment.course_end_date), cohortPeriod && day(cohortPeriod.end_date)].filter(Boolean).sort();
+          const fmt = (d) => new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
           return res.status(400).json({
-            error: `You can only reschedule to classes within ${periodName} (${startStr} - ${endStr}).`
+            error: `You can only reschedule to classes within your course dates (${fmt(starts[0])} - ${fmt(ends[ends.length - 1])}).`
           });
         }
 
@@ -2135,8 +2132,9 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
       }
     }
 
-    // Fallback: check enrollment dates if no cohort periods defined
-    if (!isSameCohort && (!cohortPeriods || cohortPeriods.length === 0) && currentBooking.course_enrollment_id) {
+    // The student's own course dates always count as their cohort, whatever
+    // admin period the target falls in (periods and courses can overlap).
+    if (!isSameCohort && currentBooking.course_enrollment_id) {
       const { data: enroll } = await supabaseDb.supabase
         .from('course_enrollments')
         .select('course_start_date, course_end_date')
@@ -2144,9 +2142,7 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
         .single();
 
       if (enroll?.course_start_date && enroll?.course_end_date) {
-        const cohortStart = new Date(enroll.course_start_date);
-        const cohortEnd = new Date(enroll.course_end_date);
-        isSameCohort = newClassDate >= cohortStart && newClassDate <= cohortEnd;
+        isSameCohort = isWithinCohortWindow({ targetDate: newClass.class_date, enrollment: enroll });
       }
     }
 

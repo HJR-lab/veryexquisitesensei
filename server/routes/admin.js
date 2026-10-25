@@ -7792,33 +7792,34 @@ app.post('/api/admin/enrollments/:enrollmentId/switch-type', authenticateToken, 
   res.json({ success: true, message: `Course type switched to ${newCourseType}` });
 }));
 
-// Move a student from one course to another (transfers all bookings)
+// Move a student from one course to another (transfers all bookings).
+// What changes is decided by planCourseMove() in utils/courseMove.js.
 app.post('/api/admin/course-emails/move-student', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { studentId, fromCourseId, toCourseId } = req.body;
+  const { planCourseMove } = require('../utils/courseMove');
 
   if (!studentId || !fromCourseId || !toCourseId) {
     return res.status(400).json({ error: 'Missing studentId, fromCourseId, or toCourseId' });
   }
+  if (fromCourseId === toCourseId) {
+    return res.status(400).json({ error: 'Student is already in that course' });
+  }
 
-  // Get all class instances for source course
   const { data: fromClasses } = await supabaseDb.supabase
     .from('class_instances')
-    .select('id, class_type, class_date')
-    .like('class_type', `${fromCourseId}%`)
-    .order('class_date', { ascending: true });
+    .select('id')
+    .like('class_type', `${fromCourseId}.%`);
 
-  // Get all class instances for target course
   const { data: toClasses } = await supabaseDb.supabase
     .from('class_instances')
-    .select('id, class_type, class_date')
-    .like('class_type', `${toCourseId}%`)
+    .select('id, class_date, status')
+    .like('class_type', `${toCourseId}.%`)
     .order('class_date', { ascending: true });
 
   if (!toClasses || toClasses.length === 0) {
     return res.status(400).json({ error: `Target course ${toCourseId} has no class instances` });
   }
 
-  // Find student's enrollment for the source course and update it to target
   const { data: enrollment } = await supabaseDb.supabase
     .from('course_enrollments')
     .select('id, course_identifier')
@@ -7827,80 +7828,118 @@ app.post('/api/admin/course-emails/move-student', authenticateToken, requireAdmi
     .eq('status', 'active')
     .order('id', { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
-  const enrollmentId = enrollment?.id || null;
-
-  // Update enrollment course_identifier to target course
-  if (enrollmentId) {
-    await supabaseDb.supabase
-      .from('course_enrollments')
-      .update({ course_identifier: toCourseId, updated_at: new Date().toISOString() })
-      .eq('id', enrollmentId);
+  // Without an enrollment the new bookings would belong to nothing.
+  if (!enrollment) {
+    return res.status(404).json({ error: `No active ${fromCourseId} enrollment found for this student` });
   }
 
-  // Delete student's bookings from source course
-  if (fromClasses && fromClasses.length > 0) {
-    const fromIds = fromClasses.map(c => c.id);
-    await supabaseDb.supabase
+  const { data: targetEnrollments } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('id, student_id, course_start_date, course_end_date, schedule_pattern, class_time, start_date, expected_end_date')
+    .like('course_identifier', `${toCourseId}%`)
+    .in('status', ['active', 'paused']);
+  const peers = (targetEnrollments || []).filter(e => e.student_id !== studentId);
+  const targetSignups = new Set(peers.map(e => e.student_id)).size;
+
+  const { data: studentBookings } = await supabaseDb.supabase
+    .from('bookings')
+    .select('id, class_instance_id, original_class_instance_id, status')
+    .eq('student_id', studentId);
+
+  let minToActivate = 4;
+  try {
+    const wtConfigs = courseConfig.getConfigByCategory('wheelthrowing');
+    if (wtConfigs && wtConfigs.length > 0) minToActivate = wtConfigs[0].min_students_to_activate || minToActivate;
+  } catch (e) { /* config not loaded yet, use fallback */ }
+
+  const plan = planCourseMove({
+    fromClasses: fromClasses || [], toClasses, studentBookings: studentBookings || [],
+    targetSignups, targetPeer: peers[0] || null, minToActivate,
+  });
+  if (!plan.ok) return res.status(409).json({ error: plan.message });
+
+  const now = new Date().toISOString();
+
+  // Cancel, never delete: the old bookings are the record of what was sold.
+  if (plan.cancelBookingIds.length > 0) {
+    const { error } = await supabaseDb.supabase
       .from('bookings')
-      .delete()
-      .eq('student_id', studentId)
-      .in('class_instance_id', fromIds);
+      .update({ status: 'cancelled', updated_at: now })
+      .in('id', plan.cancelBookingIds);
+    if (error) throw error;
   }
 
-  // Create bookings in target course — linked to enrollment
-  const newBookings = toClasses.map(cls => ({
-    student_id: studentId,
-    class_instance_id: cls.id,
-    status: 'booked',
-    booking_type: 'regular',
-    course_enrollment_id: enrollmentId,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  }));
+  if (plan.bookClassIds.length > 0) {
+    const { error } = await supabaseDb.supabase.from('bookings').insert(plan.bookClassIds.map(classId => ({
+      student_id: studentId,
+      class_instance_id: classId,
+      status: 'booked',
+      booking_type: 'regular',
+      course_enrollment_id: enrollment.id,
+      booking_date: now,
+      created_at: now,
+      updated_at: now,
+    })));
+    if (error) throw error;
+  }
 
-  // Insert bookings, skipping duplicates
-  let created = 0;
-  for (const booking of newBookings) {
-    const { data: existing } = await supabaseDb.supabase
+  const { error: enrErr } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .update({ course_identifier: toCourseId, ...plan.enrollmentUpdate, updated_at: now })
+    .eq('id', enrollment.id);
+  if (enrErr) throw enrErr;
+
+  // Recount rather than increment: the cached count drifts, and a recount
+  // also repairs whatever an earlier move left behind.
+  for (const classId of plan.touchedClassIds) {
+    const { count } = await supabaseDb.supabase
       .from('bookings')
-      .select('id')
-      .eq('student_id', booking.student_id)
-      .eq('class_instance_id', booking.class_instance_id)
-      .limit(1);
-
-    if (!existing || existing.length === 0) {
-      // Hard cap check
-      const { count: currentCount } = await supabaseDb.supabase
-        .from('bookings')
-        .select('id', { count: 'exact', head: true })
-        .eq('class_instance_id', booking.class_instance_id)
-        .eq('status', 'booked');
-      if (currentCount >= 10) {
-        console.warn(`[MoveStudent] Skipping class ${booking.class_instance_id} — full (${currentCount}/10)`);
-        continue;
-      }
-      const { error: insertErr } = await supabaseDb.supabase.from('bookings').insert(booking);
-      if (insertErr) {
-        console.error(`Failed to create booking for class ${booking.class_instance_id}:`, insertErr);
-      } else {
-        created++;
-      }
-    }
+      .select('id', { count: 'exact', head: true })
+      .eq('class_instance_id', classId)
+      .eq('status', 'booked');
+    await supabaseDb.supabase
+      .from('class_instances')
+      .update({ current_enrollment: count || 0, updated_at: now })
+      .eq('id', classId);
   }
-  console.log(`[MoveStudent] Created ${created}/${newBookings.length} bookings for student ${studentId} in ${toCourseId}`);
 
-  // Get student name for response
+  // Not activateDraftClasses(): it activates every class the enrollment has
+  // ever been booked into, which would include a draft source cohort.
+  let activated = 0;
+  if (plan.activate) {
+    const { data: opened, error: actErr } = await supabaseDb.supabase
+      .from('class_instances')
+      .update({ status: 'active', updated_at: now })
+      .in('id', toClasses.map(c => c.id))
+      .eq('status', 'draft')
+      .select('id');
+    if (actErr) throw actErr;
+    activated = (opened || []).length;
+  }
+
+  await supabaseDb.syncStoredCredits(enrollment.id);
+
+  try {
+    const calendarSync = require('../utils/calendarSync');
+    plan.touchedClassIds.forEach(id => calendarSync.syncClassInstance(id).catch(() => {}));
+  } catch (e) { /* ignore */ }
+
   const { data: student } = await supabaseDb.supabase
     .from('customers')
     .select('first_name, last_name')
     .eq('id', studentId)
     .single();
 
+  console.log(`[MoveStudent] ${studentId} ${fromCourseId} -> ${toCourseId}: cancelled ${plan.cancelBookingIds.length}, booked ${plan.bookClassIds.length}, activated ${activated}`);
+
   res.json({
     message: `Moved ${student?.first_name} ${student?.last_name} from ${fromCourseId} to ${toCourseId}`,
-    bookingsCreated: newBookings.length,
+    bookingsCreated: plan.bookClassIds.length,
+    bookingsCancelled: plan.cancelBookingIds.length,
+    targetSignups: plan.signupsAfter,
+    classesActivated: activated,
   });
 }));
 

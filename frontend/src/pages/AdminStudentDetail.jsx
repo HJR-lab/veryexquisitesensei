@@ -201,6 +201,9 @@ export default function AdminStudentDetail() {
   const [nextCourse, setNextCourse] = useState(null);
   const [continuingPackage, setContinuingPackage] = useState(false);
   const [askingStudent, setAskingStudent] = useState(false);
+  // Single-course WT students: the next course in their slot listed on Shopify.
+  const [paidNext, setPaidNext] = useState(null);
+  const [offeringPaid, setOfferingPaid] = useState(false);
 
   // ── Move / Switch Course ────────────────────────────────────────────────
   const [showMoveModal, setShowMoveModal] = useState(false);
@@ -391,6 +394,18 @@ export default function AdminStudentDetail() {
             .catch(() => setNextCourse(null));
         } else {
           setNextCourse(null);
+        }
+
+        const isSingleWt = enrollmentData?.id
+          && !(enrollmentData.package_total_courses > 1)
+          && enrollmentData.package_total_classes == null
+          && (enrollmentData.course_type || '').startsWith('Wheelthrowing');
+        if (isSingleWt) {
+          api.get(`/admin/students/${studentData.id}/paid-continuation?enrollmentId=${enrollmentData.id}`)
+            .then(res => setPaidNext(res.data))
+            .catch(() => setPaidNext(null));
+        } else {
+          setPaidNext(null);
         }
 
         const feesData = results[2].data;
@@ -687,6 +702,29 @@ export default function AdminStudentDetail() {
       setSaveMessage({ type: 'err', text: err.response?.data?.error || 'Failed to send the offer' });
     } finally {
       setAskingStudent(false);
+    }
+  };
+
+  // Offer a single-course student the next listed course: holds their seat on
+  // Shopify and emails a checkout link. Works while the nightly sweep is off.
+  const handleOfferPaid = async () => {
+    if (!paidNext?.available || !enrollment?.id || !student?.id) return;
+    const when = new Date(`${paidNext.course.startDate}T00:00:00+08:00`).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' });
+    if (!confirm(`Email ${student.first_name || 'this student'} a checkout link for the course starting ${when}?\n\nTheir seat is held on Shopify for 3 days while they decide.`)) return;
+    setOfferingPaid(true);
+    try {
+      const { data } = await api.post(`/admin/students/${student.id}/paid-continuation-offer`, {
+        currentEnrollmentId: enrollment.id,
+      });
+      setSaveMessage({
+        type: 'ok',
+        text: data.emailed ? 'Offer emailed with a checkout link — seat held for 3 days.' : 'Seat held, but the email did not send. Check the address.',
+      });
+      await loadStudentData();
+    } catch (err) {
+      setSaveMessage({ type: 'err', text: err.response?.data?.error || 'Failed to send the offer' });
+    } finally {
+      setOfferingPaid(false);
     }
   };
 
@@ -1366,6 +1404,37 @@ export default function AdminStudentDetail() {
                                   <option key={n} value={n}>Wheel {n}</option>
                                 ))}
                               </select>
+                            </div>
+                          )}
+
+                          {/* Next course on Shopify — single-course WT students */}
+                          {isPrimary && paidNext && (paidNext.available || paidNext.reason !== 'no_listed_course') && (
+                            <div style={{ marginTop: '16px', padding: '14px 16px', backgroundColor: '#FFF8F0', border: `1px solid ${TC_LIGHT}`, borderRadius: '8px' }}>
+                              <div style={{ fontSize: '12px', fontWeight: 700, color: TC_DARK, marginBottom: '6px' }}>Next course in this slot</div>
+                              {paidNext.course && (
+                                <div style={{ fontSize: '11px', color: MUTED, marginBottom: '8px' }}>
+                                  {new Date(`${paidNext.course.startDate}T00:00:00+08:00`).toLocaleDateString('en-SG', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                                  {paidNext.course.price ? ` · $${paidNext.course.price}` : ''}
+                                  {paidNext.seats && ` · ${paidNext.seats.signups} enrolled, ${paidNext.seats.held} held of ${paidNext.seats.cap}`}
+                                </div>
+                              )}
+                              {paidNext.available ? (
+                                <button
+                                  onClick={handleOfferPaid}
+                                  disabled={offeringPaid}
+                                  style={{
+                                    width: '100%', padding: '10px 16px',
+                                    backgroundColor: TC, color: '#fff', border: 'none', borderRadius: '6px',
+                                    fontSize: '12px', fontWeight: 700,
+                                    cursor: offeringPaid ? 'not-allowed' : 'pointer',
+                                    opacity: offeringPaid ? 0.6 : 1,
+                                  }}
+                                >
+                                  {offeringPaid ? 'Sending...' : 'Hold seat and email checkout link'}
+                                </button>
+                              ) : (
+                                <div style={{ fontSize: '11px', color: MUTED }}>{paidNext.message}</div>
+                              )}
                             </div>
                           )}
 

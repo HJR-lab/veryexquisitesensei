@@ -90,6 +90,8 @@ async function closeFulfilledOffers() {
         continue;
       }
       closed.push(updated);
+      // Bought some other way: give back the seat the draft order was holding.
+      if (updated.kind === 'paid') await require('./paidContinuation').releaseHold(updated);
       console.log(`[ContinuationSweep] offer ${offer.id} closed — student ${offer.student_id} is already enrolled (${held[0].id})`);
     } catch (err) {
       // One bad row must never stop the sweep.
@@ -118,6 +120,12 @@ async function lapseExpiredOffers() {
   }
   if (data?.length) {
     console.log(`[ContinuationSweep] lapsed ${data.length} expired offer(s) — seats released`);
+    // Shopify ends the reservation by itself at the deadline; deleting the
+    // draft as well stops a stale checkout link from being paid later.
+    const { releaseHold } = require('./paidContinuation');
+    for (const offer of data) {
+      if (offer.kind === 'paid') await releaseHold(offer);
+    }
   }
   return data || [];
 }
@@ -431,7 +439,7 @@ async function remindExtendedOffers() {
              <p><a href="${publicBaseUrl()}/continue/${o.token}"
                    style="display:inline-block;padding:12px 28px;background:#C4622D;color:#fff;
                           font-weight:600;text-decoration:none;border-radius:8px;">Confirm your place</a></p>
-             <p style="font-size:13px;color:#888;">Your remaining courses do not expire either way.</p>`,
+             ${o.kind === 'paid' ? '' : '<p style="font-size:13px;color:#888;">Your remaining courses do not expire either way.</p>'}`,
     });
 
     if (result.success) {
@@ -463,7 +471,10 @@ async function runContinuationSweep() {
     const { created, skipped, examined } = await createDueOffers();
     console.log(`[ContinuationSweep] examined ${examined}, created ${created.length}, fulfilled ${fulfilled.length}, lapsed ${lapsed.length}, caught up ${caughtUp.length}, reminded ${reminded.length}`);
     await reportSweep({ created, skipped, examined, lapsed, caughtUp, fulfilled });
-    return { created, skipped, examined, lapsed, caughtUp, fulfilled };
+    // Single-course students, offered the next course listed on Shopify. After
+    // the lapse above, so a seat released tonight can be offered tonight.
+    const paid = await require('./paidContinuation').runPaidContinuationSweep();
+    return { created, skipped, examined, lapsed, caughtUp, fulfilled, paid };
   } catch (err) {
     console.error('[ContinuationSweep] failed:', err);
     return null;

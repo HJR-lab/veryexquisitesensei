@@ -14,6 +14,7 @@ const {
   packageGlazingPositions,
   isAllowedGlazingPosition,
   isGlazingClass,
+  isHbGlazingSession,
 } = require('../utils/glazing');
 
 test('GP-1: a 10-class package glazes at class 6 and class 10, nowhere else', () => {
@@ -71,4 +72,13 @@ test('GP-6: the gate only fires on classes that really are glazing', () => {
   assert.strictEqual(isGlazingClass({ class_type: 'HBFRINT_LT', is_glazing: true }), true);
   assert.strictEqual(isGlazingClass({ class_type: 'WT2507AM_DL6.3' }), false);
   assert.strictEqual(isGlazingClass({ class_type: 'HBFRINT_LT' }), false);
+});
+
+test('GP-7: a marked HB glazing session can be taken as a regular class; a WT final week cannot', () => {
+  // Owner, 27 Oct 2026: HB and 10-class students may book an HB glazing session to
+  // make something. Only a 6-week WT cohort's glazing week is glazing-only.
+  assert.strictEqual(isHbGlazingSession({ class_type: 'HBFRINT_LT', is_glazing: true }), true);
+  assert.strictEqual(isHbGlazingSession({ class_type: 'HBFRINT_LT', is_glazing: false }), false);
+  assert.strictEqual(isHbGlazingSession({ class_type: 'WT2307NT_JL6.6', is_glazing: false }), false);
+  assert.strictEqual(isHbGlazingSession({ class_type: 'WT2307NT_JL6.6', is_glazing: true }), false);
 });

@@ -1,7 +1,7 @@
 const supabaseDb = require('../utils/supabaseDb');
 const FEES = require('../config/fees');
 const { getPackageProgress } = require('../utils/packageProgress');
-const { isGlazingClass, isMarkedGlazing, GLAZING_DRYING_GAP_DAYS,
+const { isGlazingClass, isMarkedGlazing, isHbGlazingSession, GLAZING_DRYING_GAP_DAYS,
         packageGlazingPositions, isTenClassPackage, findTenClassPackages,
         hasTenClassPackage, resolveGlazingConsumption,
         spendGlazingEntitlement, checkHbFinalGlazingGap,
@@ -56,7 +56,7 @@ const daysBetween = (a, b) => (dayStart(b) - dayStart(a)) / (1000 * 60 * 60 * 24
  *
  * @returns {{blocked: boolean, reason?: string}}
  */
-async function checkGlazingDryingGap(studentId, classInstance) {
+async function checkGlazingDryingGap(studentId, classInstance, { asRegular = false } = {}) {
   const packages = await findTenClassPackages(studentId);
   if (packages.length === 0) return { blocked: false };
 
@@ -73,7 +73,8 @@ async function checkGlazingDryingGap(studentId, classInstance) {
 
   const dated = (bookings || []).filter(b => b.class_instances?.class_date);
   const targetDate = classInstance.class_date;
-  const targetIsGlazing = isGlazingClass(classInstance);
+  // An HB glazing session taken as a regular class is judged as a flex class.
+  const targetIsGlazing = isGlazingClass(classInstance) && !asRegular;
 
   if (targetIsGlazing) {
     // Their glazing: nothing already booked may sit inside the drying window.
@@ -219,7 +220,12 @@ async function checkPackageKeepsGlazing(enrollment, movedBookingId) {
  * Admin booking endpoints carry none of this, deliberately — that is the studio's
  * override mechanism when a student has to glaze somewhere else.
  *
- * @returns {{blocked: boolean, reason?: string, position?: number}}
+ * A marked HB glazing session off those positions is not refused: it also runs as
+ * an ordinary handbuilding class, so it is booked as a regular class instead
+ * (asRegular) and neither spends the package's glazing nor takes a glazing seat.
+ * Only a WT final week is glazing-only.
+ *
+ * @returns {{blocked: boolean, reason?: string, position?: number, asRegular?: boolean}}
  */
 async function checkGlazingPositionAllowed(enrollmentId, classInstance) {
   if (!enrollmentId || !isGlazingClass(classInstance)) return { blocked: false };
@@ -238,6 +244,7 @@ async function checkGlazingPositionAllowed(enrollmentId, classInstance) {
   const position = committed + 1;
 
   if (allowed.includes(position)) return { blocked: false };
+  if (isHbGlazingSession(classInstance)) return { blocked: false, position, asRegular: true };
 
   const next = allowed.find(p => p > position) || total;
   return {
@@ -706,8 +713,10 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
     return res.status(400).json({ error: glazingPosition.reason });
   }
 
+  const asRegular = glazingPosition.asRegular === true;
+
   // Kiln schedule: the class before glazing must leave time to dry and bisque fire.
-  const dryingGap = await checkGlazingDryingGap(dbCustomerId, classInstance);
+  const dryingGap = await checkGlazingDryingGap(dbCustomerId, classInstance, { asRegular });
   if (dryingGap.blocked) {
     return res.status(400).json({ error: dryingGap.reason });
   }
@@ -720,8 +729,9 @@ app.post('/api/classes/book', authenticateToken, asyncHandler(async (req, res) =
 
   // Does this booking consume the student's package glazing class? Shared with the
   // admin booking path so both record the booking the same way.
-  const { countsAsGlazing, enrollment: glazingEnrollment } =
-    await resolveGlazingConsumption(dbCustomerId, classInstance);
+  const { countsAsGlazing, enrollment: glazingEnrollment } = asRegular
+    ? { countsAsGlazing: false, enrollment: null }
+    : await resolveGlazingConsumption(dbCustomerId, classInstance);
   const seatsGlazing = directRestrictedCredit.consumeGlazingOnly || countsAsGlazing;
 
   let booking;
@@ -1015,13 +1025,17 @@ app.post('/api/classes/book-makeup', authenticateToken, asyncHandler(async (req,
   // entitlement unspent to be taken a second time. Since this is the route the
   // class schedule actually books through, that covered nearly every glazing
   // booking the studio has taken — the cap was real only on paper.
-  const { countsAsGlazing: makeupCountsAsGlazing, enrollment: makeupGlazingEnrollment } =
-    await resolveGlazingConsumption(dbCustomerId, classInstance);
+  // An HB glazing session off the package's glazing positions is a regular class.
+  const makeupAsRegular = makeupGlazingPosition.asRegular === true;
+  const { countsAsGlazing: makeupCountsAsGlazing, enrollment: makeupGlazingEnrollment } = makeupAsRegular
+    ? { countsAsGlazing: false, enrollment: null }
+    : await resolveGlazingConsumption(dbCustomerId, classInstance);
 
   // Re-booking a cancelled glazing booking is still a glazing booking, even
   // though there is no entitlement left to resolve: cancelling frees the capped
   // seat but does not give glazing_class_used back.
-  const makeupSeatsGlazing = restrictedCredit.consumeGlazingOnly || makeupCountsAsGlazing || cancelledBooking?.counts_as_glazing === true;
+  const makeupSeatsGlazing = restrictedCredit.consumeGlazingOnly || makeupCountsAsGlazing ||
+    (!makeupAsRegular && cancelledBooking?.counts_as_glazing === true);
 
   // The glazing sub-cap: a marked class keeps its own max_capacity (HB is 8) but
   // only a slice of those seats may be glazing students, so the session still
@@ -1866,7 +1880,10 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
   // place in the package's order and its position cannot be recovered afterwards.
   // Glazing → glazing stays open, so the glazing class itself can still move to
   // any other glazing date; glazing → regular is judged above on its own terms.
-  if (has10ClassPackage && packageEnrollment && !isOldClassGlazing && isNewClassGlazing) {
+  // A marked HB glazing session is exempt: it also runs as a regular handbuilding
+  // class, and the moved booking stays a regular one.
+  if (has10ClassPackage && packageEnrollment && !isOldClassGlazing && isNewClassGlazing &&
+      !isHbGlazingSession(newClass)) {
     const pkgTotal = packageEnrollment.package_total_classes || packageEnrollment.number_of_weeks || 10;
     return res.status(400).json({
       error: `Glazing is class ${packageGlazingPositions(pkgTotal).join(' and class ')} of your ${pkgTotal}-class package, so a regular class cannot be moved into a glazing class. Cancel this booking and book your glazing class instead.`

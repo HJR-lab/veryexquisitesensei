@@ -113,6 +113,18 @@ function isMarkedGlazing(classInstance) {
 }
 
 /**
+ * Is this a handbuilding session marked as glazing, rather than a WT final week?
+ *
+ * A marked HB session still runs as an ordinary handbuilding class (see
+ * GLAZING_SUBCAP), so HB and 10-class package students may take one as a regular
+ * class — to make something rather than glaze. Only a 6-week WT cohort's own
+ * glazing week is glazing-for-glazing (owner, 27 Oct 2026).
+ */
+function isHbGlazingSession(classInstance) {
+  return isMarkedGlazing(classInstance) && !isFinalWeekClassType(classInstance.class_type);
+}
+
+/**
  * How many glazing bookings this class allows. Only marked classes are capped —
  * a WT cohort's final week is glazing for the whole cohort by definition, so
  * capping its glazing share would lock out students who are already enrolled.
@@ -441,6 +453,7 @@ module.exports = {
   isFinalWeekClassType,
   isGlazingClass,
   isMarkedGlazing,
+  isHbGlazingSession,
   glazingSubCap,
   isTenClassPackage,
   findTenClassPackages,

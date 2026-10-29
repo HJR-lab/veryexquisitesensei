@@ -220,6 +220,7 @@ async function respondToOffer(token, action) {
       .select()
       .single();
     if (error) throw error;
+    if (data.kind === 'paid') await require('./paidContinuation').extendHold(data);
     return { ok: true, action, offer: data };
   }
 
@@ -234,7 +235,15 @@ async function respondToOffer(token, action) {
       .select()
       .single();
     if (error) throw error;
+    if (data.kind === 'paid') await require('./paidContinuation').releaseHold(data);
     return { ok: true, action, offer: data };
+  }
+
+  // A paid offer is confirmed by paying, not by this tap. Hand back the
+  // checkout link; the order webhook closes the offer once the payment lands.
+  if (action === 'confirm' && offer.kind === 'paid') {
+    if (!offer.checkout_url) return { ok: false, reason: 'no_checkout', internal: true };
+    return { ok: true, action: 'pay', offer, checkoutUrl: offer.checkout_url };
   }
 
   if (action === 'confirm') {

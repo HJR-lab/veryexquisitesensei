@@ -28,6 +28,11 @@ function publicView(offer) {
     expiresAt: offer.expires_at,
     canExtend: offer.extension_count < MAX_EXTENSIONS,
     extensionDays: EXTENSION_DAYS,
+    // 'paid' offers are confirmed by paying through Shopify; package offers by
+    // a tap. The checkout link is handed out only in answer to 'confirm'.
+    kind: offer.kind || 'package',
+    price: offer.price != null ? Number(offer.price) : null,
+    courseTitle: offer.course_title || null,
   };
 }
 
@@ -71,7 +76,7 @@ app.post('/api/continue/:token/respond', asyncHandler(async (req, res) => {
     return res.status(409).json({ error: 'This offer is no longer open.', state: result.reason });
   }
 
-  res.json({ ok: true, action, ...publicView({ ...result.offer, customers: { first_name: null } }) });
+  res.json({ ok: true, action, checkoutUrl: result.checkoutUrl || null, ...publicView({ ...result.offer, customers: { first_name: null } }) });
 }));
 
 // ---------------------------------------------------------------------------
@@ -125,7 +130,7 @@ app.post('/api/my/continuation-offer/respond', authenticateToken, asyncHandler(a
     return res.status(409).json({ error: 'This offer is no longer open.' });
   }
 
-  res.json({ ok: true, action, offer: publicView({ ...result.offer, customers: { first_name: null } }) });
+  res.json({ ok: true, action, checkoutUrl: result.checkoutUrl || null, offer: publicView({ ...result.offer, customers: { first_name: null } }) });
 }));
 
 };

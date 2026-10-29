@@ -16,70 +16,9 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
 // SHOPIFY INTEGRATION ENDPOINTS
 // ============================================
 
-// Resilient Shopify GraphQL call used by the sync endpoints.
-//
-// The Shopify SDK's node-fetch client began failing on Railway with
-// "Premature close" (ERR_STREAM_PREMATURE_CLOSE at Gunzip): the gzip response
-// stream is truncated mid-body on every call, breaking sync. This bypasses the
-// SDK's fetch entirely and talks to Shopify over a raw HTTPS request we fully
-// control: no gzip (so there is no gunzip stream to truncate), no keep-alive
-// reuse (Connection: close → a fresh socket every time), and automatic retry
-// with backoff. Returns { body: <parsed JSON> } to match the SDK's shape.
-const SHOPIFY_API_VERSION = '2024-04';
-function shopifyGraphQL(query, variables = {}) {
-  const https = require('https');
-  const payload = JSON.stringify({ query, variables });
-  const attempt = () => new Promise((resolve, reject) => {
-    const t0 = Date.now();
-    const req = https.request({
-      host: process.env.SHOPIFY_SHOP_DOMAIN,
-      path: `/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept-Encoding': 'identity', // no gzip — avoids the truncated-gunzip failure
-        'Connection': 'close',         // fresh socket each call — avoids poisoned keep-alive
-        'X-Shopify-Access-Token': process.env.SHOPIFY_ACCESS_TOKEN,
-        'Content-Length': Buffer.byteLength(payload),
-      },
-    }, (res) => {
-      let raw = '';
-      res.setEncoding('utf8');
-      res.on('data', (c) => { raw += c; });
-      res.on('end', () => {
-        if (res.statusCode < 200 || res.statusCode >= 300) {
-          return reject(new Error(`Shopify HTTP ${res.statusCode}: ${raw.slice(0, 300)}`));
-        }
-        try {
-          const parsed = JSON.parse(raw);
-          if (parsed.errors) return reject(new Error(`Shopify GraphQL errors: ${JSON.stringify(parsed.errors).slice(0, 300)}`));
-          resolve({ body: parsed });
-        } catch (e) {
-          reject(new Error(`Shopify JSON parse failed (${raw.length} bytes, ${Date.now() - t0}ms): ${e.message}`));
-        }
-      });
-      res.on('error', reject);
-    });
-    req.on('error', reject);
-    req.setTimeout(30000, () => { req.destroy(new Error('Shopify request timed out after 30s')); });
-    req.write(payload);
-    req.end();
-  });
-
-  return (async () => {
-    let lastErr;
-    for (let i = 1; i <= 3; i++) {
-      try {
-        return await attempt(i);
-      } catch (err) {
-        lastErr = err;
-        console.warn(`⚠️  Shopify GraphQL attempt ${i}/3 failed: ${err.message}`);
-        if (i < 3) await new Promise((r) => setTimeout(r, 500 * i));
-      }
-    }
-    throw lastErr;
-  })();
-}
+// Resilient Shopify GraphQL call used by the sync endpoints — see
+// utils/shopifyGraphQL.js for why it bypasses the SDK.
+const { shopifyGraphQL } = require('../utils/shopifyGraphQL');
 
 // Sync all customers from Shopify
 app.post('/api/admin/sync-shopify-customers', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
@@ -1329,6 +1268,16 @@ async function processOrderWebhook(orderData) {
 
           if (result.success) {
             console.log(`✅ Course enrollment processed successfully`);
+
+            // A continuing student paying through their offer's checkout link:
+            // close that offer now rather than leave it to the nightly sweep.
+            if (result.enrollment?.id) {
+              try {
+                await require('../utils/paidContinuation').linkPaidOrder(orderData, result.enrollment.id);
+              } catch (linkErr) {
+                console.error('[PaidContinuation] Failed to link order to offer:', linkErr);
+              }
+            }
 
             // Award the $20 VES Credit for this order, right now.
             // It used to be deferred whenever the cohort still needed a threshold,

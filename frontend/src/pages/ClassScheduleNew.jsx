@@ -783,7 +783,15 @@ export default function ClassScheduleNew() {
       // Was week === '6' || week === '7', which read week 6 of a SEVEN-week course
       // (WT1104AM_DL7.6) as glazing. Shared derivation, and it also sees a marked
       // HB class — which is what a package student's final class actually is.
-      return isGlazing(b);
+      if (!isGlazing(b)) return false;
+      // A marked HB session is only an HB student's glazing when it is their
+      // final class. With credits still to spend it is just another class, and
+      // treating it as glazing greyed out every later date (Hilary Lee, 29 Oct
+      // 2026: class 2 of 8 fell on a marked session). The server's
+      // checkHbFinalGlazingGap enforces the real final-class rule.
+      const ct = b.class?.classType || b.classInstance?.classType || b.class_type || '';
+      if (ct.startsWith('HB') && hbEnrollment && hbEnrollment.creditsRemaining > 0) return false;
+      return true;
     });
     if (!glazingBooking) return null;
     const d = new Date(glazingBooking.class?.classDate || glazingBooking.classInstance?.classDate || glazingBooking.class_date);

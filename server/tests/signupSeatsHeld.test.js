@@ -165,3 +165,102 @@ test('the class listing offers outsiders only what the gate would give them', as
   assert.strictEqual(cls.makeupSpotsAvailable, 1);
   assert.strictEqual(cls.isCompletelyFull, false);
 });
+
+// ---------------------------------------------------------------------------
+// Once a course has had its first class nobody new signs up, so its unsold
+// places go back to make-ups (owner, 10 Nov 2026). The case that raised it:
+// WT2910NT_JL6 sold 6 of 8, so week 3 (8/10 booked) refused a make-up from
+// another cohort while the admin window showed "2 spots left".
+// ---------------------------------------------------------------------------
+const { todaySGT, addDays, toYmd } = require('../utils/sgtDate');
+const day = (n) => toYmd(addDays(todaySGT(), n));
+
+const startedCourse = (firstClassOffset) => {
+  const first = { ...CLASS, id: 99, class_type: 'WT1010PM_DL6.1', class_date: day(firstClassOffset) };
+  const week3 = { ...CLASS, id: 101, class_type: 'WT1010PM_DL6.3', class_date: day(firstClassOffset + 14) };
+  return { first, week3 };
+};
+const bookedIn = (classId, studentIds) => studentIds.map((sid, i) => ({
+  id: 700 + i, student_id: sid, class_instance_id: classId, status: 'booked', booking_type: 'regular',
+}));
+
+test('an outsider gets the unsold places once the course has started', async () => {
+  const { first, week3 } = startedCourse(-14);
+  const db = load({
+    class_instances: [first, week3],
+    course_enrollments: signups(6),
+    bookings: bookedIn(week3.id, [1, 2, 3, 4, 5, 6, 901, 902]),
+    capacity_overrides: [],
+  });
+
+  const seat = await db.checkSeatAvailability(week3, 903);
+  assert.strictEqual(seat.allowed, true);
+  assert.strictEqual(seat.counts.held, 0);
+});
+
+test('places stay held on the day of the first class', async () => {
+  const { first, week3 } = startedCourse(0);
+  const db = load({
+    class_instances: [first, week3],
+    course_enrollments: signups(6),
+    bookings: bookedIn(first.id, [1, 2, 3, 4, 5, 6, 901, 902]),
+    capacity_overrides: [],
+  });
+
+  const seat = await db.checkSeatAvailability(first, 903);
+  assert.strictEqual(seat.allowed, false);
+  assert.strictEqual(seat.reason, 'SIGNUP_SEATS_HELD');
+  assert.strictEqual(seat.counts.held, 2);
+});
+
+test('a cancelled first class does not count as the course starting', async () => {
+  const { first, week3 } = startedCourse(-14);
+  const db = load({
+    class_instances: [{ ...first, status: 'cancelled' }, week3],
+    course_enrollments: signups(6),
+    bookings: bookedIn(week3.id, [1, 2, 3, 4, 5, 6, 901, 902]),
+    capacity_overrides: [],
+  });
+
+  const seat = await db.checkSeatAvailability(week3, 903);
+  assert.strictEqual(seat.allowed, false);
+  assert.strictEqual(seat.reason, 'SIGNUP_SEATS_HELD');
+});
+
+test('a full room stays full after the course starts', async () => {
+  const { first, week3 } = startedCourse(-14);
+  const db = load({
+    class_instances: [first, week3],
+    course_enrollments: signups(6),
+    bookings: bookedIn(week3.id, [1, 2, 3, 4, 5, 6, 901, 902, 904, 905]),
+    capacity_overrides: [],
+  });
+
+  const seat = await db.checkSeatAvailability(week3, 903);
+  assert.strictEqual(seat.allowed, false);
+  assert.strictEqual(seat.reason, 'CLASS_FULL');
+});
+
+test('the class listing releases held places once the course has started', async () => {
+  const { first, week3 } = startedCourse(-14);
+  const db = load({
+    class_instances: [first, week3],
+    course_enrollments: signups(6),
+    bookings: bookedIn(week3.id, [1, 2, 3, 4, 5, 6, 901, 902]),
+    waitlist: [],
+    capacity_overrides: [],
+  });
+
+  const cls = (await db.getAvailableClasses()).find(c => c.id === week3.id);
+  assert.strictEqual(cls.signupSeatsHeld, 0);
+  assert.strictEqual(cls.makeupSpotsAvailable, 2);
+});
+
+test('cohortHasStarted compares against today in Singapore', () => {
+  const db = load({ class_instances: [], course_enrollments: [], bookings: [], capacity_overrides: [] });
+  assert.strictEqual(db.cohortHasStarted('2026-10-29', '2026-11-10'), true);
+  assert.strictEqual(db.cohortHasStarted('2026-11-10', '2026-11-10'), false);
+  assert.strictEqual(db.cohortHasStarted(null, '2026-11-10'), false);
+  assert.strictEqual(db.signupSeatsHeld(6, { started: true }), 0);
+  assert.strictEqual(db.signupSeatsHeld(6), 2);
+});

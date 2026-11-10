@@ -161,7 +161,7 @@ export default function StudentRescheduleModal({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {classes.map(c => {
                   const isGlazing = isGlazingClass(c);
-                  const spotsLeft = (c.maxCapacity || 10) - c.currentEnrollment;
+                  const spotsLeft = c.spotsLeft ?? ((c.maxCapacity || 10) - c.currentEnrollment);
                   const isConfirming = rescheduleConfirmId === c.id;
                   const isReschedulingThis = rescheduling && reschedulingClassId === c.id;
                   return (

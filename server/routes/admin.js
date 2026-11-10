@@ -3739,6 +3739,22 @@ app.get('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asyn
     });
   });
 
+  // Places still held for each cohort's unsold signups (see signupSeatsHeld in
+  // utils/bookingDb.js), so the reschedule window shows a student from another
+  // course what the booking gate will actually give them.
+  const heldBases = [...new Set(allClassInstances.map(c => supabaseDb.cohortBase(c.class_type)).filter(Boolean))];
+  const membersByBase = {};
+  if (heldBases.length > 0) {
+    const { data: signupRows } = await supabaseDb.supabase
+      .from('course_enrollments')
+      .select('course_identifier, student_id, status')
+      .in('course_identifier', heldBases);
+    (signupRows || []).filter(e => e.status !== 'cancelled').forEach(e => {
+      (membersByBase[e.course_identifier] = membersByBase[e.course_identifier] || new Set()).add(e.student_id);
+    });
+  }
+  const firstDateByBase = supabaseDb.firstClassDatesByCohort(allClassInstances);
+
   // Add booking counts to classes and calculate UNIQUE students per course
   // Only count students whose enrollment matches this course's identifier (excludes makeups from other courses)
   courses.forEach(course => {
@@ -3747,6 +3763,11 @@ app.get('/api/admin/classes', authenticateToken, requireAdmin, asyncHandler(asyn
     course.classes.forEach(cls => {
       cls.bookingCount = bookingCountsByClass[cls.id] || 0;
       cls.capacityOverrides = overridesByClass[cls.id] || [];
+      const heldBase = supabaseDb.cohortBase(cls.class_type);
+      cls.cohortBase = heldBase;
+      cls.signupSeatsHeld = heldBase
+        ? supabaseDb.signupSeatsHeld(membersByBase[heldBase]?.size || 0, { started: supabaseDb.cohortHasStarted(firstDateByBase[heldBase]) })
+        : 0;
       bookingCounts
         .filter(b => b.class_instance_id === cls.id)
         .filter(b => b.booking_type !== 'makeup' && !b.is_makeup_class)
@@ -5772,7 +5793,9 @@ app.post('/api/admin/bookings/:bookingId/reschedule', authenticateToken, require
     return res.status(400).json({
       error: seat.reason === 'STUDIO_FULL'
         ? `Studio is full — all ${seat.counts.studioWheels} places are taken for this timeslot.`
-        : 'This class is full. Cannot reschedule to a class at max capacity.'
+        : seat.reason === 'SIGNUP_SEATS_HELD'
+          ? `No make-up place left: ${seat.counts.booked}/${seat.counts.cap} booked, and the other ${seat.counts.held} are held for this course's unsold signups until its first class. Grant a capacity override on the class to seat this student anyway.`
+          : 'This class is full. Cannot reschedule to a class at max capacity.'
     });
   }
 

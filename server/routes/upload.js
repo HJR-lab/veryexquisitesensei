@@ -1,4 +1,4 @@
-const { uploadImageToSupabase, deleteImageFromSupabase } = require('../utils/imageUpload');
+const { uploadImageToSupabase, deleteImageFromSupabase, withUploadErrors } = require('../utils/imageUpload');
 
 module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, upload }) {
 
@@ -6,7 +6,7 @@ module.exports = function(app, { authenticateToken, requireAdmin, asyncHandler, 
 // IMAGE UPLOAD ENDPOINTS
 // ============================================
 
-app.post('/api/upload/image', authenticateToken, upload.single('image'), asyncHandler(async (req, res) => {
+app.post('/api/upload/image', authenticateToken, withUploadErrors(upload.single('image')), asyncHandler(async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No image file provided' });
   }
@@ -27,7 +27,7 @@ app.post('/api/upload/image', authenticateToken, upload.single('image'), asyncHa
   });
 }));
 
-app.post('/api/upload/images', authenticateToken, upload.array('images', 5), asyncHandler(async (req, res) => {
+app.post('/api/upload/images', authenticateToken, withUploadErrors(upload.array('images', 5)), asyncHandler(async (req, res) => {
   if (!req.files || req.files.length === 0) {
     return res.status(400).json({ error: 'No image files provided' });
   }

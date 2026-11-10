@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
+import { uploadImages } from '../utils/imageUpload';
 import ImpersonationBanner from '../components/ImpersonationBanner';
 
 /* ─── VES palette ─── */
@@ -88,9 +89,8 @@ export default function UploadPiece() {
   const handleImageSelect = (e) => {
     const files = Array.from(e.target.files);
     if (files.length + images.length > 5) { setError('Maximum 5 images allowed'); return; }
-    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-    if (files.some(f => !validTypes.includes(f.type))) { setError('Only JPEG, PNG, and WebP images are allowed'); return; }
-    if (files.some(f => f.size > 5 * 1024 * 1024)) { setError('Each image must be less than 5MB'); return; }
+    // Big phone photos and HEIC are fine: they are shrunk to JPEG before upload.
+    if (files.some(f => !f.type.startsWith('image/') && !/\.(heic|heif)$/i.test(f.name))) { setError('Please choose photos only'); return; }
     setImages(prev => [...prev, ...files]);
     files.forEach(file => {
       const reader = new FileReader();
@@ -137,15 +137,9 @@ export default function UploadPiece() {
     try {
       let imageUrls = [];
       if (images.length > 0) {
-        const imageFormData = new FormData();
-        images.forEach(image => imageFormData.append('images', image));
-        const uploadResponse = await api.post('/upload/images', imageFormData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-          onUploadProgress: (progressEvent) => {
-            setUploadProgress(Math.round((progressEvent.loaded * 100) / progressEvent.total));
-          }
-        });
-        imageUrls = uploadResponse.data.images.map(img => img.url);
+        const uploaded = await uploadImages(images);
+        setUploadProgress(100);
+        imageUrls = uploaded.map(img => img.url);
       }
       await api.post('/pottery/create-piece', {
         title: formData.title,
@@ -179,15 +173,9 @@ export default function UploadPiece() {
     try {
       let imageUrls = [];
       if (images.length > 0) {
-        const imageFormData = new FormData();
-        images.forEach(image => imageFormData.append('images', image));
-        const uploadResponse = await api.post('/upload/images', imageFormData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-          onUploadProgress: (progressEvent) => {
-            setUploadProgress(Math.round((progressEvent.loaded * 100) / progressEvent.total));
-          }
-        });
-        imageUrls = uploadResponse.data.images.map(img => img.url);
+        const uploaded = await uploadImages(images);
+        setUploadProgress(100);
+        imageUrls = uploaded.map(img => img.url);
       }
       await api.post('/pieces/log', {
         pieceCount: firingForm.pieceCount,

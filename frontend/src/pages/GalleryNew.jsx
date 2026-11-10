@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
+import { uploadImages, uploadErrorMessage } from '../utils/imageUpload';
 import { useAuth } from '../hooks/useAuth';
 import ImpersonationBanner from '../components/ImpersonationBanner';
 
@@ -305,18 +306,14 @@ export default function GalleryNew() {
     if (files.length === 0) return;
     setBatchUploading(true);
     try {
-      const formData = new FormData();
-      files.forEach(f => formData.append('images', f));
-      const { data } = await api.post('/upload/images', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const images = await uploadImages(files);
       setBatchForm(f => ({
         ...f,
-        photos: [...f.photos, ...data.images.map(img => img.url)],
+        photos: [...f.photos, ...images.map(img => img.url)],
       }));
     } catch (err) {
       console.error('Photo upload failed:', err);
-      alert('Photo upload failed. Please try again.');
+      alert(uploadErrorMessage(err));
     } finally {
       setBatchUploading(false);
       e.target.value = '';
@@ -443,12 +440,8 @@ export default function GalleryNew() {
       setUploading(true);
       let newImageUrls = [];
       if (editImageFiles.length > 0) {
-        const uploadFormData = new FormData();
-        editImageFiles.forEach(file => uploadFormData.append('images', file));
-        const uploadRes = await api.post('/upload/images', uploadFormData, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        });
-        newImageUrls = uploadRes.data.images.map(img => img.url);
+        const uploaded = await uploadImages(editImageFiles);
+        newImageUrls = uploaded.map(img => img.url);
       }
       const allImages = [...(selectedPiece.images || []), ...newImageUrls].slice(0, 3);
       const updateData = {

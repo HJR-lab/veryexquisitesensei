@@ -100,6 +100,45 @@ async function deleteImageFromSupabase(filePath) {
 const IMAGE_BUCKET = 'pottery-gallery';
 
 /**
+ * Turn a multer rejection into a 400 with a reason the person can act on.
+ *
+ * Without this, a photo over the size limit or of the wrong type fell through to
+ * Express's default handler: a bare 500 HTML page, so the app could only say
+ * "Photo upload failed. Please try again." (and trying again never helped).
+ */
+function describeUploadError(err) {
+  if (!err) return null;
+  if (err instanceof multer.MulterError) {
+    switch (err.code) {
+      case 'LIMIT_FILE_SIZE':
+        return 'That photo is too large (5MB max). Please try a smaller photo.';
+      case 'LIMIT_FILE_COUNT':
+      case 'LIMIT_UNEXPECTED_FILE':
+        return 'Too many photos at once (5 max). Please add them in smaller groups.';
+      default:
+        return `Upload rejected: ${err.message}`;
+    }
+  }
+  if (/Invalid file type/.test(err.message || '')) {
+    return 'That photo format is not supported. Please use a JPEG, PNG or WebP photo.';
+  }
+  return null;
+}
+
+/** Wrap a multer middleware so its rejections answer 400 JSON instead of a 500 page. */
+function withUploadErrors(middleware) {
+  return (req, res, next) => {
+    middleware(req, res, (err) => {
+      if (!err) return next();
+      const reason = describeUploadError(err);
+      if (!reason) return next(err);
+      console.warn(`Upload rejected for ${req.user?.dbCustomerId ?? 'unknown'}: ${err.code || err.message}`);
+      return res.status(400).json({ error: reason });
+    });
+  };
+}
+
+/**
  * Make sure the image bucket exists — quietly, and with a key that can actually tell.
  *
  * Enumerating and creating buckets are administrative operations, but this module's
@@ -156,5 +195,7 @@ module.exports = {
   upload,
   uploadImageToSupabase,
   deleteImageFromSupabase,
-  ensureBucketExists
+  ensureBucketExists,
+  describeUploadError,
+  withUploadErrors
 };

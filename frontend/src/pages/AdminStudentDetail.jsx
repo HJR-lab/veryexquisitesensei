@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
+import { uploadImage } from '../utils/imageUpload';
 import StudentInfoCard from '../components/StudentInfoCard';
 import StudentBookingsTab from '../components/StudentBookingsTab';
 import StudentFeesTab from '../components/StudentFeesTab';
@@ -832,12 +833,9 @@ export default function AdminStudentDetail() {
     const file = e.target.files[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) { alert('Please select an image file'); return; }
-    if (file.size > 5 * 1024 * 1024) { alert('Image size must be less than 5MB'); return; }
     try {
       setUploading(true);
-      const formData = new FormData();
-      formData.append('image', file);
-      const { data } = await api.post('/upload/image', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const data = await uploadImage(file);
       if (data.success && data.url) {
         setEditForm(f => ({ ...f, profilePicture: data.url }));
         alert('Image uploaded successfully! Click "Save Changes" to save.');

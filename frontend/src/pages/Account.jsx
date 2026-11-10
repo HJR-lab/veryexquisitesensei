@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
+import { uploadImage } from '../utils/imageUpload';
 import ImpersonationBanner from '../components/ImpersonationBanner';
 
 const TC       = '#C4622D';
@@ -181,24 +182,11 @@ export default function Account() {
       return;
     }
 
-    // Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      setMessage({ type: 'error', text: 'Image size must be less than 5MB' });
-      return;
-    }
-
     try {
       setUploading(true);
       setMessage({ type: '', text: '' });
 
-      const formData = new FormData();
-      formData.append('image', file);
-
-      const { data } = await api.post('/upload/image', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      const data = await uploadImage(file);
 
       if (data.success && data.url) {
         setMemberDetails({ ...memberDetails, profilePicture: data.url });

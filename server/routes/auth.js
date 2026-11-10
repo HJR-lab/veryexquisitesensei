@@ -1,5 +1,6 @@
 const supabaseDb = require('../utils/supabaseDb');
 const { getStudioAccessPasses } = require('../utils/studioAccess');
+const { canTakeIntermediate } = require('../utils/intermediateLevel');
 
 // One-time migration: add login tracking columns if they don't exist
 (async () => {
@@ -554,6 +555,10 @@ app.get('/api/students/me', authenticateToken, asyncHandler(async (req, res) => 
   } else {
     student.classes_used = 0;
   }
+
+  // Whether intermediate (7-week WT) classes belong on this student's calendar
+  // at all — the same rule the booking and reschedule routes enforce.
+  student.can_take_intermediate = await canTakeIntermediate(supabaseDb.supabase, dbCustomerId);
 
   res.json({ student });
 }));

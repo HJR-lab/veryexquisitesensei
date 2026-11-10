@@ -342,6 +342,19 @@ export default function ClassScheduleNew() {
     getClassCategory(cls.classType || cls.class_type) === hiddenCategory &&
     !((hasGlazingOnlyCredit || canMoveGlazingToHB) && isGlazing(cls));
 
+  // Intermediate WT classes (7-week, weeks 7.1-7.6) aren't on the calendar of a
+  // student who can't take them: fewer than 3 completed wheelthrowing courses and
+  // not already in an intermediate course. The server works this out
+  // (can_take_intermediate) and enforces it on booking and reschedule. 7.7 is
+  // glazing and open to everyone. A class they're already booked into stays.
+  const isIntermediateClass = (cls) => {
+    const type = cls.classType || cls.class_type || '';
+    const m = type.match(/^WT.*?(\d+)\.\d+$/);
+    return !!m && parseInt(m[1], 10) === 7 && !isFinalWeekClassType(type);
+  };
+  const isLockedIntermediate = (cls) =>
+    studentData?.can_take_intermediate !== true && isIntermediateClass(cls) && !isEnrolled(cls.id);
+
   // Is this an HB class on a date the student's final glazing class can't take?
   const inHbGlazingWindow = (cls, win) => {
     if (!win || getClassCategory(cls.class_type || cls.classType) !== 'handbuilding') return false;
@@ -386,7 +399,7 @@ export default function ClassScheduleNew() {
   const hasKidsClasses = classes.some(course =>
     course.classes?.some(cls => getClassCategory(cls.class_type) === 'kids'));
 
-  const matchesFilters = (c) => !isHiddenType(c) &&
+  const matchesFilters = (c) => !isHiddenType(c) && !isLockedIntermediate(c) &&
     (filterType === 'all' || getClassCategory(c.classType) === filterType) &&
     (filterInstructor === 'all' || c.instructor === filterInstructor);
 
@@ -521,7 +534,8 @@ export default function ClassScheduleNew() {
       const categoryOK = is10ClassPackage || sameCategory || (isGlazing(selectedClass) && isGlazing(c));
       const glazingOK = glazingOnly ? isGlazing(c) : !(noGlazing && isGlazing(c));
       const hbGapOK = !inHbGlazingWindow(c, rescheduleHbWindow);
-      return isDifferentClass && hasSpace && isAtLeast24HoursAway && isValidTime && categoryOK && glazingOK && hbGapOK;
+      const levelOK = !isLockedIntermediate(c);
+      return isDifferentClass && hasSpace && isAtLeast24HoursAway && isValidTime && categoryOK && glazingOK && hbGapOK && levelOK;
     });
   };
 
@@ -1082,17 +1096,12 @@ export default function ClassScheduleNew() {
                     (cat === 'handbuilding' && hasWTEnroll && !hasHBEnroll)
                   );
 
-                  // Grey out intermediate WT classes for students with < 3 course purchases
-                  const weekMatch = cls.classType?.match(/_\w+(\d)\.\d+$/);
-                  // 7.7 is glazing, open to any student (owner, 6 Oct 2026)
-                  const isIntermediate = cat === 'wheelthrowing' && weekMatch && parseInt(weekMatch[1]) === 7
-                    && !isFinalWeekClassType(cls.classType);
-                  const intermediateBlocked = !restrictedGlazingTarget && isIntermediate && (studentData?.course_purchase_count || 0) < 3;
 
                   // Grey out classes after glazing or within 5 days of glazing
                   const glazingBlocked = !enrolled && !glazingMoveTarget && isBlockedByGlazing(cls.classDate);
 
-                  const blocked = crossTypeBlocked || intermediateBlocked || glazingBlocked;
+                  // Locked intermediate classes never reach here: matchesFilters drops them.
+                  const blocked = crossTypeBlocked || glazingBlocked;
 
                   return (
                     <div
@@ -1441,10 +1450,7 @@ export default function ClassScheduleNew() {
 
             {/* Book CTA from detail sheet */}
             {!isEnrolled(showDetailSheet.id) && !showDetailSheet.isFull && (() => {
-              const detailWeekMatch = showDetailSheet.classType?.match(/_\w+(\d)\.\d+$/);
-              const detailIsInter = getClassCategory(showDetailSheet.classType) === 'wheelthrowing' && detailWeekMatch && parseInt(detailWeekMatch[1]) === 7;
-              const restrictedGlazingTarget = onlyGlazingCredit && isGlazing(showDetailSheet);
-              return !(detailIsInter && !restrictedGlazingTarget && (studentData?.course_purchase_count || 0) < 3);
+              return !isLockedIntermediate(showDetailSheet);
             })() && (
               showDetailSheet.isFull ? (
                 <button

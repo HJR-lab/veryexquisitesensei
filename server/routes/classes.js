@@ -264,47 +264,14 @@ app.get('/api/policy/fees', (req, res) => {
   res.json({ ...FEES, PAYNOW });
 });
 
-// Beginner → intermediate level lock. A beginner may take an intermediate
-// (7-week) WT class only once they have COMPLETED 3 wheelthrowing courses.
-// This used to read customers.course_purchase_count, which counts purchases
-// (the course in progress included) and jumps by 3 the moment a 3-course
-// package is bought — so a brand-new package beginner already qualified.
-// Completed enrollment rows (each package course is its own row) plus the
-// pre-system historical_completed figure is what "completed" actually means.
-const INTERMEDIATE_MIN_COMPLETED_COURSES = 3;
-const INTERMEDIATE_LOCK_ERROR = `Intermediate classes require at least ${INTERMEDIATE_MIN_COMPLETED_COURSES} completed wheelthrowing courses. Please continue with beginner classes.`;
-
-// The intermediate final week (7.7) is a glazing session, not a throwing lesson,
-// so any student may join it to glaze (owner, 6 Oct 2026). Only weeks 7.1-7.6
-// are locked to intermediate students.
-function isIntermediateWTClass(classInstance) {
-  const type = classInstance?.class_type || '';
-  if (!type.startsWith('WT')) return false;
-  if (isFinalWeekClassType(type)) return false;
-  const m = type.match(/(\d+)\.\d+$/);
-  return !!m && parseInt(m[1]) === 7;
-}
-
-async function countCompletedWTCourses(studentId) {
-  const [{ count }, { data: customer }] = await Promise.all([
-    supabaseDb.supabase
-      .from('course_enrollments')
-      .select('id', { count: 'exact', head: true })
-      .eq('student_id', studentId)
-      .eq('status', 'completed')
-      .ilike('course_type', 'wheel%'),
-    supabaseDb.supabase
-      .from('customers')
-      .select('historical_completed')
-      .eq('id', studentId)
-      .maybeSingle(),
-  ]);
-  return (count || 0) + (customer?.historical_completed || 0);
-}
-
-async function meetsIntermediateRequirement(studentId) {
-  return (await countCompletedWTCourses(studentId)) >= INTERMEDIATE_MIN_COMPLETED_COURSES;
-}
+// Beginner → intermediate level lock — see utils/intermediateLevel.
+const {
+  INTERMEDIATE_LOCK_ERROR,
+  isIntermediateWTClass,
+  canTakeIntermediate,
+  rescheduleNeedsIntermediateAccess,
+} = require('../utils/intermediateLevel');
+const meetsIntermediateRequirement = (studentId) => canTakeIntermediate(supabaseDb.supabase, studentId);
 
 // Auto-cancel waitlist entries when student has no remaining credits
 async function cancelWaitlistIfNoCredits(studentId) {
@@ -1813,7 +1780,8 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
   //   Intermediate WT: 7-week identifier (e.g. WT1104AM_DL7.x)
   // Default: students cannot cross levels.
   // Exception A: Beginner → Intermediate allowed once the student has completed
-  //              3 wheelthrowing courses (meetsIntermediateRequirement).
+  //              3 wheelthrowing courses or already holds an intermediate course
+  //              (utils/intermediateLevel).
   // Exception B: Intermediate cohort WT1104AM_DL → beginner cohort WT1204AM_DL is
   //              explicitly allowed (cohort-specific one-way pairing).
   const getWTLevel = (classType) => {
@@ -1830,11 +1798,16 @@ app.post('/api/classes/reschedule', authenticateToken, asyncHandler(async (req, 
   };
   const oldLevel = getWTLevel(oldClass.class_type);
   const newLevel = getWTLevel(newClass.class_type);
+  // Into an intermediate class from anything that isn't one — a beginner class,
+  // a glazing week, or an HB class on a 10-class package — needs intermediate
+  // access. Checking only beginner → intermediate let the other two through.
+  if (rescheduleNeedsIntermediateAccess(oldClass.class_type, newClass.class_type)
+      && !(await meetsIntermediateRequirement(dbCustomerId))) {
+    return res.status(400).json({ error: INTERMEDIATE_LOCK_ERROR });
+  }
   if (oldLevel && newLevel && oldLevel !== newLevel) {
     if (oldLevel === 'beginner' && newLevel === 'intermediate') {
-      if (!(await meetsIntermediateRequirement(dbCustomerId))) {
-        return res.status(400).json({ error: INTERMEDIATE_LOCK_ERROR });
-      }
+      // Access already checked above.
     } else {
       // intermediate → beginner: only allowed for the WT1104AM_DL → WT1104PM_DL pairing
       const oldBase = getWTBase(oldClass.class_type);

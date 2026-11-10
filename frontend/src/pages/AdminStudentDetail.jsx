@@ -286,12 +286,20 @@ export default function AdminStudentDetail() {
   const getAvailableMakeupClasses = () => {
     if (!selectedBookingForMakeup) return [];
     const isUnbooked = selectedBookingForMakeup.isPlaceholder;
+    // Courses this student belongs to. In any other course's class, places
+    // still held for that course's unsold signups are not theirs to take, the
+    // same rule the server's seat check applies.
+    const ownCourses = new Set(
+      enrollments.filter(e => e && e.status !== 'cancelled').map(e => e.course_identifier).filter(Boolean)
+    );
     const flatClasses = [];
     allClasses.forEach(course => {
       course.classes?.forEach(cls => {
         // Draft (cohort under minimum) and cancelled classes are not running,
         // so they are never a place to move a student into.
         if (cls.status !== 'active') return;
+        const held = cls.cohortBase && !ownCourses.has(cls.cohortBase) ? (cls.signupSeatsHeld || 0) : 0;
+        const bookingCount = cls.bookingCount || 0;
         flatClasses.push({
           id: cls.id,
           classDate: cls.class_date,
@@ -301,14 +309,15 @@ export default function AdminStudentDetail() {
           instructor: cls.instructor,
           room: cls.room,
           maxCapacity: cls.max_capacity,
-          currentEnrollment: cls.bookingCount || 0,
+          currentEnrollment: bookingCount,
+          spotsLeft: Math.max(0, (cls.max_capacity || 10) - held - bookingCount),
         });
       });
     });
     if (isUnbooked) {
-      return flatClasses.filter(c => c.currentEnrollment < (c.maxCapacity || 10));
+      return flatClasses.filter(c => c.spotsLeft > 0);
     }
-    return flatClasses.filter(c => c.id !== selectedBookingForMakeup.class_instance_id && c.currentEnrollment < (c.maxCapacity || 10));
+    return flatClasses.filter(c => c.id !== selectedBookingForMakeup.class_instance_id && c.spotsLeft > 0);
   };
 
   const getMakeupClassesForDate = (date) => {

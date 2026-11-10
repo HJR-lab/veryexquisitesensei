@@ -10,6 +10,7 @@
 const { supabase, fetchAllRows } = require('./supabaseClient');
 const { glazingSubCap } = require('./glazing');
 const { STUDIO_WHEELS, WT_SIGNUP_CAP, roomCapacity, wheelCapFor } = require('../config/capacity');
+const { todaySGT } = require('./sgtDate');
 
 /**
  * The cohort a WT class belongs to: WT1010PM_DL6.4 → 'WT1010PM_DL6'.
@@ -35,8 +36,53 @@ function cohortBase(classType) {
  * A signup who reschedules away still frees their own seat: held seats are
  * counted from signups, not bookings, so the vacated chair is open to anyone.
  */
-function signupSeatsHeld(signups) {
+function signupSeatsHeld(signups, { started = false } = {}) {
+  // Once the course has had its first class nobody new will sign up for it, so
+  // the unsold places go back to make-ups (owner, 10 Nov 2026).
+  if (started) return 0;
   return Math.max(0, WT_SIGNUP_CAP - (signups || 0));
+}
+
+/**
+ * Whether a cohort has started: its first class (the `.1` class) is on a date
+ * before today in Singapore. A course still waiting for its first class keeps
+ * holding places for signups; an unknown first date counts as not started.
+ */
+function cohortHasStarted(firstClassDate, today = todaySGT()) {
+  if (!firstClassDate) return false;
+  return String(firstClassDate).slice(0, 10) < today;
+}
+
+/** Date of a cohort's first class (its `.1` class), or null if none is live. */
+async function cohortFirstClassDate(base) {
+  const { data, error } = await supabase
+    .from('class_instances')
+    .select('class_date, status')
+    .eq('class_type', `${base}.1`);
+  if (error) throw new Error(`Could not read first class of ${base}: ${error.message}`);
+  const dates = (data || [])
+    .filter(r => r.status !== 'cancelled' && r.class_date)
+    .map(r => String(r.class_date).slice(0, 10))
+    .sort();
+  return dates[0] || null;
+}
+
+/**
+ * First-class date per cohort, read off a list of class rows already in hand
+ * (so listings need no extra query). Cancelled rows are ignored.
+ */
+function firstClassDatesByCohort(classes) {
+  const out = {};
+  for (const c of classes || []) {
+    if (c.status === 'cancelled' || !c.class_date) continue;
+    const code = String(c.class_type || '');
+    if (!/\.1$/.test(code)) continue;
+    const base = cohortBase(code);
+    if (!base) continue;
+    const d = String(c.class_date).slice(0, 10);
+    if (!out[base] || d < out[base]) out[base] = d;
+  }
+  return out;
 }
 
 /** Distinct, non-cancelled students enrolled in a cohort. */
@@ -119,6 +165,9 @@ async function getAvailableClasses() {
     (membersByBase[e.course_identifier] = membersByBase[e.course_identifier] || new Set()).add(e.student_id);
   });
 
+  const firstDateByBase = firstClassDatesByCohort(classes);
+  const today = todaySGT();
+
   // The timeslot ceiling the booking gate enforces, mirrored here so the page
   // cannot advertise a seat the server would refuse with STUDIO_FULL. Two
   // cohorts sharing Studio A at the same hour each look half-empty on their own;
@@ -137,7 +186,9 @@ async function getAvailableClasses() {
     const slotBooked = slotUsage[`${classInstance.class_date}|${normalizeSlotTime(classInstance.start_time)}`] || 0;
     const slotFull = slotBooked >= wheelCapFor(classInstance);
     const base = cohortBase(classInstance.class_type);
-    const signupSeatsHeldHere = base ? signupSeatsHeld(membersByBase[base]?.size || 0) : 0;
+    const signupSeatsHeldHere = base
+      ? signupSeatsHeld(membersByBase[base]?.size || 0, { started: cohortHasStarted(firstDateByBase[base], today) })
+      : 0;
     const openToBook = Math.max(0, totalCapacity - signupSeatsHeldHere - actualEnrollment);
 
     return {
@@ -512,7 +563,10 @@ async function checkSeatAvailability(classInstance, studentId, opts = {}) {
   const base = cohortBase(classType);
   if (base && studentId != null && booked < cap) {
     const members = await cohortMemberIds(base);
-    if (!members.map(String).includes(String(studentId))) held = signupSeatsHeld(members.length);
+    if (!members.map(String).includes(String(studentId))) {
+      const started = cohortHasStarted(await cohortFirstClassDate(base));
+      held = signupSeatsHeld(members.length, { started });
+    }
   }
 
   const counts = { booked, cap, held, wheels, studioWheels: wheelCap, glazingBooked, glazingCap: subCap };
@@ -1283,6 +1337,10 @@ module.exports = {
   getSlotWheelUsage,
   STUDIO_WHEELS,
   checkSeatAvailability,
+  cohortBase,
+  signupSeatsHeld,
+  cohortHasStarted,
+  firstClassDatesByCohort,
   findCapacityOverride,
   consumeCapacityOverride,
   getInstanceCapacityOverrides,

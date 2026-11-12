@@ -31,12 +31,23 @@ export default function ContinuationOffer() {
       .finally(() => setLoading(false));
   }, [token]);
 
+  const paid = offer?.kind === 'paid';
+
   const respond = async (action) => {
-    if (action === 'pass' && !confirm('Pass on this course? Your remaining courses stay yours — we will offer you the next one.')) return;
+    const passPrompt = paid
+      ? 'Pass on this course? We will release your place to the next person.'
+      : 'Pass on this course? Your remaining courses stay yours — we will offer you the next one.';
+    if (action === 'pass' && !confirm(passPrompt)) return;
     setSubmitting(action);
     setError(null);
     try {
       const res = await api.post(`/continue/${token}/respond`, { action });
+      // A paid offer is confirmed by paying: go to the Shopify checkout. The
+      // order closes the offer, so there is nothing more to record here.
+      if (res.data.checkoutUrl) {
+        window.location.href = res.data.checkoutUrl;
+        return;
+      }
       setOffer(o => ({ ...o, ...res.data }));
       setResult(action);
     } catch (err) {
@@ -84,9 +95,9 @@ export default function ContinuationOffer() {
     const copy = {
       confirm: { h: 'You are in.', p: `We have booked your place for ${fmtDate(offer.startDate)}. Your class details will follow by email.` },
       confirmed: { h: 'Already confirmed.', p: `Your place for ${fmtDate(offer.startDate)} is booked.` },
-      pass: { h: 'No problem.', p: 'We have released this one. Your remaining courses stay yours — we will offer you the next available date.' },
-      passed: { h: 'You passed on this course.', p: 'Your remaining courses stay yours — we will be in touch about the next date.' },
-      lapsed: { h: 'This offer has closed.', p: 'The place has been released, but your remaining courses stay yours. Email info@ves.sg and we will find you the next date.' },
+      pass: { h: 'No problem.', p: paid ? 'We have released this one. We will let you know when the next course in your slot opens.' : 'We have released this one. Your remaining courses stay yours — we will offer you the next available date.' },
+      passed: { h: 'You passed on this course.', p: paid ? 'We will let you know when the next course in your slot opens.' : 'Your remaining courses stay yours — we will be in touch about the next date.' },
+      lapsed: { h: 'This offer has closed.', p: paid ? 'The place has been released. If it is still listed you can book it on ves.sg, or email info@ves.sg and we will help.' : 'The place has been released, but your remaining courses stay yours. Email info@ves.sg and we will find you the next date.' },
       // Booked some other way — an admin pressed Continue, or the cohort formed
       // around them — while this link was still open. Not something they did.
       fulfilled: { h: 'Your place is already booked.', p: `You are down for ${fmtDate(offer.startDate)}. Nothing more to do — email info@ves.sg if that is not what you expected.` },
@@ -101,6 +112,7 @@ export default function ContinuationOffer() {
   }
 
   const busy = submitting !== null;
+  const priceText = offer.price ? `$${offer.price % 1 === 0 ? offer.price : offer.price.toFixed(2)}` : '';
 
   return page(
     <>
@@ -108,7 +120,9 @@ export default function ContinuationOffer() {
         {offer.firstName ? `Hi ${offer.firstName},` : 'Hi,'}
       </h1>
       <p style={{ fontSize: '15px', color: INK, lineHeight: 1.6, margin: '0 0 24px' }}>
-        Your next wheelthrowing course is ready, and we have kept your usual slot.
+        {paid
+          ? 'The next course in your usual slot is open, and we have kept a place for you before it goes to everyone else.'
+          : 'Your next wheelthrowing course is ready, and we have kept your usual slot.'}
       </p>
 
       {/* startDate is withheld by the server if its weekday contradicts the
@@ -116,8 +130,9 @@ export default function ContinuationOffer() {
       <div style={{ backgroundColor: TC_LIGHT, borderRadius: '8px', padding: '18px 20px', marginBottom: '24px' }}>
         {offer.startDate ? (
           <>
+            {offer.courseTitle && <div style={{ fontSize: '13px', color: TC_DARK, marginBottom: '4px' }}>{offer.courseTitle}</div>}
             <div style={{ fontSize: '16px', fontWeight: 700, color: INK }}>{fmtDate(offer.startDate)}</div>
-            <div style={{ fontSize: '14px', color: TC_DARK, marginTop: '4px' }}>{offer.classTime} · 6 weeks</div>
+            <div style={{ fontSize: '14px', color: TC_DARK, marginTop: '4px' }}>{offer.classTime} · 6 weeks{paid && priceText ? ` · ${priceText}` : ''}</div>
           </>
         ) : (
           <>
@@ -147,7 +162,9 @@ export default function ContinuationOffer() {
           cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1, marginBottom: '10px',
         }}
       >
-        {submitting === 'confirm' ? 'Confirming…' : 'Yes, confirm my place'}
+        {submitting === 'confirm'
+          ? (paid ? 'Opening checkout…' : 'Confirming…')
+          : (paid ? `Pay${priceText ? ` ${priceText}` : ''} and keep my place` : 'Yes, confirm my place')}
       </button>
 
       <button
@@ -184,7 +201,7 @@ export default function ContinuationOffer() {
       )}
 
       <p style={{ fontSize: '12px', color: MUTED, lineHeight: 1.6, margin: '20px 0 0', textAlign: 'center' }}>
-        Your remaining courses do not expire.
+        {paid ? 'Payment is through our usual Shopify checkout.' : 'Your remaining courses do not expire.'}
       </p>
     </>
   );

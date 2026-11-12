@@ -27,12 +27,22 @@ export default function ContinuationOfferCard() {
       .catch(() => {}); // never let this break the dashboard
   }, []);
 
+  const paid = offer?.kind === 'paid';
+
   const respond = async (action) => {
-    if (action === 'pass' && !confirm('Pass on this course? Your remaining courses stay yours — we will offer you the next one.')) return;
+    const passPrompt = paid
+      ? 'Pass on this course? We will release your place to the next person.'
+      : 'Pass on this course? Your remaining courses stay yours — we will offer you the next one.';
+    if (action === 'pass' && !confirm(passPrompt)) return;
     setSubmitting(action);
     setError(null);
     try {
       const res = await api.post('/my/continuation-offer/respond', { action });
+      // Paid offers are confirmed by paying through the Shopify checkout.
+      if (res.data.checkoutUrl) {
+        window.location.href = res.data.checkoutUrl;
+        return;
+      }
       setOffer(res.data.offer);
       if (action !== 'extend') setDone(action);
     } catch (err) {
@@ -69,13 +79,14 @@ export default function ContinuationOfferCard() {
         <div style={{ fontSize: '12px', color: MUTED, lineHeight: 1.6 }}>
           {done === 'confirm'
             ? `We will email your class details for ${fmtDate(offer.startDate)}.`
-            : 'Your remaining courses stay yours — we will offer you the next date.'}
+            : paid ? 'We will let you know when the next course in your slot opens.' : 'Your remaining courses stay yours — we will offer you the next date.'}
         </div>
       </>
     );
   }
 
   const busy = submitting !== null;
+  const priceText = offer.price ? `$${offer.price % 1 === 0 ? offer.price : offer.price.toFixed(2)}` : '';
 
   return shell(
     <>
@@ -90,7 +101,7 @@ export default function ContinuationOfferCard() {
         {offer.startDate ? (
           <>
             <div style={{ fontSize: '14px', fontWeight: 700, color: INK }}>{fmtDate(offer.startDate)}</div>
-            <div style={{ fontSize: '12px', color: TC_DARK, marginTop: '2px' }}>{offer.classTime} · 6 weeks</div>
+            <div style={{ fontSize: '12px', color: TC_DARK, marginTop: '2px' }}>{offer.classTime} · 6 weeks{paid && priceText ? ` · ${priceText}` : ''}</div>
           </>
         ) : (
           <>
@@ -119,7 +130,9 @@ export default function ContinuationOfferCard() {
           cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1, marginBottom: '8px',
         }}
       >
-        {submitting === 'confirm' ? 'Confirming…' : 'Yes, confirm my place'}
+        {submitting === 'confirm'
+          ? (paid ? 'Opening checkout…' : 'Confirming…')
+          : (paid ? `Pay${priceText ? ` ${priceText}` : ''} and keep my place` : 'Yes, confirm my place')}
       </button>
 
       <button

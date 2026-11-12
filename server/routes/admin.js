@@ -2398,6 +2398,74 @@ app.post('/api/admin/students/:studentId/continuation-offer', authenticateToken,
   res.json({ success: true, offer: result.offer, emailed: result.emailed, expiresAt: result.offer.expires_at });
 }));
 
+// ---------------------------------------------------------------------------
+// Paid continuation (single-course students). The next course listed on Shopify
+// in the student's slot, offered with a checkout link and a held seat. The
+// nightly sweep does this automatically once PAID_CONTINUATION_AUTOSEND is on;
+// these let an admin see the match and send one by hand before then.
+// ---------------------------------------------------------------------------
+
+const PAID_REASON_MESSAGE = {
+  no_listed_course: 'No course in this slot is listed on Shopify yet.',
+  ambiguous_listing: 'More than one course is listed for this slot and date — send it by hand from Shopify.',
+  already_offered: 'This student has already been offered that course.',
+  already_enrolled: 'This student is already enrolled in that course.',
+  cohort_full: 'That course has no seat left once held seats are counted.',
+  sold_out: 'That course is sold out on Shopify.',
+  offer_exists: 'This student already has an open offer for that course.',
+  shopify_error: 'Shopify would not hold the seat.',
+  no_email: 'This student has no email address.',
+};
+
+async function resolvePaidContinuation(studentId, enrollmentId) {
+  const { data: enrollment } = await supabaseDb.supabase
+    .from('course_enrollments')
+    .select('*, customers!course_enrollments_student_id_fkey(id, first_name, last_name, email, shopify_customer_id)')
+    .eq('id', enrollmentId)
+    .eq('student_id', studentId)
+    .single();
+  if (!enrollment) return { status: 404, body: { error: 'Enrollment not found' } };
+
+  const { matchNextCourse, checkOfferable } = require('../utils/paidContinuation');
+  const { fetchUpcomingWtCourses } = require('../utils/shopifyCourseCatalog');
+  const { todaySGT } = require('../utils/sgtDate');
+  const match = matchNextCourse(enrollment, await fetchUpcomingWtCourses(), todaySGT());
+  if (!match.ok) return { enrollment, reason: match.reason };
+  const check = await checkOfferable(enrollment, match.course);
+  return { enrollment, course: match.course, seats: check.seats, reason: check.ok ? null : check.reason };
+}
+
+app.get('/api/admin/students/:studentId/paid-continuation', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const r = await resolvePaidContinuation(parseInt(req.params.studentId), parseInt(req.query.enrollmentId));
+  if (r.status) return res.status(r.status).json(r.body);
+  res.json({
+    available: !r.reason,
+    reason: r.reason,
+    message: r.reason ? PAID_REASON_MESSAGE[r.reason] || r.reason : null,
+    course: r.course ? {
+      title: r.course.productTitle,
+      startDate: r.course.startDate,
+      classTime: r.course.classTime,
+      price: r.course.price,
+    } : null,
+    seats: r.seats || null,
+  });
+}));
+
+// Admin-pressed, so it sends even while the automatic sweep is switched off.
+app.post('/api/admin/students/:studentId/paid-continuation-offer', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const r = await resolvePaidContinuation(parseInt(req.params.studentId), parseInt(req.body.currentEnrollmentId));
+  if (r.status) return res.status(r.status).json(r.body);
+  if (r.reason) return res.status(409).json({ error: PAID_REASON_MESSAGE[r.reason] || r.reason, reason: r.reason });
+
+  const { createPaidOffer } = require('../utils/paidContinuation');
+  const result = await createPaidOffer({ enrollment: r.enrollment, course: r.course });
+  if (!result.ok) {
+    return res.status(409).json({ error: PAID_REASON_MESSAGE[result.reason] || result.reason, reason: result.reason, detail: result.error });
+  }
+  res.json({ success: true, emailed: result.emailed, expiresAt: result.offer.expires_at, checkoutUrl: result.offer.checkout_url });
+}));
+
 // Pause an enrollment
 app.post('/api/admin/enrollments/:id/pause', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const enrollmentId = parseInt(req.params.id);
